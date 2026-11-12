@@ -1,0 +1,34 @@
+# Drive for Desktop metadata
+desktop.ini
+
+# Build outputs (builds go to %LOCALAPPDATA%\AIWorkbenchBuild, see README.md)
+bin/
+obj/
+node_modules/
+dist/
+.vite/
+*.exe
+*.zip
+*.user
+
+# Old manual backups, kept out of history
+_bak-*/
+src.bak-*/
+*.bak
+*.pre-*
+
+# Host config and live state
+# browser-ext/site.js: CO site of this install (install/aiwb_install.py ext-config)
+browser-ext/site.js
+config.json
+config.php
+_secret_config.php
+.env*
+state.txt
+co-desktop-log.txt
+_job.json
+*.log
+
+# Python bytecode
+__pycache__/
+*.pyc

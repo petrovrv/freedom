@@ -1,0 +1,89 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Freedom variants B (VPS/NAS) and C (only a computer): the AI Workbench server in Docker (SPEC Freedom section 4).
+# Used by install/freedom_docker.py, which copies this folder into the stack folder on the Docker host, adds .env,
+# Caddyfile and secrets/ (0600, never in git) and runs:
+#   docker compose -p <project> -f compose.yaml -f compose.variant-<b|c>.yaml up -d --build
+# The code of the site is not in the image: `freedom_docker.py deploy` writes it into the volume "home" (/home/co) with
+# the repo -> server map of variant A (freedom_setup.layout()); the database gets db/schema.sql the same way.
+services:
+  db:
+    image: ${DB_IMAGE:-mariadb:11}
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${DB_NAME:-co}
+      MARIADB_USER: ${DB_USER:-co}
+      MARIADB_PASSWORD_FILE: /run/secrets/db_password
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/db_root_password
+      MARIADB_AUTO_UPGRADE: "1"
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--skip-name-resolve"]
+    secrets: [db_password, db_root_password]
+    volumes:
+      - db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    cpus: ${DB_CPUS:-1}
+    mem_limit: ${DB_MEM:-1g}
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${APP_IMAGE:-freedom-app:local}
+    restart: unless-stopped
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - home:/home/co
+    cpus: ${APP_CPUS:-2}
+    mem_limit: ${APP_MEM:-2g}
+
+  # The two cron lines of the hosting panel (freedom_setup.CRON_LINES), same image and volume. It shares the process
+  # list of app, so a site agent started here or by PHP in app is seen by both (agent.pid, /proc).
+  cron:
+    image: ${APP_IMAGE:-freedom-app:local}
+    pull_policy: never
+    restart: unless-stopped
+    init: true
+    user: co
+    pid: "service:app"
+    depends_on:
+      app:
+        condition: service_started
+    command: ["php", "/usr/local/lib/freedom/freedom-cron.php"]
+    volumes:
+      - home:/home/co
+    healthcheck:
+      disable: true
+    cpus: ${CRON_CPUS:-1}
+    mem_limit: ${CRON_MEM:-1g}
+
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2}
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_started
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    cpus: ${CADDY_CPUS:-0.5}
+    mem_limit: ${CADDY_MEM:-256m}
+
+secrets:
+  db_password:
+    file: ./secrets/db_password
+  db_root_password:
+    file: ./secrets/db_root_password
+
+volumes:
+  db:
+  home:
+  caddy_data:
+  caddy_config:

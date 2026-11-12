@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 1/5"}
+{"type":"item.completed","item":{"id":"i1","type":"reasoning","text":"thinking"}}
+{"type":"item.completed","item":{"id":"i2","type":"agent_message","text":"first"}}
+{"type":"item.completed","item":{"id":"i3","type":"agent_message","text":"done"}}
+{"type":"turn.completed","usage":{"input_tokens":1500,"cached_input_tokens":700,"output_tokens":250,"reasoning_output_tokens":80}}

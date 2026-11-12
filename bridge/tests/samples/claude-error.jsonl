@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"aaaaaaaa-0000-0000-0000-000000000001"}
+{"type":"result","subtype":"error_max_turns","is_error":true,"session_id":"aaaaaaaa-0000-0000-0000-000000000001","num_turns":"7","total_cost_usd":"0.5"}

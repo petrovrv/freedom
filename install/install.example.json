@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "variant": "A",
+  "site": {
+    "url": "https://co.example.org",
+    "ssh": { "host": "203.0.113.10", "port": 22, "user": "co", "keyFile": "C:\\Users\\me\\.ssh\\co_site" },
+    "home": "/home/co",
+    "webRoot": "/home/co/domains/co.example.org/public_html",
+    "db": { "host": "localhost", "name": "co_aiwb", "user": "co_aiwb" }
+  },
+  "google": { "webClientId": "000000000000-xxxxxxxx.apps.googleusercontent.com", "projectNumber": "000000000000" },
+  "members": [
+    { "env": "anna", "email": "anna@example.org", "name": "Anna", "color": "#1f5fbf", "role": "owner" },
+    { "env": "boris", "email": "boris@example.org", "name": "Boris", "color": "#8a3fb8", "siteAgent": true }
+  ],
+  "drive": { "root": "G:\\My Drive", "workbench": "AI-Workbench" },
+  "canvas": { "publicUrl": "https://my-pc.tailnet-name.ts.net" },
+  "connectors": { "corporate": false },
+  "docker": { "project": "freedom", "cli": "auto", "bind": "", "httpPort": 0, "httpsPort": 0, "tls": "auto",
+              "acmeEmail": "", "keyring": true, "cpus": 2 },
+  "hostId": "home-main"
+}

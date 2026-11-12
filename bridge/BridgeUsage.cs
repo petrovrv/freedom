@@ -1,0 +1,585 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
+
+namespace AiWorkbenchBridge
+{
+    // v1.1.6: corporate model token ledger, the corporate dispatcher's savings in limits.json, and the boxes of the Claude account connectors
+    // (Gmail, Google Calendar) turned into --disallowedTools.
+    internal sealed partial class BridgeApplicationContext
+    {
+        // ---------- corporate model usage and dispatcher savings ----------
+
+        // CO Desktop >= 0.6.2 appends this comment to replies of the corporate model gateway (tool kind corporate-llm,
+        // gateway usage of the Responses API). v1.2.5: CO Desktop wraps those replies in <untrusted_content ...>…</untrusted_content id="…">, so the
+        // trailer may be followed by that closing tag. Group 1 = usage JSON, group 2 = optional closing tag.
+        private static readonly Regex UsageTrailerRx =
+            new Regex(@"\s*<!-- co:usage (\{[^<>]*\}) -->\s*(</untrusted_content\b[^<>]*>)?\s*\z", RegexOptions.Singleline);
+
+        private readonly object _ledgerLock = new object();
+
+        private string LedgerPath()
+        {
+            return Path.Combine(_localStateRoot, "usage-ledger.jsonl");
+        }
+
+        // Strips the usage comment from a gateway reply (the model and the user see only the text) and books it.
+        internal void TakeCorporateUsage(JobDeviceState js, Dictionary<string, object> reply)
+        {
+            string content = DeviceWire.S(reply, "content");
+            if (String.IsNullOrEmpty(content))
+                return;
+            Match m = UsageTrailerRx.Match(content);
+            if (!m.Success)
+                return;
+            // v1.2.5: only the comment is removed; the closing tag of the wrapper stays.
+            string stripped = content.Substring(0, m.Index);
+            Group closing = m.Groups[2];
+            if (closing.Success)
+                stripped = stripped + "\n" + closing.Value;
+            reply["content"] = stripped;
+            try
+            {
+                Dictionary<string, object> u = JsonUtil.Deserialize<Dictionary<string, object>>(m.Groups[1].Value);
+                BookUsage(js == null ? null : js.agent, js == null ? null : js.jobId, Corporate.LedgerKind,
+                    LedgerStr(u, "model"), LedgerNum(u, "input"), LedgerNum(u, "output"));
+            }
+            catch (Exception ex)
+            {
+                Log(Corporate.Title + " usage not booked: " + ex.Message);
+            }
+        }
+
+        // One line per model call (corporate; "engie" before 5b) or per job (claude) in %LOCALAPPDATA%\AIWorkbenchBridge\usage-ledger.jsonl.
+        internal void BookUsage(string agent, string jobId, string kind, string model, long input, long output)
+        {
+            Dictionary<string, object> line = new Dictionary<string, object>();
+            line["utc"] = DateTime.UtcNow.ToString("o");
+            line["agent"] = agent ?? "";
+            line["job"] = jobId ?? "";
+            line["kind"] = kind;
+            line["model"] = model ?? "";
+            line["input"] = input;
+            line["output"] = output;
+            lock (_ledgerLock)
+            {
+                File.AppendAllText(LedgerPath(), JsonUtil.Serialize(line) + "\n", new UTF8Encoding(false));
+            }
+            if (Corporate.IsDispatcher(agent))
+                RefreshDispatcherSavings();
+        }
+
+        // v1.2.6: policy guard run after each dispatcher job. Emits a policy_warning event when the job produced
+        // significant Claude output but no corporate model (gateway tool) output. Never throws.
+        internal void CheckDispatcherPolicy(string jobId, long claudeOutput, EventBatchWriter eventWriter)
+        {
+            try
+            {
+                int threshold = _config.dispatcherPolicyWarnTokens;
+                if (threshold < 0)
+                    return;
+                if (threshold == 0)
+                    threshold = 4000;
+                if (claudeOutput < threshold)
+                    return;
+
+                long corpOutput = 0;
+                foreach (LedgerEntry entry in ReadLedger(DateTime.UtcNow.AddDays(-2)))
+                {
+                    if (Corporate.IsLedgerKind(entry.kind) && String.Equals(entry.job, jobId, StringComparison.Ordinal))
+                        corpOutput += entry.output;
+                }
+                if (corpOutput > 0)
+                    return;
+
+                string tool = Corporate.ToolOf(Corporate.LlmKind) ?? "the gateway tool";
+                string message = "Dispatcher policy: this run wrote " + claudeOutput +
+                    " output tokens with its own model and 0 through " + Corporate.Title + " (" + tool + " was not used). " +
+                    "Content should be generated by the " + Corporate.Title + " model; attach the device signed in to " +
+                    Corporate.PortalTitle + " if " + tool + " is missing.";
+                if (eventWriter != null)
+                    eventWriter.Write("bridge", "policy_warning", message);
+                Log("Job " + jobId + ": " + message);
+            }
+            catch (Exception ex)
+            {
+                Log("Dispatcher policy check failed: " + ex.Message);
+            }
+        }
+
+        private sealed class LedgerEntry
+        {
+            public DateTime utc;
+            public string agent, job, kind;
+            public long output;
+        }
+
+        private List<LedgerEntry> ReadLedger(DateTime sinceUtc)
+        {
+            List<LedgerEntry> list = new List<LedgerEntry>();
+            List<string> keep = new List<string>();
+            lock (_ledgerLock)
+            {
+                if (!File.Exists(LedgerPath()))
+                    return list;
+                DateTime pruneBefore = DateTime.UtcNow.AddDays(-9);
+                bool pruned = false;
+                foreach (string raw in File.ReadAllLines(LedgerPath(), Encoding.UTF8))
+                {
+                    if (raw.Trim().Length == 0)
+                        continue;
+                    Dictionary<string, object> d;
+                    try { d = JsonUtil.Deserialize<Dictionary<string, object>>(raw); }
+                    catch { pruned = true; continue; }
+                    DateTime t;
+                    if (!DateTime.TryParse(LedgerStr(d, "utc"), CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out t))
+                    {
+                        pruned = true;
+                        continue;
+                    }
+                    if (t < pruneBefore)
+                    {
+                        pruned = true;
+                        continue;
+                    }
+                    keep.Add(raw);
+                    if (t < sinceUtc)
+                        continue;
+                    LedgerEntry e = new LedgerEntry();
+                    e.utc = t;
+                    e.agent = LedgerStr(d, "agent");
+                    e.job = LedgerStr(d, "job");
+                    e.kind = LedgerStr(d, "kind");
+                    e.output = LedgerNum(d, "output");
+                    list.Add(e);
+                }
+                if (pruned)
+                    File.WriteAllText(LedgerPath(), String.Join("\n", keep.ToArray()) + (keep.Count > 0 ? "\n" : ""), new UTF8Encoding(false));
+            }
+            return list;
+        }
+
+        // limits.json entry of the corporate dispatcher: share of generated (output) tokens written by the corporate models instead of the Claude
+        // subscription, over the windows of the Claude subscription (5 h session, 7 d week).
+        internal void RefreshDispatcherSavings()
+        {
+            try
+            {
+                DateTime now = DateTime.UtcNow;
+                AgentLimits claude = null;
+                lock (_limitsLock)
+                {
+                    if (_limitsByAgent != null)
+                        _limitsByAgent.TryGetValue("claude", out claude);
+                }
+
+                List<LedgerEntry> entries = ReadLedger(now.AddDays(-8));
+                AgentLimits savings = new AgentLimits();
+                savings.source = Corporate.UsageSource;
+                savings.observedUtc = now.ToString("o");
+                savings.status = "allowed";
+                savings.windows = new List<LimitWindow>();
+                savings.windows.Add(SavingsWindow("session", "five_hour", 300, claude, entries, now));
+                savings.windows.Add(SavingsWindow("week", "seven_day", 10080, claude, entries, now));
+                string disp = Corporate.DispatcherId;
+                if (disp != null)
+                    UpdateLimits(disp, savings);
+            }
+            catch (Exception ex)
+            {
+                Log("Dispatcher savings not updated: " + ex.Message);
+            }
+        }
+
+        private static LimitWindow SavingsWindow(string id, string key, int minutes, AgentLimits claude, List<LedgerEntry> entries, DateTime now)
+        {
+            // Align with the subscription window: it ends at the reset Claude reports; after a reset without a newer
+            // observation the window starts at that reset.
+            DateTime start = now.AddMinutes(-minutes);
+            DateTime? reset = null;
+            if (claude != null && claude.windows != null)
+            {
+                LimitWindow cw = claude.windows.FirstOrDefault(x => x.id == id);
+                DateTime r;
+                if (cw != null && cw.resetsAtUtc != null &&
+                    DateTime.TryParse(cw.resetsAtUtc, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out r))
+                {
+                    if (r > now)
+                    {
+                        start = r.AddMinutes(-minutes);
+                        reset = r;
+                    }
+                    else if (r > start)
+                    {
+                        start = r;
+                    }
+                }
+            }
+
+            long corp = 0, claudeOut = 0;
+            HashSet<string> jobs = new HashSet<string>(StringComparer.Ordinal);
+            foreach (LedgerEntry e in entries)
+            {
+                if (!Corporate.IsDispatcher(e.agent) || e.utc < start)
+                    continue;
+                if (Corporate.IsLedgerKind(e.kind)) corp += e.output;
+                else if (e.kind == "claude") claudeOut += e.output;
+                if (!String.IsNullOrEmpty(e.job)) jobs.Add(e.job);
+            }
+
+            LimitWindow w = new LimitWindow();
+            w.id = id;
+            w.key = key;
+            w.windowMinutes = minutes;
+            w.usedPercent = corp + claudeOut == 0 ? 0 : Math.Round(100.0 * corp / (corp + claudeOut), 1);
+            w.resetsAtUtc = (reset ?? start.AddMinutes(minutes)).ToString("o");
+            w.corpTokens = corp;
+            w.engieTokens = corp; // legacy wire (CO Web before 0.99.1)
+            w.claudeTokens = claudeOut;
+            w.jobs = jobs.Count;
+            return w;
+        }
+
+        private static string LedgerStr(Dictionary<string, object> d, string k)
+        {
+            object v;
+            return d != null && d.TryGetValue(k, out v) && v != null ? Convert.ToString(v, CultureInfo.InvariantCulture) : "";
+        }
+
+        private static long LedgerNum(Dictionary<string, object> d, string k)
+        {
+            object v;
+            if (d == null || !d.TryGetValue(k, out v) || v == null)
+                return 0;
+            try { return Convert.ToInt64(v, CultureInfo.InvariantCulture); }
+            catch { return 0; }
+        }
+
+        // ---------- Claude account connectors (Gmail, Google Calendar) ----------
+
+        private const string NeverBox = "Never";
+        private static readonly string[] Boxes = { "Read", "Create", "Edit", "Delete" };
+
+        // Bridge 1.2.2: two copies of cloud-connectors.json with the same format. The local one is edited by CO Desktop on
+        // this computer, the shared one (transport/hosts/<hostId>, synced by Drive) by CO Web from any computer. The copy
+        // written last wins; Bridge brings the other one in line at start and before every Claude job.
+        // Static because the CLI argument builder is static.
+        private static string _cloudLocalPath;
+        private static string _cloudSharedPath;
+        private static readonly object CloudLock = new object();
+        private static Action<string> _cloudLog;
+
+        // Parsed state of one copy of cloud-connectors.json.
+        private sealed class CloudCopy
+        {
+            public bool Ok;
+            public DateTime Mtime;
+            public string UpdatedUtc = "";
+            public string UpdatedBy = "";
+            public Dictionary<string, object> Root;
+            public Dictionary<string, string> Rights = new Dictionary<string, string>(StringComparer.Ordinal);
+            public Dictionary<string, Dictionary<string, object>> Connectors = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
+            public int ConnectorCount; // all entries, including invalid or duplicate ones
+        }
+
+        private sealed class CloudCatalogEntry
+        {
+            public string id, name, description, defaultRights;
+            public Dictionary<string, string[]> tools;
+        }
+
+        private static List<CloudCatalogEntry> CloudCatalog()
+        {
+            const string g = "mcp__claude_ai_Gmail__";
+            const string c = "mcp__claude_ai_Google_Calendar__";
+            List<CloudCatalogEntry> list = new List<CloudCatalogEntry>();
+
+            CloudCatalogEntry gmail = new CloudCatalogEntry();
+            gmail.id = "gmail";
+            gmail.name = "Gmail";
+            gmail.description = "Gmail of the Claude account: search and read, drafts, labels, Trash. Sending, replies and forwarding are never offered: the user sends drafts.";
+            gmail.defaultRights = "Read, Create, Edit";
+            gmail.tools = new Dictionary<string, string[]>();
+            gmail.tools["Read"] = new[] { g + "search_threads", g + "get_thread", g + "get_message", g + "list_labels", g + "list_drafts", g + "get_draft" };
+            gmail.tools["Create"] = new[] { g + "create_draft", g + "create_label" };
+            gmail.tools["Edit"] = new[] { g + "update_draft", g + "label_message", g + "label_thread", g + "unlabel_message", g + "unlabel_thread",
+                g + "update_message_labels", g + "update_label", g + "mark_message_spam", g + "mark_thread_spam", g + "unmark_message_spam",
+                g + "unmark_thread_spam", g + "apply_sensitive_message_label", g + "apply_sensitive_thread_label", g + "untrash_message", g + "untrash_thread" };
+            gmail.tools["Delete"] = new[] { g + "trash_message", g + "trash_thread", g + "delete_draft", g + "delete_label" };
+            gmail.tools[NeverBox] = new[] { g + "send_message", g + "reply", g + "forward" };
+            list.Add(gmail);
+
+            CloudCatalogEntry cal = new CloudCatalogEntry();
+            cal.id = "gcal";
+            cal.name = "Google Calendar";
+            cal.description = "Google Calendar of the Claude account: events and free time. Create adds events, Edit and Delete change them; for events with guests Google sends them invitations and updates. Replies to invitations are never offered.";
+            cal.defaultRights = "Read";
+            cal.tools = new Dictionary<string, string[]>();
+            cal.tools["Read"] = new[] { c + "list_calendars", c + "list_events", c + "get_event", c + "search_events", c + "suggest_time" };
+            cal.tools["Create"] = new[] { c + "create_event" };
+            cal.tools["Edit"] = new[] { c + "update_event" };
+            cal.tools["Delete"] = new[] { c + "delete_event" };
+            cal.tools[NeverBox] = new[] { c + "respond_to_event" };
+            list.Add(cal);
+            return list;
+        }
+
+        // Sets the paths of both copies and reconciles them, writing the catalog for CO Desktop and CO Web.
+        internal void EnsureCloudConnectorsFile()
+        {
+            _cloudLocalPath = Path.Combine(_localStateRoot, "cloud-connectors.json");
+            _cloudSharedPath = Path.Combine(_hostTransportRoot, "cloud-connectors.json");
+            _cloudLog = Log;
+            ReconcileCloudRights();
+        }
+
+        private static void CloudLog(string message)
+        {
+            Action<string> log = _cloudLog;
+            if (log == null) return;
+            try { log(message); } catch { }
+        }
+
+        private static string[] AllCloudBoxes()
+        {
+            return new[] { "Read", "Create", "Edit", "Delete", NeverBox };
+        }
+
+        private static string[] CatalogTools(CloudCatalogEntry e, string box)
+        {
+            string[] arr;
+            if (e.tools != null && e.tools.TryGetValue(box, out arr) && arr != null) return arr;
+            return new string[0];
+        }
+
+        // Keeps only boxes that have tools, in canonical order; "" means everything off.
+        private static string NormalizeCloudRights(string rights, CloudCatalogEntry e)
+        {
+            HashSet<string> set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string part in (rights ?? "").Split(','))
+            {
+                string t = part.Trim();
+                if (t.Length > 0) set.Add(t);
+            }
+            List<string> result = new List<string>();
+            foreach (string box in Boxes)
+                if (set.Contains(box) && CatalogTools(e, box).Length > 0) result.Add(box);
+            return String.Join(", ", result);
+        }
+
+        private static CloudCopy ReadCloudCopy(string path)
+        {
+            CloudCopy c = new CloudCopy();
+            if (String.IsNullOrEmpty(path)) return c;
+            try
+            {
+                if (!File.Exists(path)) return c;
+                string raw = File.ReadAllText(path, Encoding.UTF8);
+                c.Mtime = File.GetLastWriteTimeUtc(path);
+                Dictionary<string, object> root = JsonUtil.Deserialize<Dictionary<string, object>>(raw);
+                if (root == null) return c;
+                object list;
+                if (!root.TryGetValue("connectors", out list) || list == null || list is string) return c;
+                System.Collections.IEnumerable items = list as System.Collections.IEnumerable;
+                if (items == null) return c;
+
+                c.Root = root;
+                c.UpdatedUtc = LedgerStr(root, "updatedUtc");
+                c.UpdatedBy = LedgerStr(root, "updatedBy");
+                foreach (object o in items)
+                {
+                    c.ConnectorCount++;
+                    Dictionary<string, object> d = o as Dictionary<string, object>;
+                    if (d == null) continue;
+                    string id = LedgerStr(d, "id");
+                    if (id.Length == 0 || c.Connectors.ContainsKey(id)) continue;
+                    c.Connectors[id] = d;
+                    object r;
+                    if (d.TryGetValue("rights", out r) && r is string) c.Rights[id] = (string)r;
+                }
+                c.Ok = true;
+            }
+            catch
+            {
+                c.Ok = false;
+            }
+            return c;
+        }
+
+        // Normalized rights for every catalog id; a connector missing from the copy gets its defaultRights.
+        private static Dictionary<string, string> EffectiveCloudRights(CloudCopy c, List<CloudCatalogEntry> catalog)
+        {
+            Dictionary<string, string> map = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (CloudCatalogEntry e in catalog)
+            {
+                string r;
+                if (c == null || !c.Rights.TryGetValue(e.id, out r)) r = e.defaultRights;
+                map[e.id] = NormalizeCloudRights(r, e);
+            }
+            return map;
+        }
+
+        private static bool CloudRightsEqual(Dictionary<string, string> a, Dictionary<string, string> b, List<CloudCatalogEntry> catalog)
+        {
+            foreach (CloudCatalogEntry e in catalog)
+            {
+                string x, y;
+                if (!a.TryGetValue(e.id, out x)) x = "";
+                if (!b.TryGetValue(e.id, out y)) y = "";
+                if (!String.Equals(x, y, StringComparison.Ordinal)) return false;
+            }
+            return true;
+        }
+
+        private static string JoinCopyTools(Dictionary<string, object> tools, string box)
+        {
+            if (tools == null) return "";
+            object v;
+            if (!tools.TryGetValue(box, out v) || v == null || v is string) return "";
+            System.Collections.IEnumerable items = v as System.Collections.IEnumerable;
+            if (items == null) return "";
+            List<string> list = new List<string>();
+            foreach (object o in items) list.Add(Convert.ToString(o, CultureInfo.InvariantCulture));
+            return String.Join("\n", list);
+        }
+
+        // True if the copy's connectors, names, descriptions or tools differ from the catalog.
+        private static bool CloudCatalogDiffers(CloudCopy c, List<CloudCatalogEntry> catalog)
+        {
+            if (c.ConnectorCount != catalog.Count) return true;
+            foreach (CloudCatalogEntry e in catalog)
+            {
+                Dictionary<string, object> d;
+                if (!c.Connectors.TryGetValue(e.id, out d)) return true;
+                if (!String.Equals(LedgerStr(d, "name"), e.name ?? "", StringComparison.Ordinal)) return true;
+                if (!String.Equals(LedgerStr(d, "description"), e.description ?? "", StringComparison.Ordinal)) return true;
+                object t;
+                d.TryGetValue("tools", out t);
+                Dictionary<string, object> tools = t as Dictionary<string, object>;
+                foreach (string box in AllCloudBoxes())
+                    if (!String.Equals(JoinCopyTools(tools, box), String.Join("\n", CatalogTools(e, box)), StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
+        // Full catalog with the given rights; null updatedUtc / updatedBy are left out.
+        private static Dictionary<string, object> BuildCloudDoc(List<CloudCatalogEntry> catalog, Dictionary<string, string> rights,
+            string updatedUtc, string updatedBy)
+        {
+            Dictionary<string, object> root = new Dictionary<string, object>();
+            root["schemaVersion"] = 1;
+            if (updatedUtc != null) root["updatedUtc"] = updatedUtc;
+            if (updatedBy != null) root["updatedBy"] = updatedBy;
+            List<object> connectors = new List<object>();
+            foreach (CloudCatalogEntry e in catalog)
+            {
+                Dictionary<string, object> tools = new Dictionary<string, object>();
+                foreach (string box in AllCloudBoxes()) tools[box] = CatalogTools(e, box);
+                string r;
+                if (!rights.TryGetValue(e.id, out r)) r = "";
+                Dictionary<string, object> item = new Dictionary<string, object>();
+                item["id"] = e.id;
+                item["name"] = e.name ?? "";
+                item["description"] = e.description ?? "";
+                item["rights"] = r;
+                item["tools"] = tools;
+                connectors.Add(item);
+            }
+            root["connectors"] = connectors;
+            return root;
+        }
+
+        private static void WriteCloudCopy(string path, Dictionary<string, object> doc, string label)
+        {
+            if (String.IsNullOrEmpty(path)) return;
+            try
+            {
+                AtomicFile.WriteJson(path, doc);
+            }
+            catch (Exception ex)
+            {
+                CloudLog("Account connectors: the " + label + " copy could not be written (" + path + "): " + ex.Message);
+            }
+        }
+
+        // Takes the rights of the newer readable copy (tie: shared), rewrites a copy only when its rights or catalog
+        // differ, and returns the rights of every catalog connector. Never throws.
+        private static Dictionary<string, string> ReconcileCloudRights()
+        {
+            lock (CloudLock)
+            {
+                List<CloudCatalogEntry> catalog = null;
+                try
+                {
+                    catalog = CloudCatalog();
+                    CloudCopy local = ReadCloudCopy(_cloudLocalPath);
+                    CloudCopy shared = ReadCloudCopy(_cloudSharedPath);
+
+                    bool sharedWins = (local.Ok && shared.Ok) ? shared.Mtime >= local.Mtime : shared.Ok;
+                    CloudCopy winner = sharedWins ? shared : local;
+                    CloudCopy loser = sharedWins ? local : shared;
+
+                    Dictionary<string, string> target = EffectiveCloudRights(winner.Ok ? winner : null, catalog);
+                    Dictionary<string, string> sharedCurrent = shared.Ok ? EffectiveCloudRights(shared, catalog) : null;
+                    Dictionary<string, string> localCurrent = local.Ok ? EffectiveCloudRights(local, catalog) : null;
+                    bool sharedRightsChange = sharedCurrent == null || !CloudRightsEqual(sharedCurrent, target, catalog);
+                    bool localRightsChange = localCurrent == null || !CloudRightsEqual(localCurrent, target, catalog);
+
+                    Dictionary<string, string> loserCurrent = sharedWins ? localCurrent : sharedCurrent;
+                    if (loser.Ok && loserCurrent != null && !CloudRightsEqual(loserCurrent, target, catalog))
+                    {
+                        List<string> parts = new List<string>();
+                        foreach (CloudCatalogEntry e in catalog) parts.Add(e.id + "=" + target[e.id]);
+                        CloudLog("Account connectors: rights taken from the " + (sharedWins ? "shared" : "local") + " copy: " + String.Join(", ", parts));
+                    }
+
+                    // Shared copy: keep its stamp unless the local copy changes its rights.
+                    string sharedUtc = shared.UpdatedUtc ?? "", sharedBy = shared.UpdatedBy ?? "";
+                    if (!sharedWins && sharedRightsChange)
+                    {
+                        sharedUtc = DateTime.UtcNow.ToString("o");
+                        sharedBy = "co-desktop";
+                    }
+                    string localUtc = local.Ok && local.Root.ContainsKey("updatedUtc") ? local.UpdatedUtc : null;
+                    string localBy = local.Ok && local.Root.ContainsKey("updatedBy") ? local.UpdatedBy : null;
+
+                    if (!String.IsNullOrEmpty(_cloudSharedPath) && (!shared.Ok || sharedRightsChange || CloudCatalogDiffers(shared, catalog)))
+                        WriteCloudCopy(_cloudSharedPath, BuildCloudDoc(catalog, target, sharedUtc, sharedBy), "shared");
+                    if (!String.IsNullOrEmpty(_cloudLocalPath) && (!local.Ok || localRightsChange || CloudCatalogDiffers(local, catalog)))
+                        WriteCloudCopy(_cloudLocalPath, BuildCloudDoc(catalog, target, localUtc, localBy), "local");
+                    return target;
+                }
+                catch (Exception ex)
+                {
+                    CloudLog("Account connectors: reconcile failed: " + ex.Message);
+                    try { return EffectiveCloudRights(null, catalog ?? CloudCatalog()); }
+                    catch { return new Dictionary<string, string>(StringComparer.Ordinal); }
+                }
+            }
+        }
+
+        // Tools of the Claude account connectors a Claude job must not get: unticked boxes, everything without Read,
+        // and "Never" (sending) always.
+        internal static List<string> CloudDeniedTools()
+        {
+            Dictionary<string, string> rights = ReconcileCloudRights();
+            List<string> denied = new List<string>();
+            foreach (CloudCatalogEntry e in CloudCatalog())
+            {
+                string r;
+                if (!rights.TryGetValue(e.id, out r)) r = NormalizeCloudRights(e.defaultRights, e);
+                HashSet<string> ticked = new HashSet<string>(r.Split(',').Select(x => x.Trim()), StringComparer.Ordinal);
+                bool read = ticked.Contains("Read");
+                foreach (KeyValuePair<string, string[]> box in e.tools)
+                    if (box.Key == NeverBox || !read || !ticked.Contains(box.Key))
+                        denied.AddRange(box.Value);
+            }
+            return denied;
+        }
+    }
+}

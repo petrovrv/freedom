@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 3,
+  "protocolMinor": 2,
+  "hostId": "home-main",
+  "jobId": "JOB-DEV-TEST-0001",
+  "environmentId": "owner",
+  "projectId": "bridge-test",
+  "chatId": "CHAT-DEV-TEST",
+  "branchId": "BR-root",
+  "agent": "claude",
+  "mode": "chat",
+  "instruction": "List the connected folders of my device with the device tool fs_list, then read the first text file you find in the project folder and summarize it in two sentences.",
+  "conversation": { "operation": "new" },
+  "attachments": [],
+  "artifactPaths": [],
+  "timeoutMinutes": 20,
+  "devices": ["d-REPLACE-WITH-DEVICE-ID"],
+  "tainted": false
+}

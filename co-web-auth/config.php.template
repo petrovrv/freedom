@@ -1,0 +1,10 @@
+<?php
+// ~/co-auth/config.php — outside public_html. Filled by deploy; never commit real values.
+return [
+    'origin' => 'https://__CO_DOMAIN__',
+    'client_id' => '__CLIENT_ID__',
+    'client_secret' => '__CLIENT_SECRET__',
+    'cookie_key' => '__COOKIE_KEY_BASE64_32_BYTES__',
+    'scopes' => 'openid email https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/pubsub',
+    'allowlist' => ['__OWNER_EMAIL__'], // bootstrap only; members of the workbench come from the table members
+];

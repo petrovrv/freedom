@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Freedom F3a (SPEC §4.2): Bridge on .NET 8 from the same sources as build.cmd (net48 stays the release path).
+       net8.0-windows: WinForms tray, Credential Manager, logon task, Job Objects - the net48 behaviour.
+       net8.0: macOS / Linux - headless UI (BRIDGE_HEADLESS), Keychain / libsecret, LaunchAgent / systemd, process trees.
+       Build, test and publish: build-net8.cmd in this folder. -->
+
+  <PropertyGroup>
+    <!-- net8.0-windows needs the Windows SDK targeting packs: built on Windows only. -->
+    <TargetFrameworks Condition="'$(OS)' == 'Windows_NT'">net8.0-windows;net8.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(OS)' != 'Windows_NT'">net8.0</TargetFrameworks>
+    <AssemblyName>BridgeAgent</AssemblyName>
+    <StartupObject>AiWorkbenchBridge.Program</StartupObject>
+  </PropertyGroup>
+
+  <Import Project="BridgeNet8.props" />
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <OutputType>WinExe</OutputType>
+    <ApplicationIcon>..\BridgeAgent.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+</Project>

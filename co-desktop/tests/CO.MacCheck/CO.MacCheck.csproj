@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Mac check (SPEC R2): CO.Core.Tests with an in-process xunit runner, published self-contained for osx-arm64 by
+       publish_mac.py as co-mac-check-<version>-osx-arm64.tar.gz; the resident runs it with the mac_check tool. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>co-mac-check</AssemblyName>
+    <RootNamespace>CO.MacCheck</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.runner.utility" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CO.Core.Tests\CO.Core.Tests.csproj" />
+  </ItemGroup>
+
+</Project>

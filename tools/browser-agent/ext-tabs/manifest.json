@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "CO agent browser tabs",
+  "version": "1.0",
+  "description": "Tells the tab chamberlain of the AI Workbench agent browser which tabs the user pinned (lock) and when they were last used.",
+  "permissions": ["tabs", "debugger"],
+  "background": { "service_worker": "co-tabs-sw.js" }
+}

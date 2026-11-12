@@ -1,0 +1,262 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// 0.55.0: Files tab of the inspector - the chat's files as version streams (chatFiles.ts, docs/SPEC-chat-files.md).
+// One row per file with its main (newest) version; ⋯ opens the versions (download, make main, branch, delete), Keep /
+// Temporary and Hide. Dragging a file onto another merges the two streams after a 10 s undo window.
+import { useEffect, useRef, useState } from 'react';
+import type { Chat } from './types';
+import type { Root } from './workbench';
+import { loadChatEvents } from './workbench';
+import { dbFiles } from './dbapi';
+import { categorize } from './errors';
+import { formatBytes, formatLocal } from './util';
+import {
+  branchVersion, buildStreams, bytesOf, deleteVersion, describe, fetchVersion, headUtc, kindOf, listVersions, makeMain, mergeStreams, setHidden,
+  isWorkingFile, setKind, TEMP_DAYS, visible, type ChatStream, type VersionItem,
+} from './chatFiles';
+
+function saveBytes(bytes: ArrayBuffer, name: string) {
+  const url = URL.createObjectURL(new Blob([bytes]));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+const baseName = (s: ChatStream) => s.name.split('/').pop() || s.name;
+
+export function FilesTab({ chat, root, canWrite }: { chat: Chat; root: Root; canWrite: boolean }) {
+  const [streams, setStreams] = useState<ChatStream[] | null>(null);
+  const [dbOk, setDbOk] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [showHidden, setShowHidden] = useState(false);
+  const [pending, setPending] = useState<{ from: ChatStream; into: ChatStream; timer: number } | null>(null);
+  const [dragKey, setDragKey] = useState<string | null>(null);
+  const [overKey, setOverKey] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const [ev, rows] = await Promise.all([loadChatEvents(chat), dbFiles(chat.chatId)]);
+      setDbOk(rows !== null);
+      setStreams(buildStreams(ev, rows, chat.projectId, chat.chatId));
+    } catch (e) {
+      setErr(categorize(e).message);
+    }
+  }
+  useEffect(() => {
+    void load();
+  }, [chat.chatId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function proposeMerge(from: ChatStream, into: ChatStream) {
+    if (pending) window.clearTimeout(pending.timer);
+    const timer = window.setTimeout(() => {
+      setPending(null);
+      mergeStreams(root.id, chat.chatId, chat.folderId, from, into)
+        .then(load)
+        .catch((e) => setErr(categorize(e).message));
+    }, 10000);
+    setPending({ from, into, timer });
+  }
+
+  if (err && !streams) return <p className="error-text pad">{err}</p>;
+  if (!streams) return <p className="muted pad">Loading…</p>;
+  const list = streams.filter((s) => visible(s, showHidden));
+  // Service files fold under one line, by the same rule as under a message (isWorkingFile); a kind the user set wins.
+  const isService = (s: ChatStream) => (s.row?.kindByUser ? s.row.kind === 'temp'
+    : kindOf(s) === 'temp' || isWorkingFile(s.name, s.row?.head.size ?? s.versions[s.versions.length - 1]?.size ?? undefined));
+  const docs = list.filter((s) => !isService(s));
+  const service = list.filter(isService);
+  const row = (s: ChatStream) => (
+    <FileRowView
+      key={s.key}
+      s={s}
+      root={root}
+      chat={chat}
+      canWrite={canWrite && dbOk}
+      dragging={dragKey !== null}
+      over={overKey === s.key && dragKey !== s.key}
+      onDragStart={() => setDragKey(s.key)}
+      onDragEnd={() => { setDragKey(null); setOverKey(null); }}
+      onDragOver={() => setOverKey(s.key)}
+      onDrop={() => {
+        const from = streams.find((x) => x.key === dragKey);
+        setDragKey(null);
+        setOverKey(null);
+        if (from && from.key !== s.key) proposeMerge(from, s);
+      }}
+      onChanged={() => void load()}
+      onError={setErr}
+    />
+  );
+  const hiddenCount = streams.filter((s) => !visible(s) && s.row?.state !== 'merged').length;
+  return (
+    <div className="pad files-tab">
+      <div className="files-head">
+        <span className="muted small">{list.length} file{list.length === 1 ? '' : 's'} · newest first · drag a file onto another to merge</span>
+        <button className="link small" onClick={() => void load()}>Refresh</button>
+      </div>
+      {!dbOk && <p className="muted small">The database is not reachable: files from the messages only, without versions actions.</p>}
+      {err && <p className="error-text small">{err}</p>}
+      {pending && (
+        <div className="files-pending small">
+          Merging <b>{baseName(pending.from)}</b> into <b>{baseName(pending.into)}</b> in 10 s…{' '}
+          <button className="link" onClick={() => { window.clearTimeout(pending.timer); setPending(null); }}>Undo</button>
+        </div>
+      )}
+      {!list.length && <p className="muted small">No files in this chat yet. Files the agent writes and files you attach appear here.</p>}
+      <ul className="files-list">{docs.map(row)}</ul>
+      {!!service.length && (
+        <details className="service-files">
+          <summary className="muted small">Service files ({service.length})</summary>
+          <ul className="files-list">{service.map(row)}</ul>
+        </details>
+      )}
+      {hiddenCount > 0 && (
+        <button className="link small" onClick={() => setShowHidden(!showHidden)}>
+          {showHidden ? 'Hide removed files' : `Show removed and expired files (${hiddenCount})`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function FileRowView({
+  s, root, chat, canWrite, dragging, over, onDragStart, onDragEnd, onDragOver, onDrop, onChanged, onError,
+}: {
+  s: ChatStream; root: Root; chat: Chat; canWrite: boolean; dragging: boolean; over: boolean;
+  onDragStart: () => void; onDragEnd: () => void; onDragOver: () => void; onDrop: () => void; onChanged: () => void; onError: (m: string) => void;
+}) {
+  const [menu, setMenu] = useState(false);
+  const [showVersions, setShowVersions] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const head = s.versions[s.versions.length - 1];
+  const n = Math.max(s.row?.versions || 0, s.versions.length);
+  const state = s.row?.state || 'live';
+  const temp = kindOf(s) === 'temp';
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: MouseEvent) => { if (!menuRef.current?.contains(e.target as Node)) setMenu(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [menu]);
+
+  async function run(fn: () => Promise<void>) {
+    setBusy(true);
+    try {
+      await fn();
+    } catch (e) {
+      onError(categorize(e).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const download = () => run(async () => {
+    const v = head && !head.legacy
+      ? await fetchVersion(root.id, { path: s.key, md5: s.row?.head.md5 || head.md5, sha256: s.row?.head.sha256 || head.sha256 })
+      : head ? await fetchVersion(root.id, { path: head.path, legacy: true, fileId: head.fileId }) : null;
+    if (!v) throw new Error('No version to download.');
+    saveBytes(v.bytes, baseName(s));
+  });
+
+  return (
+    <li
+      className={`file-row${over ? ' drop-over' : ''}${state !== 'live' ? ' file-off' : ''}`}
+      draggable={canWrite && state === 'live'}
+      onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStart(); }}
+      onDragEnd={onDragEnd}
+      onDragOver={(e) => { if (dragging && canWrite && state === 'live') { e.preventDefault(); onDragOver(); } }}
+      onDrop={(e) => { e.preventDefault(); onDrop(); }}
+    >
+      <div className="tree-row" title={`${s.name}
+${describe(s)}`}>
+        <span className="name">
+          {head?.origin === 'user' ? '↑' : '↓'} {n > 1 ? '🗂' : '📄'} {s.name}
+        </span>
+        <span className="muted tiny">{n > 1 ? `${n} v · ` : ''}{formatBytes(s.row?.head.size ?? head?.size ?? null)}</span>
+        <div className="file-menu" ref={menuRef}>
+          <button className="link" aria-label={`Actions for ${s.name}`} onClick={() => setMenu(!menu)}>⋯</button>
+          {menu && (
+            <div className="menu-pop">
+              <button disabled={busy} onClick={() => { setMenu(false); void download(); }}>Download</button>
+              <button onClick={() => { setMenu(false); setShowVersions(!showVersions); }}>{showVersions ? 'Hide versions' : 'Versions…'}</button>
+              {canWrite && s.row && state === 'live' && (
+                <button disabled={busy} onClick={() => { setMenu(false); void run(async () => { await setKind(chat.chatId, s, temp ? 'doc' : 'temp'); onChanged(); }); }}>
+                  {temp ? 'Keep (do not expire)' : `Service file (expires in ${TEMP_DAYS} days)`}
+                </button>
+              )}
+              {canWrite && s.row && (state === 'live' || state === 'hidden') && (
+                <button disabled={busy} onClick={() => { setMenu(false); void run(async () => { await setHidden(chat.chatId, s, state === 'live'); onChanged(); }); }}>
+                  {state === 'live' ? 'Remove from the list' : 'Show in the list'}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="muted tiny file-sub">
+        {formatLocal(headUtc(s))}
+        {temp && ' · service'}
+        {state === 'gone' && ' · expired'}
+        {s.row?.extra?.parent && ` · branched from ${s.row.extra.parent.name}`}
+        {s.row?.annotation && <span className="file-note"> · {s.row.annotation}</span>}
+      </div>
+      {showVersions && <Versions s={s} root={root} chat={chat} canWrite={canWrite} onChanged={onChanged} onError={onError} />}
+    </li>
+  );
+}
+
+const BY: Record<VersionItem['by'], string> = { agent: '↓ agent', user: '↑ you', drive: '✎ Drive' };
+
+function Versions({ s, root, chat, canWrite, onChanged, onError }: {
+  s: ChatStream; root: Root; chat: Chat; canWrite: boolean; onChanged: () => void; onError: (m: string) => void;
+}) {
+  const [items, setItems] = useState<VersionItem[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const load = () => listVersions(root.id, s).then((r) => setItems(r.items)).catch((e) => onError(categorize(e).message));
+  useEffect(() => {
+    void load();
+  }, [s.key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function run(fn: () => Promise<void>) {
+    setBusy(true);
+    setNote(null);
+    try {
+      await fn();
+    } catch (e) {
+      onError(categorize(e).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!items) return <div className="muted tiny versions">Loading versions…</div>;
+  if (!items.length) return <div className="muted tiny versions">No versions in Drive (the file may still be uploading).</div>;
+  return (
+    <ul className="versions">
+      {items.map((v, i) => (
+        <li key={`${v.fileId || v.legacyPath}:${v.revisionId || i}`} className={v.head ? 'v-head' : ''}>
+          <span className="tiny">{formatLocal(v.utc)}</span>
+          <span className="tiny">{BY[v.by]}{v.seq != null ? ` · #${v.seq}` : ''}{v.restored ? ' · restored' : ''}{v.member ? ' · merged' : ''}{v.legacyPath ? ' · copy' : ''}</span>
+          <span className="muted tiny">{formatBytes(v.size)}</span>
+          {v.head && <span className="tag">main</span>}
+          <button className="link tiny" disabled={busy} onClick={() => void run(async () => saveBytes(await bytesOf(root.id, v), baseName(s)))}>Download</button>
+          {canWrite && !v.head && (
+            <>
+              <button className="link tiny" disabled={busy} title="Upload this version as the newest one (the history stays)"
+                onClick={() => void run(async () => { await makeMain(root.id, chat.chatId, s, v); setNote('Made main.'); onChanged(); })}>Make main</button>
+              <button className="link tiny" disabled={busy} title="A new independent file from this version"
+                onClick={() => void run(async () => { const n = await branchVersion(root.id, chat.chatId, chat.folderId, s, v); setNote(`New file ${n}.`); onChanged(); })}>Branch</button>
+              <button className="link tiny" disabled={busy}
+                onClick={() => { if (window.confirm('Delete this version from Drive? It cannot be restored.')) void run(async () => { await deleteVersion(root.id, v); await load(); }); }}>Delete</button>
+            </>
+          )}
+        </li>
+      ))}
+      {note && <li className="ok-text tiny">{note}</li>}
+    </ul>
+  );
+}

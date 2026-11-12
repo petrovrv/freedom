@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- CO Resident for macOS (Apple Silicon): CO.Core as a LaunchAgent without a window. SPEC: R0/R1 of the Mac resident. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>co-resident</AssemblyName>
+    <RootNamespace>CO.Mac</RootNamespace>
+    <Version>0.4.1</Version>
+    <Product>CO Resident</Product>
+    <Company>Freedom contributors</Company>
+    <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- R4: icon of ~/Applications/CO.app, written by MacAppInstall (assets/make_icns.py) -->
+    <EmbeddedResource Include="CO.icns" LogicalName="CO.icns" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- R2 Mac check: sha256 of co-mac-check-<version>-osx-arm64.tar.gz, passed by publish_mac.py (-p:MacCheckSha256=...) -->
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>MacCheckSha256</_Parameter1>
+      <_Parameter2>$(MacCheckSha256)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CO.Core\CO.Core.csproj" />
+  </ItemGroup>
+
+</Project>

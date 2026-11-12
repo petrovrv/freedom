@@ -1,0 +1,8 @@
+<Project>
+  <!-- Keep bin/obj out of the Drive-synced source tree. Override with -p:AiwbBuildRoot=<dir>. -->
+  <PropertyGroup>
+    <AiwbBuildRoot Condition="'$(AiwbBuildRoot)' == ''">$(LOCALAPPDATA)\AIWorkbenchBuild\co-desktop\</AiwbBuildRoot>
+    <BaseIntermediateOutputPath>$(AiwbBuildRoot)obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(AiwbBuildRoot)bin\$(MSBuildProjectName)\</BaseOutputPath>
+  </PropertyGroup>
+</Project>

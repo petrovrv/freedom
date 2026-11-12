@@ -1,0 +1,24 @@
+{
+  "name": "CO Agent",
+  "guid": "asc.{3C0A6E7A-5D1B-4F2C-9A8E-C0A6E7A1B0C1}",
+  "version": "0.1.0",
+  "baseUrl": "__PUBLIC__/cb/plugin/",
+  "variations": [
+    {
+      "description": "CO Agent: comments for the chat agent",
+      "url": "index.html",
+      "icons": ["icon.png", "icon.png"],
+      "isViewer": false,
+      "EditorsSupport": ["word"],
+      "isVisual": false,
+      "isModal": false,
+      "isInsideMode": false,
+      "isSystem": true,
+      "initDataType": "none",
+      "initData": "",
+      "isUpdateOleOnResize": false,
+      "buttons": [],
+      "events": ["onAddComment", "onChangeCommentData", "onRemoveComment", "onContextMenuShow", "onContextMenuClick", "onToolbarMenuClick"]
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+:root { color-scheme: light dark; font: 13px system-ui, sans-serif; }
+html, body { margin: 0; height: 100%; }
+body { display: flex; flex-direction: column; background: Canvas; color: CanvasText; }
+header { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid #8884; flex: none; }
+header button { font: inherit; padding: 2px 8px; border-radius: 4px; border: 1px solid #8886; background: transparent; color: inherit; cursor: pointer; }
+header #pause.on { background: #2b8a3e; color: #fff; border-color: #2b8a3e; }
+.spacer { flex: 1; }
+.muted { opacity: .65; font-size: 12px; }
+#settings { padding: 6px 10px; border-bottom: 1px solid #8884; display: grid; gap: 6px; }
+#co { flex: 1; width: 100%; border: 0; }
+.dialog { position: fixed; left: 8px; right: 8px; top: 40px; z-index: 10; background: Canvas; color: CanvasText;
+  border: 2px solid #e8590c; border-radius: 8px; padding: 10px 12px; box-shadow: 0 6px 24px #0006; max-height: 80vh; overflow: auto; }
+.dialog.danger { border-color: #c92a2a; }
+.dialog.ask { border-color: #1971c2; }
+.dialog h3 { margin: 0 0 6px; font-size: 15px; }
+.dialog p { margin: 0 0 6px; word-break: break-word; }
+.dialog pre { white-space: pre-wrap; font-size: 12px; max-height: 200px; overflow: auto; background: #8881; padding: 6px; border-radius: 4px; margin: 0 0 6px; }
+.dialog .row { display: flex; gap: 6px; flex-wrap: wrap; }
+.dialog button { font: inherit; padding: 5px 12px; border-radius: 5px; border: 1px solid #8886; background: transparent; color: inherit; cursor: pointer; }
+.dialog button.primary { background: #e8590c; color: #fff; border-color: #e8590c; }
+.dialog.danger button.primary { background: #c92a2a; border-color: #c92a2a; }
+.dialog.ask button.primary { background: #1971c2; border-color: #1971c2; }
+.dialog .tick { position: absolute; right: 10px; top: 8px; opacity: .6; font-size: 12px; }

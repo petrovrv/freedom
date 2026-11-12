@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Freedom F3a: adapter and JSON parity tests of the .NET 8 Bridge + the existing Bridge suite (tests\*.cs) on .NET 8.
+       Run from the bridge folder: dotnet run, project net8/tests, -f net8.0-windows | -f net8.0, or build-net8.cmd. -->
+
+  <PropertyGroup>
+    <TargetFrameworks Condition="'$(OS)' == 'Windows_NT'">net8.0-windows;net8.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(OS)' != 'Windows_NT'">net8.0</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>BridgeNet8Tests</AssemblyName>
+    <StartupObject>AiWorkbenchBridge.Tests.Net8Tests</StartupObject>
+  </PropertyGroup>
+
+  <Import Project="..\BridgeNet8.props" />
+
+  <ItemGroup>
+    <Compile Include="..\..\tests\Legacy135.cs" />
+    <Compile Include="..\..\tests\AgentRuntimeTests.cs" />
+    <Compile Include="..\..\tests\AgentRuntimeTests.Parsers.cs" />
+    <Compile Include="..\..\tests\AgentRuntimeTests.Arguments.cs" />
+    <Compile Include="..\..\tests\SupervisorTests.cs" />
+    <Compile Include="..\..\tests\RelayTests.cs" />
+    <Compile Include="..\..\tests\CorporateTests.cs" />
+    <Compile Include="..\..\tests\PcToolsTests.cs" />
+    <Compile Include="JsonGolden.cs" />
+    <Compile Include="Net8Tests.cs" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,62 @@
+# CI: every push to main and every pull request builds all parts (2026-10-16).
+# Releases still happen on the home PC (devtree locks, release.ps1 / publish.cmd); CI only catches a broken build.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  co-web:
+    name: CO Web (tsc + vite build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: co-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: co-web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  php:
+    name: Site PHP (php -l, PHP 8.1 like Hostinger)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          tools: none
+      - run: find co-agent co-web-auth -name '*.php' -print0 | xargs -0 -n1 php -l
+
+  bridge:
+    name: BridgeAgent (csc, .NET Framework 4)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build.cmd
+        shell: cmd
+        run: call bridge\build.cmd "%RUNNER_TEMP%\bridge"
+
+  co-desktop:
+    name: CO Desktop (dotnet test + build)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet test co-desktop/tests/CO.Core.Tests -c Release
+      - run: dotnet test connectors/corporate/tests/CO.Corporate.Tests -c Release
+      - run: dotnet build co-desktop/src/CO.Desktop -c Release

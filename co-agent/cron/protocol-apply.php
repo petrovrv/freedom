@@ -1,0 +1,183 @@
+<?php
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Chat protocol (schema 8): validation and application of the secretary's operations. The model's answer is never
+// trusted: the source message must be in the batch, quotes of decisions/constraints/facts must occur in it verbatim,
+// supersede/close must name an active entry.
+declare(strict_types=1);
+
+function co_protocol_norm(string $s): string
+{
+    $s = str_replace(['*', '`', '_', '>', '#'], '', $s);
+    $s = preg_replace('/\s+/u', ' ', $s) ?? '';
+    return trim(mb_strtolower($s, 'UTF-8'));
+}
+
+// The chat's cursor (chats.protocol_seq = $batchEnd) moves in the same transaction, so a retried batch cannot add
+// its entries twice.
+// $extra (schema 9) runs inside the same transaction before the cursor moves: memory candidates of the batch.
+function co_protocol_apply(mysqli $db, string $chatId, array $batch, array $ops, string $model, int $batchEnd, ?callable $extra = null): array
+{
+    $allowedSections = ['decision', 'constraint', 'fact', 'question', 'artifact', 'answer'];
+    $quoteRequired   = ['decision', 'constraint', 'fact'];
+    $applied  = 0;
+    $rejected = 0;
+    $total    = count($ops);
+
+    $toInt = static function (mixed $v): ?int {
+        if (is_int($v)) {
+            return $v;
+        }
+        if (is_string($v) && preg_match('/^-?\d{1,18}$/', trim($v)) === 1) {
+            return (int)trim($v);
+        }
+        return null;
+    };
+
+    $model = mb_substr($model, 0, 60, 'UTF-8');
+
+    $db->begin_transaction();
+    try {
+        $active = [];
+        $st = $db->prepare("SELECT entry_no FROM protocol WHERE chat_id=? AND status='active' FOR UPDATE");
+        $st->execute([$chatId]);
+        $res = $st->get_result();
+        while ($row = $res->fetch_row()) {
+            $active[(int)$row[0]] = true;
+        }
+        $st->close();
+
+        $st = $db->prepare('SELECT COALESCE(MAX(entry_no),0) FROM protocol WHERE chat_id=? FOR UPDATE');
+        $st->execute([$chatId]);
+        $row = $st->get_result()->fetch_row();
+        $st->close();
+        $nextNo = (int)($row[0] ?? 0) + 1;
+
+        $insSt = $db->prepare(
+            "INSERT INTO protocol (chat_id, entry_no, section, text, quote, msg_seq, status, author, model, created_utc, updated_utc)
+             VALUES (?, ?, ?, ?, ?, ?, 'active', 'secretary', ?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))"
+        );
+        $supSt = $db->prepare(
+            "UPDATE protocol SET status='superseded', replaced_by=?, closed_seq=?, updated_utc=UTC_TIMESTAMP(3)
+             WHERE chat_id=? AND entry_no=?"
+        );
+        $clsSt = $db->prepare(
+            "UPDATE protocol SET status='closed', closed_seq=?, updated_utc=UTC_TIMESTAMP(3)
+             WHERE chat_id=? AND entry_no=?"
+        );
+
+        foreach ($ops as $op) {
+            if (!is_array($op)) {
+                $rejected++;
+                continue;
+            }
+
+            $type = $op['op'] ?? null;
+            if (!is_string($type) || !in_array($type, ['add', 'supersede', 'close'], true)) {
+                $rejected++;
+                continue;
+            }
+
+            $msg = $toInt($op['msg'] ?? null);
+            if ($msg === null || !array_key_exists($msg, $batch)
+                || !is_array($batch[$msg]) || !is_string($batch[$msg]['text'] ?? null)) {
+                $rejected++;
+                continue;
+            }
+            $msgText = $batch[$msg]['text'];
+
+            $no = null;
+            if ($type === 'supersede' || $type === 'close') {
+                $no = $toInt($op['no'] ?? null);
+                if ($no === null || !isset($active[$no])) {
+                    $rejected++;
+                    continue;
+                }
+            }
+
+            if ($type === 'close') {
+                $clsSt->execute([$msg, $chatId, $no]);
+                unset($active[$no]);
+                $applied++;
+                continue;
+            }
+
+            // add / supersede
+            $section = $op['section'] ?? null;
+            if (!is_string($section) || !in_array($section, $allowedSections, true)) {
+                $rejected++;
+                continue;
+            }
+
+            $text = $op['text'] ?? null;
+            if (!is_string($text)) {
+                $rejected++;
+                continue;
+            }
+            $text = preg_replace('/\R+/u', ' ', trim($text));
+            if ($text === null) {
+                $rejected++;
+                continue;
+            }
+            $text = trim(mb_substr($text, 0, 600, 'UTF-8'));
+            if ($text === '') {
+                $rejected++;
+                continue;
+            }
+
+            $quote = $op['quote'] ?? null;
+            if (is_string($quote)) {
+                $quote = trim(mb_substr(trim($quote), 0, 300, 'UTF-8'));
+                if ($quote === '') {
+                    $quote = null;
+                }
+            } else {
+                $quote = null;
+            }
+
+            $quoteFound = false;
+            if ($quote !== null) {
+                $nq = co_protocol_norm($quote);
+                $quoteFound = $nq !== '' && str_contains(co_protocol_norm($msgText), $nq);
+            }
+
+            if (in_array($section, $quoteRequired, true)) {
+                if (!$quoteFound) {
+                    $rejected++;
+                    continue;
+                }
+            } elseif (!$quoteFound) {
+                $quote = null;
+            }
+
+            $newNo = $nextNo;
+            $insSt->execute([$chatId, $newNo, $section, $text, $quote, $msg, $model]);
+            $nextNo++;
+            $active[$newNo] = true;
+
+            if ($type === 'supersede') {
+                $supSt->execute([$newNo, $msg, $chatId, $no]);
+                unset($active[$no]);
+            }
+
+            $applied++;
+        }
+
+        $insSt->close();
+        $supSt->close();
+        $clsSt->close();
+
+        if ($extra !== null) {
+            $extra($db);
+        }
+
+        $st = $db->prepare('UPDATE chats SET protocol_seq = ?, protocol_utc = UTC_TIMESTAMP(3), protocol_model = ?, protocol_error = ? WHERE chat_id = ?');
+        $st->execute([$batchEnd, $model, $rejected > 0 ? 'rejected ' . $rejected . ' of ' . $total : null, $chatId]);
+
+        $db->commit();
+    } catch (Throwable $e) {
+        $db->rollback();
+        throw $e;
+    }
+
+    return ['applied' => $applied, 'rejected' => $rejected, 'total' => $total];
+}

@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "AI Workbench",
+  "short_name": "AI Workbench",
+  "version": "0.1.0",
+  "description": "CO chat in the side panel; the agent reads and works in your tabs (forms, mail drafts, multi-page applications) with your confirmation.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApxm8EY6rkSweXP806Raq9yVw4g+B3kAOnLSNHexgCYm2YKH/F/gxPo7ri4CUh0jEJPvkmzGyMM1B2LRlc8Xtw+M9gfPTDYwtLpt/xIgOspG47hStAGoBlyfytBgfU1EH4zGQtPVoPAq7Y+R2LgAfhMA5cDzOjBVFh+sETlEGFRGyY3Wyi+pzukC4mvkBSPAscpoP5FT4/fXNe43jTWUMLc70ban8/ZoqiS4zctccsR+xFxKYhsvBOp6tE9SnJubA7JQtV/hcSrE5oRPl4bwGU06GcWobEWRmY/zl7TCJvah1iZj6XvV5o+5wMdn4+0SX5msfobT0i0EvBPZOcnA79QIDAQAB",
+  "minimum_chrome_version": "116",
+  "permissions": ["sidePanel", "scripting", "tabs", "storage", "debugger", "webNavigation", "notifications"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "side_panel": { "default_path": "panel.html" },
+  "action": { "default_title": "AI Workbench", "default_icon": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" } },
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "commands": {
+    "_execute_action": { "suggested_key": { "default": "Alt+Shift+A" }, "description": "Open the AI Workbench panel" }
+  }
+}

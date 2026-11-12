@@ -1,0 +1,3 @@
+# Freedom community layer (python -m community). Python 3.11+.
+websockets>=13        # relay client and the bundled relay (asyncio API)
+keyring>=24           # workbench Nostr key in the OS keyring (service aiwb/nostr)

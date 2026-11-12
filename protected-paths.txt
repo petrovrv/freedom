@@ -1,0 +1,61 @@
+# Protected paths (devtree 0.6.0): a change here needs the owner's own "yes" even after a green Codex review:
+#   devtree finish NAME -m "..." --owner-approved "<chat message number / the owner's words>"
+# Syntax: "dir/" = everything under it; a pattern without "/" = that file name anywhere; else fnmatch on the repo path.
+# This file is always protected; a branch can add lines here but cannot drop main's.
+
+# This list and CI
+protected-paths.txt
+.gitattributes
+.github/
+
+# Bridge: release, signing, update channel, launcher, live config template
+bridge/release.ps1
+bridge/install.ps1
+bridge/build.cmd
+bridge/New-CommitMarker.ps1
+bridge/RELEASE-MANIFEST.json
+bridge/config.json.example
+bridge/launcher/
+launcher.json
+config.json.example
+
+# CO Desktop: installer, publishing to the site, code signing, updater and its keys
+co-desktop/installer/
+co-desktop/publish.cmd
+co-desktop/tools/publish_site.py
+co-desktop/tools/co-sign.ps1
+co-desktop/tools/co-install.ps1
+co-desktop/src/CO.Core/Runtime/Updater.cs
+co-desktop/src/CO.Core/Crypto/
+co-desktop/src/CO.Desktop/NativeKeys.cs
+# CO Resident for macOS: install link and update/test downloads, install script, publishing, self-update (owner's yes 09.11)
+co-agent/web/agent/mac.php
+co-agent/web/agent/mac-install.sh
+co-desktop/tools/publish_mac.py
+co-desktop/src/CO.Mac/MacUpdater.cs
+
+# Site: deploy scripts, sign-in, web server rules, installer download, executor start, backups
+co-web/deploy.py
+co-web/deploy_web.py
+co-web-auth/
+co-agent/web/agent/desktop.php
+co-agent/executor/run.sh
+co-agent/cron/db-backup.php
+sync-co-web.ps1
+# Freedom F2 setup wizard: deploys the server files and writes the secrets of a site
+install/freedom_setup.py
+.htaccess
+.user.ini
+
+# Secrets and keys (must never be in git; any such file needs the owner)
+secrets/
+*.pem
+*.key
+*.pfx
+*.p12
+*.snk
+my.cnf
+db.json
+oauth-client*.json
+codesign.json
+config.php

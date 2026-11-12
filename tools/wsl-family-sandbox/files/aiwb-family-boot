@@ -1,0 +1,197 @@
+#!/bin/bash
+# aiwb-family boot/ensure script (root). Started by /etc/wsl.conf [boot] command at distro start.
+#   aiwb-family-boot boot   - everything below + start the watchdog
+#   aiwb-family-boot net    - only re-ensure firewall / netns / docker rule (watchdog calls it)
+#   aiwb-family-boot clean  - delete old files in the users' /tmp
+#   aiwb-family-boot unnet  - remove this distro's firewall tables and docker rules (destroy)
+# The cgroup tree and the network namespace of the WSL VM are shared with the other distros:
+# everything here is additive, named aiwb*/afh*, and never flushes foreign rules.
+set -u
+CONF=/etc/aiwb-family
+. $CONF/sandbox.conf
+CG=/sys/fs/cgroup/aiwb-family
+RUN=/run/aiwb
+LOG=/var/log/aiwb-family.log
+mkdir -p $RUN && chmod 700 $RUN
+exec >>$LOG 2>&1
+log() { echo "$(date '+%F %T') $*"; }
+
+users() { awk '!/^[[:space:]]*#/ && NF>=2 {print $1, $2, ($3 ? $3 : 10)}' $CONF/users; }
+uids() { users | awk '{printf "%s%s", s, $2; s=", "}'; }
+
+cpu_max() { awk -v c="$1" 'BEGIN{ if (c=="max") print "max 100000"; else printf "%d 100000\n", c*100000 }'; }
+
+hide_mounts() {
+    # nothing done in this distro may propagate to the others
+    mount --make-rprivate / 2>/dev/null
+    if mountpoint -q /mnt/wsl && ! mountpoint -q $RUN/mntwsl; then
+        mkdir -p $RUN/mntwsl && mount --bind /mnt/wsl $RUN/mntwsl
+    fi
+    awk '{print $5}' /proc/self/mountinfo | grep -E '^(/mnt/|/usr/lib/wsl|/tmp/\.X11-unix)' | sort -r |
+        while read -r m; do umount -l "$m" 2>/dev/null; done
+    rm -f /run/WSL/*_interop 2>/dev/null
+}
+
+dns_ip() {
+    local ip
+    ip=$(awk '/^nameserver/{print $2; exit}' $RUN/mntwsl/resolv.conf 2>/dev/null)
+    echo "${ip:-10.255.255.254}"
+}
+
+write_resolv() {
+    local ip; ip=$(dns_ip)
+    [ -L /etc/resolv.conf ] && rm -f /etc/resolv.conf
+    grep -q "^nameserver $ip\$" /etc/resolv.conf 2>/dev/null || echo "nameserver $ip" > /etc/resolv.conf
+    chmod 644 /etc/resolv.conf
+}
+
+cgroups() {
+    mkdir -p $CG
+    cpu_max "$FAMILY_CPU" > $CG/cpu.max
+    echo "$FAMILY_MEM" > $CG/memory.max
+    echo "$FAMILY_PIDS" > $CG/pids.max
+    echo "+cpu +memory +pids" > $CG/cgroup.subtree_control
+    users | while read -r u uid disk; do
+        mkdir -p $CG/$u
+        cpu_max "$USER_CPU" > $CG/$u/cpu.max
+        echo "$USER_MEM" > $CG/$u/memory.max
+        echo "$USER_SWAP" > $CG/$u/memory.swap.max
+        echo "$USER_PIDS" > $CG/$u/pids.max
+    done
+}
+
+netns() {
+    local i=0
+    users | while read -r u uid disk; do
+        i=$((i + 1))
+        local ns=aiwb-$u host=afh$uid
+        if ! ip netns pids $ns >/dev/null 2>&1 || ! ip link show $host >/dev/null 2>&1; then
+            ip netns del $ns 2>/dev/null; ip link del $host 2>/dev/null
+            ip netns add $ns || { log "netns $ns failed"; continue; }
+            ip link add $host type veth peer name eth0 netns $ns
+            ip addr add 10.231.$i.1/30 dev $host
+            ip link set $host mtu 1280 up
+            ip -n $ns link set lo up
+            ip -n $ns addr add 10.231.$i.2/30 dev eth0
+            ip -n $ns link set eth0 mtu 1280 up
+            ip -n $ns route add default via 10.231.$i.1
+            log "netns $ns up ($host 10.231.$i.1)"
+        fi
+    done
+}
+
+firewall() {
+    local dns; dns=$(dns_ip)
+    local el; el=$(uids)
+    [ -n "$el" ] && el="elements = { $el }"
+    local want="aiwb $dns $el"
+    if nft list table inet aiwb_family >/dev/null 2>&1 && nft list table ip aiwb_family_nat >/dev/null 2>&1 &&
+        [ "$(cat $RUN/fw 2>/dev/null)" = "$want" ]; then
+        :
+    else
+        nft -f - <<EOF || { log "nft load failed"; return 1; }
+table inet aiwb_family
+delete table inet aiwb_family
+table ip aiwb_family_nat
+delete table ip aiwb_family_nat
+table inet aiwb_family {
+    set fam_uids { type uid; $el }
+    set blocked4 { type ipv4_addr; flags interval; elements = { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10,
+        127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.168.0.0/16, 198.18.0.0/15, 224.0.0.0/3 } }
+    chain output {
+        type filter hook output priority -10; policy accept;
+        meta skuid @fam_uids counter drop comment "family processes outside their netns: no network"
+    }
+    chain input {
+        type filter hook input priority -10; policy accept;
+        iifname "afh*" ct state established,related accept
+        iifname "afh*" ip daddr $dns meta l4proto { tcp, udp } th dport 53 accept
+        iifname "afh*" counter drop comment "sandbox -> this VM (other distros, docker)"
+    }
+    chain forward {
+        type filter hook forward priority -10; policy accept;
+        oifname "afh*" ct state established,related accept
+        oifname "afh*" counter drop
+        iifname "afh*" meta nfproto ipv6 drop
+        iifname "afh*" ip daddr @blocked4 counter drop comment "sandbox -> LAN / tailnet / Windows host"
+    }
+}
+table ip aiwb_family_nat {
+    chain post {
+        type nat hook postrouting priority 110; policy accept;
+        ip saddr 10.231.0.0/16 oifname != "afh*" masquerade
+    }
+}
+EOF
+        echo "$want" > $RUN/fw
+        log "firewall loaded (dns $dns, uids $el)"
+    fi
+    sysctl -qw net.ipv4.ip_forward=1
+    # docker of another distro sets FORWARD policy DROP in the shared netns: accept only our veths there
+    local chain=""
+    if iptables -S DOCKER-USER >/dev/null 2>&1; then chain=DOCKER-USER
+    elif iptables -S FORWARD 2>/dev/null | grep -q '^-P FORWARD DROP'; then chain=FORWARD; fi
+    if [ -n "$chain" ]; then
+        iptables -C $chain -i afh+ -j ACCEPT 2>/dev/null || iptables -I $chain 1 -i afh+ -j ACCEPT
+        iptables -C $chain -o afh+ -j ACCEPT 2>/dev/null || iptables -I $chain 1 -o afh+ -j ACCEPT
+    fi
+}
+
+unnet() {
+    nft delete table inet aiwb_family 2>/dev/null
+    nft delete table ip aiwb_family_nat 2>/dev/null
+    for chain in DOCKER-USER FORWARD; do
+        while iptables -D $chain -i afh+ -j ACCEPT 2>/dev/null; do :; done
+        while iptables -D $chain -o afh+ -j ACCEPT 2>/dev/null; do :; done
+    done
+    users | while read -r u uid disk; do ip netns del aiwb-$u 2>/dev/null; ip link del afh$uid 2>/dev/null; done
+    rm -f $RUN/fw
+    log "firewall removed"
+}
+
+homes() {
+    mkdir -p /var/lib/aiwb-family/homes && chmod 700 /var/lib/aiwb-family /var/lib/aiwb-family/homes
+    users | while read -r u uid disk; do
+        local img=/var/lib/aiwb-family/homes/$u.img
+        id "$u" >/dev/null 2>&1 || continue
+        if [ ! -f $img ]; then
+            truncate -s "${disk}G" $img && mkfs.ext4 -q -m 0 -L "home-$u" $img && log "image $img ${disk}G"
+        fi
+        mkdir -p /home/$u
+        mountpoint -q /home/$u || mount -o loop,nosuid,nodev $img /home/$u || { log "mount $img failed"; continue; }
+        chown $u:$u /home/$u && chmod 700 /home/$u
+        rm -rf /home/$u/lost+found
+        mkdir -p /home/$u/.tmp && chown $u:$u /home/$u/.tmp && chmod 700 /home/$u/.tmp
+    done
+}
+
+clean() {
+    users | while read -r u uid disk; do
+        [ -d /home/$u/.tmp ] && find /home/$u/.tmp -xdev -mindepth 1 -mtime +"$TMP_DAYS" -delete 2>/dev/null
+    done
+    find /tmp /var/tmp -xdev -mindepth 1 -mtime +"$TMP_DAYS" -delete 2>/dev/null
+}
+
+case "${1:-boot}" in
+    boot)
+        log "boot"
+        hide_mounts
+        write_resolv
+        cgroups
+        homes
+        netns
+        firewall
+        clean
+        touch $RUN/ready
+        if ! pgrep -f '^/bin/bash /usr/local/sbin/aiwb-family-watchdog' >/dev/null; then
+            setsid nohup /usr/local/sbin/aiwb-family-watchdog >/dev/null 2>&1 < /dev/null &
+        fi
+        log "ready"
+        ;;
+    net) write_resolv; netns; firewall ;;
+    clean) clean ;;
+    unnet) unnet ;;
+    cgroups) cgroups ;;
+    homes) homes ;;
+    *) echo "usage: $0 boot|net|clean|unnet|cgroups|homes" >&2; exit 2 ;;
+esac

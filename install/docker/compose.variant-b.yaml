@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Variant B (VPS or NAS): Caddy answers the public domain on 80/443 and gets the certificate itself (Let's Encrypt /
+# ZeroSSL); docker.tls "internal" in install.json uses Caddy's own CA instead (tests, a LAN without a public name).
+services:
+  caddy:
+    ports:
+      - "${BIND:-0.0.0.0}:${HTTP_PORT:-80}:80"
+      - "${BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443"
+      - "${BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443/udp"

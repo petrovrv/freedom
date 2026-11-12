@@ -1,0 +1,58 @@
+<Project>
+
+  <!-- Freedom F3a: settings and sources shared by Bridge.Net8.csproj and tests/Bridge.Net8.Tests.csproj.
+       Sources: the same list and order as build.cmd (net48 release path) + the .NET 8 adapters of this folder. -->
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <RootNamespace>AiWorkbenchBridge</RootNamespace>
+    <!-- HttpWebRequest/ServicePointManager (SYSLIB0014) stay as in net48; CA1416: Windows-only calls are guarded by
+         OperatingSystem.IsWindows() or sit on Windows-only paths (runAs, Job Objects, registry); the rest are
+         warnings csc of .NET Framework never showed for this code. -->
+    <NoWarn>$(NoWarn);SYSLIB0014;CA1416;CS0618;CS0649;CS0169;CS0414;CS0162;CS0168;CS0219</NoWarn>
+    <!-- Build output outside the repository and outside Drive. -->
+    <BaseOutputPath Condition="'$(OS)' == 'Windows_NT'">$(LOCALAPPDATA)\AIWorkbenchBuild\$(MSBuildProjectName)\bin\</BaseOutputPath>
+    <BaseOutputPath Condition="'$(OS)' != 'Windows_NT'">$(HOME)/.cache/aiwb-build/$(MSBuildProjectName)/bin/</BaseOutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <UseWindowsForms>true</UseWindowsForms>
+    <SupportedOSPlatformVersion>7.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <DefineConstants>$(DefineConstants);BRIDGE_HEADLESS</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <!-- String comparison as in net48 (NLS, not ICU) on Windows. -->
+    <RuntimeHostConfigurationOption Include="System.Globalization.UseNls" Value="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)..\BridgeAgent.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\BridgeAgentRuntimes.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\BridgeAgentParsers.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\GoogleTransport.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\BridgeDevices.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\DeviceWire.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\BridgeUsage.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\BridgeCorporate.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\BridgeSchedules.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\BridgePush.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\BridgeDbQueue.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\BridgeFollowups.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\BridgePcTools.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)JavaScriptSerializerCompat.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Platform.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)PlatformUnix.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)HeadlessUi.cs" Condition="'$(TargetFramework)' == 'net8.0'" />
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\BridgeAgent.ico" LogicalName="AiWorkbenchBridge.BridgeAgent.ico" />
+  </ItemGroup>
+
+</Project>

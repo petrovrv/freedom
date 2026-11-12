@@ -1,0 +1,10 @@
+{
+  "comment": "Trust list of Freedom release signatures (install/freedom_release.py verify). Public keys only; it changes only through a release signed under the previous list.",
+  "threshold": 1,
+  "maintainers": [
+    {
+      "name": "maintainer-1",
+      "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021"
+    }
+  ]
+}

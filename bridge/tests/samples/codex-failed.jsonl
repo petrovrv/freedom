@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"0199aaaa-bbbb-cccc-dddd-000000000002"}
+{"type":"error","error":{"message":"stream disconnected"}}
+{"type":"turn.failed","error":{"message":"usage limit reached"}}
+{"type":"error","message":"after final"}

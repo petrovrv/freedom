@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- Freedom F1: names of this install (site, members, Google project) from install.json, embedded at build time
+       (install/aiwb_install.py client-json). Without install.json the build goes on with empty defaults (an output of an
+       earlier build is removed); a failing generator (no python, broken install.json) fails the build. -->
+  <Target Name="AiwbInstallJson" BeforeTargets="PrepareForBuild">
+    <Exec Command="python &quot;$(MSBuildThisFileDirectory)..\..\..\install\aiwb_install.py&quot; client-json &quot;$(IntermediateOutputPath)install.client.json&quot;"
+          StandardOutputImportance="low" />
+    <ItemGroup>
+      <EmbeddedResource Include="$(IntermediateOutputPath)install.client.json" LogicalName="CO.Core.install.json"
+                        Condition="Exists('$(IntermediateOutputPath)install.client.json')" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <!-- Connector modules (connectors/*) build on the core's tool helpers. -->
+    <InternalsVisibleTo Include="CO.Corporate" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Cloud.PubSub.V1" Version="3.38.0" />
+    <PackageReference Include="PdfPig" Version="0.1.9" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>CO canvas</title>
+<style>
+  html, body { margin: 0; height: 100%; font: 14px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: #222; background: #f6f6f3; }
+  .page { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 10px; padding: 4px 10px; min-height: 32px; border-bottom: 1px solid #ddd; background: #fff; }
+  .brand { font-weight: 700; }
+  #title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #mode, #nb, #status { color: #777; font-size: 12px; }
+  #status.error { color: #b00020; }
+  .spacer { flex: 1; }
+  button { font: inherit; padding: 2px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
+  .share { position: relative; }
+  .menu { position: absolute; right: 0; top: 100%; margin-top: 2px; z-index: 10; display: flex; flex-direction: column; background: #fff; border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+  .menu[hidden] { display: none; }
+  .menu button { border: 0; border-radius: 0; text-align: left; white-space: nowrap; padding: 6px 12px; }
+  .menu button:hover { background: #f0f0ec; }
+  #msg { padding: 24px; text-align: center; color: #666; }
+  #msg.error { color: #b00020; }
+  #wrap { flex: 1; min-height: 0; }
+  #wrap > iframe, #wrap > div { width: 100%; height: 100%; border: 0; display: block; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <span class="brand">CO</span>
+    <span id="title">Canvas</span>
+    <span id="mode"></span>
+    <span id="nb"></span>
+    <span class="spacer"></span>
+    <span id="status"></span>
+    <button id="md" type="button" hidden title="Write this document as Markdown next to it">Save as Markdown</button>
+    <button id="clean" type="button" hidden title="Save a copy without the agent's comment threads next to this file">Clean copy</button>
+    <span class="share">
+      <button id="share" type="button" title="Gmail draft with this document attached (never sent by itself)">Share ▾</button>
+      <span id="shareMenu" class="menu" hidden>
+        <button type="button" data-format="original" id="shareOrig">Gmail draft · this file</button>
+        <button type="button" data-format="pdf">Gmail draft · PDF</button>
+      </span>
+    </span>
+    <button id="close" type="button">Close</button>
+  </header>
+  <div id="msg">Opening…</div>
+  <div id="wrap"><div id="editor"></div></div>
+</div>
+<script src="edit.js"></script>
+</body>
+</html>

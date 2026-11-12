@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.ico" />
+    <title>CO Lab · Drive latency</title>
+    <script src="https://accounts.google.com/gsi/client" async></script>
+    <style>
+      body { font: 14px/1.45 system-ui, sans-serif; margin: 0; padding: 16px; background: #f6f7f9; color: #1b1f24; }
+      main { max-width: 900px; margin: 0 auto; }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      p.note { color: #5a6270; margin: 0 0 16px; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+      button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #c9ced6; background: #fff; cursor: pointer; }
+      button.primary { background: #1f4fae; color: #fff; border-color: #1f4fae; }
+      button:disabled { opacity: .5; cursor: default; }
+      input { font: inherit; width: 60px; padding: 6px; border-radius: 6px; border: 1px solid #c9ced6; }
+      #status { font-weight: 600; }
+      pre { background: #fff; border: 1px solid #dde1e7; border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12.5px; }
+      table { border-collapse: collapse; width: 100%; background: #fff; font-variant-numeric: tabular-nums; }
+      th, td { border-bottom: 1px solid #e3e6eb; padding: 4px 8px; text-align: right; }
+      th:first-child, td:first-child { text-align: left; }
+      .wrap { overflow-x: auto; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Drive round-trip latency</h1>
+      <p class="note">Measures one tool-call round trip through Google Drive: this page writes a call file, the other side answers with a result file. Only timestamps travel; no content.</p>
+      <div class="row">
+        <button id="signin" class="primary">Sign in with Google</button>
+        <span id="who"></span>
+      </div>
+      <div class="row">
+        <label>Iterations <input id="n" type="number" value="20" min="1" max="100" /></label>
+        <label>Poll, ms <input id="poll" type="number" value="400" min="200" max="5000" /></label>
+      </div>
+      <div class="row">
+        <button id="runG" disabled>Run: home PC via G: sync</button>
+        <button id="runApi" disabled>Run: API echo (lower bound)</button>
+        <button id="stop" disabled>Stop</button>
+      </div>
+      <div id="status">Idle</div>
+      <h2>Summary</h2>
+      <pre id="summary">—</pre>
+      <h2>Iterations</h2>
+      <div class="wrap"><table id="tbl"><thead><tr><th>#</th><th>mode</th><th>create ms</th><th>RTT ms</th><th>up ms*</th><th>home ms</th><th>down ms*</th><th>polls</th></tr></thead><tbody></tbody></table></div>
+      <p class="note">* Leg split is exact only when this browser and the home PC share a clock (run on the home PC) — otherwise it includes clock skew. RTT is always exact.</p>
+    </main>
+    <script type="module" src="/src/lab.ts"></script>
+  </body>
+</html>

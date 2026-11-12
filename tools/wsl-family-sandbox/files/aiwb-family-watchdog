@@ -1,0 +1,26 @@
+#!/bin/bash
+# aiwb-family watchdog (root): kills family processes that run outside their sandbox
+# (wrong cgroup or wrong network namespace, e.g. "wsl -u <user> -e prog" that skips the login shell),
+# re-ensures the firewall every minute and cleans old temp files every hour.
+exec 9>/run/aiwb/watchdog.lock
+flock -n 9 || exit 0
+LOG=/var/log/aiwb-family.log
+n=0
+while :; do
+    while read -r u uid _; do
+        nsino=$(stat -L -c %i /run/netns/aiwb-$u 2>/dev/null)
+        for p in $(pgrep -u "$uid" 2>/dev/null); do
+            cg=$(cut -d: -f3 /proc/$p/cgroup 2>/dev/null) || continue
+            ino=$(stat -L -c %i /proc/$p/ns/net 2>/dev/null) || continue
+            case "$cg" in /aiwb-family/$u|/aiwb-family/$u/*) [ -n "$nsino" ] && [ "$ino" = "$nsino" ] && continue ;; esac
+            age=$(ps -o etimes= -p $p 2>/dev/null | tr -d ' ')
+            [ "${age:-0}" -ge 2 ] || continue
+            echo "$(date '+%F %T') kill $u pid $p outside sandbox (cg=$cg): $(tr '\0' ' ' </proc/$p/cmdline 2>/dev/null | cut -c1-200)" >>$LOG
+            kill -9 $p 2>/dev/null
+        done
+    done < <(awk '!/^[[:space:]]*#/ && NF>=2' /etc/aiwb-family/users)
+    n=$((n + 1))
+    [ $((n % 30)) -eq 0 ] && /usr/local/sbin/aiwb-family-boot net
+    [ $((n % 1800)) -eq 0 ] && /usr/local/sbin/aiwb-family-boot clean
+    sleep 2
+done

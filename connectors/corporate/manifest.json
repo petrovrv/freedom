@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "_comment": "Freedom F1 step 5b: what the core (server, CO Web, later Bridge and CO Desktop) knows about this corporate connector. The core reads only these fields; employer names live here. paused = the owner stopped using it (27.10.2026): its agents are not offered and its tools are denied to every job.",
+  "id": "engie",
+  "title": "ENGIE",
+  "employerTitle": "ENGIE (Employer)",
+  "portalTitle": "engie.ai",
+  "signinTitle": "Okta Verify",
+  "domains": ["tractebel.engie.com", "engie.com"],
+  "paused": true,
+  "agents": [
+    {
+      "id": "engie",
+      "kind": "corporate-llm",
+      "title": "ENGIE (Employer)",
+      "card": {
+        "summary": "Corporate ENGIE models.",
+        "strengths": "code, translation, reasoning",
+        "limits": "cannot create files; corporate data stays in its environment",
+        "dataStaysIn": "corporate"
+      }
+    },
+    {
+      "id": "dispatcher",
+      "kind": "corporate-dispatcher",
+      "title": "Dispatcher (ENGIE)",
+      "needsDevice": true,
+      "defaultModel": "claude-opus-5.5",
+      "job": true,
+      "family": "claude",
+      "card": {
+        "summary": "Claude that delegates writing to the corporate ENGIE models through a CO Desktop device.",
+        "strengths": "writes code and text well",
+        "limits": "cannot create files itself; needs a device with engie_chat; corporate data stays in its environment",
+        "dataStaysIn": "corporate"
+      }
+    }
+  ],
+  "tools": [
+    { "name": "engie_chat", "kind": "corporate-llm" },
+    { "name": "engie_fetch", "kind": "corporate-fetch" }
+  ],
+  "errorPattern": "ENGIE call failed|engie\\.ai",
+  "usageSource": "engie-savings",
+  "resumeText": "ENGIE is back online: engie_chat is available again. Continue the interrupted task from where you stopped. If it was already finished, reply briefly that nothing is left to do."
+}

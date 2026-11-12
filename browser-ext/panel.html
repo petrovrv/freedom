@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AI Workbench</title>
+<link rel="stylesheet" href="panel.css">
+</head>
+<body>
+<header>
+  <img src="icons/32.png" alt="" width="18" height="18">
+  <span id="state">Connecting…</span>
+  <span id="last" class="muted"></span>
+  <span class="spacer"></span>
+  <button id="pause" title="Stop the agent from acting in the browser; you take over">Pause agent</button>
+  <button id="gear" title="Settings">⚙</button>
+</header>
+<div id="settings" hidden>
+  <label><input type="checkbox" id="askClicks"> Ask before clicks with an unclear effect</label>
+  <div class="muted">Always asked: send/publish, purchase, delete, final submit, upload. Never asked: Next/Continue steps, cookie banners.
+    Passwords, MFA and payment data: only you.</div>
+  <div><button id="reload">Reload CO</button> <span id="version" class="muted"></span></div>
+</div>
+<div id="dialog" class="dialog" hidden></div>
+<iframe id="co" title="CO" allow="clipboard-read; clipboard-write; microphone"></iframe>
+<script src="site.js"></script>
+<script src="panel.js"></script>
+</body>
+</html>

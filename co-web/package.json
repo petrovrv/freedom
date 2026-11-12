@@ -1,0 +1,35 @@
+{
+  "name": "co-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "test": "node src/webdevCore.selftest.ts && node src/chatTree.selftest.ts && node src/undoPlan.selftest.ts && node src/memoryIndex.selftest.ts && node src/workPlan.selftest.ts && node src/diagnose.selftest.ts && node src/studyMode.selftest.ts && node src/studyDoc.selftest.ts && node src/chatQuote.selftest.ts && node src/routing.selftest.ts && node src/modelPick.selftest.ts && node src/secretaryHints.selftest.ts"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.16",
+    "fflate": "^0.8.3",
+    "katex": "^0.16.47",
+    "marked": "^18.0.14",
+    "pdfjs-dist": "^6.5.438",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.4"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.0.5",
+    "@types/google.accounts": "^0.0.18",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "oxlint": "^1.81.0",
+    "playwright": "^1.63.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  }
+}

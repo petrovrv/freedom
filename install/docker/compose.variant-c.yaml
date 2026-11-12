@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Variant C (only a computer): plain HTTP on localhost only; access from outside goes through Tailscale
+# (`tailscale serve` / `tailscale funnel` on the computer, which ends TLS with the *.ts.net certificate).
+services:
+  caddy:
+    ports:
+      - "${BIND:-127.0.0.1}:${HTTP_PORT:-18080}:80"

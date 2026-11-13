@@ -56,6 +56,9 @@ namespace AiWorkbenchBridge
         // own tool library as device "h-<host>" (tool_run only for the tools listed here, owner's environment only).
         public bool relay { get; set; }
         public string[] relayTools { get; set; }
+        // v1.19.0: short name of device h-<host> (the site agent's MCP server dev_<short>); default "home". A second
+        // computer of the owner (a Linux server) needs its own, else its tools hide the first one's.
+        public string relayHomeShort { get; set; }
         // v1.15.0: pc_* tools of h-<host> (BridgePcTools.cs) for the owner's site jobs; pcFamily = environment -> Linux
         // user of the WSL sandbox pcSandbox, each with its own device h-<host>-<user> (pc_* only, inside the sandbox).
         public bool pcTools { get; set; }
@@ -129,25 +132,55 @@ namespace AiWorkbenchBridge
         public const string CallKeyName = "AIWorkbench.Bridge.DeviceCalls";
         private static readonly byte[] EccPublicMagicP256 = { 0x45, 0x43, 0x53, 0x31, 0x20, 0x00, 0x00, 0x00 }; // "ECS1", 32
 
-        // Non-exportable ECDSA P-256 key in the user's software key store.
-        public static CngKey OpenOrCreateCallKey()
+        // Windows: non-exportable ECDSA P-256 key in the user's software key store. v1.19.0, Linux/macOS (.NET 8): the
+        // private key (PKCS#8) in the secret store of the platform under the same name - keyring, never a file.
+        public static ECDsa OpenOrCreateCallKey()
         {
+#if NET8_0_OR_GREATER
+            if (!OperatingSystem.IsWindows())
+                return OpenOrCreateStoredKey(BridgePlatform.Current.Secrets);
+#endif
             if (CngKey.Exists(CallKeyName, CngProvider.MicrosoftSoftwareKeyStorageProvider))
-                return CngKey.Open(CallKeyName, CngProvider.MicrosoftSoftwareKeyStorageProvider);
+                return new ECDsaCng(CngKey.Open(CallKeyName, CngProvider.MicrosoftSoftwareKeyStorageProvider));
             CngKeyCreationParameters p = new CngKeyCreationParameters();
             p.Provider = CngProvider.MicrosoftSoftwareKeyStorageProvider;
             p.ExportPolicy = CngExportPolicies.None;
             p.KeyUsage = CngKeyUsages.Signing;
-            return CngKey.Create(CngAlgorithm.ECDsaP256, CallKeyName, p);
+            return new ECDsaCng(CngKey.Create(CngAlgorithm.ECDsaP256, CallKeyName, p));
         }
 
-        // base64 of X||Y, the format CO.Core uses.
-        public static string PublicKey(CngKey key)
+#if NET8_0_OR_GREATER
+        internal static ECDsa OpenOrCreateStoredKey(ISecretStore store)
         {
-            byte[] blob = key.Export(CngKeyBlobFormat.EccPublicBlob);
-            byte[] xy = new byte[64];
-            Buffer.BlockCopy(blob, 8, xy, 0, 64);
-            return Convert.ToBase64String(xy);
+            ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            string pkcs8 = store.Read(CallKeyName);
+            if (!String.IsNullOrEmpty(pkcs8))
+            {
+                int read;
+                key.ImportPkcs8PrivateKey(Convert.FromBase64String(pkcs8.Trim()), out read);
+                return key;
+            }
+            store.Write(CallKeyName, Convert.ToBase64String(key.ExportPkcs8PrivateKey()), "AI Workbench Bridge: device-call key");
+            return key;
+        }
+#endif
+
+        // base64 of X||Y, the format CO.Core uses.
+        public static string PublicKey(ECDsa key)
+        {
+            ECDsaCng cng = key as ECDsaCng;
+            if (cng != null)
+            {
+                byte[] blob = cng.Key.Export(CngKeyBlobFormat.EccPublicBlob);
+                byte[] xy = new byte[64];
+                Buffer.BlockCopy(blob, 8, xy, 0, 64);
+                return Convert.ToBase64String(xy);
+            }
+            ECParameters prm = key.ExportParameters(false);
+            byte[] q = new byte[64];
+            Buffer.BlockCopy(prm.Q.X, 0, q, 0, 32);
+            Buffer.BlockCopy(prm.Q.Y, 0, q, 32, 32);
+            return Convert.ToBase64String(q);
         }
 
         public static string Fingerprint(string publicKeyB64)
@@ -162,13 +195,9 @@ namespace AiWorkbenchBridge
             }
         }
 
-        public static string Sign(CngKey key, byte[] data)
+        public static string Sign(ECDsa key, byte[] data)
         {
-            using (ECDsaCng ec = new ECDsaCng(key))
-            {
-                ec.HashAlgorithm = CngAlgorithm.Sha256;
-                return Convert.ToBase64String(ec.SignData(data));   // IEEE P1363 r||s
-            }
+            return Convert.ToBase64String(key.SignData(data, HashAlgorithmName.SHA256));   // IEEE P1363 r||s
         }
 
         public static bool Verify(string publicKeyB64, byte[] data, string signatureB64)
@@ -179,6 +208,16 @@ namespace AiWorkbenchBridge
                 byte[] sig = Convert.FromBase64String(signatureB64);
                 if (xy.Length != 64 || sig.Length != 64)
                     return false;
+#if NET8_0_OR_GREATER
+                if (!OperatingSystem.IsWindows())
+                {
+                    ECParameters prm = new ECParameters();
+                    prm.Curve = ECCurve.NamedCurves.nistP256;
+                    prm.Q = new ECPoint { X = xy[0..32], Y = xy[32..64] };
+                    using (ECDsa e = ECDsa.Create(prm))
+                        return e.VerifyData(data, sig, HashAlgorithmName.SHA256);
+                }
+#endif
                 byte[] blob = new byte[72];
                 Buffer.BlockCopy(EccPublicMagicP256, 0, blob, 0, 8);
                 Buffer.BlockCopy(xy, 0, blob, 8, 64);
@@ -286,7 +325,7 @@ namespace AiWorkbenchBridge
 
     internal sealed partial class BridgeApplicationContext
     {
-        private CngKey _deviceCallKey;
+        private ECDsa _deviceCallKey;
         private string _deviceCallPublicKey;
         private readonly ConcurrentDictionary<string, PairedDevice> _pairedDevices =
             new ConcurrentDictionary<string, PairedDevice>(StringComparer.Ordinal);
@@ -2657,7 +2696,14 @@ namespace AiWorkbenchBridge
     {
         private const int RelayMaxActive = 8;
         private const int RelayStateIdleMinutes = 30;
-        private const string RelayHomeShort = "home";
+        private string RelayHomeShort
+        {
+            get
+            {
+                string s = D.relayHomeShort;
+                return !String.IsNullOrEmpty(s) && Regex.IsMatch(s, @"\A[a-z0-9]{1,12}\z") ? s : "home";
+            }
+        }
         private int _relayActive;
         private int _relayClaiming;      // 1 while a relay_claim request is out (its calls are not counted yet)
         private readonly ConcurrentDictionary<string, DateTime> _relayStates = new ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);

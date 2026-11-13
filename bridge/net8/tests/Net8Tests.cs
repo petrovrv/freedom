@@ -872,6 +872,20 @@ namespace AiWorkbenchBridge.Tests
             }
 #endif
 
+            // v1.19.0: the device-call key outside Windows lives in the secret store; signatures verify as CO.Core's
+            using (System.Security.Cryptography.ECDsa dk = DeviceCrypto.OpenOrCreateStoredKey(store))
+            {
+                Check("devices", "device-call key kept in the secret store", store.Items.ContainsKey(DeviceCrypto.CallKeyName));
+                byte[] data = Encoding.UTF8.GetBytes("co.tool.call.v1|x");
+                string pk = DeviceCrypto.PublicKey(dk);
+                string sg = DeviceCrypto.Sign(dk, data);
+                Check("devices", "public key is X||Y (64 bytes)", Convert.FromBase64String(pk).Length == 64);
+                Check("devices", "signature verifies", DeviceCrypto.Verify(pk, data, sg));
+                Check("devices", "other data refused", !DeviceCrypto.Verify(pk, Encoding.UTF8.GetBytes("other"), sg));
+                using (System.Security.Cryptography.ECDsa again = DeviceCrypto.OpenOrCreateStoredKey(store))
+                    Eq("devices", "same key on the next start", pk, DeviceCrypto.PublicKey(again));
+            }
+
             string[] files =
             {
                 "/c/BridgeAgent-1.19.0-linux-x64.sig.json", "/c/BridgeAgent-1.20.0-linux-x64.sig.json",

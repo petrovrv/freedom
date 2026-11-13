@@ -6,7 +6,16 @@
 #   bash bridge/install.sh [--binary FILE [--allow-unverified] | --build] [--config-from FILE] [--host-id ID]
 #                          [--channel DIR] [--release-key BASE64] [--deps] [--keyring auto|session|headless]
 #                          [--no-linger] [--no-start] [--python PY]
+#                          [--relay-short NAME] [--relay-tools a,b]
 #   bash bridge/install.sh --uninstall          stop and remove the services (config, logs, keyring and channel stay)
+#
+#   Dedicated system account (run as root, e.g. sudo): creates the account (system user, home /var/lib/NAME, password
+#   locked), copies this source tree, the release build next to it and install.json into its home, switches linger on
+#   and runs the steps below as that account; --uninstall removes the services, then the account with its home
+#   (only an account this script created). --put-secret NAME stores stdin in that account's keyring.
+#   sudo bash bridge/install.sh --system-user NAME [--install-json FILE] [--deps] [options above]
+#   sudo bash bridge/install.sh --system-user NAME --uninstall
+#   printf %s "$KEY" | sudo bash bridge/install.sh --system-user NAME --put-secret aiwb/co-push
 #
 # What it does, in this order:
 #   1. --deps: packages through apt-get / dnf (sudo): git, python3 with keyring, libsecret tools, gnome-keyring,
@@ -46,7 +55,8 @@ KUNIT="aiwb-keyring.service"
 UNLOCK="$CONF/aiwb-keyring/unlock"
 
 BINARY="" BUILD=0 CONFIG_FROM="" HOST_ID="" CHANNEL="" TRUST_KEY="" DEPS=0 KEYRING=auto LINGER=1 START=1
-PY="" UNVERIFIED=0 UNINSTALL=0
+PY="" UNVERIFIED=0 UNINSTALL=0 SYSUSER="" INSTALL_JSON="" PUT_SECRET="" RELAY_SHORT="" RELAY_TOOLS=""
+FWD=()   # what the root mode passes on to the run as the dedicated account
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'install.sh: %s\n' "$*" >&2; exit 1; }
@@ -54,26 +64,32 @@ die() { printf 'install.sh: %s\n' "$*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
     case "$1" in
         --binary) BINARY="${2:?--binary FILE}"; shift ;;
-        --allow-unverified) UNVERIFIED=1 ;;
-        --build) BUILD=1 ;;
+        --allow-unverified) UNVERIFIED=1; FWD+=("$1") ;;
+        --build) BUILD=1; FWD+=("$1") ;;
         --config-from) CONFIG_FROM="${2:?--config-from FILE}"; shift ;;
-        --host-id) HOST_ID="${2:?--host-id ID}"; shift ;;
-        --channel) CHANNEL="${2:?--channel DIR}"; shift ;;
-        --release-key) TRUST_KEY="${2:?--release-key BASE64}"; shift ;;
+        --host-id) HOST_ID="${2:?--host-id ID}"; FWD+=("$1" "$2"); shift ;;
+        --channel) CHANNEL="${2:?--channel DIR}"; FWD+=("$1" "$2"); shift ;;
+        --release-key) TRUST_KEY="${2:?--release-key BASE64}"; FWD+=("$1" "$2"); shift ;;
         --deps) DEPS=1 ;;
-        --keyring) KEYRING="${2:?--keyring auto|session|headless}"; shift ;;
-        --no-linger) LINGER=0 ;;
-        --no-start) START=0 ;;
+        --keyring) KEYRING="${2:?--keyring auto|session|headless}"; FWD+=("$1" "$2"); shift ;;
+        --no-linger) LINGER=0; FWD+=("$1") ;;
+        --no-start) START=0; FWD+=("$1") ;;
         --python) PY="${2:?--python PY}"; shift ;;
+        --relay-short) RELAY_SHORT="${2:?--relay-short NAME}"; FWD+=("$1" "$2"); shift ;;
+        --relay-tools) RELAY_TOOLS="${2:?--relay-tools a,b}"; FWD+=("$1" "$2"); shift ;;
         --uninstall) UNINSTALL=1 ;;
-        -h|--help) sed -n '3,36p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --system-user) SYSUSER="${2:?--system-user NAME}"; shift ;;
+        --install-json) INSTALL_JSON="${2:?--install-json FILE}"; shift ;;
+        --put-secret) PUT_SECRET="${2:?--put-secret NAME}"; shift ;;
+        -h|--help) sed -n '3,45p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown argument $1 (--help)" ;;
     esac
     shift
 done
+[ -z "$RELAY_SHORT" ] || [[ "$RELAY_SHORT" =~ ^[a-z0-9]{1,12}$ ]] || die "--relay-short: 1-12 of a-z, 0-9"
+[ -z "$RELAY_TOOLS" ] || [[ "$RELAY_TOOLS" =~ ^[a-z0-9][a-z0-9,-]*$ ]] || die "--relay-tools: tool names, comma separated"
 
 [ "$(uname -s)" = Linux ] || die "this installer is for Linux (Windows: bridge/install.ps1)"
-[ "$(id -u)" != 0 ] || die "run it as the account Bridge runs under, not as root (see --help: dedicated account)"
 case "$(uname -m)" in
     x86_64|amd64) RID=linux-x64 ;;
     aarch64|arm64) RID=linux-arm64 ;;
@@ -108,6 +124,116 @@ user_manager() {
     export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 }
 
+# ---------------------------------------------------------------- 1. packages
+
+install_deps() {
+    . /etc/os-release
+    case " ${ID:-} ${ID_LIKE:-} " in
+        *" debian "*|*" ubuntu "*)
+            as_root apt-get update -q
+            icu="$(apt-cache pkgnames libicu 2>/dev/null | grep -E '^libicu[0-9]+$' | sort -V | tail -1)"
+            # needrestart (Ubuntu) must not restart services of the machine (Docker, Home Assistant ...) behind our back
+            as_root env DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 NEEDRESTART_MODE=l \
+                apt-get install -y -q --no-install-recommends ca-certificates git \
+                python3 python3-keyring python3-secretstorage python3-cryptography python3-paramiko libsecret-tools \
+                gnome-keyring dbus-user-session ${icu:-libicu-dev} ;;
+        *" fedora "*)
+            as_root dnf install -y -q git python3 python3-keyring python3-secretstorage python3-cryptography \
+                python3-paramiko libsecret gnome-keyring libicu ;;
+        *) die "--deps knows apt-get (Debian/Ubuntu) and dnf (Fedora); install by hand (RHEL: EPEL first): git python3 python3-keyring libsecret gnome-keyring ICU" ;;
+    esac
+}
+
+# ---------------------------------------------------------------- root: a dedicated system account
+
+MARK=".aiworkbench-bridge-account"   # in the home of an account this script created (only those are deleted)
+
+as_account() {   # as_account CMD...: a command as $SYSUSER inside its systemd user session (bus of its manager)
+    local uid; uid="$(id -u "$SYSUSER")"
+    runuser -u "$SYSUSER" -- env -i HOME="$SYSHOME" USER="$SYSUSER" LOGNAME="$SYSUSER" SHELL=/bin/bash LANG=C.UTF-8 \
+        PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin XDG_RUNTIME_DIR="/run/user/$uid" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" "$@"
+}
+
+account_session() {   # linger on and the account's user manager up
+    local uid; uid="$(id -u "$SYSUSER")"
+    loginctl enable-linger "$SYSUSER"
+    for _ in $(seq 1 30); do [ -S "/run/user/$uid/bus" ] && break; sleep 1; done
+    [ -S "/run/user/$uid/bus" ] || die "no user manager / D-Bus for $SYSUSER after enable-linger (Debian/Ubuntu: dbus-user-session; --deps)"
+}
+
+if [ "$(id -u)" = 0 ]; then
+    [ -n "$SYSUSER" ] || die "as root only with --system-user NAME (else run it as the account Bridge runs under)"
+    [[ "$SYSUSER" =~ ^[a-z][a-z0-9_-]{0,30}$ ]] || die "--system-user: a Linux account name"
+    if [ "$UNINSTALL" = 1 ]; then
+        id "$SYSUSER" >/dev/null 2>&1 || { say "no account $SYSUSER: nothing to remove"; exit 0; }
+        SYSHOME="$(getent passwd "$SYSUSER" | cut -d: -f6)"
+        if [ -S "/run/user/$(id -u "$SYSUSER")/bus" ] && [ -f "$SYSHOME/freedom/bridge/install.sh" ]; then
+            as_account bash "$SYSHOME/freedom/bridge/install.sh" --uninstall || true
+        fi
+        if [ ! -f "$SYSHOME/$MARK" ]; then
+            say "services of $SYSUSER removed; the account itself was not made by this script and stays"
+            exit 0
+        fi
+        loginctl disable-linger "$SYSUSER" || true
+        loginctl terminate-user "$SYSUSER" 2>/dev/null || true
+        for _ in $(seq 1 20); do pgrep -u "$SYSUSER" >/dev/null || break; sleep 1; done
+        pkill -KILL -u "$SYSUSER" 2>/dev/null || true
+        userdel -r "$SYSUSER" 2>/dev/null || userdel "$SYSUSER"
+        rm -rf "$SYSHOME"
+        say "removed: the services, linger and the account $SYSUSER with its home $SYSHOME (config, logs, keyring, channel)"
+        exit 0
+    fi
+    if [ -n "$PUT_SECRET" ]; then
+        [[ "$PUT_SECRET" =~ ^[A-Za-z0-9._/-]{1,80}$ ]] || die "--put-secret: a keyring name like aiwb/co-push"
+        id "$SYSUSER" >/dev/null 2>&1 || die "no account $SYSUSER (install first)"
+        SYSHOME="$(getent passwd "$SYSUSER" | cut -d: -f6)"
+        account_session
+        as_account secret-tool store --label="$PUT_SECRET" service "$PUT_SECRET" username default \
+            || die "secret-tool store failed"
+        say "stored $PUT_SECRET in the keyring of $SYSUSER"
+        exit 0
+    fi
+    if [ "$DEPS" = 1 ]; then install_deps; fi
+    if ! id "$SYSUSER" >/dev/null 2>&1; then
+        useradd --system --create-home --home-dir "/var/lib/$SYSUSER" --shell /bin/bash --comment "AI Workbench Bridge" "$SYSUSER"
+        touch "/var/lib/$SYSUSER/$MARK"
+        say "account $SYSUSER created (system user, home /var/lib/$SYSUSER, no password: sudo -iu $SYSUSER to sign in to the CLIs)"
+    fi
+    SYSHOME="$(getent passwd "$SYSUSER" | cut -d: -f6)"
+    # the sources (the account cannot read the admin's home), the release build next to them, install.json
+    rm -rf "$SYSHOME/freedom.new"
+    cp -a "$SRC" "$SYSHOME/freedom.new"
+    rm -rf "$SYSHOME/freedom"
+    mv "$SYSHOME/freedom.new" "$SYSHOME/freedom"
+    [ -n "$BINARY" ] || BINARY="$(ls -1 "$SRC"/../BridgeAgent-*-"$RID" 2>/dev/null | sort -V | tail -1 || true)"
+    if [ -n "$BINARY" ]; then
+        [ -f "$BINARY" ] || die "no $BINARY"
+        cp "$BINARY" "$SYSHOME/$(basename "$BINARY")"
+        M="$(dirname "$BINARY")/freedom-manifest.json"
+        if [ -f "$M" ]; then cp "$M" "$SYSHOME/freedom-manifest.json"; else rm -f "$SYSHOME/freedom-manifest.json"; fi
+        FWD+=(--binary "$SYSHOME/$(basename "$BINARY")")
+    fi
+    if [ -n "$CONFIG_FROM" ]; then
+        cp "$CONFIG_FROM" "$SYSHOME/config.from.json"
+        FWD+=(--config-from "$SYSHOME/config.from.json")
+    fi
+    [ -n "$INSTALL_JSON" ] || { [ -n "${SUDO_USER:-}" ] && INSTALL_JSON="$(getent passwd "$SUDO_USER" | cut -d: -f6)/.config/aiwb/install.json"; }
+    mkdir -p "$SYSHOME/.config/aiwb"
+    if [ -f "$SYSHOME/.config/aiwb/install.json" ]; then
+        say "install.json of $SYSUSER kept"
+    elif [ -n "$INSTALL_JSON" ] && [ -f "$INSTALL_JSON" ]; then
+        cp "$INSTALL_JSON" "$SYSHOME/.config/aiwb/install.json"
+        say "install.json copied from $INSTALL_JSON"
+    fi
+    chown -R "$SYSUSER:" "$SYSHOME"
+    chmod 750 "$SYSHOME"
+    account_session
+    as_account bash "$SYSHOME/freedom/bridge/install.sh" "${FWD[@]}"
+    exit $?
+fi
+[ -z "$SYSUSER" ] || die "--system-user needs root (sudo)"
+
 # ---------------------------------------------------------------- uninstall
 
 if [ "$UNINSTALL" = 1 ]; then
@@ -124,23 +250,7 @@ if [ "$UNINSTALL" = 1 ]; then
     exit 0
 fi
 
-# ---------------------------------------------------------------- 1. packages
-
-if [ "$DEPS" = 1 ]; then
-    . /etc/os-release
-    case " ${ID:-} ${ID_LIKE:-} " in
-        *" debian "*|*" ubuntu "*)
-            as_root apt-get update -q
-            icu="$(apt-cache pkgnames libicu 2>/dev/null | grep -E '^libicu[0-9]+$' | sort -V | tail -1)"
-            as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends ca-certificates git \
-                python3 python3-keyring python3-secretstorage python3-cryptography python3-paramiko libsecret-tools \
-                gnome-keyring dbus-user-session ${icu:-libicu-dev} ;;
-        *" fedora "*)
-            as_root dnf install -y -q git python3 python3-keyring python3-secretstorage python3-cryptography \
-                python3-paramiko libsecret gnome-keyring libicu ;;
-        *) die "--deps knows apt-get (Debian/Ubuntu) and dnf (Fedora); install by hand (RHEL: EPEL first): git python3 python3-keyring libsecret gnome-keyring ICU" ;;
-    esac
-fi
+if [ "$DEPS" = 1 ]; then install_deps; fi
 
 [ -n "$PY" ] || PY="$(command -v python3 || true)"
 [ -n "$PY" ] || die "python3 is needed (--deps)"
@@ -235,14 +345,22 @@ elif [ ! -f "$CFG" ]; then
         || die "config.json from install.json failed (python3 install/freedom_setup.py init first)"
 fi
 # hostId (--host-id) and the state folder spelled out: the launcher (drain.request) and Bridge must use the same one,
-# whatever XDG_DATA_HOME the shell or the service manager has
-"$PY" - "$CFG" "$HOST_ID" "$STATE" <<'EOF'
+# whatever XDG_DATA_HOME the shell or the service manager has; --relay-short / --relay-tools: device h-<host> of the
+# owner's site jobs (the short name must differ from the other computers' "home")
+"$PY" - "$CFG" "$HOST_ID" "$STATE" "$RELAY_SHORT" "$RELAY_TOOLS" <<'EOF'
 import json, re, sys
-p, host, state = sys.argv[1], sys.argv[2], sys.argv[3]
+p, host, state, short, tools = sys.argv[1:6]
 if host and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,39}', host):
     sys.exit('--host-id: 1-40 letters, digits, _ or -')
 cfg = json.load(open(p, encoding='utf-8-sig'))
 new = dict(cfg, localStateRoot=state, **({'hostId': host} if host else {}))
+dev = dict(new.get('devices') or {})
+if short:
+    dev['relayHomeShort'] = short
+if tools:
+    dev['relayTools'] = [t for t in tools.split(',') if t]
+if short or tools:
+    new['devices'] = dev
 if new != cfg:
     open(p, 'w', encoding='utf-8').write(json.dumps(new, ensure_ascii=False, indent=2) + '\n')
     if host and cfg.get('hostId') != host:
@@ -382,6 +500,8 @@ mkdir -p "$UNITDIR"
     echo "[Service]"
     echo "ExecStart=\"$APP/BridgeAgent\" --launcher --root \"$APP\""
     echo "Environment=\"PATH=$UPATH\""
+    # the tool library of device h-<host> (toolbox/mcp_server.py): the core tools of this source tree
+    if [ -f "$SRC/tools/toolbox/mcp_server.py" ]; then echo "Environment=\"AIWB_TOOLS=$SRC/tools\""; fi
     echo "Restart=always"
     echo "RestartSec=30"
     echo "TimeoutStopSec=30"

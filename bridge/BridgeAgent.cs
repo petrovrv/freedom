@@ -589,7 +589,7 @@ namespace AiWorkbenchBridge
 
     internal sealed partial class BridgeApplicationContext : ApplicationContext
     {
-        private const string BridgeVersion = "1.18.0";
+        private const string BridgeVersion = "1.18.1";
         private const int ProtocolMinor = 2;
 
         private static readonly string[] KnownModes = new string[] { "chat", "cowork" };

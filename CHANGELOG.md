@@ -15,7 +15,7 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
   - `release/build_installers.py`: neutral CO Desktop installer (own build root, nothing embedded, fails on private
     words in the own assemblies), source tarball, notes draft; no Authenticode signature (the manifest signature
     is the check).
-  - Bridge: `bridge/install.ps1` on a new PC makes `config.json` from install.json (`aiwb_install.py bridge-config`),
+  - Bridge 1.18.1: `bridge/install.ps1` on a new PC makes `config.json` from install.json (`aiwb_install.py bridge-config`),
     creates a release key of this PC, builds and signs Bridge from the sources into a local channel and registers the
     logon task; existing installs keep their channel and task. `release.ps1` works in a tree without git. Config
     `desktopUpdatesDir` (CO Desktop / CO Resident releases offered to devices; default

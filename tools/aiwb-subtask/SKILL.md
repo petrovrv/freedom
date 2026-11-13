@@ -1,7 +1,7 @@
 ---
 name: aiwb-subtask
 description: Nested sessions for AI Workbench agents — start subtasks that run in parallel as child chats (own agent/model/host, visible in CO Web with status icons), then wait and collect their answers into your reply; list the model resources (own subscriptions, the site, family models allowed as slaves, corporate) with their capability cards and call any of them by --resource, on the home PC and on the site. Use when a task splits into independent parts (research several sources, per-file work, compare options) or another model suits a part better.
-version: 0.6.3
+version: 0.7.0
 entry: aiwb-subtask.py
 requires: [keyring (home PC), requests (home PC), paramiko (home PC)]
 secrets: [aiwb/co-push]
@@ -16,11 +16,12 @@ secrets: [aiwb/co-push]
 ```
 python aiwb-subtask.py models [--json] [--parent CHAT-ID | --env ENV]
 python aiwb-subtask.py spawn --resource ID --prompt "<задача>" [--title T] [--model M] [--mode chat|cowork] [--parent CHAT-ID] [--timeout-minutes 120] [--device d-<16hex> ...] [--again]
-python aiwb-subtask.py spawn --prompt "<самодостаточная задача>" [--title T] [--agent claude|codex|dispatcher] [--model sonnet] [--mode chat|cowork] [--host home-main|site] [--parent CHAT-ID] [--top-level] [--timeout-minutes 120]
+python aiwb-subtask.py spawn --prompt "<самодостаточная задача>" [--title T] [--agent claude|codex|dispatcher] [--model sonnet] [--mode chat|cowork] [--host <id исполнителя>] [--parent CHAT-ID] [--top-level] [--timeout-minutes 120]
     [--device d-<16hex> ...] [--context-folder rootId:relativePath[:read|write] ...]
 python aiwb-subtask.py wait JOB-ID [JOB-ID ...] [--timeout 1800]
 python aiwb-subtask.py status JOB-ID [JOB-ID ...]
 python aiwb-subtask.py post --chat CHAT-ID --prompt "<текст>" [--author "agent · <откуда>"] [--agent ...] [--model ...] [--host ...] [--timeout-minutes 120]
+python aiwb-subtask.py hosts [--env ENV] [--json]
 ```
 
 `post` — сообщение в уже существующий чат (например, передать идею в соседний чат проекта): событие user_message с указанным автором + задание, которое продолжает сессию агента этого чата (агент, режим, модель, устройства, права и папки контекста берутся из его последнего завершённого задания). Не ставит, если в чате есть незавершённое задание. Печатает `{chatId, jobId, resume}`; ответ — `wait JOB-ID`.
@@ -54,6 +55,7 @@ python aiwb-subtask.py post --chat CHAT-ID --prompt "<текст>" [--author "ag
 
 ## История
 
+- 0.7.0 — 2026-11-13 — Freedom F12 (много исполнителей, схема 28): `--host` у `spawn`/`post` — любой id исполнителя (`home-main`, `site` или зарегистрированный Bridge на другом ПК, Маке, Linux-сервере), неизвестный id отклоняется до постановки задания; новая команда `hosts` — список исполнителей (db.php `executors_host`: вид, ОС, чей, версия, берёт ли задания, агенты).
 - 0.6.3 — 2026-11-13 — ядро — Freedom: `install/aiwb_install.py` ищется в `AIWB_FREEDOM` (старое имя `AIWB_SOURCE`), затем `repo` из `%LOCALAPPDATA%\AIWorkbench\devtree.json`, затем `C:\AIWorkbench\freedom`; архив `C:\AIWorkbench\source` больше не нужен.
 - 0.6.2 — 2026-11-12 — Freedom: SSH — hz.py из `~/.ssh` (`AIWB_HZ_DIR`), без него install.json `site.ssh`; база — `AIWB_DB_NAME` или install.json `site.db.name`; адрес db.php — `AIWB_DB_URL` или install.json `site.url`; личных имён в коде нет, поведение у владельца прежнее.
 - 0.6.1 — 2026-11-11 — R2 (ревью Codex S5-02): `spawn --resource` идемпотентен — `requestKey` (sha256 от задания, родителя, ресурса и промпта), повтор при сбое/таймауте/5xx/`in_progress` с тем же ключом, `--again` для нарочного повтора; сервер (db.php `subtask_spawn`) отдаёт тот же чат и задание. Наследование запретов общего чата по цепочке подзадач (S5-01) — на сервере.

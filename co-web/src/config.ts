@@ -3,7 +3,7 @@ import { gateway, onGatewayChange, pausedAgents } from './gateway.ts';
 // Static configuration of the CO web client.
 // Nothing here is secret: the OAuth client ID is public by design.
 
-export const APP_VERSION = '0.103.0';
+export const APP_VERSION = '0.104.0';
 
 // Full Drive scope: drive.file cannot see files written by Google Drive for Desktop
 // (verified with the probe on 2026-09-25).
@@ -15,7 +15,9 @@ export const HOST_ID = 'home-main';
 
 // Executors the user can switch between. Chats stay on Drive either way; only the job
 // transport folder differs. Events without hostId were written for home-main.
-export type HostId = 'home-main' | 'site';
+// Freedom F12: any executor id; executors.ts fills HOSTS in place from the server (db.php op executors), these two
+// are the start and always stay.
+export type HostId = string;
 export const HOSTS: { id: HostId; label: string; title: string }[] = [
   { id: 'home-main', label: 'Home', title: 'Home computer (BridgeAgent)' },
   { id: 'site', label: 'Site', title: 'Server agent on the CO site (works when the computer is off)' },

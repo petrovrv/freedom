@@ -589,7 +589,7 @@ namespace AiWorkbenchBridge
 
     internal sealed partial class BridgeApplicationContext : ApplicationContext
     {
-        private const string BridgeVersion = "1.18.1";
+        private const string BridgeVersion = "1.19.0";
         private const int ProtocolMinor = 2;
 
         private static readonly string[] KnownModes = new string[] { "chat", "cowork" };
@@ -4459,6 +4459,7 @@ namespace AiWorkbenchBridge
                     owner.stateSinceUtc = _stateSinceUtc.ToString("o");
                     CheckDeviceHeartbeats();             // v1.4.1: push when a device of the gateway module goes silent
                     owner.updatedUtc = DateTime.UtcNow.ToString("o");
+                    _lastOwnerRecord = owner; // v1.19.0: the executor heartbeat sends it to the database
 
                     AtomicFile.WriteJson(_hostOwnerPath, owner);
                     _lastHostHeartbeatUtc = DateTime.UtcNow;
@@ -6799,6 +6800,8 @@ namespace AiWorkbenchBridge
         // v1.0: CO Desktop device tools and the separate CLI account (TZ-CO-DESKTOP §8, §9.7).
         public DeviceSettings devices { get; set; }
         public RunAsSettings runAs { get; set; }
+        // v1.19.0 (Freedom F12): how this Bridge registers as an executor (db.php executor_put); null = defaults
+        public ExecutorConfig executor { get; set; }
     }
 
     internal sealed class ContextRoot

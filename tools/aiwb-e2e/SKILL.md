@@ -1,7 +1,7 @@
 ---
 name: aiwb-e2e
 description: End-to-end check of CO Web - Playwright signs in as the owner, sends "reply pong" to Claude in a test chat, waits for the reply through the job queue, deletes the chat; exit 0 green / 1 red / 2 cannot run. Used by devtree finish as a merge gate. Also `shot` - screenshot of any CO Web page (local build or prod) signed in as the owner.
-version: 0.6.4
+version: 0.6.5
 entry: aiwb-e2e.py
 requires: [requests, paramiko, node 22+, "playwright + chromium (npm, local)"]
 platform: windows
@@ -72,6 +72,7 @@ python "G:\My Drive\AI-Workbench\tools\aiwb-e2e\aiwb-e2e.py" run --host auto --d
 - 18.10 удаление чата в CO Web один раз не отменило задание в базе, поэтому e2e сам отменяет оставшиеся задания.
 
 ## История
+- 0.6.5 — 2026-11-13 — Freedom F12: `--host` принимает любой id исполнителя (зарегистрированный Bridge, `aiwb-subtask hosts`), не только `auto`/`home-main`/`site`.
 - 0.6.4 — 2026-11-13 — ядро — Freedom: `install/aiwb_install.py` ищется в `AIWB_FREEDOM` (старое имя `AIWB_SOURCE`), затем `repo` из `%LOCALAPPDATA%\AIWorkbench\devtree.json`, затем `C:\AIWorkbench\freedom`; архив `C:\AIWorkbench\source` больше не нужен.
 - 0.6.2 — 2026-11-12 — Freedom: без личных значений по умолчанию — сайт (`AIWB_SITE_URL` → install.json), окружение владельца (`AIWB_OWNER_ENV` → install.json), база (`AIWB_DB_NAME` → install.json `site.db.name`), папка hz.py (`AIWB_HZ_DIR` → `~/.ssh`), playwright из `~/aiwb-site`; у владельца результат прежний.
 - 0.6.0 — 2026-11-11 — `run` выбирает агента и модель и в новом окне выбора CO Web 0.100.0 (S6, кнопка `button.mp-btn`, строки `.mp-row[data-agent][data-host]`, модели `[data-model]`); старые списки Agent / Model по-прежнему поддерживаются.

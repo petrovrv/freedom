@@ -24,6 +24,7 @@ import { gatewayBlocked, gatewayBlockedFields } from './gateway';
 import { dbChats, dbDeleteChat, dbEvents, dbJobCancel, dbJobEvents, dbJobGet, dbJobSubmit, dbProjects, dbPut, dbReadsPrimary, dbGetProfile, dbSharedProjects } from './dbapi';
 import { memoryIndex } from './memoryIndex';
 import { drivePath, ownerEnv } from './members';
+import { executorOf } from './executors';
 
 // ---------- Root and host ----------
 
@@ -73,6 +74,12 @@ export async function readLimits(host: HostDirs): Promise<LimitsFile | null> {
 
 // 0.29.0: moved to routing.ts (pure, testable in node)
 export { hostHealth, type HostHealth } from './routing';
+
+// Freedom F12: every Bridge takes its jobs from the database queue and posts its events there (Home since 0.19.0, the
+// other executors only so — a Linux server has no Drive); the site agent keeps its Drive inbox path.
+export function usesDbQueue(hostId: string): boolean {
+  return hostId !== 'site';
+}
 
 // Executor of a chat event; events written before the host switch belong to home-main.
 export function eventHost(e: ChatEvent): string {
@@ -650,8 +657,10 @@ export function workbenchNote(hostId: string, project: Project, chat: Chat, mode
         'The home computer, its files and ' +
         'CO Desktop devices are not reachable from here, and Google Drive is not mounted: the working directory is a local ' +
         'folder on the server.'
-      : `the home computer (Windows, BridgeAgent). Google Drive is mounted as ${drivePath()}, so ${chatDir} is ` +
-        `${drivePath(chatDir)}.`;
+      : hostId && hostId !== HOST_ID
+        ? otherExecutorNote(hostId)
+        : `the home computer (Windows, BridgeAgent). Google Drive is mounted as ${drivePath()}, so ${chatDir} is ` +
+          `${drivePath(chatDir)}.`;
   const workdir = project.legacy
     ? 'Your working directory is the workspace of this project.'
     : "Your working directory is this chat's scratch folder.";
@@ -682,7 +691,9 @@ export function workbenchNote(hostId: string, project: Project, chat: Chat, mode
     `- Tool library: reusable CLI tools with SKILL.md docs, available via the MCP server "aiwb-tools" (tool_list, tool_help, tool_run); ${
       hostId === 'site'
         ? 'here it is a synced copy, without tools marked platform: windows'
-        : `working copy C:\\AIWorkbench\\tools (create and edit tools only there, via toolbox.py), read-only mirror ${drivePath('AI-Workbench/tools')}, rules in tools\\README.md`
+        : hostId && hostId !== HOST_ID
+          ? 'the copy installed on this computer, if any (toolbox.py search)'
+          : `working copy C:\\AIWorkbench\\tools (create and edit tools only there, via toolbox.py), read-only mirror ${drivePath('AI-Workbench/tools')}, rules in tools\\README.md`
     }. Before writing code, check it (tool_list or toolbox.py search) and use a fitting tool after reading its help; extend existing tools instead of rewriting, save reusable new code as a tool, and keep secrets only in keyring.`,
     // S5 (0.99.0): model resources and slaves (aiwb-subtask 0.6.0, db.php subtask_spawn)
     '- Other models as subagents: tool aiwb-subtask, "models" lists the model resources this chat may call (own ' +
@@ -692,6 +703,14 @@ export function workbenchNote(hostId: string, project: Project, chat: Chat, mode
     ...(clean ? [] : ['- AI-Workbench/CONTEXT.md is the overview of the system itself; AI-Workbench/context/*.md hold the details per part (devices, release, site and database, …).']),
     '[End of AI Workbench environment]',
   ].join('\n');
+}
+
+// Freedom F12: an executor other than Home and Site (a Bridge on another machine: a Linux server, a Mac, another PC)
+function otherExecutorNote(hostId: string): string {
+  const e = executorOf(hostId);
+  const os = e ? ({ windows: 'Windows', macos: 'macOS', linux: 'Linux' } as Record<string, string>)[e.os] : undefined;
+  return `the computer "${e?.title || hostId}" (${os ? `${os}, ` : ''}BridgeAgent, executor ${hostId}). This is not the home ` +
+    'computer: its files are its own, and Google Drive may not be mounted there; work in the working directory below.';
 }
 
 // True when the provider session already received the environment note.
@@ -826,7 +845,7 @@ export async function sendTurn(input: SendInput): Promise<ChatEvent> {
   // jobId (Bridge runs a jobId once, whichever copy it sees first).
   // 0.45.0: submit once; a server refusal is final (no Drive fallback)
   const submitResult =
-    !!input.dbQueue && !pkgId && host.hostId === HOST_ID ? await dbJobSubmit(request) : null;
+    !!input.dbQueue && !pkgId && usesDbQueue(host.hostId) ? await dbJobSubmit(request) : null;
   if (submitResult !== null && typeof submitResult === 'object') throw new Error(submitResult.refused);
   const viaDb = submitResult === 'queued';
   if (viaDb) {
@@ -974,7 +993,7 @@ export function newCursor(): EventCursor {
 
 // Returns only new Bridge event batches since the cursor.
 export async function readBridgeEvents(host: HostDirs, jobId: string, cur: EventCursor, viaDb = false): Promise<BridgeEvent[]> {
-  if (host.hostId === HOST_ID) {
+  if (usesDbQueue(host.hostId)) {
     const batches = await dbJobEvents(jobId, cur.dbSeq);
     if (batches?.length) {
       cur.db = true;

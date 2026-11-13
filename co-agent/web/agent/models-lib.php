@@ -13,6 +13,7 @@ require_once __DIR__ . '/db-lib.php';
 require_once __DIR__ . '/members-lib.php';
 require_once __DIR__ . '/share-lib.php';
 require_once __DIR__ . '/gateway-lib.php';
+require_once __DIR__ . '/executors-lib.php';
 
 const MODELS_KINDS = ['subscription', 'site', CO_GATEWAY_KIND, 'free']; // + CO_GATEWAY_LEGACY_KIND on input (co_gateway_kind)
 // Freedom F10: agents of model gateways (and their cards) come from installed modules (gateway-lib.php).
@@ -154,18 +155,19 @@ function models_host_online(?array $owner): ?bool
 
 function models_host_label(string $host): string
 {
-    return match ($host) {
-        'home-main' => 'Home',
-        'site' => 'Site',
-        default => $host,
-    };
+    // F12: the title a registered executor gave itself (executors-lib.php), Home / Site for the first two
+    return co_exec_title(co_db(), $host);
 }
 
-/** Built-in resources: one per agent of every host's owner.json, owned by the owner's environment. */
-function models_builtin(array $owners, string $ownerEnv): array
+/**
+ * Built-in resources: one per agent of every host's owner.json, owned by the owner's environment; F12: by the
+ * environment whose machine the executor is (executors.owner_env), when it is a family member's.
+ */
+function models_builtin(array $owners, string $ownerEnv, array $execEnv = []): array
 {
     $out = [];
     foreach ($owners as $host => $o) {
+        $env = ($execEnv[$host] ?? '') !== '' ? $execEnv[$host] : $ownerEnv;
         $agents = is_array($o['agents'] ?? null) ? $o['agents'] : [];
         foreach ($agents as $agent => $a) {
             if (!is_string($agent) || !in_array($agent, models_agents(), true) || !is_array($a)) {
@@ -185,7 +187,7 @@ function models_builtin(array $owners, string $ownerEnv): array
             }
             $out[$host . '/' . $agent] = [
                 'id' => $host . '/' . $agent,
-                'env' => $ownerEnv,
+                'env' => $env,
                 'kind' => $gateway ? CO_GATEWAY_KIND : ($host === 'site' ? 'site' : 'subscription'),
                 'title' => models_str($a['displayName'] ?? ucfirst($agent), 60) . ' · ' . models_host_label($host),
                 'host' => $host,
@@ -224,7 +226,8 @@ function models_rows(mysqli $db): array
 function models_all(mysqli $db): array
 {
     $owners = models_host_owners($db);
-    $list = models_builtin($owners, co_owner_env());
+    $list = models_builtin($owners, co_owner_env(),
+        array_map(static fn(array $r): string => (string)$r['owner_env'], co_exec_rows($db)));
     foreach (models_rows($db) as $id => $r) {
         $card = json_decode((string)$r['card_json'], true);
         $card = is_array($card) ? $card : [];

@@ -29,6 +29,17 @@ try {
     fwrite(STDERR, 'site agent kick: ' . $e->getMessage() . "\n");
 }
 
+// S8: an 'auto' job its executor has not taken for 60 s goes once to another live executor (before the Drive fallback).
+// F12: before the Drive sync, which exits on a Drive failure: the handover is database only and must not wait for Drive
+// (an installation whose executors have no Drive, a Google session not signed in yet).
+try {
+    foreach (co_queue_handover() as $line) {
+        echo "drive-sync: queue handover {$line}\n";
+    }
+} catch (Throwable $e) {
+    fwrite(STDERR, 'queue handover: ' . $e->getMessage() . "\n");
+}
+
 function co_sync_json(string $raw): ?array
 {
     if (str_starts_with($raw, "\xEF\xBB\xBF")) {
@@ -321,15 +332,6 @@ try {
     }
 } catch (Throwable $e) {
     fwrite(STDERR, $e->getMessage() . "\n");
-}
-
-// S8: an 'auto' job its executor has not taken for 60 s goes once to the other live executor (before the Drive fallback).
-try {
-    foreach (co_queue_handover() as $line) {
-        echo "drive-sync: queue handover {$line}\n";
-    }
-} catch (Throwable $e) {
-    fwrite(STDERR, 'queue handover: ' . $e->getMessage() . "\n");
 }
 
 // Schema 5: database jobs that no Bridge has claimed for 90 s also go to the Drive inbox.

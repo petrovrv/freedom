@@ -114,6 +114,33 @@ export function routeSelfTest(): string[] {
   expectEq('light red', hostLight(owners(OFFLINE, OFFLINE)), 'red');
   expectEq('light grey', hostLight({}), 'grey');
 
+  // Freedom F12: three and more executors (a Linux server 'lnx', a family member's Mac 'sam-mac')
+  const L = 'lnx';
+  const M = 'sam-mac';
+  const lnx = (ageMs: number): OwnerInfo => ({ ...owner(L, ageMs, siteAgents), machineName: 'srv1',
+    devices: [{ deviceId: 'd-srv', name: 'srv1' }] }) as unknown as OwnerInfo;
+  const three = (homeAge: number, siteAge: number, lnxAge: number): Record<string, OwnerInfo | null> =>
+    ({ ...owners(homeAge, siteAge), [L]: lnx(lnxAge) });
+  const order3 = [HOME, SITE, L];
+  expectEq('auto 3: Home first', autoHost(three(ONLINE, ONLINE, ONLINE), null, order3), HOME);
+  expectEq('auto 3: Home and Site off -> lnx', autoHost(three(OFFLINE, OFFLINE, ONLINE), null, order3), L);
+  expectEq('auto 3: CO Desktop on the lnx machine -> lnx', autoHost(three(ONLINE, ONLINE, ONLINE), { deviceId: 'd-srv', name: 'srv1' }, order3), L);
+  expectEq("auto 3: sam's own Mac first", autoHost({ ...three(ONLINE, ONLINE, ONLINE), [M]: owner(M, ONLINE, siteAgents) }, null, [M, HOME, SITE, L]), M);
+  check('lnx selected, online', routeHost({ selected: L, agent: 'claude', wantsDevices: false, owners: three(ONLINE, ONLINE, ONLINE), order: order3 }), L, null);
+  check('lnx offline: failover to Home', routeHost({ selected: L, agent: 'claude', wantsDevices: false, owners: three(ONLINE, ONLINE, OFFLINE), order: order3 }),
+    HOME, 'Sent to Home: lnx is offline');
+  check('home offline, site offline: failover to lnx', routeHost({ selected: HOME, agent: 'codex', wantsDevices: false, owners: three(OFFLINE, OFFLINE, ONLINE), order: order3 }),
+    L, 'Sent to lnx: Home is offline');
+  check('home offline, device job: never to another Bridge', routeHost({ selected: HOME, agent: 'codex', wantsDevices: true, owners: three(OFFLINE, OFFLINE, ONLINE), order: order3 }),
+    HOME, null);
+  check('lnx, codex with devices: stays on the chosen Bridge', routeHost({ selected: L, agent: 'codex', wantsDevices: true, owners: three(ONLINE, ONLINE, ONLINE), order: order3 }),
+    L, null);
+  check('lnx without gwbot: gateway agent to Home', routeHost({ selected: L, agent: 'gwbot', wantsDevices: false, owners: three(ONLINE, ONLINE, ONLINE), order: order3 }),
+    HOME, 'Sent to Home: gwbot runs only at home');
+  expectEq('light 3: site + lnx = green', hostLight(three(OFFLINE, ONLINE, ONLINE), order3), 'green');
+  expectEq('light 3: only lnx = blue', hostLight(three(OFFLINE, OFFLINE, ONLINE), order3), 'blue');
+  expectEq('light 3: none = red', hostLight(three(OFFLINE, OFFLINE, OFFLINE), order3), 'red');
+
   return failures;
 }
 

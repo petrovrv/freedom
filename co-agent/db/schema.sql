@@ -716,3 +716,26 @@ CREATE TABLE IF NOT EXISTS module_log (
   KEY ix_module_log (module_id, utc)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 UPDATE meta SET v = '27' WHERE k = 'schema' AND v IN ('1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26');
+
+-- Schema 28 (2026-11-13, Freedom F12, SPEC §3.1a, owner 13.11 QCJE #66; web/agent/executors-lib.php). Any number of
+-- executors: Bridges on Windows PCs, Macs and Linux servers, and the site agent. A Bridge registers itself and beats every
+-- 30 s (db.php op executor_put, host key), which also copies its owner.json into kv host:<id>/owner. 'home-main' and
+-- 'site' stay the ids of the first two executors and are known without a row. owner_env: whose machine ('' = the
+-- owner's); labels_json: {agents, capabilities, sandboxes, devices, serves}; enabled: the owner may switch one off.
+CREATE TABLE IF NOT EXISTS executors (
+  host_id        VARCHAR(40)  NOT NULL,
+  kind           VARCHAR(12)  NOT NULL,             -- bridge|site
+  title          VARCHAR(80)  NOT NULL DEFAULT '',
+  owner_env      VARCHAR(64)  NOT NULL DEFAULT '',
+  os             VARCHAR(16)  NOT NULL DEFAULT '',  -- windows|macos|linux
+  machine        VARCHAR(80)  NOT NULL DEFAULT '',
+  version        VARCHAR(32)  NOT NULL DEFAULT '',
+  state          VARCHAR(16)  NOT NULL DEFAULT 'running',
+  labels_json    TEXT         NOT NULL,
+  enabled        TINYINT(1)   NOT NULL DEFAULT 1,
+  registered_utc DATETIME(3)  NOT NULL,
+  seen_utc       DATETIME(3)  NOT NULL,             -- heartbeat
+  PRIMARY KEY (host_id),
+  KEY ix_executors_env (owner_env)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+UPDATE meta SET v = '28' WHERE k = 'schema' AND v IN ('1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26', '27');

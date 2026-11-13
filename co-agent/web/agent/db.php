@@ -25,6 +25,7 @@ require_once __DIR__ . '/family-lib.php';
 require_once __DIR__ . '/modules-lib.php';
 require_once __DIR__ . '/models-lib.php';
 require_once __DIR__ . '/subs-lib.php';
+require_once __DIR__ . '/executors-lib.php';
 
 header('Cache-Control: no-store');
 
@@ -273,9 +274,8 @@ function db_put_user(array $in, callable $envAllowed, array $acc): array
 
 // ---------- Job queue (schema 4, Bridge 1.3.0, CO Web 0.19.0) ----------
 
-// Hosts whose Bridge takes jobs from the database (the site agent still reads its Drive inbox).
-// S7: 'site' too - the site agent 1.6.0 takes its jobs from the database (job_claim), not only from the Drive inbox
-const DB_QUEUE_HOSTS = ['home-main', 'site'];
+// Hosts that take jobs from the database: S7 'site' too (site agent 1.6.0, job_claim); F12 (schema 28, executors-lib.php)
+// every registered executor besides the two compatible ids 'home-main' and 'site' (co_exec_known).
 // A claimed job without any event batch after this many seconds is offered again (Bridge died before starting it).
 const DB_CLAIM_LEASE_SECONDS = 120;
 
@@ -309,8 +309,12 @@ function db_job_submit(array $in, callable $envAllowed, array $acc): array
         }
     }
     $host = $req['hostId'] ?? null;
-    if (!in_array($host, DB_QUEUE_HOSTS, true)) {
+    if (!is_string($host) || !co_exec_known($db, $host)) {
         throw new InvalidArgumentException('host without database queue');
+    }
+    // F12: an executor of a family member takes only the jobs of the environments it serves
+    if (!co_exec_serves($db, $host, (string)($req['environmentId'] ?? ''))) {
+        co_json(403, ['error' => 'host_not_serving', 'detail' => "Executor $host does not take jobs of this environment."]);
     }
 
     // 0.45.0 (schema 10): the job runs in the project's env; the sender needs write on the chat or project.
@@ -380,6 +384,12 @@ function db_job_claim(array $in): array
     $host = db_id($in, 'host');
     $max = db_int($in, 'max', 1, 0, 10);
     $db = co_db();
+    // F12: an executor the owner switched off takes nothing new (cancellations still reach it), nor does a second machine
+    // with the id of a registered one (Bridge 1.19.0+ sends its machine; executor_put answered it host_taken)
+    $exec = co_exec_row($db, $host);
+    if ($exec !== null && ((int)$exec['enabled'] !== 1 || co_exec_foreign($db, $exec, $in['machine'] ?? null))) {
+        $max = 0;
+    }
     $jobs = [];
     if ($max > 0) {
         $db->begin_transaction();
@@ -806,7 +816,7 @@ try {
         if (!in_array($in['op'] ?? null, ['put', 'stats', 'shas', 'put_user', 'delete_chat',
                 'job_submit', 'job_post_events', 'job_result', 'append_event', 'profile_put', 'templates_put', 'chat_read', 'memory_decide', 'tool_decide',
                 'webdev_register', 'webdev_heartbeat', 'webdev_result', 'webdev_call_put',
-                'relay_devices_put', 'relay_call_put', 'relay_result', 'sandbox_put',
+                'relay_devices_put', 'relay_call_put', 'relay_result', 'sandbox_put', 'executor_put', 'executors_host',
                 'model_register', 'model_unregister', 'models_host', 'modules_host', 'subtask_spawn', 'subtask_poll', 'model_set',
                 'files_list', 'files_set', 'files_merge', 'files_branch', 'files_restored', 'files_undone',
             'followup_add', 'followup_list', 'followup_take', 'followup_done', 'followup_cancel', 'host_event',
@@ -854,6 +864,19 @@ try {
             'job_result'      => co_json(200, db_job_result($in)),
             'job_reject'      => co_json(200, db_job_reject($in)),
         };
+    }
+    // Schema 28 (executors-lib.php, Freedom F12): a Bridge registers itself and beats every 30 s
+    if ($op === 'executor_put' || $op === 'executors_host') {
+        co_db_host_auth();
+        try {
+            if ($op === 'executors_host') {
+                co_json(200, co_exec_list(co_db(), is_string($in['env'] ?? null) && $in['env'] !== '' ? $in['env'] : co_owner_env(), true));
+            }
+            $res = co_exec_put(co_db(), $in);
+            co_json(($res['error'] ?? '') === 'host_taken' ? 409 : 200, $res);
+        } catch (InvalidArgumentException $e) {
+            co_json(400, ['error' => $e->getMessage()]);
+        }
     }
     // Schema 17 (failures-lib.php): events of the Bridge supervisor (launcher watchdog, restart ladder)
     if ($op === 'host_event') {
@@ -950,7 +973,7 @@ try {
             'webdev_register', 'webdev_heartbeat', 'webdev_claim', 'webdev_result', 'webdev_revoke', 'webdev_mine',
             'files_list', 'files_set', 'files_merge', 'files_branch', 'files_restored', 'files_undone',
             'followup_add', 'followup_list', 'followup_take', 'followup_done', 'followup_cancel',
-            'inbox', 'inbox_mark', 'action_decide', 'autoswitch', 'tool_candidates', 'tool_decide',
+            'inbox', 'inbox_mark', 'action_decide', 'autoswitch', 'tool_candidates', 'tool_decide', 'executors', 'executor_set',
             'related', 'dossier_context', 'dossier_get', 'dossier_put', 'browser_defaults', 'family_state', 'family_read', 'members',
             'models_list', 'model_set', 'model_delete', 'subs_put', 'modules_list', 'module_set', 'module_person'];
     // Schema 27 (modules-lib.php, Freedom F10): an op the core does not know may belong to an enabled module (manifest
@@ -1498,6 +1521,20 @@ try {
                 co_json(400, ['error' => $e->getMessage()]);
             }
 
+        case 'executors':
+            // Schema 28 (CO Web 0.104.0, Freedom F12): the executors that serve the environment, with their health
+            $env = (string)($in['env'] ?? $myEnv);
+            if (!$envAllowed($env)) {
+                co_json(403, ['error' => 'forbidden']);
+            }
+            co_json(200, co_exec_list($db, $env, $owner));
+        case 'executor_set':
+            try {
+                co_json(200, co_exec_set($db, $in, $owner));
+            } catch (InvalidArgumentException $e) {
+                co_json(400, ['error' => $e->getMessage()]);
+            }
+
         case 'host_light':
             // S2 (CO Web 0.98.0): diagnosis behind the header traffic light (relay-lib.php co_host_light)
             $env = (string)($in['env'] ?? $myEnv);
@@ -1786,8 +1823,8 @@ try {
                 }
                 $out = ['name' => $name, 'agent' => $agent, 'mode' => $mode, 'model' => $model, 'effort' => $effort];
                 if (($t['hostId'] ?? null) !== null) {
-                    if (!in_array($t['hostId'], ['home-main', 'site'], true)) {
-                        throw new InvalidArgumentException($at . ".hostId must be 'home-main' or 'site'");
+                    if (!co_exec_known(co_db(), $t['hostId'])) {
+                        throw new InvalidArgumentException($at . '.hostId must be a known executor (home-main, site or a registered one)');
                     }
                     $out['hostId'] = $t['hostId'];
                 }

@@ -10,6 +10,7 @@ Commands:
   status  poll jobs once and print the current state (answers truncated)
   post    send a message into an existing chat (resumes its agent session)
   models  model resources this chat may call as subtasks (own ones and the ones others allowed as slaves)
+  hosts   executors of the workbench (Bridges on any machine and the site agent, Freedom F12) with their health
 
 spawn --resource, models, wait and status talk to db.php only (no SSH, no Drive), so they also run on the site host:
 the site agent passes AIWB_DB_URL, AIWB_DB_KEY_FILE and AIWB_CHAT_ID.
@@ -103,7 +104,7 @@ def _db_api():
         raise RuntimeError("site unknown: set AIWB_DB_URL or site.url in install.json")
     return url.rstrip("/") + "/agent/db.php"
 
-UA = "aiwb-subtask/0.6"
+UA = "aiwb-subtask/0.7"
 CRED_TARGET = "AIWorkbench.Bridge.Google"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 DRIVE = "https://www.googleapis.com/drive/v3/"
@@ -113,6 +114,27 @@ CHAT_RE = re.compile(r"[\\/]chats[\\/](CHAT-\d{14}-[A-Z0-9]{4})(?:[\\/]|$)")
 JOB_RE = re.compile(r"^JOB-\d{14}-[A-Z0-9]{6}$")
 ALNUM = string.ascii_uppercase + string.digits
 POLL_SECONDS = 10
+# Freedom F12 (schema 28): any executor id, not only home-main / site
+HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
+
+
+def host_id(v):
+    if not HOST_RE.match(v or ""):
+        raise argparse.ArgumentTypeError(f"invalid executor id {v!r} (letters, digits, _ and -, at most 32)")
+    return v
+
+
+def check_host(host):
+    """A host other than home-main/site must be an executor the server knows (db.php executors_host); a server before
+    schema 28 knows only those two."""
+    if host in ("home-main", "site"):
+        return
+    try:
+        known = {e.get("id") for e in (db_api({"op": "executors_host"}) or {}).get("executors") or []}
+    except RuntimeError as e:
+        raise RuntimeError(f"executor {host!r}: the server does not list executors ({e}); only home-main and site work there")
+    if host not in known:
+        raise RuntimeError(f"unknown executor {host!r}; known: {', '.join(sorted(x for x in known if x))} (aiwb-subtask hosts)")
 
 
 # ---------------------------------------------------------------- SQL
@@ -388,9 +410,26 @@ def cmd_models(args):
     return 0
 
 
+def cmd_hosts(args):
+    payload = {"op": "executors_host"}
+    if args.env:
+        payload["env"] = args.env
+    items = (db_api(payload) or {}).get("executors") or []
+    if args.json:
+        print(json.dumps(items, ensure_ascii=False, indent=2))
+        return 0
+    for e in items:
+        state = "takes jobs" if e.get("takesJobs") else ("switched off" if not e.get("enabled", True) else e.get("state") or "silent")
+        whose = f", {e['ownerEnv']}'s" if e.get("ownerEnv") else ""
+        print(f"- {e['id']}  {e.get('title') or ''}  [{e.get('kind')}, {e.get('os') or '?'}{whose}, v{e.get('version') or '?'}; {state}; "
+              f"agents {', '.join(e.get('agents') or []) or '-'}; heard {e.get('seenUtc') or 'never'}]")
+    return 0
+
+
 def cmd_spawn(args):
     if args.resource:
         return cmd_spawn_resource(args)
+    check_host(args.host)
     if args.agent == "dispatcher":
         if not args.device:
             raise RuntimeError("dispatcher needs --device (the device with engie_chat)")
@@ -530,6 +569,8 @@ def cmd_post(args):
                 prev = json.loads(unescape(any_last[0][0]))
         agent = args.agent or prev.get("agent") or "claude"
         host = args.host or prev.get("hostId") or "home-main"
+        if args.host:
+            check_host(host)
         if session and (agent != prev.get("agent") or host != (prev.get("hostId") or "home-main")):
             session = None  # provider sessions live only on the host and agent that made them
         mode = prev.get("mode") or "chat"
@@ -695,7 +736,7 @@ def main():
     sp.add_argument("--model")
     sp.add_argument("--timeout-minutes", type=int, default=120, help="job time limit in minutes (default 120; 0 = the host default for the mode)")
     sp.add_argument("--mode", choices=["chat", "cowork"], default="cowork")
-    sp.add_argument("--host", choices=["home-main", "site"], default="home-main")
+    sp.add_argument("--host", type=host_id, default="home-main", help="executor id (default home-main; see 'hosts')")
     sp.add_argument("--resource", metavar="ID", help="model resource from 'models' (e.g. home-main/codex, site/claude); "
                     "the server picks host, agent and default model; own resources and allowed slaves only")
     sp.add_argument("--parent", help="parent chat id (default: from the current directory)")
@@ -716,7 +757,7 @@ def main():
     pp.add_argument("--agent", choices=["claude", "codex", "dispatcher"], help="default: agent of the chat's last job")
     pp.add_argument("--model")
     pp.add_argument("--timeout-minutes", type=int, default=120, help="job time limit in minutes (default 120; 0 = the host default for the mode)")
-    pp.add_argument("--host", choices=["home-main", "site"])
+    pp.add_argument("--host", type=host_id, help="executor id (default: the host of the chat's last job; see 'hosts')")
     pp.set_defaults(func=cmd_post)
 
     mp = sub.add_parser("models", help="model resources this chat may call (cards, slave allowed)")
@@ -724,6 +765,11 @@ def main():
     mp.add_argument("--env", help="environment instead of a chat")
     mp.add_argument("--json", action="store_true")
     mp.set_defaults(func=cmd_models)
+
+    hp = sub.add_parser("hosts", help="executors of the workbench (Freedom F12): id, kind, OS, whose, health")
+    hp.add_argument("--env", help="the order and visibility of this environment (default: the owner's)")
+    hp.add_argument("--json", action="store_true")
+    hp.set_defaults(func=cmd_hosts)
 
     wp = sub.add_parser("wait", help="wait for subtasks and print their answers")
     wp.add_argument("job_ids", nargs="+")

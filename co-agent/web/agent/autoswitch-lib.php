@@ -10,6 +10,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/gateway-lib.php';
+require_once __DIR__ . '/executors-lib.php';
 
 /** Errors where a repeat on the same agent is pointless; matched on the error and on a short reply. */
 const CO_AUTOSWITCH_PATTERNS = [
@@ -25,7 +26,14 @@ const CO_AUTOSWITCH_SAFE_ITEMS = ['agent_message', 'reasoning', 'todo_list', 'er
 // Bridge events that mean something reached the outside or the run went on after its first turn, and the call of a
 // gateway model (its event types, legacy wire names included, in gateway-lib.php).
 const CO_AUTOSWITCH_BAD_BRIDGE = ['events_dropped', 'followup', 'artifact', ...CO_GATEWAY_EVENT_TYPES];
+// F12: every Bridge executor ('home-main' and the registered ones), not the site agent
 const CO_AUTOSWITCH_HOSTS = ['home-main'];
+
+function co_autoswitch_host_ok(mixed $host): bool
+{
+    return is_string($host) && (in_array($host, CO_AUTOSWITCH_HOSTS, true)
+        || ($host !== 'site' && ($r = co_exec_row(co_db(), $host)) !== null && (string)$r['kind'] === 'bridge'));
+}
 
 /** Which rule an error matches: [kind, matched text] or null. */
 function co_autoswitch_reason(string $s): ?array
@@ -142,7 +150,7 @@ function co_autoswitch_try(array $req, array $res, array $u, ?string $error, str
 {
     $from = $req['agent'] ?? null;
     if (!in_array($from, ['claude', 'codex'], true) || ($res['status'] ?? null) !== 'failed') return null;
-    if (!in_array($req['hostId'] ?? null, CO_AUTOSWITCH_HOSTS, true) || !empty($u['autoSwitchFrom'])) return null;
+    if (!co_autoswitch_host_ok($req['hostId'] ?? null) || !empty($u['autoSwitchFrom'])) return null;
     $reply = trim($replyText);
     // Claude writes its limit notice as the reply; any other reply is work that a repeat could duplicate
     $why = co_autoswitch_reason((string)$error);

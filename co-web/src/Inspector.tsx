@@ -32,7 +32,9 @@ import { dbAutoSwitch, dbQueueOn, dbReadsPrimary, dbUsage, setDbQueueOn, setDbRe
 import { resetAutoSwitchGlobal } from './Permissions';
 import { chatPermissions, type Chat, type LimitsFile, type OwnerInfo, type Project } from './types';
 import { formatBytes, formatLocal } from './util';
-import type { HostPref } from './routing';
+import { label as hostLabel, type HostPref } from './routing';
+import { HOSTS } from './config';
+import { ExecutorsSection } from './ExecutorList';
 import {
   chatScratchPath, copyToFolder, listProjectFiles, loadChatEvents, readProjectInstructions, resolveDrivePath,
   saveProjectContextFile, readProjectContextFile, saveProjectInstructions, saveProjectMeta, uploadProjectFile, type HostDirs, type HostHealth, type Root,
@@ -95,7 +97,7 @@ export default function Inspector({
       {tab === 'artifacts' && (chat && root && authOk && !chat.draft
         ? <FilesTab key={chat.folderId} chat={chat} root={root} canWrite={chat.shareRole !== 'viewer' && project?.shareRole !== 'viewer'} />
         : <p className="muted pad">Open a chat to see its files.</p>)}
-      {tab === 'host' && <HostTab owner={owner} health={health} limits={limits} host={host} hostPref={hostPref} onHostPref={onHostPref} />}
+      {tab === 'host' && <HostTab owner={owner} health={health} limits={limits} host={host} hostPref={hostPref} onHostPref={onHostPref} env={env} />}
       {tab === 'session' &&
         (chat && !chat.draft && authOk ? (
           <SessionTab key={chat.chatId} chat={chat} chats={chats ?? null} env={env || ''} contextFolders={project?.contextFolders} />
@@ -361,15 +363,20 @@ function ProjectTab({
   );
 }
 
-const HOST_PREFS: { id: HostPref; label: string; title: string }[] = [
-  { id: 'auto', label: 'Automatic', title: 'Home while its Bridge takes jobs, otherwise Site; device tools and home-only agents go to Home' },
-  { id: 'home-main', label: 'Home', title: 'Always the home computer (jobs wait in its queue while it is off)' },
-  { id: 'site', label: 'Site', title: 'Always the server agent on the CO site' },
+// Freedom F12: automatic, then every executor of the server's list (HOSTS, filled by executors.ts)
+const hostPrefs = (): { id: HostPref; label: string; title: string }[] => [
+  { id: 'auto', label: 'Automatic', title: "The nearest live executor: this computer's own Bridge, else Home while its Bridge takes jobs, else Site, else another live Bridge; device tools and home-only agents stay with their Bridge" },
+  ...HOSTS.map((h) => ({
+    id: h.id,
+    label: h.label,
+    title: h.id === 'home-main' ? 'Always the home computer (jobs wait in its queue while it is off)'
+      : h.id === 'site' ? 'Always the server agent on the CO site' : `Always ${h.title} (jobs wait in its queue while it is off)`,
+  })),
 ];
 
-function HostTab({ owner, health, limits, host, hostPref, onHostPref }: {
+function HostTab({ owner, health, limits, host, hostPref, onHostPref, env }: {
   owner: OwnerInfo | null; health: HostHealth; limits: LimitsFile | null; host: HostDirs | null;
-  hostPref?: HostPref; onHostPref?: (p: HostPref) => void;
+  hostPref?: HostPref; onHostPref?: (p: HostPref) => void; env?: string;
 }) {
   const desktop = (
     <>
@@ -377,11 +384,17 @@ function HostTab({ owner, health, limits, host, hostPref, onHostPref }: {
         <>
           <h5>Executor of new jobs</h5>
           <div className="exec-pref" role="radiogroup" aria-label="Executor of new jobs">
-            {HOST_PREFS.map((p) => (
+            {hostPrefs().map((p) => (
               <button key={p.id} type="button" role="radio" aria-checked={hostPref === p.id} title={p.title}
                 className={`btn tiny ${hostPref === p.id ? 'primary' : 'ghost'}`} onClick={() => onHostPref(p.id)}>{p.label}</button>
             ))}
           </div>
+          {env && (
+            <>
+              <h5>Executors</h5>
+              <ExecutorsSection env={env} />
+            </>
+          )}
         </>
       )}
       <h5>CO Desktop</h5>
@@ -1147,7 +1160,7 @@ export function SessionTab({
       {last ? (
         <dl className="kv">
           <dt>Executor</dt>
-          <dd>{last.hostId === 'site' ? `Site (${location.host})` : 'Home computer'}</dd>
+          <dd>{last.hostId === 'site' ? `Site (${location.host})` : !last.hostId || last.hostId === 'home-main' ? 'Home computer' : hostLabel(last.hostId)}</dd>
           <dt>Agent</dt>
           <dd>{last.agent ?? '—'}</dd>
           <dt>Model</dt>

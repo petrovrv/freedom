@@ -4,11 +4,11 @@ import { categorize } from './errors';
 import { findChild, getJson, updateContent } from './drive';
 import type { HostDirs } from './workbench';
 
-// transport/hosts/home-main/cloud-connectors.json (Bridge 1.2.2): boxes of the Claude account connectors (Gmail,
+// transport/hosts/<host>/cloud-connectors.json (Bridge 1.2.2; F12: of any Bridge executor with a Drive folder): boxes of the Claude account connectors (Gmail,
 // Google Calendar). Bridge keeps it in line with its local copy (CO Desktop on the home computer) and turns unticked
 // boxes and "Never" into --disallowedTools of every Claude and Dispatcher job.
 const FILE_NAME = 'cloud-connectors.json';
-const HOME_ID = 'home-main';
+const SITE_ID = 'site';
 const LEVELS = ['Read', 'Create', 'Edit', 'Delete'] as const;
 type Level = (typeof LEVELS)[number];
 
@@ -52,7 +52,7 @@ export function AccountConnectorsSection({ host }: { host: HostDirs | null }) {
   const [file, setFile] = useState<{ id: string; doc: ConnectorFile } | null | undefined>(undefined);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const isHome = host?.hostId === HOME_ID;
+  const isHome = !!host && host.hostId !== SITE_ID;
   const dirId = host?.hostDirId;
 
   async function load() {

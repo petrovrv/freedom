@@ -44,6 +44,25 @@ namespace AiWorkbenchBridge
         }
     }
 
+    // v1.19.0 (Freedom F12, SPEC §3.1a): this Bridge as one of many executors. hostId stays in config.json (any id,
+    // "home-main" for the first PC); title and ownerEnv are what CO Web shows, serves the environments it takes jobs of.
+    internal sealed class ExecutorConfig
+    {
+        public bool enabled { get; set; }      // false = no executor_put (the server then knows only home-main/site)
+        public string title { get; set; }      // shown in CO Web; null = Home for home-main, else the machine name
+        public string ownerEnv { get; set; }   // whose machine; null/"" = the owner of the workbench
+        public string[] serves { get; set; }   // environments besides ownerEnv; ["*"] = all; null = the server default
+        // the server may put a copy of an unclaimed job into its Drive inbox (Google Drive for desktop); null = Windows/macOS
+        public bool? driveInbox { get; set; }
+        public int beatSeconds { get; set; }
+
+        public ExecutorConfig()
+        {
+            enabled = true;
+            beatSeconds = 30;
+        }
+    }
+
     internal sealed class DbqPost
     {
         public string kind;     // events | result | reject
@@ -84,6 +103,15 @@ namespace AiWorkbenchBridge
             _dbqPostThread.IsBackground = true;
             _dbqPostThread.Name = "db-queue-post";
             _dbqPostThread.Start();
+
+            ExecutorConfig ex = _config.executor ?? new ExecutorConfig();
+            if (ex.enabled)
+            {
+                Thread beat = new Thread(ExecutorBeatLoop);
+                beat.IsBackground = true;
+                beat.Name = "executor-beat";
+                beat.Start();
+            }
 
             Log("Database queue started: " + _config.dbQueue.url + " poll=" + DbqPollSeconds() + "s");
 
@@ -161,6 +189,115 @@ namespace AiWorkbenchBridge
                 _dbqWake.Set();
         }
 
+        // ---------------------------------------------------------------- executor (v1.19.0, schema 28)
+
+        private volatile HostOwnerRecord _lastOwnerRecord;
+        private volatile string _executorState = "off";
+        // the server said another machine owns this hostId (409 host_taken): take no jobs until it is ours again
+        private volatile bool _executorTaken;
+
+        // windows | macos | linux (the server's executors.os)
+        internal static string ExecutorOs()
+        {
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+                return "windows";
+            if (Environment.OSVersion.Platform == PlatformID.MacOSX
+                || File.Exists("/System/Library/CoreServices/SystemVersion.plist"))
+                return "macos";
+            return Environment.OSVersion.Platform == PlatformID.Unix ? "linux" : "";
+        }
+
+        // db.php executor_put body: the row of executors plus a copy of owner.json for kv host:<hostId>/owner
+        internal Dictionary<string, object> ExecutorBody(HostOwnerRecord owner)
+        {
+            ExecutorConfig ex = _config.executor ?? new ExecutorConfig();
+            Dictionary<string, object> body = new Dictionary<string, object>();
+            body["host"] = _config.hostId;
+            body["kind"] = "bridge";
+            body["title"] = String.IsNullOrWhiteSpace(ex.title) ? "" : ex.title.Trim(); // "": the server names it
+            body["os"] = ExecutorOs();
+            body["machine"] = Environment.MachineName;
+            body["version"] = BridgeVersion;
+            body["ownerEnv"] = ex.ownerEnv ?? "";
+            body["state"] = _draining ? "updating" : (_paused ? "paused" : "running");
+
+            List<string> agents = new List<string>();
+            if (owner != null && owner.agents != null)
+                agents.AddRange(owner.agents.Keys);
+            List<string> caps = new List<string>();
+            if (owner != null && owner.capabilities != null)
+                caps.AddRange(owner.capabilities);
+            // the server makes a Drive inbox copy of an unclaimed job only for an executor that reads one (Google Drive for
+            // desktop exists on Windows and macOS; a Linux server keeps its transport folder local)
+            bool driveInbox = ex.driveInbox ?? (ExecutorOs() == "windows" || ExecutorOs() == "macos");
+            if (driveInbox && !String.IsNullOrEmpty(_hostTransportRoot) && Directory.Exists(_hostTransportRoot))
+                caps.Add("drive-inbox");
+            Dictionary<string, object> labels = new Dictionary<string, object>();
+            labels["agents"] = agents.ToArray();
+            labels["capabilities"] = caps.ToArray();
+            labels["devices"] = owner != null && owner.devices != null ? owner.devices.Count : 0;
+            if (ex.serves != null)
+                labels["serves"] = ex.serves;
+            body["labels"] = labels;
+            if (owner != null)
+            {
+                owner.state = (string)body["state"];
+                owner.runningJobs = _runningJobs.Count;
+                body["owner"] = owner;
+            }
+            return body;
+        }
+
+        private void ExecutorBeatLoop()
+        {
+            ExecutorConfig ex = _config.executor ?? new ExecutorConfig();
+            int seconds = Math.Max(10, Math.Min(60, ex.beatSeconds <= 0 ? 30 : ex.beatSeconds));
+            bool oldServer = false;
+            while (!_exiting)
+            {
+                if (!_hostConflict && _lastOwnerRecord != null)
+                {
+                    try
+                    {
+                        Dictionary<string, object> resp = DbqCall("executor_put", ExecutorBody(_lastOwnerRecord), true, 15000);
+                        object okv;
+                        if (resp.TryGetValue("ok", out okv) && okv is bool && (bool)okv)
+                        {
+                            if (_executorState != "ok")
+                                Log("Executor " + _config.hostId + " registered (" + ExecutorOs() + ", every " + seconds + " s).");
+                            _executorState = "ok";
+                            _executorTaken = false;
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        string m = e.Message ?? "";
+                        if (m.Contains("host_taken"))
+                        {
+                            _executorState = "host_taken";
+                            _executorTaken = true;
+                            LogThrottled("executor-taken", "Executor id '" + _config.hostId + "' is used by another machine: give this Bridge its own hostId in config.json. " + PushCut(m, 200));
+                        }
+                        else if (m.Contains("unknown_op") || m.Contains("HTTP 400"))
+                        {
+                            // a server before schema 28: the first two ids live by owner.json on Drive as before
+                            if (!oldServer)
+                                Log("Executor heartbeat: the server does not know executor_put yet (" + PushCut(m, 120) + "); retrying every 10 min.");
+                            oldServer = true;
+                            _executorState = "server before schema 28";
+                        }
+                        else
+                        {
+                            _executorState = "error: " + m;
+                            LogThrottled("executor-beat", "Executor heartbeat failed: " + m);
+                        }
+                    }
+                }
+                for (int i = 0; i < (oldServer ? 600 : seconds) && !_exiting; i++)
+                    Thread.Sleep(1000);
+            }
+        }
+
         // ---------------------------------------------------------------- claim
 
         private void DbqClaimLoop()
@@ -172,7 +309,7 @@ namespace AiWorkbenchBridge
                 _dbqWake.WaitOne(waitMs);
                 if (_exiting)
                     break;
-                if (_hostConflict)
+                if (_hostConflict || _executorTaken)
                     continue;
 
                 try
@@ -183,6 +320,7 @@ namespace AiWorkbenchBridge
                     Dictionary<string, object> body = new Dictionary<string, object>();
                     body["host"] = _config.hostId;
                     body["max"] = free;
+                    body["machine"] = Environment.MachineName; // v1.19.0: a second machine with this id gets no jobs
                     if (FollowupsEnabled)
                         body["followups"] = true;
                     Dictionary<string, object> resp = DbqCall("job_claim", body, false);
@@ -589,10 +727,12 @@ namespace AiWorkbenchBridge
                 HttpWebResponse errResp = wex.Response as HttpWebResponse;
                 if (errResp == null)
                     throw;
+                // the status before Close: .NET 8 throws ObjectDisposedException on StatusCode of a closed response
+                int code = (int)errResp.StatusCode;
                 string text = "";
                 try { text = PushReadBody(errResp); } catch { }
                 finally { errResp.Close(); }
-                throw new InvalidOperationException("HTTP " + (int)errResp.StatusCode + " " + PushCut(text, 200));
+                throw new InvalidOperationException("HTTP " + code + " " + PushCut(text, 200));
             }
         }
 

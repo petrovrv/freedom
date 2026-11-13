@@ -6,6 +6,7 @@ import { useDraft } from './drafts';
 import JobTimeline from './JobTimeline';
 import { markSeen } from './status';
 import { HOME, SITE, hostStateText, label as hostLabel, routeHost } from './routing';
+import { autoOrder } from './executors';
 import { importLabel } from './importPoint';
 import { ModuleHints, useModuleList } from './ModuleSlot';
 import type { ModuleHint } from './extBridge';
@@ -126,8 +127,13 @@ export default function ChatView(props: Props) {
   const { root, host, hosts, project, authOk, capabilities } = props;
   const hostOf = useCallback((e: ChatEvent) => hosts[eventHost(e)] || host, [hosts, host]);
   // 0.20.0: with Bridge 1.3.0 ("db-queue") the server writes the answer of a home-main job into the chat.
-  const dbq = capabilities.includes('db-queue');
-  const serverFinalizes = useCallback((e: ChatEvent) => dbq && hostOf(e).hostId === HOST_ID, [dbq, hostOf]);
+  // Freedom F12: so does it for a job of any Bridge executor with the database queue (not the site agent)
+  const serverFinalizes = useCallback((e: ChatEvent) => {
+    const h = hostOf(e)?.hostId || HOST_ID;
+    if (h === SITE) return false;
+    const caps = h === host?.hostId ? capabilities : props.owners[h]?.capabilities || [];
+    return caps.includes('db-queue');
+  }, [hostOf, host, capabilities, props.owners]);
   const [chat, setChat] = useState(props.chat);
   useEffect(() => setChat(props.chat), [props.chat.title, props.chat.projectId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [events, setEvents] = useState<ChatEvent[] | null>(null);
@@ -591,7 +597,8 @@ export default function ChatView(props: Props) {
     }
     const wantsDevices = !!(!shared && device?.paired && useDevice);
     const pinned = input.sel.host && props.hosts[input.sel.host] ? input.sel.host : null;
-    const route = routeHost({ selected: pinned || host.hostId, agent: input.sel.agent, wantsDevices, owners: props.owners, webDevices: !shared && webPick.selected.length > 0 });
+    const route = routeHost({ selected: pinned || host.hostId, agent: input.sel.agent, wantsDevices, owners: props.owners, webDevices: !shared && webPick.selected.length > 0,
+      order: autoOrder().filter((id) => props.hosts[id]) });
     const target = props.hosts[route.hostId] || host;
     const tOwner = target.hostId === host.hostId ? props.owner : props.owners[target.hostId] ?? props.owner;
     const tCaps = target.hostId === host.hostId ? capabilities : tOwner?.capabilities || capabilities;
@@ -2291,7 +2298,7 @@ function Composer({
                 type="button"
                 className="btn tiny ghost"
                 disabled={disabled}
-                title={`${agentName(t.agent)} / ${t.mode} / ${t.model || 'default model'}${t.effort ? ` / ${t.effort}` : ''} / ${t.hostId === 'site' ? 'site' : 'home'}`}
+                title={`${agentName(t.agent)} / ${t.mode} / ${t.model || 'default model'}${t.effort ? ` / ${t.effort}` : ''} / ${t.hostId ? hostLabel(t.hostId).toLowerCase() : 'home'}`}
                 onClick={() => {
                   setSel({ agent: t.agent as AgentId, mode: t.mode, model: t.model, effort: t.effort, host: t.hostId && t.hostId !== hostId ? t.hostId : null });
                   templates.onApply(t);

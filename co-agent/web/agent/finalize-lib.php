@@ -12,6 +12,7 @@ require_once __DIR__ . '/autoswitch-lib.php';
 require_once __DIR__ . '/gateway-lib.php';
 require_once __DIR__ . '/push-lib.php';
 require_once __DIR__ . '/modules-lib.php';
+require_once __DIR__ . '/executors-lib.php';
 
 const CO_FIN_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const CO_FIN_FOLDER_MIME = 'application/vnd.google-apps.folder';
@@ -285,19 +286,28 @@ function co_fin_inbox_folder(string $host): ?string
 function co_queue_fallback(): array
 {
     $db = co_db();
-    $res = $db->query("SELECT job_id, host_id, request FROM jobs
+    // F12: executors other than the first two get a Drive copy only when they read a Drive inbox (labels capability
+    // drive-inbox); their jobs are left out in SQL, so a Linux server's queue does not fill the window of ten
+    $sql = "SELECT job_id, host_id, request FROM jobs
                         WHERE origin = 'db' AND state = 'inbox' AND cancel_requested = 0 AND fallback_utc IS NULL
                           AND queued_utc < UTC_TIMESTAMP(3) - INTERVAL 90 SECOND
                           AND NOT EXISTS (SELECT 1 FROM meta m
                                            WHERE m.k = IF(CHAR_LENGTH(jobs.host_id) <= 29, CONCAT('claim_poll_', jobs.host_id),
                                                           CONCAT('claim_poll_#', LEFT(MD5(jobs.host_id), 28)))
                                              AND m.v > DATE_FORMAT(UTC_TIMESTAMP() - INTERVAL 60 SECOND, '%Y-%m-%d %H:%i:%s'))
-                        ORDER BY queued_utc LIMIT 10");
+                        ORDER BY queued_utc LIMIT 10";
+    $noDrive = " AND NOT EXISTS (SELECT 1 FROM executors x WHERE x.host_id = jobs.host_id AND x.host_id NOT IN ('home-main', 'site')
+                                   AND x.labels_json NOT LIKE '%drive-inbox%')";
+    try {
+        $res = $db->query(str_replace(' ORDER BY queued_utc LIMIT 10', $noDrive . ' ORDER BY queued_utc LIMIT 10', $sql));
+    } catch (mysqli_sql_exception) {
+        $res = $db->query($sql); // schema < 28
+    }
     $done = [];
     foreach ($res->fetch_all(MYSQLI_ASSOC) as $j) {
         $inbox = co_fin_inbox_folder((string)$j['host_id']);
         if ($inbox === null) {
-            break;
+            continue; // F12: an executor without a Drive inbox (a Linux server) must not hold back the others
         }
         $req = json_decode((string)$j['request'], true);
         if (!is_array($req)) {
@@ -336,31 +346,38 @@ function co_queue_fallback(): array
 
 /**
  * S8 (owner's decision 11.11: the nearest live executor): a database job CO Web sent with the 'auto' preference
- * (request.hostAuto) that its executor has not taken within 60 s goes once to the other executor when that one is alive
- * and fits the job. 11.11 a first message of a new project waited 34 min in the Home queue while the Bridge drained for
- * an update. Home -> Site and Site -> Home. No double run: the move is one UPDATE guarded by host, state 'inbox',
- * no cancel, no result and no Drive copy (fallback_utc) on the row job_claim locks; job_drive_claim runs nothing of
- * another host. The target must take its jobs from the database (job_claim within 60 s: Bridge, site agent 1.6.0+), so
- * Stop reaches it through job_claim; the chat's user_message gets the new hostId, so CO Web follows the job (events,
- * state, Stop) on the new host. Not moved: resumed provider sessions (they live on the first host), gateway agents,
- * files and context folders, browser devices, devices for an agent other than Claude (the relay serves Claude only),
- * agents the target lacks. Returns "jobId from>to" lines.
+ * (request.hostAuto) that its executor has not taken within 60 s goes once to another executor that is alive and fits
+ * the job. 11.11 a first message of a new project waited 34 min in the Home queue while the Bridge drained for an update.
+ * F12 (schema 28, SPEC §3.1a): any executor to any other, the best live one in co_exec_order (the environment's own
+ * executor, 'home-main', the site, the others by id; only executors that serve the job's environment). No double run:
+ * the move is one UPDATE guarded by host, state 'inbox', no cancel, no result and no Drive copy (fallback_utc) on the row
+ * job_claim locks; job_drive_claim runs nothing of another host. The target must take its jobs from the database
+ * (job_claim within 60 s), so Stop reaches it through job_claim; the chat's user_message gets the new hostId, so CO Web
+ * follows the job (events, state, Stop) on the new host. Not moved: resumed provider sessions (they live on the first
+ * host), gateway agents, files and context folders, browser devices, devices for an agent other than Claude on the site
+ * (the relay serves Claude only) or devices another Bridge serves, agents the target lacks. Returns "jobId from>to" lines.
  */
 function co_queue_handover(): array
 {
     $db = co_db();
     $done = [];
-    foreach (['home-main' => 'site', 'site' => 'home-main'] as $from => $to) {
-        $owner = co_handover_target($db, $to);
+    $rows = co_exec_rows($db);
+    $live = [];
+    foreach (array_values(array_unique(array_merge(array_keys(EXEC_COMPAT), array_keys($rows)))) as $h) {
+        $owner = co_exec_alive($db, $h, $rows[$h] ?? null);
         if ($owner === null) continue;
+        $names = is_array($owner['agents'] ?? null) ? array_map('strval', array_keys($owner['agents']))
+            : ($rows[$h]['labels']['agents'] ?? ['claude']);
+        $agents = array_values(array_filter($names, static fn(string $a): bool => co_gateway_agent($a) === null && co_db_id_ok($a)));
+        if ($agents) $live[$h] = $agents;
+    }
+    $orders = [];
+    foreach ($live as $to => $agents) {
         // the exclusions are in SQL (agents of the target without the gateway ones, auto, never moved, a new session,
-        // no context folders or files), so jobs that cannot move do not fill the window; PHP checks the devices
-        $agents = array_values(array_filter(is_array($owner['agents'] ?? null) ? array_map('strval', array_keys($owner['agents'])) : ['claude'],
-            static fn(string $a): bool => co_gateway_agent($a) === null && co_db_id_ok($a)));
-        if (!$agents) continue;
+        // no context folders or files), so jobs that cannot move do not fill the window; PHP checks devices and order
         $ph = implode(',', array_fill(0, count($agents), '?'));
-        $st = $db->prepare("SELECT job_id, agent, request FROM jobs
-                             WHERE host_id = ? AND origin = 'db' AND state = 'inbox' AND cancel_requested = 0 AND result IS NULL
+        $st = $db->prepare("SELECT job_id, host_id, env, agent, request FROM jobs
+                             WHERE host_id <> ? AND origin = 'db' AND state = 'inbox' AND cancel_requested = 0 AND result IS NULL
                                AND fallback_utc IS NULL AND agent IN ($ph)
                                AND queued_utc < UTC_TIMESTAMP(3) - INTERVAL 60 SECOND
                                AND queued_utc > UTC_TIMESTAMP(3) - INTERVAL 6 HOUR
@@ -368,15 +385,27 @@ function co_queue_handover(): array
                                AND request LIKE '%\"operation\":\"new\"%' AND request NOT LIKE '%\"contextFolders\":%'
                                AND request NOT LIKE '%\"attachments\":[{%'
                              ORDER BY queued_utc LIMIT 500");
-        $st->execute(array_merge([$from], $agents));
-        $rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
+        $st->execute(array_merge([$to], $agents));
+        $jobs = $st->get_result()->fetch_all(MYSQLI_ASSOC);
         $st->close();
-        foreach ($rows as $j) {
+        foreach ($jobs as $j) {
+            $from = (string)$j['host_id'];
             $req = json_decode((string)$j['request'], true);
-            if (!is_array($req) || co_handover_blocked($req, $to) !== null) continue;
+            if (!is_array($req)) continue;
+            $env = (string)($req['environmentId'] ?? $j['env'] ?? '');
+            $orders[$env] ??= co_exec_order($db, $env);
+            // the best live executor for this job; a better one than $to takes it in its own pass
+            $best = null;
+            foreach ($orders[$env] as $h) {
+                if ($h === $from || !isset($live[$h]) || !in_array((string)$j['agent'], $live[$h], true)) continue;
+                if (co_handover_blocked($req, $h, $db) !== null) continue;
+                $best = $h;
+                break;
+            }
+            if ($best !== $to) continue;
             $req['hostId'] = $to;
             $req['handover'] = ['from' => $from, 'utc' => gmdate('Y-m-d\TH:i:s\Z')];
-            $req['instruction'] = co_handover_note($from, $to) . (string)($req['instruction'] ?? '');
+            $req['instruction'] = co_handover_note($from, $to, $db) . (string)($req['instruction'] ?? '');
             $json = co_db_json($req);
             $sha = hash('sha256', co_db_json(['request' => $req, 'result' => null]));
             $st = $db->prepare("UPDATE jobs SET host_id = ?, request = ?, sha = ?
@@ -412,7 +441,7 @@ function co_handover_user_event(mysqli $db, string $jobId, string $chatId, strin
 }
 
 /** Why a job may not leave its host for $to (null = it may). */
-function co_handover_blocked(array $req, string $to): ?string
+function co_handover_blocked(array $req, string $to, ?mysqli $db = null): ?string
 {
     if (($req['hostAuto'] ?? false) !== true) return 'manual';
     if (isset($req['handover'])) return 'moved once';
@@ -424,33 +453,34 @@ function co_handover_blocked(array $req, string $to): ?string
     foreach ($devices as $d) {
         if (is_string($d) && str_starts_with($d, 'w-')) return 'browser devices';
     }
-    if ($devices && $to === 'site' && $agent !== 'claude') return 'devices';
-    return null;
+    if (!$devices) return null;
+    if ($to === EXEC_SITE) return $agent === 'claude' ? null : 'devices';
+    // F12: a Bridge job talks to its own paired devices, so it may go only to the Bridge that serves them all
+    return co_handover_devices_on($db, $devices, $to) ? null : 'devices';
 }
 
-/**
- * owner.json of $host (kv host:<host>/owner) when it is alive, takes jobs and takes them from the database (a job_claim
- * within 60 s, db.php meta claim_poll_<host>: Bridge, site agent 1.6.0+), else null.
- */
+/** True when $host serves every device of the list (relay_devices); a device nobody published counts as 'home-main''s. */
+function co_handover_devices_on(?mysqli $db, array $devices, string $host): bool
+{
+    if ($db === null) return $host === EXEC_HOME;
+    try {
+        foreach ($devices as $d) {
+            $st = $db->prepare('SELECT host_id FROM relay_devices WHERE device_id = ? ORDER BY updated_utc DESC LIMIT 1');
+            $st->execute([(string)$d]);
+            $h = $st->get_result()->fetch_row()[0] ?? null;
+            $st->close();
+            if ($h === null ? $host !== EXEC_HOME : (string)$h !== $host) return false;
+        }
+    } catch (mysqli_sql_exception) {
+        return $host === EXEC_HOME; // schema < 22
+    }
+    return true;
+}
+
+/** owner.json of $host when it is alive and takes jobs from the database, else null (executors-lib.php co_exec_alive). */
 function co_handover_target(mysqli $db, string $host): ?array
 {
-    $st = $db->prepare('SELECT data FROM kv WHERE scope = ? AND name = ?');
-    $st->execute(['host:' . $host, 'owner']);
-    $row = $st->get_result()->fetch_row();
-    $st->close();
-    $o = $row ? json_decode((string)$row[0], true) : null;
-    if (is_array($o['data'] ?? null)) $o = $o['data'];
-    if (!is_array($o)) return null;
-    if (in_array($o['state'] ?? 'running', ['updating', 'paused'], true)) return null;
-    $t = strtotime((string)($o['updatedUtc'] ?? ''));
-    // the site's owner.json reaches the database through Drive (slower); its job_claim is the proof of life
-    if ($t === false || time() - $t >= ($host === 'site' ? 900 : 240)) return null;
-    $st = $db->prepare('SELECT v FROM meta WHERE k = ?');
-    $st->execute([co_queue_poll_key($host)]);
-    $poll = $st->get_result()->fetch_row()[0] ?? null;
-    $st->close();
-    $pt = $poll !== null ? strtotime($poll . ' UTC') : false;
-    return $pt !== false && time() - $pt < 60 ? $o : null;
+    return co_exec_alive($db, $host);
 }
 
 function co_handover_has_agent(array $owner, string $agent): bool
@@ -460,12 +490,11 @@ function co_handover_has_agent(array $owner, string $agent): bool
 }
 
 /** First lines of a moved instruction: the environment note below it names the first executor. */
-function co_handover_note(string $from, string $to): string
+function co_handover_note(string $from, string $to, ?mysqli $db = null): string
 {
-    $where = $to === 'site'
-        ? 'the server agent (shared hosting, Linux; home devices of the environment, if any, come as MCP servers dev_<name>)'
-        : 'the home computer (Windows, BridgeAgent, Google Drive mounted)';
-    $fromName = $from === 'site' ? 'Site' : 'Home';
+    $db ??= co_db();
+    $where = co_exec_where($db, $to);
+    $fromName = co_exec_title($db, $from);
     return "[CO: this job was queued for {$fromName}, which did not take it within a minute, so it runs on {$where}. "
         . "Where the AI Workbench environment note below names the executor, this line wins.]\n\n";
 }

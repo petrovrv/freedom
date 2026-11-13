@@ -120,6 +120,7 @@ namespace AiWorkbenchBridge
                 HttpWebResponse errResp = wex.Response as HttpWebResponse;
                 if (errResp != null)
                 {
+                    int errCode = (int)errResp.StatusCode; // before Close (.NET 8: disposed afterwards)
                     string errText = "";
                     try
                     {
@@ -132,7 +133,7 @@ namespace AiWorkbenchBridge
                     {
                         errResp.Close();
                     }
-                    Log("Push: " + wex.Status + " HTTP " + (int)errResp.StatusCode + " " + PushCut(errText, 200) + " (" + tag + ")");
+                    Log("Push: " + wex.Status + " HTTP " + errCode + " " + PushCut(errText, 200) + " (" + tag + ")");
                 }
                 else
                 {

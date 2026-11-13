@@ -6,6 +6,26 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 ## Unreleased
 
 - Module dictation 0.2.0: provider `local` (own OpenAI-compatible Whisper server, e.g. speaches on a home server over HTTPS) and a provider chain in `transcribe.json` with failover (local first, Groq/OpenAI next); vocabulary `prompt`; the composer page falls back to browser recognition when every server service fails.
+- **Many executors** (Freedom F12, SPEC §3.1a): any number of Bridges (Windows PCs, Macs, Linux servers) besides the
+  site agent; `home-main` and `site` stay the ids of the first two and work without any setting change.
+  - Server schema 28: table `executors`; db.php `executor_put` (host key, every 30 s: the row plus a copy of owner.json
+    in `kv host:<id>/owner`, so a Bridge without Google Drive is seen by models, autoswitch and handover),
+    `executors_host`, user ops `executors` / `executor_set` (the owner switches an executor off or forgets it).
+    An id belongs to its machine: another machine gets `host_taken` (409) and no jobs from `job_claim`. `job_submit`
+    and subtask templates take any known executor; an executor of a family member (`ownerEnv`) takes only the jobs of
+    the environments it serves. Handover of an unclaimed `auto` job (60 s) to the best live executor that fits (the
+    environment's own one, Home, Site, the others), once, without a double run; a device job only to the Site (Claude)
+    or the Bridge of its devices; it runs before the Drive sync of `drive-sync.php` (no longer skipped while Drive
+    fails). Drive inbox copies only for executors that read one (`drive-inbox`). Built-in model resources of a family
+    member's executor belong to that member; autoswitch works on every Bridge executor.
+  - Bridge 1.19.0: registers as an executor (`config.json` `executor`: `title`, `ownerEnv`, `serves`, `driveInbox`),
+    sends its machine with `job_claim`, takes no jobs after `host_taken`; .NET 8: the HTTP status of a refused db.php or
+    push call is read before the response is closed (was "Cannot access a disposed object").
+  - CO Web 0.104.0: the executor list comes from the server (`executors.ts`); the traffic light has a row per
+    executor (green: Site and any Bridge); Host and devices offers every executor and lists them with their health;
+    auto = this computer's own Bridge, else the environment's order from the server (Home first, then Site, then the
+    others); every Bridge executor uses the database queue; the environment note names the executor.
+  - aiwb-subtask 0.7.0 (`--host` any executor id, `hosts`), aiwb-e2e 0.6.5 (`--host` any executor id).
 
 ## 0.4.0 (2026-11-13)
 

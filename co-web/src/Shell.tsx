@@ -36,7 +36,9 @@ import { ModuleFrame, ModulePage, ModuleSlots, modulePages, useModules, type Pan
 import type { Chat, ChatEvent, LimitsFile, Mode, OwnerInfo, Project } from './types';
 
 import { SAFE_ID, formatLocal } from './util';
-import { autoHost, type HostPref } from './routing';
+import { autoHost, HOME, SITE, type HostPref } from './routing';
+import { applyExecutors, autoOrder, HOST_ID_RE, loadCachedExecutors } from './executors';
+import { dbExecutors } from './dbapi';
 import { HostLight } from './HostLight';
 import { aiSearch, chatRefs, openDocument, projectActivity, projectFreshness, type SearchHit } from './search';
 import {
@@ -76,7 +78,8 @@ export default function Shell({ auth }: { auth: Signed }) {
   // S2 (0.98.0): the executor is chosen automatically (routing.autoHost) unless set by hand in Host and devices.
   const [hostPref, setHostPrefState] = useState<HostPref>(() => {
     const v = localStorage.getItem(HOST_PREF_KEY);
-    return v && HOSTS.some((h) => h.id === v) ? (v as HostPref) : 'auto';
+    // F12: any executor id (the server's list may come after the first render)
+    return v && (HOSTS.some((h) => h.id === v) || HOST_ID_RE.test(v)) ? (v as HostPref) : 'auto';
   });
   const setHostPref = (p: HostPref) => {
     localStorage.setItem(HOST_PREF_KEY, p);
@@ -85,7 +88,13 @@ export default function Shell({ auth }: { auth: Signed }) {
   const setHostId = (id: HostId) => setHostPref(id as HostPref);
   // 12.11: auto = Home while its Bridge is online (any device), else the Site
   const localDevice = useLocalDevice();
-  const hostId = (hostPref === 'auto' ? autoHost(owners, localDevice) : hostPref) as HostId;
+  // F12 (SPEC §3.1a): executors from the server (db.php op executors), in the order auto tries them for this environment
+  const [execOrder, setExecOrder] = useState<string[]>(() => {
+    loadCachedExecutors();
+    return autoOrder();
+  });
+  const autoIds = execOrder.filter((id) => !hosts || hosts[id]);
+  const hostId = (hostPref === 'auto' ? autoHost(owners, localDevice, autoIds) : hostPref) as HostId;
   const host = hosts?.[hostId] || null;
   const owner = owners[hostId] ?? null;
   const limits = limitsByHost[hostId] ?? null;
@@ -181,7 +190,11 @@ export default function Shell({ auth }: { auth: Signed }) {
       try {
         const r = await discoverRoot();
         const loaded: Record<string, HostDirs> = {};
-        for (const h of HOSTS) loaded[h.id] = await loadHost(r, h.id);
+        for (const h of HOSTS) {
+          // F12: a folder of another executor that cannot be made (a member without write access) is not fatal
+          if (h.id === HOME || h.id === SITE) loaded[h.id] = await loadHost(r, h.id);
+          else await loadHost(r, h.id).then((d) => { loaded[h.id] = d; }, () => undefined);
+        }
         setRoot(r);
         setHosts(loaded);
         await readHosts(loaded);
@@ -195,7 +208,7 @@ export default function Shell({ auth }: { auth: Signed }) {
     for (const [id, h] of Object.entries(hs)) {
       try {
         const o = await readOwner(h);
-        setOwners((prev) => ({ ...prev, [id]: o }));
+        setOwners((prev) => ({ ...prev, [id]: newerOwner(prev[id] ?? null, o) }));
         const l = await readLimits(h).catch(() => null);
         setLimitsByHost((prev) => ({ ...prev, [id]: l }));
       } catch {
@@ -208,6 +221,42 @@ export default function Shell({ auth }: { auth: Signed }) {
     await readHosts(hosts);
   }, [hosts, authOk]); // eslint-disable-line react-hooks/exhaustive-deps
   useInterval(refreshOwner, POLL_HOST_MS, !!hosts && authOk);
+
+  // F12: the executor list and the owner.json copies the Bridges send to the database (a Linux server has no Drive)
+  const hostsRef = useRef<Record<string, HostDirs> | null>(null);
+  hostsRef.current = hosts;
+  const refreshExecutors = useCallback(async () => {
+    if (!authOk || !env) return;
+    const list = await dbExecutors(env);
+    if (!list) return;
+    applyExecutors(list);
+    setExecOrder((prev) => {
+      const next = autoOrder();
+      return prev.join(',') === next.join(',') ? prev : next;
+    });
+    setOwners((prev) => {
+      let next = prev;
+      for (const e of list) {
+        if (!e.owner) continue;
+        const o = newerOwner(prev[e.id] ?? null, e.owner);
+        if (o !== prev[e.id]) next = { ...next, [e.id]: o };
+      }
+      return next;
+    });
+    if (root) {
+      for (const e of list) {
+        if (hostsRef.current?.[e.id]) continue;
+        try {
+          const d = await loadHost(root, e.id);
+          setHosts((prev) => ({ ...(prev || {}), [e.id]: d }));
+        } catch {
+          /* no Drive folder for it (not allowed): it is reached through the database only */
+        }
+      }
+    }
+  }, [authOk, env, root]);
+  useEffect(() => { void refreshExecutors(); }, [refreshExecutors]);
+  useInterval(refreshExecutors, POLL_HOST_MS, authOk);
 
   // The site agent is started on demand by the web server; keep it alive while it is selected.
   const pingSite = useCallback(() => {
@@ -615,7 +664,7 @@ export default function Shell({ auth }: { auth: Signed }) {
           <span className="dot" />
           {envName}
         </div>
-        <HostLight owners={owners} env={env} pref={hostPref} effective={hostId} onAdvanced={() => openInspectorTab('host')} />
+        <HostLight owners={owners} ids={execOrder} env={env} pref={hostPref} effective={hostId} onAdvanced={() => openInspectorTab('host')} />
         <div className="spacer" />
         {/* F10: pages of enabled modules for the header (family presence and others), SPEC §3.6 */}
         <ModuleSlots slot="ui.header" modules={modules} me={auth.homeEnv} owner={!!auth.owner} />
@@ -1234,4 +1283,13 @@ function NewProjectDialog({
       </form>
     </div>
   );
+}
+
+// F12: of two copies of a host's owner.json (Drive, database) the one written last
+function newerOwner(a: OwnerInfo | null, b: OwnerInfo | null): OwnerInfo | null {
+  if (!a) return b;
+  if (!b) return a;
+  const ta = Date.parse(a.updatedUtc || '') || 0;
+  const tb = Date.parse(b.updatedUtc || '') || 0;
+  return tb >= ta ? b : a;
 }

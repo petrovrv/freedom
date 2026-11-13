@@ -1,5 +1,5 @@
 """aiwb-e2e: end-to-end test of CO Web — Playwright signs in as the owner, sends "reply pong" in a test chat, waits for the reply in the DOM, deletes the chat."""
-import argparse, json, os, secrets, shutil, string, subprocess, sys, threading
+import argparse, json, os, re, secrets, shutil, string, subprocess, sys, threading
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +17,13 @@ class Parser(argparse.ArgumentParser):
         self.print_usage(sys.stderr)
         self.exit(2, f"{self.prog}: error: {message}\n")
 
+
+
+def _host_arg(v):
+    """auto, home-main, site or any executor id (CO Web 0.104.0+ accepts every executor as co.hostPref)."""
+    if v == "auto" or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,31}", v or ""):
+        return v
+    raise argparse.ArgumentTypeError(f"invalid host {v!r}")
 
 def read_credential(target: str) -> str:
     """Read a generic credential blob from Windows Credential Manager."""
@@ -252,8 +259,9 @@ def build_parser() -> Parser:
     r.add_argument("--base", default=_site_default())
     r.add_argument("--env", default=_env_default())
     r.add_argument("--project", default="bridge-test")
-    r.add_argument("--host", default="home-main", choices=["auto", "home-main", "site"],
-                   help="auto: home-main when a slot frees within --queue-wait, else site")
+    r.add_argument("--host", default="home-main", type=_host_arg,
+                   help="auto: home-main when a slot frees within --queue-wait, else site; or any executor id "
+                        "(Freedom F12: a registered Bridge, see aiwb-subtask hosts)")
     r.add_argument("--agent", default="claude")
     r.add_argument("--model-hint", default="sonnet")
     r.add_argument("--prompt", default="[aiwb-e2e {run}] reply pong")

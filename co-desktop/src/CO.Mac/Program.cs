@@ -484,9 +484,11 @@ public static class Program
                         catch (Exception ex) when (!stop.IsCancellationRequested) { Log.Write("update check failed: " + ex.Message); }
                         if (updater.Status != updateStatus) Log.Write("update: " + (updateStatus = updater.Status));
                     }
-                    if (staged != null && rt.Host!.ActiveCalls == 0)
+                    if (staged != null && rt.Host!.ActiveCalls == 0 && !SecretPrompts.DialogOpen)   // 0.5.2: not while a secret dialog waits
                     {
                         await rt.DisposeAsync();
+                        // a secret_prompt call may have opened its dialog just before the runtime stopped: let the person finish
+                        for (int i = 0; i < 150 && SecretPrompts.DialogOpen; i++) await Task.Delay(TimeSpan.FromSeconds(5));
                         MacUpdater.Swap(Version, staged);
                         Log.Write($"updated {Version} -> {staged}; restarting");
                         return 0;   // launchd (KeepAlive) starts the new copy

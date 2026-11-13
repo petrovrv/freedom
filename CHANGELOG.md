@@ -23,6 +23,10 @@ The development direction is reversed: this repository is the upstream of the co
   address read from the blank window's first request when needed), links with a real address outside a form are not
   submits, an unanswered confirmation is `no_answer` (not a refusal; browser actions wait 10 min with a notification
   on the Mac), form confirmations switchable on the Mac (menu "Ask before sending forms", `co-resident browser forms ask|auto`).
+- CO Resident 0.5.2: secrets of agent tools in the Mac's own login Keychain - `secret_prompt` (native dialog with a
+  hidden field, value only to `security -i` stdin as service `aiwb/<name>` / account, never in argv, logs, audit or
+  output; returns saved/cancelled/timeout/waiting), `secret_list` (names only) and `secret_delete` (confirmed every
+  call); tools on the Mac read them with Python keyring `aiwb/<name>`. The resident's own items are refused.
 
 ## 0.2.0 (2026-11-13)
 

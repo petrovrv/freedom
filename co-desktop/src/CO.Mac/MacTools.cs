@@ -14,6 +14,9 @@ public static class MacTools
         new SysInfoTool(shell),
         new LogReadTool(),
         new MacCheckTool(http, tokens),
+        new SecretPromptTool(),   // 0.5.2: secrets in this Mac's own Keychain (MacSecrets.cs)
+        new SecretListTool(),
+        new SecretDeleteTool(),
     };
 }
 

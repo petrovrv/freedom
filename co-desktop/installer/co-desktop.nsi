@@ -1,5 +1,7 @@
 ; CO Desktop installer (TZ-CO-DESKTOP §5). Per-user install, no administrator rights.
 ; Build: makensis -DVERSION=0.2.0 -DAPPDIR=<publish dir> -DCLIENT=<oauth-client.json> co-desktop.nsi
+; Neutral release installer (Freedom 0.4.0, release/build_installers.py): no -DCLIENT; the app asks for the user's site
+; and desktop OAuth client at first start (SetupWindow) or reads them from the setup wizard's install.json.
 
 Unicode true
 SetCompressor /SOLID lzma
@@ -57,7 +59,9 @@ Section "Install"
   Sleep 800
   SetOutPath "$INSTDIR"
   File "${APPDIR}\CO.Desktop.exe"
+!ifdef CLIENT
   File "/oname=oauth-client.json" "${CLIENT}"
+!endif
   File "..\src\CO.Desktop\co.ico"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 

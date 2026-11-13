@@ -32,8 +32,10 @@ public sealed record UpdateReady(string Version, string SetupPath);
 public sealed class DeviceUpdater
 {
     public const long MaxSize = 400L * 1024 * 1024;
-    // The only address the Google token is sent to; any other url in the manifest is refused.
-    public static string SiteDownloadUrl => InstallDefaults.SiteUrl + "/agent/desktop.php?op=download"; // Freedom F1
+    // The only address the Google token is sent to; any other url in the manifest is refused. Freedom 0.4.0: the site
+    // of this computer's settings (a neutral build has no site built in); the built-in site until the app sets it.
+    public string SiteBase { get; set; } = InstallDefaults.SiteUrl;
+    public string SiteDownloadUrl => SiteBase.TrimEnd('/') + "/agent/desktop.php?op=download";
     private static readonly HttpClient SiteHttp = new() { Timeout = TimeSpan.FromMinutes(30) };
     private readonly IDriveFiles _drive;
     private readonly string _dir;
@@ -67,7 +69,7 @@ public sealed class DeviceUpdater
         }
         if (m.Url.Length > 0)
         {
-            if (m.Url != SiteDownloadUrl)
+            if (SiteBase.Length == 0 || m.Url != SiteDownloadUrl)
             {
                 Status = $"release {m.Version} rejected: unknown download address";
                 return null;

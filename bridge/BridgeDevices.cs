@@ -658,11 +658,23 @@ namespace AiWorkbenchBridge
         // 1.7.1: releases are taken from the local setup folder, not from Drive; Google Drive marks the installer as
         // malware (31.10: CO-Desktop-Setup-0.8.9.exe), after which devices get HTTP 403 for update.bin. The installer
         // itself is served by the CO site (publish_site.py); devices from 0.9.1 download it there.
-        private const string DesktopReleaseDir = @"C:\BridgeAgent-v0.6\CO-Desktop\setup";
+        // Freedom 0.4.0: config desktopUpdatesDir (setup\ and mac\ under it); empty = the folder of the first installs when
+        // it exists, else <localStateRoot>\desktop-updates (install/freedom_setup.py desktop-update fills it).
+        private const string LegacyDesktopUpdatesDir = @"C:\BridgeAgent-v0.6\CO-Desktop";
+        private string DesktopUpdatesRoot
+        {
+            get
+            {
+                if (_config != null && !String.IsNullOrWhiteSpace(_config.desktopUpdatesDir))
+                    return ExpandPath(_config.desktopUpdatesDir, _localStateRoot);
+                return Directory.Exists(LegacyDesktopUpdatesDir) ? LegacyDesktopUpdatesDir : Path.Combine(_localStateRoot ?? "", "desktop-updates");
+            }
+        }
+        private string DesktopReleaseDir { get { return Path.Combine(DesktopUpdatesRoot, "setup"); } }
         // 1.9.1: CO Resident for macOS (SPEC R2). publish_mac.py puts the archive here and on the site (mac.php?op=update);
         // the manifest goes into resident-update.json, a file only Mac residents create. Own signing domain, so a
         // Windows manifest never passes as a Mac one or the other way round.
-        private const string ResidentReleaseDir = @"C:\BridgeAgent-v0.6\CO-Desktop\mac";
+        private string ResidentReleaseDir { get { return Path.Combine(DesktopUpdatesRoot, "mac"); } }
 
         private DesktopRelease CurrentDesktopRelease()
         {

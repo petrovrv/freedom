@@ -25,7 +25,7 @@ public sealed class App : Application
             MessageBox.Show("CO Desktop is already running.", "CO Desktop");
             return;
         }
-        var app = new App { ShutdownMode = ShutdownMode.OnMainWindowClose };
+        var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.DispatcherUnhandledException += (_, e) =>
         {
             Log.Write("UI exception: " + e.Exception);
@@ -40,6 +40,10 @@ public sealed class App : Application
                 Log.Write("Unobserved: " + e.Exception);
             e.SetObserved();
         };
+        // Freedom 0.4.0: a neutral build without install.json on this computer asks for the site first.
+        var settings = DesktopSettings.Load();
+        if (SetupWindow.Needed(settings) && new SetupWindow(settings).ShowDialog() != true) return;
+        app.ShutdownMode = ShutdownMode.OnMainWindowClose;
         app.Run(new MainWindow(Services.Create()));
     }
 }
@@ -92,6 +96,7 @@ public sealed class Services
         var approvals = new WpfApprovalService();
         var runtime = new DeviceRuntime(DesktopSettings.DataDir, keys, drive, approvals);
         runtime.Updater.SiteTokens = auth;   // 0.9.1: installer from the CO site
+        if (settings.SiteBase.Length > 0) runtime.Updater.SiteBase = settings.SiteBase;   // Freedom 0.4.0: the site of this computer
         runtime.State.OwnerEmail = settings.OwnerEmail;
         // The owner account always signs in with the owner scopes; restores a role lost from device.json.
         if (runtime.State.Role.Length == 0 && runtime.State.Account.Length > 0)

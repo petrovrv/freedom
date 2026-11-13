@@ -35,8 +35,23 @@ public sealed class DesktopSettings
     // Drive is owned by the member's account above (CO.Core AutoPair). Empty list: every computer needs the code.
     public List<string> AutoPairEnvironments { get; set; } = InstallDefaults.MemberEnvs;
 
-    public string ResolveOAuthClientFile() =>
-        string.IsNullOrWhiteSpace(OAuthClientFile) ? Path.Combine(AppContext.BaseDirectory, "oauth-client.json") : OAuthClientFile;
+    // Freedom 0.4.0: the neutral installer has no client of its own; the setup wizard keeps the user's desktop client
+    // next to install.json (freedom_setup.py google: oauth-client-desktop.json), the first-start window copies it there.
+    public static string WizardOAuthClientFile =>
+        Path.Combine(Path.GetDirectoryName(InstallDefaults.CandidateFiles().First()) ?? DataDir, "oauth-client-desktop.json");
+
+    public string ResolveOAuthClientFile()
+    {
+        if (!string.IsNullOrWhiteSpace(OAuthClientFile)) return OAuthClientFile;
+        string bundled = Path.Combine(AppContext.BaseDirectory, "oauth-client.json");
+        return File.Exists(bundled) || !File.Exists(WizardOAuthClientFile) ? bundled : WizardOAuthClientFile;
+    }
+
+    /// <summary>A site address is set (the first-start window asks for it in a neutral build).</summary>
+    public bool HasSite => Uri.TryCreate(WebUrl, UriKind.Absolute, out Uri? u) && (u.Scheme == "https" || u.Scheme == "http");
+
+    /// <summary>The site of this computer without the trailing slash ("" when not set).</summary>
+    public string SiteBase => HasSite ? WebUrl.TrimEnd('/') : "";
 
     public static string DataDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CO");
     public static string FilePath => Path.Combine(DataDir, "desktop.json");
@@ -47,8 +62,24 @@ public sealed class DesktopSettings
         DesktopSettings s = File.Exists(FilePath)
             ? JsonSerializer.Deserialize<DesktopSettings>(File.ReadAllText(FilePath)) ?? new DesktopSettings()
             : new DesktopSettings();
+        s.FillFromInstall();
         s.Save();   // writes new defaults back, so the file always shows every option
         return s;
+    }
+
+    // Freedom 0.4.0: CO Desktop installed before the setup wizard wrote install.json saved empty values; take the
+    // install's values for what is still empty (values the user set are never replaced).
+    public void FillFromInstall()
+    {
+        if (WebUrl.Length == 0 && InstallDefaults.SiteUrl.Length > 0) WebUrl = InstallDefaults.SiteUrl + "/";
+        if (OwnerEmail.Length == 0) OwnerEmail = InstallDefaults.OwnerEmail;
+        if (EnvironmentId.Length == 0) EnvironmentId = InstallDefaults.OwnerEnv;
+        if (PubSubProjectId.Length == 0) PubSubProjectId = InstallDefaults.PubSubProjectId;
+        if (Members.Count == 0 && InstallDefaults.Members.Count > 0)
+        {
+            Members = InstallDefaults.Members;
+            if (AutoPairEnvironments.Count == 0) AutoPairEnvironments = InstallDefaults.MemberEnvs;
+        }
     }
 
     public sealed class WindowBounds

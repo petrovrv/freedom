@@ -9,7 +9,7 @@ param(
     [switch]$AllowDirty
 )
 $ErrorActionPreference = 'Stop'
-$KeyName = 'AIWorkbench.BridgeRelease'
+$KeyName = if ($env:AIWB_BRIDGE_RELEASE_KEY) { $env:AIWB_BRIDGE_RELEASE_KEY } else { 'AIWorkbench.BridgeRelease' }
 Add-Type -AssemblyName System.Core
 
 $src = $PSScriptRoot
@@ -18,10 +18,17 @@ if (-not $m) { throw 'BridgeVersion not found in BridgeAgent.cs' }
 $version = $m.Matches[0].Groups[1].Value
 
 # A release is a commit: refuse uncommitted Bridge sources unless told otherwise.
-$dirty = git -C $src status --porcelain -- . 2>$null
-if ($dirty -and -not $AllowDirty) { throw "Uncommitted changes in bridge\ - commit first:`n$($dirty -join "`n")" }
-$commit = (git -C $src rev-parse --short HEAD).Trim()
-if ($dirty) { $commit += '-dirty' }
+# Freedom 0.4.0: a source tree without git (the release tarball, install.ps1 on a new PC) is published as "src".
+$inGit = (Get-Command git -ErrorAction SilentlyContinue) -and (Test-Path (Join-Path $src '..\.git'))
+if ($inGit) {
+    $dirty = git -C $src status --porcelain -- . 2>$null
+    if ($dirty -and -not $AllowDirty) { throw "Uncommitted changes in bridge\ - commit first:`n$($dirty -join "`n")" }
+    $commit = "$(git -C $src rev-parse --short HEAD 2>$null)".Trim()
+    if (-not $commit) { $commit = 'src' }
+    if ($dirty) { $commit += '-dirty' }
+} else {
+    $commit = 'src'
+}
 
 New-Item -ItemType Directory -Force $Channel | Out-Null
 $exeOut = Join-Path $Channel "BridgeAgent-$version.exe"

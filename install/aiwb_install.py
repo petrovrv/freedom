@@ -12,6 +12,9 @@ CLI:      python aiwb_install.py check                      validate the file
           python aiwb_install.py server-config              text of ~/co-agent/config.php on the server
           python aiwb_install.py members-commands           members.php lines that put the members into the database
           python aiwb_install.py bridge-patch [CONFIG]      what Bridge config.json lacks (siteUrl, push.ownerEnv, environments)
+          python aiwb_install.py bridge-config OUT [--force] a new Bridge config.json from bridge/config.json.example and
+                                                            install.json (Freedom 0.4.0 installer; an existing OUT is kept
+                                                            unless --force)
           python aiwb_install.py ext-config OUT              site.js of the browser extension (the CO site; OUT = <extension folder>/site.js)
           python aiwb_install.py client-json OUT            the part apps embed at build time (site, members, Google project);
                                                             no file -> OUT is removed (the build gets empty defaults)
@@ -208,6 +211,35 @@ def bridge_patch(cfg: dict) -> dict:
     return patch
 
 
+def bridge_config() -> dict:
+    """A Bridge config.json of this install: bridge/config.json.example with the names of install.json (site, drive,
+    members, Google project); the one test project of the template for the owner, no corporate domains. No install.json: FileNotFoundError."""
+    d = load()
+    tpl = Path(__file__).resolve().parents[1] / 'bridge' / 'config.json.example'
+    cfg = json.loads(tpl.read_text(encoding='utf-8-sig'))
+    site = (get('site.url') or '').rstrip('/')
+    drive = get('drive.root') or ''
+    cfg['hostId'] = d.get('hostId') or 'home-main'
+    cfg['driveRoot'] = str(workbench_root())
+    cfg['driveReadyPath'] = drive
+    cfg['siteUrl'] = site
+    cfg['push'] = {**cfg.get('push', {}), 'url': '', 'ownerEnv': owner().get('env', '')}
+    cfg['dbQueue'] = {'enabled': True, 'url': '', 'pollSeconds': 10}   # urls from siteUrl (Bridge NormalizeSite)
+    cfg['desktopUpdatesDir'] = '%LOCALAPPDATA%\\AIWorkbenchBridge\\desktop-updates'   # freedom_setup.py desktop-update
+    tpl_env = next(iter((cfg.get('chatProjectEnvironments') or {}).values()), {'allowedAgents': ['claude', 'codex'], 'autoExport': True})
+    cfg['chatProjectEnvironments'] = {m['env']: dict(tpl_env) for m in get('members', []) if m.get('env')}
+    roots = cfg.get('contextRoots') or {}
+    if 'gdrive' in roots:
+        roots['gdrive']['path'] = drive
+    cfg['devices'] = {**cfg.get('devices', {}), 'corporateDomains': []}
+    # Bridge needs one project profile: the template's test project, for the owner, in this workbench
+    own = owner().get('env', '')
+    cfg['projects'] = {pid: {**prof, 'environmentId': own, 'workspace': str(workbench_root() / 'projects' / pid / 'workspace')}
+                       for pid, prof in list((cfg.get('projects') or {}).items())[:1]}
+    cfg['google'] = {**cfg.get('google', {}), 'projectId': str(get('google.projectNumber') or '')}
+    return cfg
+
+
 def client_json() -> dict:
     """What CO Desktop and CO Resident embed: no ssh, paths or server layout. No install.json: FileNotFoundError."""
     load()
@@ -262,6 +294,18 @@ def main(argv):
         if not dest.is_file() or dest.read_bytes() != data:
             dest.write_bytes(data)
         print(f'ok: {dest}')
+        return 0
+    if cmd == 'bridge-config' and len(argv) >= 3:
+        out = Path(argv[2])
+        if out.is_file() and '--force' not in argv:
+            print(f'kept: {out} exists (bridge-patch shows what it lacks; --force writes a new one)')
+            return 0
+        cfg = bridge_config()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        if out.is_file():
+            out.with_suffix('.json.bak').write_bytes(out.read_bytes())
+        out.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        print(f'ok: {out}')
         return 0
     if cmd == 'bridge-patch':
         p = Path(argv[2]) if len(argv) > 2 else Path(os.environ.get('LOCALAPPDATA', '')) / 'AIWorkbenchBridge' / 'config.json'

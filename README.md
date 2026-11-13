@@ -72,8 +72,15 @@ Windows 10/11 PC or a Mac, and one of:
 | B. VPS or NAS | Docker (`install/docker/`) |
 | C. Only a computer | Docker in WSL or on the Mac, the server on localhost; phone access through Tailscale |
 
-Start with `python install/freedom_setup.py preflight` and follow `install/PILOT-FRIEND.md`. The wizard has no AI
-inside: AI appears after you sign in to your own subscription (`freedom_setup.py subs`). Stuck? `freedom_setup.py
+**Quick start (Windows):** on the Releases page of this repository (GitHub → Releases → latest) download
+`freedom-<version>-src.tar.gz`, `CO-Desktop-Setup-<version>.exe` and `freedom-manifest.json` into one folder, unpack the
+archive (`tar -xf freedom-<version>-src.tar.gz`), open a terminal in the unpacked folder and run
+`python install/freedom_setup.py preflight`; then follow `install/PILOT-FRIEND.md` step by step. The installers have
+no site inside: CO Desktop reads the `install.json` the wizard writes (or asks for your site at first start), Bridge
+is built on your PC with your own release key. They are not Authenticode-signed (SmartScreen warns once); the wizard
+checks them against the signed manifest. `git clone` of this repository is for updates and development.
+
+The wizard has no AI inside: AI appears after you sign in to your own subscription (`freedom_setup.py subs`). Stuck? `freedom_setup.py
 report` prints a log without secrets, names, mails, hosts or paths that you can paste into your own claude.ai or
 chatgpt.com chat, or post on the forum.
 

@@ -264,3 +264,79 @@ class PcAccessTest(Base):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class InstallersTest(Base):
+    """Freedom 0.4.0: Bridge config from install.json, release check of an installer, desktop-update to site + Bridge."""
+
+    def release(self, files, sign=True):
+        import freedom_release as fr
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        rel = self.tmp / 'rel'
+        rel.mkdir(exist_ok=True)
+        for name, data in files.items():
+            (rel / name).write_bytes(data)
+        key = Ed25519PrivateKey.generate()
+        m = fr.build(rel, '9.9.9')
+        if sign:
+            fr.sign(m, 'test', key)
+        (rel / fr.MANIFEST_NAME).write_text(json.dumps(m), encoding='utf-8')
+        trust = self.tmp / 'trust.json'
+        trust.write_text(json.dumps({'threshold': 1, 'maintainers': [{'name': 'test', 'key': fr.public_hex(key)}]}))
+        return rel, trust
+
+    def test_bridge_config_from_install_json(self):
+        self.init()
+        cfg = aiwb_install.bridge_config()
+        self.assertEqual(cfg['siteUrl'], 'https://co.example.org')
+        self.assertEqual(cfg['push']['ownerEnv'], 'anna')
+        self.assertEqual(sorted(cfg['chatProjectEnvironments']), ['anna', 'boris'])
+        self.assertTrue(cfg['dbQueue']['enabled'])
+        self.assertEqual(cfg['devices']['corporateDomains'], [])
+        self.assertEqual([p['environmentId'] for p in cfg['projects'].values()], ['anna'])
+        self.assertEqual(aiwb_install.bridge_patch(cfg), {})
+        self.assertNotIn('example.com', json.dumps(cfg))
+
+    def test_release_check(self):
+        import freedom_release as fr
+        rel, trust = self.release({'CO-Desktop-Setup-9.9.9.exe': b'MZ installer', 'other.tar.gz': b'x'})
+        (rel / 'other.tar.gz').unlink()   # the user downloads only what they need
+        f = rel / 'CO-Desktop-Setup-9.9.9.exe'
+        with mock.patch.object(fr, 'DEFAULT_TRUST', trust):
+            self.assertEqual(fs.release_check(f), '')
+            f.write_bytes(b'MZ changed')
+            self.assertIn('changed', fs.release_check(f))
+        rel2, trust2 = self.release({'CO-Desktop-Setup-9.9.9.exe': b'MZ'}, sign=False)
+        with mock.patch.object(fr, 'DEFAULT_TRUST', trust2):
+            self.assertIn('signature', fs.release_check(rel2 / 'CO-Desktop-Setup-9.9.9.exe'))
+        lone = self.tmp / 'lone' / 'CO-Desktop-Setup-1.0.0.exe'
+        lone.parent.mkdir()
+        lone.write_bytes(b'MZ')
+        self.assertIn('freedom-manifest.json', fs.release_check(lone))
+
+    def test_desktop_update_puts_installer_on_site_and_bridge(self):
+        import freedom_release as fr
+        self.init()
+        rel, trust = self.release({'CO-Desktop-Setup-9.9.9.exe': b'MZ installer'})
+        cfg = self.tmp / 'AIWorkbenchBridge' / 'config.json'
+        cfg.parent.mkdir()
+        cfg.write_text(json.dumps({'desktopUpdatesDir': str(self.tmp / 'du')}), encoding='utf-8')
+        site = self.tmp / 'site'
+        a = SimpleNamespace(installer=str(rel / 'CO-Desktop-Setup-9.9.9.exe'), transport='local', local_root=str(site), host_key=None)
+        with mock.patch.object(fr, 'DEFAULT_TRUST', trust), mock.patch.object(fs, 'bridge_config_path', lambda: cfg), \
+                mock.patch('builtins.print'):
+            self.assertEqual(fs.cmd_desktop_update(a), 0)
+        home = site / 'home' / 'u1234567' / 'co-desktop'
+        self.assertEqual((home / 'CO-Desktop-Setup-9.9.9.exe').read_bytes(), b'MZ installer')
+        latest = json.loads((home / 'latest.json').read_text())
+        self.assertEqual((latest['version'], latest['size']), ('9.9.9', 12))
+        self.assertTrue((self.tmp / 'du' / 'setup' / 'CO-Desktop-Setup-9.9.9.exe').is_file())
+
+    def test_desktop_update_refuses_unsigned(self):
+        import freedom_release as fr
+        self.init()
+        rel, trust = self.release({'CO-Desktop-Setup-9.9.9.exe': b'MZ'}, sign=False)
+        a = SimpleNamespace(installer=str(rel / 'CO-Desktop-Setup-9.9.9.exe'), transport='local', local_root=str(self.tmp / 's'), host_key=None)
+        with mock.patch.object(fr, 'DEFAULT_TRUST', trust), mock.patch('builtins.print'):
+            self.assertEqual(fs.cmd_desktop_update(a), 1)
+        self.assertFalse((self.tmp / 's').exists())

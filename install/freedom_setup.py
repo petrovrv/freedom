@@ -21,6 +21,13 @@ or the forum (SPEC 4.3). The state of the steps is kept next to install.json (se
                                                               plan (default) / read-only diff / apply with .bak copies
   python install/freedom_setup.py google [--import-web-client FILE] [--desktop-client FILE]
                                                               check the Google Cloud results (the steps: GOOGLE-CLOUD.md)
+  python install/freedom_setup.py bridge [--no-start]           Bridge on this PC: config.json from install.json, own release
+                                                              key, build from this source, logon task (bridge/install.ps1)
+  python install/freedom_setup.py desktop [--installer FILE]     CO Desktop on this PC: checks the installer against the signed
+                                                              release manifest next to it, runs it, finds what it needs
+  python install/freedom_setup.py desktop-update --installer FILE
+                                                              a newer CO Desktop of a release for all your computers: checks
+                                                              its signature, gives it to the site and Bridge (update channel)
   python install/freedom_setup.py pc-access [--apply] [--check] [--off]
                                                               pc_* of this PC for the owner, household sandbox for
                                                               the other members (SPEC 3.3, step 6a)
@@ -55,7 +62,7 @@ REPO = Path(__file__).resolve().parents[1]
 MIN_PHP = (8, 1)        # the CLI PHP of the reference install is 8.1; the code needs match/mixed/readonly (8.1)
 MIN_MARIADB = (10, 5)   # schema.sql uses ADD COLUMN / ADD INDEX IF NOT EXISTS (MariaDB only, not MySQL)
 MIN_NODE = 20
-STEPS = ['preflight', 'init', 'subs', 'site-probe', 'site-deploy', 'google', 'pc-access', 'verify']
+STEPS = ['preflight', 'init', 'subs', 'site-probe', 'site-deploy', 'google', 'bridge', 'desktop', 'pc-access', 'verify']
 CRON_LINES = ['* * * * * php {home}/co-agent/cron/drive-sync.php >/dev/null 2>&1',
               '*/5 * * * * php {home}/co-agent/cron/watch-cron.php >/dev/null 2>&1']
 
@@ -178,7 +185,8 @@ def cmd_preflight(a) -> int:
     else:
         out('warn', f'Node {MIN_NODE}+ is needed to build CO Web and to install codex (found: {v}); '
                     'Windows: winget install OpenJS.NodeJS.LTS, macOS: brew install node')
-    for mod, why in (('paramiko', 'SSH to the hosting (variant A)'), ('keyring', 'secrets in the OS keyring')):
+    for mod, why in (('paramiko', 'SSH to the hosting (variant A)'), ('keyring', 'secrets in the OS keyring'),
+                     ('cryptography', 'signatures of releases and modules')):
         try:
             __import__(mod)
             out('ok', f'python module {mod}')
@@ -955,6 +963,167 @@ def _status(url):
         return 0, str(e)
 
 
+# ---------------------------------------------------------------- Bridge and CO Desktop on this PC (Freedom 0.4.0)
+
+def release_check(f: Path) -> str:
+    """'' when f is listed with its size and sha256 in a freedom-manifest.json next to it that carries enough trusted
+    maintainer signatures (install/maintainers.json); else what is wrong. Other files of the release may be missing."""
+    import freedom_release
+    man = f.parent / freedom_release.MANIFEST_NAME
+    if not man.is_file():
+        return f'no {freedom_release.MANIFEST_NAME} next to {f.name} (download it from the same release page)'
+    m = json.loads(man.read_text(encoding='utf-8'))
+    if not any(x.get('path') == f.name for x in m.get('files', [])):
+        return f'{f.name} is not in the manifest of release {m.get("version")}'
+    probs = [p for p in freedom_release.verify(f.parent, m, freedom_release.load_trust(freedom_release.DEFAULT_TRUST))
+             if not p.startswith('missing ')]
+    return '; '.join(probs)
+
+
+def bridge_config() -> dict:
+    try:
+        return json.loads(bridge_config_path().read_text(encoding='utf-8-sig'))
+    except (OSError, ValueError):
+        return {}
+
+
+def cmd_bridge(a) -> int:
+    if os.name != 'nt':
+        out('info', 'Bridge for macOS/Linux: bridge/net8 (README there); this step is for Windows')
+        save_step('bridge', False, 'not Windows')
+        return 1
+    errs = aiwb_install.check(aiwb_install.load(fresh=True))
+    if errs:
+        out('FAIL', 'install.json: ' + '; '.join(errs) + ' (init)')
+        return 1
+    args = ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(REPO / 'bridge' / 'install.ps1')]
+    if a.no_start:
+        args.append('-NoStart')
+    rc, o = sh(args, timeout=900)
+    for line in o.splitlines()[-12:]:
+        out('info', line)
+    if rc != 0:
+        out('FAIL', f'bridge/install.ps1 exit {rc}')
+        save_step('bridge', False, f'install.ps1 exit {rc}')
+        return 1
+    cfg = bridge_config()
+    patch = aiwb_install.bridge_patch(cfg) if cfg else {'config.json': 'missing'}
+    out('ok' if not patch else 'FAIL', 'Bridge config.json' + ('' if not patch else f' lacks {sorted(patch)}'))
+    desk = aiwb_install.path().parent / 'oauth-client-desktop.json'
+    out('next', 'Bridge tray icon -> Connect Google with your Google account (desktop client: '
+                + ('oauth-client-desktop.json next to install.json' if desk.is_file() else 'GOOGLE-CLOUD.md step 5 first') + ')')
+    save_step('bridge', not patch, 'installed' if not patch else 'config incomplete')
+    return 0 if not patch else 1
+
+
+def desktop_installed():
+    """Folder of the installed CO Desktop (per-user installer: HKCU Software\\CODesktop InstallDir) or None."""
+    if os.name != 'nt':
+        return None
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\CODesktop') as k:
+            d = Path(winreg.QueryValueEx(k, 'InstallDir')[0])
+    except OSError:
+        return None
+    return d if (d / 'CO.Desktop.exe').is_file() else None
+
+
+def cmd_desktop(a) -> int:
+    if os.name != 'nt':
+        out('info', 'macOS: CO Resident (co-desktop/src/CO.Mac); this step is for Windows')
+        save_step('desktop', False, 'not Windows')
+        return 1
+    bad = 0
+    if a.installer:
+        f = Path(a.installer)
+        why = release_check(f) if f.is_file() else f'{f}: not found'
+        if why:
+            out('FAIL', f'installer not verified: {why}')
+            save_step('desktop', False, 'installer not verified')
+            return 1
+        out('ok', f'{f.name}: signed by the Freedom maintainers, hash matches')
+        try:
+            rc = subprocess.run([str(f), '/S'], timeout=600).returncode
+        except (OSError, subprocess.SubprocessError) as e:
+            rc = f'{type(e).__name__}: {e}'
+        out('ok' if rc == 0 else 'FAIL', f'installer: {"done" if rc == 0 else rc}')
+        bad += rc != 0
+    where = desktop_installed()
+    if where:
+        out('ok', 'CO Desktop installed')
+    else:
+        out('next', 'CO Desktop: download CO-Desktop-Setup-<version>.exe and freedom-manifest.json from the release page '
+                    'into one folder, then: freedom_setup.py desktop --installer <the .exe>')
+        bad += 1
+    if aiwb_install.path().is_file():
+        out('ok', 'install.json for CO Desktop (it reads the site and the members there)')
+    else:
+        out('next', 'init first: CO Desktop takes the site from install.json')
+        bad += 1
+    desk = aiwb_install.path().parent / 'oauth-client-desktop.json'
+    if desk.is_file() or (where and (where / 'oauth-client.json').is_file()):
+        out('ok', 'desktop OAuth client for CO Desktop')
+    else:
+        out('next', 'desktop OAuth client (GOOGLE-CLOUD.md step 5) as oauth-client-desktop.json next to install.json, '
+                    'or choose the file in the first-start window of CO Desktop')
+        bad += 1
+    if where and not bad:
+        out('next', 'start CO Desktop (Start menu) and sign in with Google; it connects to the Bridge of this PC')
+    save_step('desktop', bad == 0, f'{bad} open item(s)')
+    return 1 if bad else 0
+
+
+def desktop_updates_dir() -> Path:
+    """Where Bridge looks for CO Desktop releases (config desktopUpdatesDir; its default without the key)."""
+    raw = bridge_config().get('desktopUpdatesDir') or ''
+    return Path(os.path.expandvars(raw)) if raw else bridge_config_path().parent / 'desktop-updates'
+
+
+def cmd_desktop_update(a) -> int:
+    f = Path(a.installer)
+    m = re.match(r'^CO-Desktop-Setup-(\d+\.\d+\.\d+)\.exe$', f.name)
+    if not m:
+        out('FAIL', 'the installer must be named CO-Desktop-Setup-x.y.z.exe')
+        return 1
+    why = release_check(f) if f.is_file() else f'{f}: not found'
+    if why:
+        out('FAIL', f'installer not verified: {why}')
+        return 1
+    out('ok', f'{f.name}: signed by the Freedom maintainers, hash matches')
+    data = f.read_bytes()
+    # the site first: Bridge offers a release to the devices as soon as it sees the file, and they download it there
+    latest = json.dumps({'version': m.group(1), 'fileName': f.name, 'sha256': hashlib.sha256(data).hexdigest(),
+                         'size': len(data), 'publishedUtc': dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')},
+                        indent=2) + '\n'
+    if docker_variant():
+        import freedom_docker
+        h = freedom_docker.Host(freedom_docker.prepare_install())
+        cid = h.cid('app')
+        if not cid:
+            out('FAIL', 'the app container is not running: freedom_docker.py up')
+            return 1
+        t, home = freedom_docker.DockerTarget(h, cid), freedom_docker.HOME
+    else:
+        home = (install_get('site.home') or '').rstrip('/')
+        if not home:
+            out('FAIL', 'install.json site.home (init)')
+            return 1
+        t = target(a)
+    try:
+        t.write(f'{home}/co-desktop/{f.name}', data)
+        t.write(f'{home}/co-desktop/latest.json', latest.encode())
+    finally:
+        t.close()
+    out('ok', f'site: {f.name} and latest.json in co-desktop/ of the site home')
+    dest = desktop_updates_dir() / 'setup'
+    dest.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(f, dest / f.name)
+    out('ok', f'Bridge: {f.name} offered to the paired computers within ~10 min; they install it when no agent call runs')
+    save_step('desktop-update', True, m.group(1))
+    return 0
+
+
 # ---------------------------------------------------------------- PC access and household sandbox (SPEC 3.3, 4.1 step 6a)
 
 SANDBOX = 'aiwb-family'
@@ -1161,10 +1330,11 @@ def cmd_verify(a) -> int:
     loc = _redirect(url + '/auth/login.php')
     good = bool(loc and 'accounts.google.com' in loc)
     out('ok' if good else 'FAIL', 'sign-in goes to Google' if good else 'sign-in: no redirect to Google (auth config)'); bad += not good
-    tools = aiwb_install.workbench_root() / 'tools'
     if not a.no_tools and not bad:
         for name, args in (('aiwb-smoke', ['queue']), ('aiwb-e2e', ['run'])):
-            script = tools / name / f'{name}.py'
+            # the tools of this release first (a new install has no tool library in Drive yet), then the library
+            script = next((r / name / f'{name}.py' for r in (REPO / 'tools', aiwb_install.workbench_root() / 'tools')
+                           if (r / name / f'{name}.py').is_file()), REPO / 'tools' / name / f'{name}.py')
             if not script.is_file():
                 out('info', f'{name}: not in the tool library yet ({script})')
                 continue
@@ -1255,6 +1425,15 @@ def main(argv=None) -> int:
     p = sp.add_parser('google')
     p.add_argument('--import-web-client')
     p.add_argument('--desktop-client')
+    p = sp.add_parser('bridge')
+    p.add_argument('--no-start', action='store_true')
+    p = sp.add_parser('desktop')
+    p.add_argument('--installer')
+    p = sp.add_parser('desktop-update')
+    p.add_argument('--installer', required=True)
+    p.add_argument('--transport', choices=['ssh', 'local'], default='ssh')
+    p.add_argument('--local-root')
+    p.add_argument('--host-key')
     p = sp.add_parser('pc-access')
     p.add_argument('--apply', action='store_true')
     p.add_argument('--check', action='store_true')
@@ -1266,6 +1445,7 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     fn = {'status': cmd_status, 'preflight': cmd_preflight, 'init': cmd_init, 'subs': cmd_subs,
           'site-probe': cmd_site_probe, 'site-deploy': cmd_site_deploy, 'google': cmd_google,
+          'bridge': cmd_bridge, 'desktop': cmd_desktop, 'desktop-update': cmd_desktop_update,
           'pc-access': cmd_pc_access, 'verify': cmd_verify,
           'report': cmd_report}.get(a.cmd)
     if not fn:

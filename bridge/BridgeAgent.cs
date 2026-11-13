@@ -6763,6 +6763,8 @@ namespace AiWorkbenchBridge
         public int dispatcherPolicyWarnTokens { get; set; }
         // Freedom F1: base URL of the CO site (https://co.example.org); empty = the origin of dbQueue.url or push.url
         public string siteUrl { get; set; }
+        // Freedom 0.4.0: folder with CO Desktop (setup\) and CO Resident (mac\) releases offered to paired devices
+        public string desktopUpdatesDir { get; set; }
         // v1.2.7: Web Push through <site>/agent/push.php (null or enabled=false -> no push)
         public PushConfig push { get; set; }
         // v1.3.0: job queue in the database (<site>/agent/db.php); null or enabled=false -> Drive inbox only

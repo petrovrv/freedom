@@ -239,7 +239,16 @@ def scan_text(path: str, text: str, cfg: dict, terms: list[tuple], rules: list[t
     return out
 
 
+def decode_text(data: bytes) -> str:
+    """Text of a file: UTF-16 with a byte order mark (files written by Windows tools, e.g. exported task XML), else UTF-8."""
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return data.decode("utf-16", errors="replace")
+    return data.decode("utf-8", errors="replace")
+
+
 def is_binary(path: str, data: bytes) -> bool:
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return False   # UTF-16 text has zero bytes but is scanned like any text
     return pathlib.PurePosixPath(path).suffix.lower() not in TEXT_EXT and b"\0" in data[:4096]
 
 
@@ -249,7 +258,7 @@ def scan(tree: dict[str, bytes], cfg: dict, terms: list[tuple]) -> list[dict]:
     for path, data in sorted(tree.items()):
         if is_binary(path, data):
             continue
-        findings += scan_text(path, data.decode("utf-8", errors="replace"), cfg, terms, rules)
+        findings += scan_text(path, decode_text(data), cfg, terms, rules)
     return findings
 
 

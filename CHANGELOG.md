@@ -5,6 +5,26 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- **Neutral installers** (release page = the only link a new user needs, `install/PILOT-FRIEND.md`):
+  - CO Desktop 0.14.0: a build without install.json reads the install.json of the setup wizard on this computer
+    (`AIWB_INSTALL`, else `%LOCALAPPDATA%\AIWorkbench\install.json`), then `install.json` next to the app; with none
+    of them a first-start window asks for the user's site, the owner's Google account and the desktop OAuth client
+    (copied to `oauth-client-desktop.json` next to install.json); values left empty by an earlier start are filled from
+    install.json later; the update download address is the site of this computer's settings. Builds with install.json
+    (a maintainer's own) behave as before. The installer takes the OAuth client only when built with `-DCLIENT`.
+  - `release/build_installers.py`: neutral CO Desktop installer (own build root, nothing embedded, fails on private
+    words in the own assemblies), source tarball, notes draft; no Authenticode signature (the manifest signature
+    is the check).
+  - Bridge: `bridge/install.ps1` on a new PC makes `config.json` from install.json (`aiwb_install.py bridge-config`),
+    creates a release key of this PC, builds and signs Bridge from the sources into a local channel and registers the
+    logon task; existing installs keep their channel and task. `release.ps1` works in a tree without git. Config
+    `desktopUpdatesDir` (CO Desktop / CO Resident releases offered to devices; default
+    `%LOCALAPPDATA%\AIWorkbenchBridge\desktop-updates`, the folder of earlier installs where it exists).
+  - Setup wizard: steps `bridge`, `desktop [--installer]` (checks the installer against the signed manifest, installs
+    it), `desktop-update --installer` (a release's CO Desktop to the user's site and Bridge for all computers);
+    preflight checks `cryptography`; `verify` runs aiwb-smoke / aiwb-e2e of the release's `tools/`.
+- Guard: UTF-16 text files (with a byte order mark) are scanned like other text; the exported task XML
+  `co-desktop/tools/AIWB-BridgeAutostart.xml` (unused, it named a computer and an account) is removed.
 - Bridge 1.18.0: each person has their own keyring. Jobs get `AIWB_JOB_ENV` and `AIWB_JOB_ROLE` (`owner`, or
   `member` when the job's environment is known and differs from the owner's). A member's job also gets
   `PYTHON_KEYRING_BACKEND=aiwb_secret.MemberRefusedKeyring` (tool `secret-prompt` on `PYTHONPATH`): every python

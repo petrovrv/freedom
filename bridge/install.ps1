@@ -1,28 +1,60 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Installs the Bridge launcher for the current user (no administrator rights).
-# Usage: install.ps1 [-ConfigFrom <config.json>] [-SwitchAutostart]
+# Usage: install.ps1 [-ConfigFrom <config.json>] [-Channel <dir>] [-SwitchAutostart] [-NoStart]
 #   - builds launcher\ and copies it to %LOCALAPPDATA%\Programs\AIWorkbenchBridge\AIWorkbenchBridge.exe;
 #   - writes launcher.json (update channel + public part of the release signing key);
-#   - copies the host config to %LOCALAPPDATA%\AIWorkbenchBridge\config.json (with -SwitchAutostart it is refreshed);
+#   - host config %LOCALAPPDATA%\AIWorkbenchBridge\config.json: copied from -ConfigFrom (with -SwitchAutostart it is
+#     refreshed), else kept, else made from install.json (install/aiwb_install.py bridge-config);
 #   - stages the newest signed release from the channel (launcher --check-once).
-#   -SwitchAutostart: also points the logon task AIWB-BridgeAutostart at the launcher (old definition saved next to it).
+# Freedom 0.4.0, a new computer (setup wizard: freedom_setup.py bridge): without a release signing key on this computer
+#   the key is created here (CNG, current user, not exportable) and Bridge is built from this source tree and signed
+#   into the channel (default %LOCALAPPDATA%\AIWorkbenchBridge\updates) by release.ps1; without the logon task
+#   AIWB-BridgeAutostart a new one is registered and started (-NoStart: registered only).
+#   -SwitchAutostart: points an existing logon task AIWB-BridgeAutostart at the launcher (old definition saved next to it).
 #     Run it only when no job is running: the old Bridge is stopped and the launcher started.
 param(
-    [string]$ConfigFrom = 'C:\BridgeAgent-v0.6\config.json',
-    [string]$Channel = 'C:\AIWorkbench\releases\bridge-updates',   # local since 1.7.1: Google Drive flags exe files as malware
-    [switch]$SwitchAutostart
+    [string]$ConfigFrom = '',
+    [string]$Channel = '',
+    [switch]$SwitchAutostart,
+    [switch]$NoStart
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Core
-$KeyName = 'AIWorkbench.BridgeRelease'
+# AIWB_BRIDGE_RELEASE_KEY / AIWB_BRIDGE_TASK: other names, for a rehearsal on a computer that already runs a Bridge
+$KeyName = if ($env:AIWB_BRIDGE_RELEASE_KEY) { $env:AIWB_BRIDGE_RELEASE_KEY } else { 'AIWorkbench.BridgeRelease' }
+$task = if ($env:AIWB_BRIDGE_TASK) { $env:AIWB_BRIDGE_TASK } else { 'AIWB-BridgeAutostart' }
 $app = Join-Path $env:LOCALAPPDATA 'Programs\AIWorkbenchBridge'
 $state = Join-Path $env:LOCALAPPDATA 'AIWorkbenchBridge'
 $launcher = Join-Path $app 'AIWorkbenchBridge.exe'
+$cfg = Join-Path $state 'config.json'
 New-Item -ItemType Directory -Force $app, $state | Out-Null
 
-# Release key: public part of the CNG key release.ps1 signs with.
+# Update channel: the parameter, else the one of an earlier install, else a local folder of this user.
+$lj = Join-Path $app 'launcher.json'
+if (-not $Channel -and (Test-Path $lj)) { $Channel = (Get-Content $lj -Raw | ConvertFrom-Json).updatesDir }
+if (-not $Channel) { $Channel = Join-Path $state 'updates' }
+New-Item -ItemType Directory -Force $Channel | Out-Null
+
+# Host config (before a local release: release.ps1 checks the new build against it).
+if ($ConfigFrom -and (Test-Path $ConfigFrom) -and ($SwitchAutostart -or -not (Test-Path $cfg))) {
+    Copy-Item $ConfigFrom $cfg -Force
+    "config.json copied from $ConfigFrom"
+} elseif ($ConfigFrom -and -not (Test-Path $ConfigFrom) -and -not (Test-Path $cfg)) {
+    throw "No host config: $ConfigFrom not found and $cfg missing."
+} elseif (-not (Test-Path $cfg)) {
+    $py = (Get-Command python -ErrorAction SilentlyContinue).Source
+    if (-not $py) { throw 'No host config and no Python to make one from install.json (python install/freedom_setup.py preflight).' }
+    & $py (Join-Path $PSScriptRoot '..\install\aiwb_install.py') bridge-config $cfg
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $cfg)) { throw 'config.json from install.json failed (python install/freedom_setup.py init first).' }
+}
+
+# Release key: public part of the CNG key release.ps1 signs with. A new computer gets its own key and a local release.
 $provider = [Security.Cryptography.CngProvider]::MicrosoftSoftwareKeyStorageProvider
-if (-not [Security.Cryptography.CngKey]::Exists($KeyName, $provider)) { throw "Signing key $KeyName not found: run release.ps1 -CreateKey first." }
+$haveRelease = @(Get-ChildItem $Channel -Filter 'BridgeAgent-*.sig.json' -ErrorAction SilentlyContinue).Count -gt 0
+if (-not [Security.Cryptography.CngKey]::Exists($KeyName, $provider) -or -not $haveRelease) {
+    if ($haveRelease) { throw "Signing key $KeyName not found but $Channel has releases: run release.ps1 -CreateKey on the computer that made them." }
+    & (Join-Path $PSScriptRoot 'release.ps1') -Channel $Channel -CreateKey -AllowDirty
+}
 $key = [Security.Cryptography.CngKey]::Open($KeyName, $provider)
 $pub = [Convert]::ToBase64String($key.Export([Security.Cryptography.CngKeyBlobFormat]::EccPublicBlob))
 
@@ -36,26 +68,39 @@ if (Get-Process AIWorkbenchBridge -ErrorAction SilentlyContinue | ? { $_.Path -e
 Copy-Item "$build\AIWorkbenchBridge.exe" $launcher -Force
 
 [ordered]@{ updatesDir = $Channel; releaseKey = $pub; stateRoot = '%LOCALAPPDATA%\AIWorkbenchBridge' } |
-    ConvertTo-Json | Set-Content (Join-Path $app 'launcher.json') -Encoding ASCII
-
-# Host config
-$cfg = Join-Path $state 'config.json'
-if ((Test-Path $ConfigFrom) -and ($SwitchAutostart -or -not (Test-Path $cfg))) {
-    Copy-Item $ConfigFrom $cfg -Force
-    "config.json copied from $ConfigFrom"
-} elseif (-not (Test-Path $cfg)) {
-    throw "No host config: $ConfigFrom not found and $cfg missing."
-}
+    ConvertTo-Json | Set-Content $lj -Encoding ASCII
 
 # Stage the newest release
 $p = Start-Process $launcher -ArgumentList '--check-once' -PassThru -Wait
 Get-Content (Join-Path $state 'logs\launcher.log') -Tail 4
 Get-Content (Join-Path $app 'state.json') -ErrorAction SilentlyContinue
 
+$exists = [bool](Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)
+
+if (-not $exists) {
+    # New computer: logon task of this user, restarts the launcher if it exits with an error.
+    $action = New-ScheduledTaskAction -Execute $launcher -WorkingDirectory $app
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+    $trigger.Delay = 'PT45S'
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
+        -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
+    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+    Register-ScheduledTask -TaskName $task -Action $action -Trigger $trigger -Settings $settings -Principal $principal `
+        -Description 'Starts the AI Workbench Bridge launcher at logon (Freedom).' | Out-Null
+    "Logon task $task registered."
+    if ($NoStart) { 'Not started (-NoStart): it starts at the next logon, or: schtasks /run /tn ' + $task; return }
+    schtasks /run /tn $task | Out-Null
+    for ($i = 0; $i -lt 40; $i++) {
+        Start-Sleep -Seconds 3
+        $cur = (Get-Content (Join-Path $app 'state.json') -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json).current
+        $lf = Join-Path $state ('logs\' + (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd') + '.log')
+        if ($cur -and (Test-Path $lf) -and (Select-String -Path $lf -SimpleMatch "v$cur started" -Quiet)) { "Bridge $cur started."; return }
+    }
+    throw "Bridge start not confirmed in 120 s: see $state\logs (launcher.log and the newest day log)."
+}
+
 if (-not $SwitchAutostart) { 'Installed. Autostart not changed (use -SwitchAutostart).'; return }
 
-# Autostart: same logon task, now running the launcher.
-$task = 'AIWB-BridgeAutostart'
 function OldBridge { Get-CimInstance Win32_Process -Filter "Name='BridgeAgent.exe'" | ? { $_.CommandLine -notmatch '--mcp-device' } }
 
 # Wait until the running Bridge has no job (agent CLIs are its children). Run this from a one-shot scheduled task,
@@ -68,7 +113,7 @@ while ($true) {
     if ((Get-Date) -gt $deadline) { throw 'Jobs still running after 6 h; autostart not changed.' }
     Start-Sleep -Seconds 20
 }
-if (Test-Path $ConfigFrom) { Copy-Item $ConfigFrom $cfg -Force }   # pick up edits made while waiting
+if ($ConfigFrom -and (Test-Path $ConfigFrom)) { Copy-Item $ConfigFrom $cfg -Force }   # pick up edits made while waiting
 
 $xmlOld = (schtasks /query /tn $task /xml) -join "`n"
 $backup = Join-Path $app "$task.before-launcher.xml"

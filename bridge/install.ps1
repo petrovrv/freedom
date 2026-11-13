@@ -16,7 +16,8 @@ param(
     [string]$ConfigFrom = '',
     [string]$Channel = '',
     [switch]$SwitchAutostart,
-    [switch]$NoStart
+    [switch]$NoStart,
+    [string]$Python = ''   # the Python of the setup wizard (freedom_setup.py bridge passes its own)
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Core
@@ -42,7 +43,9 @@ if ($ConfigFrom -and (Test-Path $ConfigFrom) -and ($SwitchAutostart -or -not (Te
 } elseif ($ConfigFrom -and -not (Test-Path $ConfigFrom) -and -not (Test-Path $cfg)) {
     throw "No host config: $ConfigFrom not found and $cfg missing."
 } elseif (-not (Test-Path $cfg)) {
-    $py = (Get-Command python -ErrorAction SilentlyContinue).Source
+    $py = if ($Python) { $Python } else {
+        (Get-Command python -All -ErrorAction SilentlyContinue | ? { $_.Source -notmatch '\\WindowsApps\\' } | Select-Object -First 1).Source
+    }
     if (-not $py) { throw 'No host config and no Python to make one from install.json (python install/freedom_setup.py preflight).' }
     & $py (Join-Path $PSScriptRoot '..\install\aiwb_install.py') bridge-config $cfg
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $cfg)) { throw 'config.json from install.json failed (python install/freedom_setup.py init first).' }
@@ -57,6 +60,10 @@ if (-not [Security.Cryptography.CngKey]::Exists($KeyName, $provider) -or -not $h
 }
 $key = [Security.Cryptography.CngKey]::Open($KeyName, $provider)
 $pub = [Convert]::ToBase64String($key.Export([Security.Cryptography.CngKeyBlobFormat]::EccPublicBlob))
+$trusted = if (Test-Path $lj) { (Get-Content $lj -Raw | ConvertFrom-Json).releaseKey } else { '' }
+if ($trusted -and $trusted -ne $pub) {
+    throw "launcher.json trusts another release key than $KeyName; not replaced (a rehearsal needs its own LOCALAPPDATA)."
+}
 
 # Launcher binary
 $build = Join-Path $env:LOCALAPPDATA 'AIWorkbenchBuild\launcher'
@@ -71,8 +78,12 @@ Copy-Item "$build\AIWorkbenchBridge.exe" $launcher -Force
     ConvertTo-Json | Set-Content $lj -Encoding ASCII
 
 # Stage the newest release
-$p = Start-Process $launcher -ArgumentList '--check-once' -PassThru -Wait
-Get-Content (Join-Path $state 'logs\launcher.log') -Tail 4
+# --root: own lock name, so the check also runs while the launcher of another profile runs (rehearsal on a used PC)
+$p = Start-Process $launcher -ArgumentList "--check-once --root `"$app`"" -PassThru -Wait
+Get-Content (Join-Path $state 'logs\launcher.log') -Tail 4 -ErrorAction SilentlyContinue
+if (-not (Get-Content (Join-Path $app 'state.json') -Raw -ErrorAction SilentlyContinue)) {
+    throw "The launcher staged no Bridge release from $Channel (see $state\logs\launcher.log)."
+}
 Get-Content (Join-Path $app 'state.json') -ErrorAction SilentlyContinue
 
 $exists = [bool](Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)
@@ -92,9 +103,11 @@ if (-not $exists) {
     schtasks /run /tn $task | Out-Null
     for ($i = 0; $i -lt 40; $i++) {
         Start-Sleep -Seconds 3
-        $cur = (Get-Content (Join-Path $app 'state.json') -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json).current
-        $lf = Join-Path $state ('logs\' + (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd') + '.log')
-        if ($cur -and (Test-Path $lf) -and (Select-String -Path $lf -SimpleMatch "v$cur started" -Quiet)) { "Bridge $cur started."; return }
+        try {   # a half-written state.json or a locked log is read again 3 s later
+            $cur = (Get-Content (Join-Path $app 'state.json') -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json).current
+            $lf = Join-Path $state ('logs\' + (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd') + '.log')
+            if ($cur -and (Test-Path $lf) -and (Select-String -Path $lf -SimpleMatch "v$cur started" -Quiet)) { "Bridge $cur started."; return }
+        } catch { }
     }
     throw "Bridge start not confirmed in 120 s: see $state\logs (launcher.log and the newest day log)."
 }

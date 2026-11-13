@@ -50,6 +50,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import tempfile
 import sys
 import urllib.error
 import urllib.request
@@ -304,7 +305,8 @@ def cmd_init(a) -> int:
     p.write_text(json.dumps(d, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     aiwb_install.load(fresh=True)
     out('ok', f'install.json written: {p}')
-    if (d['site'].get('db') or {}).get('user') and not keyring_get('aiwb/co-mysql', d['site']['db']['user']):
+    # B/C: freedom_docker.py up generates the database password into the stack's secrets
+    if variant == 'A' and (d['site'].get('db') or {}).get('user') and not keyring_get('aiwb/co-mysql', d['site']['db']['user']):
         out('next', 'database password into the keyring: python "<tools>/secret-prompt/secret_prompt.py" co-mysql '
                     f'--account {d["site"]["db"]["user"]} (or: python -c "import keyring; keyring.set_password('
                     f'\'aiwb/co-mysql\', \'{d["site"]["db"]["user"]}\', input())")')
@@ -996,7 +998,8 @@ def cmd_bridge(a) -> int:
     if errs:
         out('FAIL', 'install.json: ' + '; '.join(errs) + ' (init)')
         return 1
-    args = ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(REPO / 'bridge' / 'install.ps1')]
+    args = ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(REPO / 'bridge' / 'install.ps1'),
+            '-Python', sys.executable]
     if a.no_start:
         args.append('-NoStart')
     rc, o = sh(args, timeout=900)
@@ -1036,17 +1039,26 @@ def cmd_desktop(a) -> int:
         return 1
     bad = 0
     if a.installer:
-        f = Path(a.installer)
-        why = release_check(f) if f.is_file() else f'{f}: not found'
-        if why:
-            out('FAIL', f'installer not verified: {why}')
-            save_step('desktop', False, 'installer not verified')
-            return 1
-        out('ok', f'{f.name}: signed by the Freedom maintainers, hash matches')
-        try:
-            rc = subprocess.run([str(f), '/S'], timeout=600).returncode
-        except (OSError, subprocess.SubprocessError) as e:
-            rc = f'{type(e).__name__}: {e}'
+        src = Path(a.installer)
+        with tempfile.TemporaryDirectory(prefix='freedom-setup-') as tmp:
+            # the checked copy is the one that runs (the downloaded file may change after the check)
+            f = Path(tmp) / src.name
+            why = '' if src.is_file() else f'{src}: not found'
+            if not why:
+                shutil.copy2(src, f)
+                man = src.parent / 'freedom-manifest.json'
+                if man.is_file():
+                    shutil.copy2(man, Path(tmp) / man.name)
+                why = release_check(f)
+            if why:
+                out('FAIL', f'installer not verified: {why}')
+                save_step('desktop', False, 'installer not verified')
+                return 1
+            out('ok', f'{f.name}: signed by the Freedom maintainers, hash matches')
+            try:
+                rc = subprocess.run([str(f), '/S'], timeout=600).returncode
+            except (OSError, subprocess.SubprocessError) as e:
+                rc = f'{type(e).__name__}: {e}'
         out('ok' if rc == 0 else 'FAIL', f'installer: {"done" if rc == 0 else rc}')
         bad += rc != 0
     where = desktop_installed()
@@ -1090,8 +1102,14 @@ def cmd_desktop_update(a) -> int:
     if why:
         out('FAIL', f'installer not verified: {why}')
         return 1
-    out('ok', f'{f.name}: signed by the Freedom maintainers, hash matches')
     data = f.read_bytes()
+    # the bytes that go out are the ones of the manifest (the file may have changed after the check)
+    entry = next(x for x in json.loads((f.parent / 'freedom-manifest.json').read_text(encoding='utf-8'))['files']
+                 if x.get('path') == f.name)
+    if hashlib.sha256(data).hexdigest() != entry.get('sha256'):
+        out('FAIL', f'{f.name} changed while it was checked')
+        return 1
+    out('ok', f'{f.name}: signed by the Freedom maintainers, hash matches')
     # the site first: Bridge offers a release to the devices as soon as it sees the file, and they download it there
     latest = json.dumps({'version': m.group(1), 'fileName': f.name, 'sha256': hashlib.sha256(data).hexdigest(),
                          'size': len(data), 'publishedUtc': dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')},
@@ -1118,7 +1136,7 @@ def cmd_desktop_update(a) -> int:
     out('ok', f'site: {f.name} and latest.json in co-desktop/ of the site home')
     dest = desktop_updates_dir() / 'setup'
     dest.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(f, dest / f.name)
+    (dest / f.name).write_bytes(data)
     out('ok', f'Bridge: {f.name} offered to the paired computers within ~10 min; they install it when no agent call runs')
     save_step('desktop-update', True, m.group(1))
     return 0

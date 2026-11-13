@@ -38,7 +38,7 @@ public sealed class DesktopSettings
     // Freedom 0.4.0: the neutral installer has no client of its own; the setup wizard keeps the user's desktop client
     // next to install.json (freedom_setup.py google: oauth-client-desktop.json), the first-start window copies it there.
     public static string WizardOAuthClientFile =>
-        Path.Combine(Path.GetDirectoryName(InstallDefaults.CandidateFiles().First()) ?? DataDir, "oauth-client-desktop.json");
+        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(InstallDefaults.CandidateFiles().First())) ?? DataDir, "oauth-client-desktop.json");
 
     public string ResolveOAuthClientFile()
     {
@@ -48,7 +48,7 @@ public sealed class DesktopSettings
     }
 
     /// <summary>A site address is set (the first-start window asks for it in a neutral build).</summary>
-    public bool HasSite => Uri.TryCreate(WebUrl, UriKind.Absolute, out Uri? u) && (u.Scheme == "https" || u.Scheme == "http");
+    public bool HasSite => InstallDefaults.IsSiteUrl(WebUrl);
 
     /// <summary>The site of this computer without the trailing slash ("" when not set).</summary>
     public string SiteBase => HasSite ? WebUrl.TrimEnd('/') : "";

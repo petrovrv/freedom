@@ -340,3 +340,14 @@ class InstallersTest(Base):
         with mock.patch.object(fr, 'DEFAULT_TRUST', trust), mock.patch('builtins.print'):
             self.assertEqual(fs.cmd_desktop_update(a), 1)
         self.assertFalse((self.tmp / 's').exists())
+
+    def test_release_check_refuses_unsafe_path_and_twin_entry(self):
+        import freedom_release as fr
+        rel, trust = self.release({'CO-Desktop-Setup-9.9.9.exe': b'MZ'})
+        man = rel / fr.MANIFEST_NAME
+        m = json.loads(man.read_text())
+        m['files'].append({'path': '../x.exe', 'size': 1, 'sha256': '0' * 64})
+        man.write_text(json.dumps(m))
+        with mock.patch.object(fr, 'DEFAULT_TRUST', trust):
+            why = fs.release_check(rel / 'CO-Desktop-Setup-9.9.9.exe')
+        self.assertIn('signature', why)   # any change of the signed manifest breaks the signature

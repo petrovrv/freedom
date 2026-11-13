@@ -97,10 +97,9 @@ def build_desktop(out: pathlib.Path, makensis: str):
     if leaks:
         raise SystemExit('neutral build contains private data:\n  ' + '\n  '.join(sorted(set(leaks))))
     nsi = REPO / 'co-desktop/installer/co-desktop.nsi'
-    run([makensis, '/V2', '/INPUTCHARSET', 'UTF8', f'/DVERSION={ver}', f'/DAPPDIR={pub}', nsi])
-    setup = nsi.parent / f'CO-Desktop-Setup-{ver}.exe'
-    shutil.move(str(setup), out / setup.name)
-    print(f'ok: {out / setup.name} (neutral, no Authenticode signature)')
+    setup = out / f'CO-Desktop-Setup-{ver}.exe'   # straight into OUT: never over a maintainer's own signed installer
+    run([makensis, '/V2', '/INPUTCHARSET', 'UTF8', f'/DVERSION={ver}', f'/DAPPDIR={pub}', f'/DOUTFILE={setup}', nsi])
+    print(f'ok: {setup} (neutral, no Authenticode signature)')
     return ver
 
 

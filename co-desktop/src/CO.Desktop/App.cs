@@ -96,7 +96,9 @@ public sealed class Services
         var approvals = new WpfApprovalService();
         var runtime = new DeviceRuntime(DesktopSettings.DataDir, keys, drive, approvals);
         runtime.Updater.SiteTokens = auth;   // 0.9.1: installer from the CO site
-        if (settings.SiteBase.Length > 0) runtime.Updater.SiteBase = settings.SiteBase;   // Freedom 0.4.0: the site of this computer
+        // Freedom 0.4.0: a neutral build downloads updates from the site of this computer; a build with its site built in
+        // keeps that one (a WebUrl switched to a test site never gets the token for installers)
+        if (InstallDefaults.Source != "built-in" && settings.SiteBase.Length > 0) runtime.Updater.SiteBase = settings.SiteBase;
         runtime.State.OwnerEmail = settings.OwnerEmail;
         // The owner account always signs in with the owner scopes; restores a role lost from device.json.
         if (runtime.State.Role.Length == 0 && runtime.State.Account.Length > 0)

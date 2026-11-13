@@ -4,11 +4,16 @@
 #   -CreateKey  create the signing key on first use (CNG, current user, not exportable) and print its public part
 # Output: <Channel>\BridgeAgent-<v>.exe + BridgeAgent-<v>.sig.json. Refuses to overwrite a published version.
 param(
-    [string]$Channel = 'C:\AIWorkbench\releases\bridge-updates',   # local since 1.7.1: Google Drive flags exe files as malware
+    [string]$Channel = '',   # default: updatesDir of the installed launcher (launcher.json), else the folder below
     [switch]$CreateKey,
     [switch]$AllowDirty
 )
 $ErrorActionPreference = 'Stop'
+if (-not $Channel) {
+    $lj = Join-Path $env:LOCALAPPDATA 'Programs\AIWorkbenchBridge\launcher.json'
+    if (Test-Path $lj) { $Channel = (Get-Content $lj -Raw | ConvertFrom-Json).updatesDir }
+    if (-not $Channel) { $Channel = 'C:\AIWorkbench\releases\bridge-updates' }   # local since 1.7.1: Google Drive flags exe files as malware
+}
 $KeyName = if ($env:AIWB_BRIDGE_RELEASE_KEY) { $env:AIWB_BRIDGE_RELEASE_KEY } else { 'AIWorkbench.BridgeRelease' }
 Add-Type -AssemblyName System.Core
 

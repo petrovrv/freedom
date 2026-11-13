@@ -14,7 +14,11 @@ RequestExecutionLevel user
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\CODesktop"
 
 Name "${APPNAME} ${VERSION}"
-OutFile "CO-Desktop-Setup-${VERSION}.exe"
+!ifdef OUTFILE
+  OutFile "${OUTFILE}"
+!else
+  OutFile "CO-Desktop-Setup-${VERSION}.exe"
+!endif
 InstallDir "$LOCALAPPDATA\Programs\CO Desktop"
 InstallDirRegKey HKCU "Software\CODesktop" "InstallDir"
 Icon "..\src\CO.Desktop\co.ico"

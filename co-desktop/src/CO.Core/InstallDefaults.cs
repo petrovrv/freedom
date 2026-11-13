@@ -63,12 +63,17 @@ public static class InstallDefaults
         }
     }
 
-    /// <summary>https://host of an install.json object ("" when missing or not http(s)).</summary>
+    /// <summary>https://host of an install.json object ("" when missing or not a site address).</summary>
     public static string SiteUrlOf(JsonElement doc)
     {
         string u = Str(doc, "site", "url").TrimEnd('/');
-        return Uri.TryCreate(u, UriKind.Absolute, out Uri? uri) && (uri.Scheme == "https" || uri.Scheme == "http") ? u : "";
+        return IsSiteUrl(u) ? u : "";
     }
+
+    /// <summary>A CO site the Google token may be sent to: https, or plain http only on localhost (variant C).</summary>
+    public static bool IsSiteUrl(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out Uri? u) && u.AbsolutePath.TrimEnd('/').Length == 0 &&
+        (u.Scheme == Uri.UriSchemeHttps || (u.Scheme == Uri.UriSchemeHttp && u.IsLoopback && u.Host == "localhost"));
 
     internal static string Str(JsonElement e, params string[] path)
     {

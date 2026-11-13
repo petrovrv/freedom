@@ -27,6 +27,8 @@ it, into one folder:
   from `install.json` and registers the logon task.
 - **Not Authenticode-signed.** SmartScreen shows "Windows protected your PC" → More info → Run anyway. Check the file
   first: `freedom_setup.py desktop --installer <exe>` verifies the manifest signature and the hash, then installs.
+- The trust list of the maintainers' keys comes with the archive: download the three files from the release page of
+  the repository itself, not from an unknown mirror; later releases are checked against the list you already have.
 - `git clone <repository URL>` instead of the archive is for updates and development (same steps).
 
 ## Steps and time budget

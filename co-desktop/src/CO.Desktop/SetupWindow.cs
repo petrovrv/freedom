@@ -12,11 +12,12 @@ namespace CO.Desktop;
 public sealed class SetupWindow : Window
 {
     private readonly DesktopSettings _settings;
-    private readonly TextBox _site = new(), _email = new(), _name = new(), _client = new();
+    private readonly TextBox _site = new(), _email = new(), _name = new(), _project = new(), _client = new();
     private readonly TextBlock _error = new() { Foreground = System.Windows.Media.Brushes.Firebrick, TextWrapping = TextWrapping.Wrap };
 
     public static bool Needed(DesktopSettings s) =>
-        !s.HasSite || s.Members.Count == 0 || s.OwnerEmail.Length == 0 || !File.Exists(s.ResolveOAuthClientFile());
+        !s.HasSite || s.Members.Count == 0 || s.OwnerEmail.Length == 0 || s.PubSubProjectId.Length == 0 ||
+        !File.Exists(s.ResolveOAuthClientFile());
 
     public SetupWindow(DesktopSettings settings)
     {
@@ -40,11 +41,13 @@ public sealed class SetupWindow : Window
         _site.Text = settings.WebUrl.TrimEnd('/');
         _email.Text = settings.OwnerEmail;
         _name.Text = settings.Members.Count > 0 ? settings.EnvironmentId : "";
+        _project.Text = settings.PubSubProjectId;
         string client = settings.ResolveOAuthClientFile();
         _client.Text = File.Exists(client) ? client : "";
         Field(p, "Site address (https://co.example.org)", _site);
         Field(p, "Your Google account (the owner of the site)", _email);
         Field(p, "Your first name (latin letters; becomes your environment id)", _name);
+        Field(p, "Project number of your Google Cloud project (empty: taken from the client file)", _project);
         Field(p, "Desktop OAuth client of your Google project (JSON with an \"installed\" section)", _client);
         var browse = new Button { Content = "Choose file…", Margin = new Thickness(0, 4, 0, 0), Padding = new Thickness(8, 3, 8, 3), HorizontalAlignment = HorizontalAlignment.Left };
         browse.Click += (_, _) =>
@@ -75,7 +78,7 @@ public sealed class SetupWindow : Window
 
     /// <summary>"" when the address may be a CO site: https://host, or http://localhost:PORT (variant C without Tailscale).</summary>
     public static string CheckSite(string url) =>
-        Regex.IsMatch(url, @"\Ahttps://[a-z0-9.-]+(:\d+)?\z", RegexOptions.IgnoreCase) || Regex.IsMatch(url, @"\Ahttp://localhost:\d+\z", RegexOptions.IgnoreCase)
+        CO.Core.InstallDefaults.IsSiteUrl(url) && Regex.IsMatch(url, @"\Ahttps?://[a-z0-9.-]+(:\d+)?\z", RegexOptions.IgnoreCase)
             ? "" : "The site address must look like https://co.example.org (no path, no trailing slash).";
 
     /// <summary>"" when the file is a desktop ("installed") OAuth client.</summary>
@@ -93,6 +96,18 @@ public sealed class SetupWindow : Window
         }
     }
 
+    /// <summary>Project number at the start of the client id (000000000000-xxxx.apps.googleusercontent.com), or "".</summary>
+    public static string ProjectOf(string json)
+    {
+        try
+        {
+            string id = JsonNode.Parse(json)?["installed"]?["client_id"]?.GetValue<string>() ?? "";
+            Match m = Regex.Match(id, @"\A(\d{6,20})-");
+            return m.Success ? m.Groups[1].Value : "";
+        }
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException) { return ""; }
+    }
+
     private void Save()
     {
         string site = _site.Text.Trim().TrimEnd('/'), email = _email.Text.Trim().ToLowerInvariant(), file = _client.Text.Trim().Trim('"');
@@ -106,6 +121,10 @@ public sealed class SetupWindow : Window
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { err = "Choose the desktop OAuth client file."; }
         }
         if (err.Length == 0) err = CheckClient(json);
+        string project = _project.Text.Trim();
+        if (project.Length == 0) project = ProjectOf(json);
+        if (err.Length == 0 && !Regex.IsMatch(project, @"\A\d{6,20}\z"))
+            err = "Enter the project number of your Google Cloud project (digits; Google Cloud console -> project settings).";
         if (err.Length > 0) { _error.Text = err; return; }
 
         string target = DesktopSettings.WizardOAuthClientFile;
@@ -119,6 +138,7 @@ public sealed class SetupWindow : Window
         _settings.OwnerEmail = email;
         _settings.EnvironmentId = env;
         if (!_settings.Members.ContainsKey(env)) _settings.Members = new Dictionary<string, string>(_settings.Members) { [env] = email };
+        _settings.PubSubProjectId = project;
         _settings.OAuthClientFile = "";
         _settings.Save();
         DialogResult = true;

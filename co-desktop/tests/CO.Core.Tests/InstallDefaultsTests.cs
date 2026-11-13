@@ -2,6 +2,7 @@
 using System.Text.Json;
 using CO.Core;
 using CO.Core.Runtime;
+using CO.Core.Transport;
 using Xunit;
 
 namespace CO.Core.Tests;
@@ -62,6 +63,9 @@ public class InstallDefaultsTests
     [Theory]
     [InlineData("https://co.example.org", "https://co.example.org")]
     [InlineData("http://localhost:8080/", "http://localhost:8080")]
+    [InlineData("http://co.example.org", "")]
+    [InlineData("http://127.0.0.1:8080", "")]
+    [InlineData("https://co.example.org/agent", "")]
     [InlineData("ftp://co.example.org", "")]
     [InlineData("co.example.org", "")]
     [InlineData("", "")]
@@ -76,5 +80,25 @@ public class InstallDefaultsTests
     {
         var u = new DeviceUpdater(null!, Path.GetTempPath()) { SiteBase = "https://co.example.net/" };
         Assert.Equal("https://co.example.net/agent/desktop.php?op=download", u.SiteDownloadUrl);
+    }
+
+    [Fact]
+    public async Task UpdaterWithoutSiteRefusesSiteDownloads()
+    {
+        var u = new DeviceUpdater(new NoDrive("{\"version\":\"9.9.9\",\"url\":\"/agent/desktop.php?op=download\"}"), Path.GetTempPath()) { SiteBase = "" };
+        var st = new DeviceState { UpdateManifestFileId = "m", Bridge = new BridgeInfo() };
+        Assert.Null(await u.CheckAsync(st, "0.1.0", CancellationToken.None));
+        Assert.Contains("unknown download address", u.Status);
+    }
+
+    private sealed class NoDrive(string manifest) : IDriveFiles
+    {
+        public Task<byte[]> DownloadAsync(string id, CancellationToken ct) => Task.FromResult(System.Text.Encoding.UTF8.GetBytes(manifest));
+        public Task<string> CreateFolderAsync(string name, string? parentId, CancellationToken ct) => throw new NotSupportedException();
+        public Task<string> CreateFileAsync(string name, string parentId, byte[] content, string mime, CancellationToken ct) => throw new NotSupportedException();
+        public Task UpdateFileAsync(string id, byte[] content, string mime, CancellationToken ct) => throw new NotSupportedException();
+        public Task<List<DriveFile>> ListChildrenAsync(string parentId, CancellationToken ct) => throw new NotSupportedException();
+        public Task DeleteAsync(string id, CancellationToken ct) => throw new NotSupportedException();
+        public Task ShareAsync(string id, string email, string role, CancellationToken ct) => throw new NotSupportedException();
     }
 }

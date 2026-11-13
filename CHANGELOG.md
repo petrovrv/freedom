@@ -5,6 +5,10 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+## 0.3.0 (2026-11-13)
+
+The development direction is reversed: this repository is the upstream of the core.
+
 - **This repository is now the upstream of the core** (`docs/DEVELOPMENT.md`): maintainers develop in a clone of it;
   their own installations are this tree plus a private layer that never enters it.
 - **Guard** (`release/export_freedom.py guard`, `release/freedom_guard.py`, `release/hooks/pre-push`, CI job

@@ -1,17 +1,17 @@
 {
  "format": "freedom-release/1",
- "version": "0.1.0",
- "created": "2026-11-12T21:30:45Z",
+ "version": "0.2.0",
+ "created": "2026-11-13T22:53:09Z",
  "files": [
   {
    "path": "module.json",
-   "size": 1239,
-   "sha256": "ded4c5324f3c19f7f7b0e34baa4cbfeec2ac381b3272ccb0f4f68a74e4b9b32b"
+   "size": 1337,
+   "sha256": "d0ea93671899a012c7199cef30d7738f0d7c4c5ddd0a69f5d9874949a4c60b8c"
   },
   {
    "path": "README.md",
-   "size": 2972,
-   "sha256": "1ffb4895832e47fe6dfad2838d4350c25a2579ab279de2b4384478dd56ce3d90"
+   "size": 4059,
+   "sha256": "8d80e5e3372e59fc70846a973caf8acae65a7c65b31a9fdf1ada7fb474f74bb5"
   },
   {
    "path": "server/ops.php",
@@ -20,8 +20,8 @@
   },
   {
    "path": "server/transcribe-lib.php",
-   "size": 7905,
-   "sha256": "e89cd839bbea2d9bbdf4abd20b25766a03d5363d64dce9f5466ec32e1016cf52"
+   "size": 10708,
+   "sha256": "d675d0e03aaba9ced5ac21566fd5d7da7e76091b3b1df46f54962d72d3097477"
   },
   {
    "path": "ui/composer.css",
@@ -35,15 +35,15 @@
   },
   {
    "path": "ui/composer.js",
-   "size": 6017,
-   "sha256": "720517c86b97c21999bdb441a7add050289c55e2b4d7f0f1790a201645610b1d"
+   "size": 6528,
+   "sha256": "f24b7b71c1feafa68767d343175baf065bd900b40903412ddff84bcb98830c8f"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "87buSDSbDKfoTe3LeATUsoA9xrIXIclsvXXHh0LbkYgwf1JCBE3THyx66heOD8E9Z722XJA454C1Fpwq6N8YAQ=="
+   "sig": "8IuXnWSxGxf01xoVVfxw6Cn3CEeOObYI1p6oVS0Y+KIjqkwek+zuONOpU/fqgW+/7nVb5BqXR8uOJZ3bQFFdCA=="
   }
  ],
  "module": "dictation"

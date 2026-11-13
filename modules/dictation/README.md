@@ -7,8 +7,23 @@ actions of modules (ext/1 `ui.composer`, below).
 | Layer | Here |
 |---|---|
 | `ui.composer` | `ui/composer.html` + `composer.js` + `composer.css` — button, language (RU/UK/EN/NL/FR/DE, kept per browser), engine choice |
-| server (standard module) | `server/ops.php` — user op `dictation_status`; upload `transcribe` (agent/module.php?m=dictation&u=transcribe) forwards the audio to OpenAI or Groq Whisper |
-| data | none; the key stays in `~/co-agent/secrets/transcribe.json` `{"provider", "key", "model"?}` |
+| server (standard module) | `server/ops.php` — user op `dictation_status`; upload `transcribe` (agent/module.php?m=dictation&u=transcribe) forwards the audio to OpenAI, Groq or your own Whisper server |
+| data | none; the key stays in `~/co-agent/secrets/transcribe.json` (below) |
+
+`transcribe.json` (0600): one provider `{"provider": "openai"|"groq"|"local", "key", "model"?, "url"?, "prompt"?}` or a
+chain `{"providers": [{...}, {...}]}` tried in order while one is unreachable or answers 5xx/429 (a `local` one: any error).
+`local` is any OpenAI-compatible `/v1/audio/transcriptions` over HTTPS (`url` required; a bare origin gets
+`/v1/audio/transcriptions` appended), e.g. [speaches](https://github.com/speaches-ai/speaches) (faster-whisper) on a
+home server behind Tailscale Funnel with its `API_KEY`; default model `deepdml/faster-whisper-large-v3-turbo-ct2`,
+connect timeout 5 s so a switched-off server hands over quickly. `prompt` is a vocabulary hint (names, brands) put before
+the page's prompt. Example — home server first, Groq as the fallback:
+
+    {"providers": [
+      {"provider": "local", "url": "https://homehub.example.ts.net:8443", "key": "...", "prompt": "Colruyt, OpenMC"},
+      {"provider": "groq", "key": "gsk_..."}
+    ]}
+
+When every service fails the page switches to the browser's recognition for the rest of its life (that recording is lost).
 
 Engines, as before: CO Desktop → Windows voice typing (Win+H) types into the box; a configured speech-to-text key →
 record, transcribe on the server, text after the box text; otherwise the browser's speech recognition with the text

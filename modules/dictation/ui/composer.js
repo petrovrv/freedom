@@ -3,7 +3,8 @@
 // co-web/src/dictation.ts + voice.ts and the 🎤 button of ChatView up to CO Web 0.102, behaviour unchanged).
 //   CO Desktop: Windows voice typing (Win+H) types into the message box itself (coExt.speech.platform).
 //   A speech-to-text key on the server (op dictation_status): CO Web records (coExt.audio), the upload 'transcribe' of
-//   this module sends it to Whisper, the text goes after the box text (coExt.input ... done).
+//   this module sends it to Whisper, the text goes after the box text (coExt.input ... done). When every service of the
+//   server fails, the page falls back to the browser's recognition.
 //   Otherwise the browser's speech recognition in CO Web (coExt.speech): the box shows the text as it is spoken.
 // The language is kept in this browser (coExt.storage 'lang').
 (function () {
@@ -85,6 +86,13 @@
       });
     }).catch(function (e) {
       var m = String((e && e.message) || e);
+      if (m !== 'not_configured' && media.speech) {
+        // every speech-to-text service of the server failed (home server off, no fallback key): the browser's own
+        // recognition for the rest of this page's life; this recording is lost, so say it
+        whisper = false;
+        fail('Server transcription failed (' + m + '); switched to browser recognition, press 🎤 again.');
+        return;
+      }
       fail(m === 'not_configured' ? 'Voice input is not configured on the server.' : 'Transcription failed: ' + m);
     });
   }

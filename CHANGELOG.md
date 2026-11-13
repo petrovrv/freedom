@@ -5,6 +5,8 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- Module dictation 0.2.0: provider `local` (own OpenAI-compatible Whisper server, e.g. speaches on a home server over HTTPS) and a provider chain in `transcribe.json` with failover (local first, Groq/OpenAI next); vocabulary `prompt`; the composer page falls back to browser recognition when every server service fails.
+
 ## 0.4.0 (2026-11-13)
 
 - Release checks: export rewrites that find nothing count as done (the core tree is public since the reversed

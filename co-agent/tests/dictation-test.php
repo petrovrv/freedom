@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // The module dictation on the server (Freedom F10, ext/1 ui.composer + server.uploads) against a throwaway MariaDB
 // (never production): install, the composer page and its upload in modules_list, the status op with and without the
-// speech-to-text key, a declared upload handler, nothing of it while the module is off.
+// speech-to-text key, a provider chain with a local server first, a declared upload handler, nothing of it while the module is off.
 // Driver: python co-agent/tests/actions-test.py --test dictation-test.php
 declare(strict_types=1);
 require __DIR__ . '/../web/agent/modules-lib.php';
@@ -42,6 +42,27 @@ $key = co_agent_home() . '/co-agent/secrets/transcribe.json';
 $ok('status without a key: not configured', co_module_call($db, 'user', 'dictation_status', [], 'sam', false) === ['configured' => false, 'provider' => null]);
 file_put_contents($key, json_encode(['provider' => 'groq', 'key' => 'gsk_test_not_real']));
 $ok('status with a key: configured, provider only (no key)', co_module_call($db, 'user', 'dictation_status', [], 'sam', false) === ['configured' => true, 'provider' => 'groq']);
+file_put_contents($key, json_encode(['providers' => [
+    ['provider' => 'local', 'key' => 'whk-test', 'url' => 'https://127.0.0.1:9', 'prompt' => 'Colruyt, OpenMC'],
+    ['provider' => 'local', 'key' => 'whk-test', 'url' => 'http://insecure.example'],
+    ['provider' => 'groq', 'key' => 'gsk_test_not_real'],
+]]));
+$chain = co_transcribe_chain();
+$ok('chain: local first, plain-http local dropped, groq as fallback', array_column($chain, 'provider') === ['local', 'groq']);
+$ok('local url completed to /v1/audio/transcriptions, short connect', $chain[0]['url'] === 'https://127.0.0.1:9/v1/audio/transcriptions' && $chain[0]['connect'] === 5);
+$ok('status with a chain: first provider', co_module_call($db, 'user', 'dictation_status', [], 'sam', false) === ['configured' => true, 'provider' => 'local']);
+if (class_exists('CURLFile')) {
+    $probe = tempnam(sys_get_temp_dir(), 'dict');
+    file_put_contents($probe, 'not audio');
+    $r = co_transcribe_post($chain[0], $probe, 'audio/webm', 'a.webm', 'ru', '');
+    $ok('unreachable home server: failed, hand over to the next, key not in detail', !$r['ok'] && $r['retry'] && !str_contains($r['detail'], 'whk-test'));
+    @unlink($probe);
+} else {
+    echo "skip unreachable home server (this PHP has no curl)
+";
+}
+file_put_contents($key, json_encode(['provider' => 'local', 'key' => 'whk-test']));
+$ok('local without url: not configured', co_module_call($db, 'user', 'dictation_status', [], 'sam', false)['configured'] === false);
 file_put_contents($key, json_encode(['provider' => 'nobody', 'key' => 'x']));
 $ok('unknown provider: not configured', co_module_call($db, 'user', 'dictation_status', [], 'sam', false)['configured'] === false);
 @unlink($key);

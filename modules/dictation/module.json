@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "id": "dictation",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "title": "Voice input",
-  "description": "A microphone button next to the message box. With a speech-to-text key on the server (OpenAI or Groq Whisper) the recording is transcribed there; otherwise the browser's own speech recognition types as you speak; in CO Desktop it starts Windows voice typing (Win+H).",
+  "description": "A microphone button next to the message box. With a speech-to-text service configured on the server (OpenAI, Groq or your own OpenAI-compatible Whisper such as speaches on a home server, as a fallback chain) the recording is transcribed there; otherwise the browser's own speech recognition types as you speak; in CO Desktop it starts Windows voice typing (Win+H).",
   "ext": ">=1 <2",
   "scope": "member",
   "platforms": ["windows", "macos", "linux", "android", "ios"],

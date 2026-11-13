@@ -174,11 +174,14 @@ public static class Dialog
     public static void Open(string url) => Proc.Run("/usr/bin/open", new[] { url });
 }
 
-// Confirmations of agent actions, one dialog at a time; no answer within 2 minutes = declined.
+// Confirmations of agent actions, one dialog at a time; no answer in time = declined as "no answer" (TimedOut).
+// 0.5.1: commands still wait 2 minutes; agent-browser actions wait 10 (a filled form was lost at 2 min, 13.11) and a
+// notification with a sound tells the person the dialog is there.
 public sealed class MacApprovalService : IApprovalService
 {
     private readonly SemaphoreSlim _one = new(1, 1);
     public const int TimeoutSec = 120;
+    public const int BrowserTimeoutSec = 600;
 
     public async Task<ApprovalAnswer> RequestAsync(ApprovalRequest request, CancellationToken ct)
     {
@@ -195,14 +198,16 @@ public sealed class MacApprovalService : IApprovalService
             if (!shell && request.Decision.Reason.Length > 0) sb.Append("\n\n").Append(request.Decision.Reason);
             if (request.Tainted) sb.Append("\n\n⚠ The agent has read untrusted content (web, mail) in this task.");
             if (request.ResultPreview is { Length: > 0 } pv) sb.Append("\n\n").Append(pv.Length > 600 ? pv[..600] + "…" : pv);
-            sb.Append($"\n\nNo answer in {TimeoutSec / 60} min = Decline.");
+            int timeout = request.Plan.Tool.StartsWith("browser_", StringComparison.Ordinal) ? BrowserTimeoutSec : TimeoutSec;
+            sb.Append($"\n\nNo answer in {timeout / 60} min = Decline.");
             string allow = shell ? "Run" : "Allow once";
             string[] buttons = !shell && request.Decision.Grantable ? new[] { "Decline", "Allow for this task", allow } : new[] { "Decline", allow };
             Log.Write($"approval asked: {request.Call.Tool} run={request.Call.RunId}");
-            string? b = await Task.Run(() => Dialog.Ask(sb.ToString(), "CO Resident — " + request.Call.Tool, buttons, "Decline", TimeoutSec), ct);
+            Dialog.Notify("An agent waits for your Allow: " + request.Call.Tool, "CO");
+            string? b = await Task.Run(() => Dialog.Ask(sb.ToString(), "CO Resident — " + request.Call.Tool, buttons, "Decline", timeout), ct);
             var choice = b == allow ? ApprovalChoice.Allow : b == "Allow for this task" ? ApprovalChoice.AllowForTask : ApprovalChoice.Deny;
             Log.Write($"approval answer: {request.Call.Tool} run={request.Call.RunId} -> {choice}{(b == null ? " (timeout)" : "")}");
-            return new ApprovalAnswer(choice, b == null ? "No answer at the computer within 2 minutes." : null);
+            return new ApprovalAnswer(choice, b == null ? $"No answer at the computer within {timeout / 60} minutes." : null, b == null);
         }
         finally { _one.Release(); }
     }

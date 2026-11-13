@@ -15,7 +15,7 @@ namespace CO.Mac;
 //   setup --env <environment>           sign in with Google, write the pairing request, install and start the LaunchAgent
 //   run                                   the LaunchAgent: wait for pairing, then serve agent tool calls
 //   app                                   the CO window (R4): menu-bar icon + CO Web, from ~/Applications/CO.app (MacApp.cs)
-//   status | folders [list|add <path> [id] [--read-only]|rm <id>] | shell on|off | browser on|read|off | window on|off | signin | uninstall [--purge] | version
+//   status | folders [list|add <path> [id] [--read-only]|rm <id>] | shell on|off | browser on|read|off | browser forms ask|auto | window on|off | signin | uninstall [--purge] | version
 //   subs [status|install <cli>|connect <claude|codex> [--email <e-mail>]|check <cli>|register]   own CLI subscriptions (S4)
 public static class Program
 {
@@ -50,7 +50,7 @@ public static class Program
                 "status" => Status(),
                 "folders" => Folders(argv.Skip(1).ToArray()),
                 "shell" => Shell(argv.Length > 1 ? argv[1] : ""),
-                "browser" => Browser(argv.Length > 1 ? argv[1] : ""),
+                "browser" => argv.Length > 1 && argv[1] == "forms" ? BrowserForms(argv.Length > 2 ? argv[2] : "") : Browser(argv.Length > 1 ? argv[1] : ""),
                 "subs" => await SubsAsync(argv.Skip(1).ToArray()),
                 "uninstall" => Uninstall(argv.Contains("--purge")),
                 _ => throw new ArgumentException("Unknown command " + cmd + ". Commands: setup, run, status, folders, shell, browser, subs, window, signin, uninstall, version."),
@@ -694,6 +694,17 @@ public static class Program
             "read" => "read only (agents open and read pages, no clicks or typing)",
             _ => "off",
         }));
+        return 0;
+    }
+
+    // 0.5.1: form submits, choices and uploads of the agent browser ask first (ask, default) or run without asking (auto).
+    private static int BrowserForms(string mode)
+    {
+        if (mode is not ("ask" or "auto")) throw new ArgumentException("browser forms ask | auto");
+        MacBrowser.ConfirmForms = mode == "ask";
+        Console.WriteLine(mode == "ask"
+            ? "Agent browser: form submits, choices and uploads ask you first."
+            : "Agent browser: form submits, choices and uploads run without asking; purchases and deletions still ask, sending stays refused.");
         return 0;
     }
 

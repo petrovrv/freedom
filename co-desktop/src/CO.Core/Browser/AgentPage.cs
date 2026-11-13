@@ -103,7 +103,7 @@ public sealed partial class AgentPage
         var ids = new List<string>();
         CollectFrameIds(tree.GetProperty("frameTree"), ids);
         foreach (var id in ids) _frames.TryAdd(id, 0);
-        await _tab.GuardPopupsInSessionAsync(OnPopupBlocked, id => _frames.ContainsKey(id), ct);
+        await _tab.GuardPopupsInSessionAsync(OnPopupBlocked, id => _frames.ContainsKey(id), ct, OnPopupOpened);
 
         await s.SendAsync("Runtime.addBinding", new { name = BindingName, executionContextName = UiWorld }, ct);
         await s.SendAsync("Page.addScriptToEvaluateOnNewDocument", new
@@ -297,13 +297,55 @@ public sealed partial class AgentPage
         });
     }
 
-    // Browser receive thread: a new tab opened by this tab was closed before it loaded.
+    // co-resident 0.5.1: a new tab or window opened by this tab (target=_blank, window.open: "Apply on company website" buttons,
+    // 13.11) is still closed before it loads, and its address is then opened in the agent tab itself
+    // (AfterNavigationAsync), where the request guard and the blocked list apply as to any navigation.
+    private TaskCompletionSource<string>? _popup;
+    private long _popupAtTicks;
+    private volatile string? _note;
+
+    // Browser receive thread: this tab opened a new tab; its address follows in OnPopupBlocked.
+    private void OnPopupOpened()
+    {
+        Volatile.Write(ref _popup, new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously));
+        Interlocked.Exchange(ref _popupAtTicks, DateTime.UtcNow.Ticks);
+        Interlocked.Increment(ref _navSeq);
+    }
+
+    // A new tab opened by this tab was closed before it loaded; url = where it was going ("" when unknown).
     private void OnPopupBlocked(string url)
     {
-        var u = url.Length == 0 ? "about:blank" : url;
-        _lastBlock = (u, "New tabs and pop-up windows are blocked for the agent (use browser_navigate)");
+        var t = Volatile.Read(ref _popup);
+        if (t is null)
+        {
+            t = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Volatile.Write(ref _popup, t);
+            Interlocked.Exchange(ref _popupAtTicks, DateTime.UtcNow.Ticks);
+        }
+        t.TrySetResult(url);
         Interlocked.Increment(ref _navSeq);
-        Log("blocked new tab " + u);
+        Log("caught new tab " + (url.Length == 0 ? "about:blank" : url));
+    }
+
+    // One-line note for the next tool result (null when none).
+    public string? TakeNote() => Interlocked.Exchange(ref _note, null);
+
+    // Opens the address of a new tab the last input asked for in this tab; returns the navigation error text, if any.
+    private async Task<string?> FollowPopupAsync(CdpSession s, TaskCompletionSource<string> pop, CancellationToken ct)
+    {
+        var done = await Task.WhenAny(pop.Task, Task.Delay(7000, ct));
+        var url = done == pop.Task ? pop.Task.Result : "";
+        if (url.Length == 0 || url == "about:blank")
+            throw new ToolException("new_window", "The click opened a new window and its address could not be read, so nothing was opened. "
+                + "Take browser_snapshot: if the element is a link, open its address with browser_navigate.");
+        var reason = AgentWebGuard.CheckDocumentUrl(url, _settings.Current.Block);
+        if (reason != null) throw Blocked(url, reason);
+        _lastBlock = null;
+        Log("new tab opened in the agent tab: " + url);
+        var r = await s.SendAsync("Page.navigate", new { url }, ct);
+        await WaitSettledAsync(s, ct);
+        _note = "The page wanted to open this in a new window; it was opened in this tab instead (browser_back returns to the previous page).";
+        return Str(r, "errorText");
     }
 
     private static string? ReboundHostOf(string url)
@@ -478,6 +520,7 @@ public sealed partial class AgentPage
         {
             RequireNotPaused();
             _lastBlock = null;
+            Volatile.Write(ref _popup, null);
             var r = await s.SendAsync("Page.navigate", new { url }, ct);
             await WaitSettledAsync(s, ct);
             return await AfterNavigationAsync(s, Str(r, "errorText"), ct);
@@ -496,6 +539,7 @@ public sealed partial class AgentPage
             var entryId = h.GetProperty("entries")[index - 1].GetProperty("id").GetInt32();
 
             _lastBlock = null;
+            Volatile.Write(ref _popup, null);
             await s.SendAsync("Page.navigateToHistoryEntry", new { entryId }, ct);
             await WaitSettledAsync(s, ct);
             return await AfterNavigationAsync(s, null, ct);
@@ -530,6 +574,11 @@ public sealed partial class AgentPage
     // Shared post-navigation checks: guard block, navigation error, challenge page.
     private async Task<PageInfo> AfterNavigationAsync(CdpSession s, string? errorText, CancellationToken ct)
     {
+        if (Interlocked.Exchange(ref _popup, null) is { } pop
+            && DateTime.UtcNow - new DateTime(Interlocked.Read(ref _popupAtTicks), DateTimeKind.Utc) < TimeSpan.FromSeconds(20)
+            && _lastBlock is null
+            && await FollowPopupAsync(s, pop, ct) is { Length: > 0 } popupError)
+            errorText ??= popupError;
         if (_lastBlock is { } block) throw Blocked(block.Url, block.Reason);
         if (!string.IsNullOrEmpty(errorText))
             throw new ToolException("navigation_failed", "Navigation failed: " + errorText);

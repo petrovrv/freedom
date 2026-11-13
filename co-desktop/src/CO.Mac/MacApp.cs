@@ -23,7 +23,7 @@ public static unsafe class MacApp
     private const nuint CommandKey = 1 << 20, ShiftKey = 1 << 17;
     private const nint PolicyRegular = 0, PolicyAccessory = 1;
 
-    private static IntPtr _app, _del, _statusItem, _statusLine, _shellItem, _mainWin;
+    private static IntPtr _app, _del, _statusItem, _statusLine, _shellItem, _formsItem, _mainWin;
     private static readonly IntPtr[] _browserItems = new IntPtr[3];
     private static readonly List<IntPtr> _popups = new();
     private static readonly Dictionary<IntPtr, string> _downloads = new();
@@ -112,6 +112,7 @@ public static unsafe class MacApp
         var s = _snap;
         Send(_statusLine, "setTitle:", Str(StatusText(s)));
         SendN(_shellItem, "setState:", s.Shell ? 1 : 0);
+        SendN(_formsItem, "setState:", MacBrowser.ConfirmForms ? 1 : 0);
         string[] modes = { "on", "read", "off" };
         for (int i = 0; i < 3; i++) SendN(_browserItems[i], "setState:", s.Browser == modes[i] ? 1 : 0);
         IntPtr button = Send(_statusItem, "button");
@@ -186,6 +187,7 @@ public static unsafe class MacApp
         Send(_statusItem, "retain");
         _statusLine = Item("…", null);
         _shellItem = Item("Agents may run commands (asks every time)", "toggleShell:", "", _del);
+        _formsItem = Item("Ask before sending forms", "toggleForms:", "", _del);
         string[] titles = { "On", "Read pages only", "Off" };
         for (int i = 0; i < 3; i++)
         {
@@ -197,7 +199,7 @@ public static unsafe class MacApp
             Separator(),
             _statusLine,
             _shellItem,
-            Sub("Agent browser", Menu("Agent browser", _browserItems)),
+            Sub("Agent browser", Menu("Agent browser", _browserItems.Append(Separator()).Append(_formsItem).ToArray())),
             Item("Open the CO folder", "openFolder:", "", _del),
             Item("Show the log", "openLog:", "", _del),
             Separator(),
@@ -300,6 +302,7 @@ public static unsafe class MacApp
         ("openWindow:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnOpenWindow, "v@:@"),
         ("toggleShell:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnToggleShell, "v@:@"),
         ("browserMode:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnBrowserMode, "v@:@"),
+        ("toggleForms:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnToggleForms, "v@:@"),
         ("openFolder:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnOpenFolder, "v@:@"),
         ("openLog:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnOpenLog, "v@:@"),
         ("quitMenu:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnQuit, "v@:@"),
@@ -364,6 +367,15 @@ public static unsafe class MacApp
         new BrowserSettings(Path.Combine(Paths.DataDir, "browser.json")).Mode = mode;
         Log.Write("window app: agent browser " + mode);
         _snap = _snap with { Browser = mode };
+        RefreshMenu();
+    });
+
+    // 0.5.1: form submits, choices and uploads of the agent browser ask first (checked) or run without asking.
+    [UnmanagedCallersOnly]
+    private static void OnToggleForms(IntPtr self, IntPtr sel, IntPtr sender) => Guard("forms", () =>
+    {
+        MacBrowser.ConfirmForms = !MacBrowser.ConfirmForms;
+        Log.Write("window app: agent browser form confirmations " + (MacBrowser.ConfirmForms ? "on" : "off"));
         RefreshMenu();
     });
 

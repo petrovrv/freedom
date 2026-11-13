@@ -732,6 +732,87 @@ public class AgentBrowserTests
         }
     }
 
+    // co-resident 0.5.1 (a member's Mac, 13.11): date inputs get their value in the input's format, a link with a real address
+    // is not a submit, and a new window opened by the agent tab is opened in that tab (also when it starts blank).
+    [Fact]
+    public async Task Live_DatesLinksAndNewWindows()
+    {
+        if (!LiveBrowser.Enabled) return;
+
+        var dir = Path.Combine(Path.GetTempPath(), "co-agent-live-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        try
+        {
+            await using var live = LiveBrowser.Start(Path.Combine(dir, "profile"));
+            var store = new AgentWebSettingsStore(Path.Combine(dir, "agent-web.json"));
+            store.Save(new AgentWebSettings { Block = ["iana.org"], Journal = false });
+            var page = new AgentPage(live.Browser.Tab("agent-web"), store, Path.Combine(dir, "journal"), s => output.WriteLine(s));
+
+            await page.NavigateAsync(U("https", "example.com"), cts.Token);
+            var target = U("https", "example.org");
+            var targetJs = System.Text.Json.JsonSerializer.Serialize(target);
+            await page.RunAsync(s => s.SendAsync("Runtime.evaluate", new
+            {
+                expression = $@"(() => {{
+                    document.body.insertAdjacentHTML('afterbegin',
+                      '<input type=date aria-label=""Start date"">' +
+                      '<input type=month aria-label=""Since month"">' +
+                      '<a href=""/jobs/1"">Apply now</a>' +
+                      '<button type=button>Apply</button>' +
+                      '<a target=""_blank"" href=' + JSON.stringify({targetJs}) + '>Company site</a>' +
+                      '<button type=button id=blank>Open blank</button>');
+                    document.getElementById('blank').onclick = () => {{ const w = window.open(); w.location = {targetJs} + '?b=1'; }};
+                    return true;
+                }})()",
+                returnByValue = true,
+            }, cts.Token), cts.Token);
+            var snap = await page.SnapshotAsync(20000, cts.Token);
+            output.WriteLine(snap.Text);
+
+            // Dates: day-first and ISO; text a date field cannot take is refused with the format.
+            var dateRef = FindRef(snap.Text, "DateTime", "Start date");
+            await page.TypeAsync(dateRef, "01/12/2026", false, cts.Token);
+            var value = await page.RunAsync(s => s.SendAsync("Runtime.evaluate", new { expression = "document.querySelector('input[type=date]').value", returnByValue = true }, cts.Token), cts.Token);
+            Assert.Equal("2026-12-01", value.GetProperty("result").GetProperty("value").GetString());
+            var bad = await Assert.ThrowsAsync<ToolException>(() => page.TypeAsync(dateRef, "next week", false, cts.Token));
+            Assert.Equal("bad_date", bad.Code);
+
+            // Links with an address only open a page; an Apply button still asks.
+            Assert.Null((await page.InspectAsync(FindRef(snap.Text, "link", "Apply now"), cts.Token)).Category);
+            Assert.Equal("submit", (await page.InspectAsync(FindRef(snap.Text, "button", "Apply"), cts.Token)).Category);
+
+            // target=_blank: the address opens in the agent tab.
+            var opened = await page.ClickAsync(FindRef(snap.Text, "link", "Company site"), cts.Token);
+            Assert.Contains("example.org", opened.Url);
+            Assert.NotNull(page.TakeNote());
+
+            // window.open() + location: the address is read from the blank window's first request.
+            await page.BackAsync(cts.Token);
+            await page.RunAsync(s => s.SendAsync("Runtime.evaluate", new
+            {
+                expression = $@"(() => {{
+                    document.body.insertAdjacentHTML('afterbegin', '<button type=button id=blank>Open blank</button>');
+                    document.getElementById('blank').onclick = () => {{ const w = window.open(); w.location = {targetJs} + '?b=1'; }};
+                    return true;
+                }})()",
+                returnByValue = true,
+            }, cts.Token), cts.Token);
+            var snap2 = await page.SnapshotAsync(20000, cts.Token);
+            var blank = await page.ClickAsync(FindRef(snap2.Text, "button", "Open blank"), cts.Token);
+            Assert.Contains("example.org/?b=1", blank.Url);
+
+            var pages = (await page.RunAsync(s => s.SendAsync("Target.getTargets", new { }, cts.Token), cts.Token))
+                .GetProperty("targetInfos").EnumerateArray().Count(t => t.GetProperty("type").GetString() == "page");
+            output.WriteLine($"page targets: {pages}");
+        }
+        finally
+        {
+            try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+    }
+
     // 0.9.6: the tabs extension (pinned tabs = the user's lock, for browser-agent's tab chamberlain) is written with LF
     // endings and loaded together with the look; a service worker with tabs + debugger permissions.
     [Fact]

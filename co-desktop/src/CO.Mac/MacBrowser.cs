@@ -29,10 +29,25 @@ public static class MacBrowser
                 "sys_info shows the progress.");
     }
 
+    public static string SettingsFile => Path.Combine(Paths.DataDir, "agent-browser.json");
+
+    // 0.5.1: whether form submits, choices and uploads ask at the Mac first (default yes); purchase and delete always ask.
+    public static bool ConfirmForms
+    {
+        get { try { return new AgentWebSettingsStore(SettingsFile).Current.ConfirmForms; } catch (Exception) { return true; } }
+        set
+        {
+            var st = new AgentWebSettingsStore(SettingsFile);
+            var c = st.Current;
+            c.ConfirmForms = value;
+            st.Save(c);
+        }
+    }
+
     public static IEnumerable<IDeviceTool> All(BrowserSettings settings, HttpClient http)
     {
         var browser = Browser(http);
-        var store = new AgentWebSettingsStore(Path.Combine(Paths.DataDir, "agent-browser.json"));
+        var store = new AgentWebSettingsStore(SettingsFile);
         var pages = new RunTabs<AgentPage>("agent-web",
             key => new AgentPage(browser.Tab(key), store, JournalDir, Log.Write),
             (_, page, ct) => page.CloseAsync(ct), keep: page => page.Paused != null,
@@ -40,7 +55,8 @@ public static class MacBrowser
             // CO Desktop 0.9.9: tab chamberlain and per-chat lifetimes (pinned: only when the tabs extension runs).
             state: page => new TabState(page.LastUrl, page.HasInput, page.CaptchaPending, page.Paused != null),
             pinned: browser.PinnedKeysAsync);
-        foreach (var t in AgentBrowserTools.All(pages, () => store.Current.Block, () => store.Current.ConfirmClicks, () => store.Current.ConfirmForms))
+        // 0.5.1: form confirmations are switched by the menu or 'co-resident browser forms' in other processes: read the file each time.
+        foreach (var t in AgentBrowserTools.All(pages, () => store.Current.Block, () => store.Current.ConfirmClicks, () => ConfirmForms))
             yield return new Gated(t, settings);
     }
 

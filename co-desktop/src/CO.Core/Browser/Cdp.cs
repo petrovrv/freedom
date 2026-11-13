@@ -40,6 +40,8 @@ public sealed class CdpSession : IAsyncDisposable
     private Task? _loop;
 
     public event Action<string, JsonElement>? EventReceived;
+    // co-resident 0.5.1: events of flattened child sessions with their sessionId (popup address capture).
+    public event Action<string, JsonElement, string?>? SessionEventReceived;
     public bool IsOpen => _ws.State == WebSocketState.Open;
 
     public static async Task<CdpSession> ConnectAsync(Uri url, CancellationToken ct)
@@ -114,7 +116,10 @@ public sealed class CdpSession : IAsyncDisposable
                     // A throwing handler must not kill the loop.
                     try
                     {
-                        EventReceived?.Invoke(m.GetString() ?? "", root.TryGetProperty("params", out var p) ? p : default);
+                        var pe = root.TryGetProperty("params", out var p) ? p : default;
+                        EventReceived?.Invoke(m.GetString() ?? "", pe);
+                        if (SessionEventReceived is { } se)
+                            se(m.GetString() ?? "", pe, root.TryGetProperty("sessionId", out var sid) ? sid.GetString() : null);
                     }
                     catch (Exception ex)
                     {
@@ -623,7 +628,9 @@ public sealed class EdgeBrowser : IBrowser, IAsyncDisposable
     private CdpSession? _browserWs;
 
     // CO Desktop 0.8.0: new tabs opened by a guarded tab (target=_blank, window.open) are closed before they load.
-    internal sealed record PopupGuard(Action<string> OnBlocked, Func<string, bool> OwnsFrame);
+    // co-resident 0.5.1: OnOpened fires at once on the receive thread; OnBlocked gets the address the popup was going to load
+    // (read from its first document request when the target starts blank), so the agent tab can open it itself.
+    internal sealed record PopupGuard(Action<string> OnBlocked, Func<string, bool> OwnsFrame, Action? OnOpened = null);
     private readonly ConcurrentDictionary<string, PopupGuard> _popupGuards = new();   // tab key -> guard
     private readonly ConcurrentDictionary<string, string> _guardTargetIds = new();    // tab key -> targetId
     private readonly ConcurrentDictionary<string, string> _closedTargets = new();     // closed popup targetId -> tab key
@@ -687,9 +694,9 @@ public sealed class EdgeBrowser : IBrowser, IAsyncDisposable
         return _browserWs;
     }
 
-    internal async Task GuardPopupsLocked(string key, Action<string> onBlocked, Func<string, bool> ownsFrame, CancellationToken ct)
+    internal async Task GuardPopupsLocked(string key, Action<string> onBlocked, Func<string, bool> ownsFrame, CancellationToken ct, Action? onOpened = null)
     {
-        _popupGuards[key] = new PopupGuard(onBlocked, ownsFrame);
+        _popupGuards[key] = new PopupGuard(onBlocked, ownsFrame, onOpened);
         await EnsureBrowserWsLocked(ct);
     }
 
@@ -736,11 +743,16 @@ public sealed class EdgeBrowser : IBrowser, IAsyncDisposable
         if (owner is not null)
         {
             _closedTargets[targetId] = owner; // before closing, so popups of this popup are caught too
+            try { if (_popupGuards.TryGetValue(owner, out var g0)) g0.OnOpened?.Invoke(); }
+            catch { /* the callback must not affect blocking */ }
             _ = Task.Run(async () =>
             {
+                var target = url;
+                if ((target.Length == 0 || target == "about:blank") && sessionId is not null)
+                    target = await PopupDocumentUrlAsync(ws, sessionId) ?? url;
                 try { await ws.SendAsync("Target.closeTarget", new { targetId }, CancellationToken.None, 10_000); }
                 catch { /* target may already be gone */ }
-                try { if (_popupGuards.TryGetValue(owner, out var g)) g.OnBlocked(url); }
+                try { if (_popupGuards.TryGetValue(owner, out var g)) g.OnBlocked(target); }
                 catch { /* the callback must not affect blocking */ }
             });
         }
@@ -756,6 +768,34 @@ public sealed class EdgeBrowser : IBrowser, IAsyncDisposable
                 catch { /* fail open for the user's own tabs */ }
             });
         }
+    }
+
+    // co-resident 0.5.1: a popup that starts blank (window.open() and then a location) gets its address only from its first
+    // document request. Every request of the popup is failed before it is sent; the document address is returned (null in 5 s).
+    private static async Task<string?> PopupDocumentUrlAsync(CdpSession ws, string sessionId)
+    {
+        var found = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void On(string method, JsonElement p, string? sid)
+        {
+            if (sid != sessionId || method != "Fetch.requestPaused") return;
+            var requestId = p.TryGetProperty("requestId", out var r) ? r.GetString() : null;
+            if (requestId is not null)
+                _ = ws.SendAsync("Fetch.failRequest", new { requestId, errorReason = "BlockedByClient" }, sessionId, CancellationToken.None, 5000)
+                    .ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
+            var type = p.TryGetProperty("resourceType", out var rt) ? rt.GetString() : null;
+            var u = p.TryGetProperty("request", out var rq) && rq.TryGetProperty("url", out var uu) ? uu.GetString() : null;
+            if (type == "Document" && !string.IsNullOrEmpty(u) && u != "about:blank") found.TrySetResult(u);
+        }
+        ws.SessionEventReceived += On;
+        try
+        {
+            await ws.SendAsync("Fetch.enable", new { patterns = new[] { new { urlPattern = "*", requestStage = "Request" } } }, sessionId, CancellationToken.None, 5000);
+            await ws.SendAsync("Runtime.runIfWaitingForDebugger", null, sessionId, CancellationToken.None, 5000);
+            var done = await Task.WhenAny(found.Task, Task.Delay(5000));
+            return done == found.Task ? found.Task.Result : null;
+        }
+        catch { return null; }
+        finally { ws.SessionEventReceived -= On; }
     }
 
     private HashSet<string> KeyedTargetIdsLocked() => new(_tabs.Values.Select(t => t.TargetId));
@@ -1205,10 +1245,10 @@ public sealed class EdgeBrowser : IBrowser, IAsyncDisposable
 
         // Closes new tabs this tab opens before they load. Call inside WithSessionAsync (0.9.0: takes _gate itself,
         // the tab's own semaphore is held by the caller).
-        public async Task GuardPopupsInSessionAsync(Action<string> onBlocked, Func<string, bool> ownsFrame, CancellationToken ct)
+        public async Task GuardPopupsInSessionAsync(Action<string> onBlocked, Func<string, bool> ownsFrame, CancellationToken ct, Action? onOpened = null)
         {
             await _owner._gate.WaitAsync(ct);
-            try { await _owner.GuardPopupsLocked(_key, onBlocked, ownsFrame, ct); }
+            try { await _owner.GuardPopupsLocked(_key, onBlocked, ownsFrame, ct, onOpened); }
             finally { _owner._gate.Release(); }
         }
 

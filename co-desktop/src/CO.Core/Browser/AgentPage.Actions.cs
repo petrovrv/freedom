@@ -529,6 +529,7 @@ public sealed partial class AgentPage
             {
                 // Input.dispatchMouseEvent has no effect in a hidden tab; fall back to a synthetic DOM click.
                 _lastBlock = null;
+                Volatile.Write(ref _popup, null);
                 var navHidden = Volatile.Read(ref _navSeq);
                 await CallAsync(s, node, "function() { this.click(); return true; }", ct);
                 Log("tab hidden: synthetic click used");
@@ -542,6 +543,7 @@ public sealed partial class AgentPage
             if (why != null)
             {
                 _lastBlock = null;
+                Volatile.Write(ref _popup, null);
                 var navSynthetic = Volatile.Read(ref _navSeq);
                 await CallAsync(s, node, AgentPageScripts.OpenCombo, ct);
                 Log("synthetic click used: " + why);
@@ -550,6 +552,7 @@ public sealed partial class AgentPage
             }
 
             _lastBlock = null;
+            Volatile.Write(ref _popup, null);
             var navBefore = Volatile.Read(ref _navSeq);
             await s.SendAsync("Input.dispatchMouseEvent", new { type = "mouseMoved", x, y }, ct);
             await s.SendAsync("Input.dispatchMouseEvent", new { type = "mousePressed", x, y, button = "left", clickCount = 1 }, ct);
@@ -624,11 +627,23 @@ public sealed partial class AgentPage
             // Input.insertText works in a hidden tab, but the submit key press (Enter) does not.
             var typeVisible = await EnsureVisibleAsync(s, ct);
             await s.SendAsync("DOM.focus", new { backendNodeId = node }, ct);
-            await CallAsync(s, node, AgentPageScripts.ClearValue, ct);
-            await s.SendAsync("Input.insertText", new { text }, ct);
+            var dated = await CallAsync(s, node, AgentPageScripts.SetDateLike, ct, text);
+            if (dated.ValueKind == JsonValueKind.Object && dated.TryGetProperty("handled", out var h) && h.ValueKind == JsonValueKind.True)
+            {
+                if (!dated.TryGetProperty("ok", out var dok) || dok.ValueKind != JsonValueKind.True)
+                    throw new ToolException("bad_date", "This is a date/time field; '" + text + "' is not a value it takes. Type it like "
+                        + (Str(dated, "expected") ?? "2026-12-01") + " (day-first 01/12/2026 also works for dates).");
+                Log("date field set to " + Str(dated, "value"));
+            }
+            else
+            {
+                await CallAsync(s, node, AgentPageScripts.ClearValue, ct);
+                await s.SendAsync("Input.insertText", new { text }, ct);
+            }
             if (submit)
             {
                 _lastBlock = null;
+                Volatile.Write(ref _popup, null);
                 var navBefore = Volatile.Read(ref _navSeq);
                 // 0.9.8: a hidden or occluded tab gets synthetic key events instead of a tab_hidden error.
                 if (typeVisible) await KeyAsync(s, "Enter", ct);
@@ -719,6 +734,7 @@ public sealed partial class AgentPage
             // Key events are not delivered to a hidden tab: 0.9.8 dispatches synthetic ones there instead of failing.
             var visible = await EnsureVisibleAsync(s, ct);
             _lastBlock = null;
+            Volatile.Write(ref _popup, null);
             var navBefore = Volatile.Read(ref _navSeq);
             if (visible) await KeyAsync(s, key, ct);
             else

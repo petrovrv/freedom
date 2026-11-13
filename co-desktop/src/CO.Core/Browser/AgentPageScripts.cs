@@ -38,9 +38,15 @@ internal static class AgentPageScripts
             // Element that would submit its form natively
             const isFormSubmitter = (tag === 'BUTTON' && !!form && (!btn.hasAttribute('type') || type === 'submit')) ||
               (tag === 'INPUT' && (type === 'submit' || type === 'image'));
+            // co-resident 0.5.1: a link with a real address outside a form only opens a page ("Apply ->" on a job list,
+            // 13.11): no send/purchase/submit category; a delete link still asks (GET delete links exist).
+            const NAV_NOLINK = 'java' + 'script:';
+            const linkHref = tag === 'A' ? (btn.getAttribute('href') || '').trim().toLowerCase() : '';
+            const realLink = tag === 'A' && linkHref !== '' && !linkHref.startsWith('#') && !linkHref.startsWith(NAV_NOLINK) && !form;
             // Specific categories take precedence over the generic 'submit'
             let category = null;
-            if (sendRe.test(label)) category = 'send';
+            if (realLink) category = deleteRe.test(label) ? 'delete' : null;
+            else if (sendRe.test(label)) category = 'send';
             else if (purchaseRe.test(label)) category = 'purchase';
             else if (deleteRe.test(label)) category = 'delete';
             else if (isFormSubmitter || submitRe.test(label)) category = 'submit';
@@ -365,6 +371,56 @@ internal static class AgentPageScripts
           }
           const all = el.ownerDocument.querySelectorAll('input[type=file i]');
           return all.length === 1 ? all[0] : null;
+        }
+        """;
+
+    // co-resident 0.5.1: date, time, datetime-local, month and week inputs ignore typed text in Chromium (two job sites
+    // got the year 1000/9999, 13.11): the value is set in the input's own format with input/change events.
+    // Accepts ISO (2026-12-01, 2026-12-01T09:30, 2026-12, 2026-W49, 09:30) and day-first dates (01/12/2026, 01.12.2026,
+    // 01-12-2026). Returns { handled: false } for other elements, else { handled: true, ok, value | expected }.
+    public const string SetDateLike = """
+        function(text) {
+          const el = this;
+          const type = el.tagName === 'INPUT' ? String(el.type || '').toLowerCase() : '';
+          if (!['date', 'time', 'datetime-local', 'month', 'week'].includes(type)) return { handled: false };
+          const t = String(text ?? '').trim();
+          const p2 = (n) => String(n).padStart(2, '0');
+          const day = (s) => {
+            let m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(s);
+            if (m) return m[1] + '-' + p2(m[2]) + '-' + p2(m[3]);
+            m = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/.exec(s);
+            if (m) return m[3] + '-' + p2(m[2]) + '-' + p2(m[1]);
+            return null;
+          };
+          const time = (s) => {
+            const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(s);
+            return m ? p2(m[1]) + ':' + m[2] + (m[3] ? ':' + m[3] : '') : null;
+          };
+          let v = null;
+          if (type === 'date') v = day(t);
+          else if (type === 'time') v = time(t);
+          else if (type === 'datetime-local') {
+            const parts = t.split(/[T ]+/);
+            const d = day(parts[0] || ''), h = parts.length > 1 ? time(parts[1]) : '00:00';
+            v = d && h ? d + 'T' + h : null;
+          } else if (type === 'month') {
+            let m = /^(\d{4})[-/.](\d{1,2})$/.exec(t);
+            if (m) v = m[1] + '-' + p2(m[2]);
+            else if ((m = /^(\d{1,2})[-/.](\d{4})$/.exec(t))) v = m[2] + '-' + p2(m[1]);
+          } else if (type === 'week') {
+            const m = /^(\d{4})-?W(\d{1,2})$/i.exec(t);
+            if (m) v = m[1] + '-W' + p2(m[2]);
+          }
+          const expected = { date: '2026-12-01', time: '09:30', 'datetime-local': '2026-12-01T09:30', month: '2026-12', week: '2026-W49' }[type];
+          if (!v) return { handled: true, ok: false, expected };
+          el.focus();
+          const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+          if (set) set.call(el, v); else el.value = v;
+          if (el.value !== v) return { handled: true, ok: false, expected, rejected: true };
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          el.dispatchEvent(new Event('blur'));
+          return { handled: true, ok: true, value: v };
         }
         """;
 

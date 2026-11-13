@@ -416,6 +416,11 @@ public static class AgentBrowserTools
         };
 
         var answer = await env.Approvals.RequestAsync(request, ct);
+        // co-resident 0.5.1: nobody at the device (13.11) is not a refusal: the agent asks in the chat and repeats.
+        if (answer.Choice == ApprovalChoice.Deny && answer.TimedOut)
+            throw new ToolException("no_answer", "Nobody answered the confirmation at the computer, so nothing was done; the tab and "
+                + "its form stay as they are. Tell the user in the chat what is waiting for their Allow and repeat the same call when they "
+                + "say they are at the computer.");
         if (answer.Choice == ApprovalChoice.Deny)
             throw new ToolException("denied_by_user", string.IsNullOrWhiteSpace(answer.Comment)
                 ? "The user declined."
@@ -459,6 +464,8 @@ public static class AgentBrowserTools
             .AppendLine(verb + " done. Now: " + info.Url)
             .AppendLine("Title: " + info.Title)
             .Append("Call browser_snapshot again before using refs; they may have changed.");
+        if (page.TakeNote() is { } note)
+            sb.AppendLine().Append(note);
         var dialogs = page.TakeDialogs();
         if (dialogs.Length > 0)
             sb.AppendLine().Append("Dialogs dismissed: " + string.Join(" | ", dialogs));

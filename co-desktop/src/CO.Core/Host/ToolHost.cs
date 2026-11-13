@@ -27,7 +27,8 @@ public sealed class ApprovalRequest
 
 public enum ApprovalChoice { Allow, AllowForTask, Deny }
 
-public sealed record ApprovalAnswer(ApprovalChoice Choice, string? Comment = null);
+// co-resident 0.5.1: TimedOut = nobody answered (not a refusal by the person).
+public sealed record ApprovalAnswer(ApprovalChoice Choice, string? Comment = null, bool TimedOut = false);
 
 public interface IApprovalService
 {

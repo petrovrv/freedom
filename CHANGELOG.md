@@ -14,6 +14,11 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 - task-hints 0.1.1: neutral labels of the corporate models; the module of 0.2.0 failed signature verification
   because the export changed its hint data after signing.
 - Bridge: `BridgeCorporate.cs` renamed `BridgeModules.cs` (the generic module gateway).
+- CO Resident 0.5.1 (CO.Core, also in the next CO Desktop): agent browser - date/time/month/week inputs get their value
+  in the input's format (ISO or day-first), a new tab or window opened by the agent tab is opened in that tab (its
+  address read from the blank window's first request when needed), links with a real address outside a form are not
+  submits, an unanswered confirmation is `no_answer` (not a refusal; browser actions wait 10 min with a notification
+  on the Mac), form confirmations switchable on the Mac (menu "Ask before sending forms", `co-resident browser forms ask|auto`).
 
 ## 0.2.0 (2026-11-13)
 

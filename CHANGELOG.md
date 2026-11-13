@@ -5,6 +5,10 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+## 0.4.0 (2026-11-13)
+
+- Release checks: export rewrites that find nothing count as done (the core tree is public since the reversed
+  direction); core-name count back to the baseline.
 - **Neutral installers** (release page = the only link a new user needs, `install/PILOT-FRIEND.md`):
   - CO Desktop 0.14.0: a build without install.json reads the install.json of the setup wizard on this computer
     (`AIWB_INSTALL`, else `%LOCALAPPDATA%\AIWorkbench\install.json`), then `install.json` next to the app; with none

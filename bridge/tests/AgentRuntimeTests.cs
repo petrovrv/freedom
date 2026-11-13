@@ -63,7 +63,8 @@ namespace AiWorkbenchBridge.Tests
             TestRelay();
             TestPcTools();
             TestBrowserSettings();
-            TestCorporate(); // last: it leaves the neutral manifest set
+            TestModules();
+            TestGateway(); // last: it leaves the neutral gateway set
 
             foreach (KeyValuePair<string, int[]> g in Groups)
                 Console.WriteLine(g.Key + ": compared " + g.Value[0] + ", mismatches " + g.Value[1]);

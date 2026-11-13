@@ -22,6 +22,13 @@ $q = static function (string $sql, array $args = []) use ($db): void {
 };
 
 foreach (['kv', 'model_resources', 'jobs', 'chats', 'projects', 'events'] as $t) $db->query("DELETE FROM $t");
+// F10: the gateway agents come from the installed modules (gateway-lib.php); fixture: the corporate module installed and
+// disabled, the owner's state since 27.10.2026 (agents known, not offered)
+$db->query('DELETE FROM modules');
+$q("INSERT INTO modules (id, version, enabled, standard, publisher, manifest_json, files_json, installed_utc, updated_utc)
+    VALUES ('corporate', '0.1.0', 0, 1, 'test', ?, '{}', UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))",
+    [(string)file_get_contents(__DIR__ . '/../modules/corporate/module.json')]);
+co_gateways(null, true);
 $now = gmdate('Y-m-d\TH:i:s\Z');
 $home = ['hostId' => 'home-main', 'updatedUtc' => $now, 'state' => 'running', 'agents' => [
     'claude' => ['displayName' => 'Claude', 'models' => [['id' => 'claude-opus-5-5', 'label' => 'Opus 5.5'], ['id' => 'sonnet']], 'defaultModel' => null],
@@ -35,7 +42,7 @@ $q("INSERT INTO kv (scope, name, data, sha, updated_utc) VALUES ('host:site', 'o
 $all = models_all($db);
 $ok('built-in per host agent', isset($all['home-main/claude'], $all['home-main/codex'], $all['home-main/dispatcher'], $all['site/claude']));
 $ok('owner env owns built-ins', $all['home-main/claude']['env'] === 'owner');
-$ok('kinds', $all['home-main/claude']['kind'] === 'subscription' && $all['site/claude']['kind'] === 'site' && $all['home-main/dispatcher']['kind'] === 'corporate');
+$ok('kinds', $all['home-main/claude']['kind'] === 'subscription' && $all['site/claude']['kind'] === 'site' && $all['home-main/dispatcher']['kind'] === 'gateway');
 $ok('corporate is confidential', $all['home-main/dispatcher']['confidential'] === true && $all['home-main/claude']['confidential'] === false);
 $ok('models from owner.json', array_column($all['home-main/claude']['models'], 'id') === ['claude-opus-5-5', 'sonnet']);
 $ok('online from updatedUtc', $all['home-main/claude']['online'] === true && $all['site/claude']['online'] === false);
@@ -69,6 +76,8 @@ $o = array_column(models_list($db, 'owner')['resources'], null, 'id');
 $ok('owner sees it once sam allows', isset($o['sam/claude-mac']) && $o['sam/claude-mac']['slaveAllowed'] && $o['sam/claude-mac']['models'][0]['id'] === 'sonnet');
 $ok('re-register keeps the flag', models_put($db, ['id' => 'sam/claude-mac', 'env' => 'sam', 'agent' => 'claude', 'title' => 'Claude of Sam'], 'device', null, true)['resource']['slaveAllowed'] === true);
 $ok('user creates in own env only', models_put($db, ['id' => 'alex/x', 'env' => 'owner', 'agent' => 'engie', 'kind' => 'corporate', 'title' => 'Corp'], 'user', 'alex', false)['resource']['env'] === 'alex');
+$ok('legacy kind corporate written and read as gateway', models_all($db)['alex/x']['kind'] === 'gateway'
+    && (string)$db->query("SELECT kind FROM model_resources WHERE id = 'alex/x'")->fetch_row()[0] === 'gateway');
 $ok('corporate defaults confidential', models_all($db)['alex/x']['confidential'] === true);
 $ok('bad id refused', $throws(fn() => models_put($db, ['id' => 'A B', 'title' => 'x', 'agent' => 'claude'], 'user', 'owner', false)));
 $ok('bad agent refused', $throws(fn() => models_put($db, ['id' => 'x/y', 'title' => 'x', 'agent' => 'rm'], 'user', 'owner', false)));
@@ -136,7 +145,7 @@ $ok('resource on a host without a queue refused', models_subtask_spawn($db, ['pa
 
 $ok('env of a chat', models_env_of($db, ['chatId' => 'CHAT-20261111000000-AAAA']) === 'sam' && models_env_of($db, ['env' => 'owner']) === 'owner');
 $q("INSERT INTO shares (kind, target_id, env, role, created_utc) VALUES ('project', 'P2', 'sam', 'editor', UTC_TIMESTAMP())");
-$ok('shared chat: no devices', $own(['resourceId' => 'home-main/dispatcher', 'devices' => ['d-b903ab04eea11ba2']])['error'] === 'shared_chat_no_corporate');
+$ok('shared chat: no devices', $own(['resourceId' => 'home-main/dispatcher', 'devices' => ['d-b903ab04eea11ba2']])['error'] === SHARE_REFUSED);
 $ok('shared chat: plain resource still fine', $own(['resourceId' => 'home-main/claude'])['ok'] === true);
 $db->query('DELETE FROM shares');
 
@@ -152,16 +161,16 @@ $jobReq = static function (string $jobId) use ($db): array {
 $b = $own(['resourceId' => 'home-main/claude']);
 $ok('A shared: B spawns, marked restricted', $b['ok'] === true && ($jobReq($b['jobId'])['restricted'] ?? false) === true);
 $fromB = static fn(array $x) => models_subtask_spawn($db, $x + ['parentChatId' => $b['chatId'], 'prompt' => 'Deeper'], $mk, $ap);
-$ok('B -> C with a device refused', $fromB(['resourceId' => 'home-main/claude', 'devices' => ['d-b903ab04eea11ba2']])['error'] === 'shared_chat_no_corporate');
-$ok('B -> C corporate refused', $fromB(['resourceId' => 'home-main/dispatcher', 'devices' => ['d-b903ab04eea11ba2']])['error'] === 'shared_chat_no_corporate');
+$ok('B -> C with a device refused', $fromB(['resourceId' => 'home-main/claude', 'devices' => ['d-b903ab04eea11ba2']])['error'] === SHARE_REFUSED);
+$ok('B -> C corporate refused', $fromB(['resourceId' => 'home-main/dispatcher', 'devices' => ['d-b903ab04eea11ba2']])['error'] === SHARE_REFUSED);
 $c = $fromB(['resourceId' => 'home-main/claude']);
 $ok('B -> C plain, restricted too', $c['ok'] === true && ($jobReq($c['jobId'])['restricted'] ?? false) === true);
 $ok('C -> D with a device refused', models_subtask_spawn($db, ['parentChatId' => $c['chatId'], 'prompt' => 'x', 'resourceId' => 'home-main/claude',
-    'devices' => ['d-b903ab04eea11ba2']], $mk, $ap)['error'] === 'shared_chat_no_corporate');
+    'devices' => ['d-b903ab04eea11ba2']], $mk, $ap)['error'] === SHARE_REFUSED);
 $db->query('DELETE FROM shares');
 // the job row keeps the restriction even after the share is gone from the chain's view (immutable, server written)
 $ok('B stays restricted by its job', models_subtask_spawn($db, ['parentChatId' => $b['chatId'], 'prompt' => 'x', 'resourceId' => 'home-main/dispatcher',
-    'devices' => ['d-b903ab04eea11ba2']], $mk, $ap)['error'] === 'shared_chat_no_corporate');
+    'devices' => ['d-b903ab04eea11ba2']], $mk, $ap)['error'] === SHARE_REFUSED);
 $ok('unshared owner chat: corporate fine again', $own(['resourceId' => 'home-main/dispatcher', 'devices' => ['d-b903ab04eea11ba2']])['ok'] === true);
 
 // R2 (review S5-02): the same requestKey gives one subtask, also after a lost answer
@@ -226,23 +235,31 @@ $ok('delete override returns to defaults', models_delete($db, ['id' => 'home-mai
 $ok('delete of others refused', models_delete($db, ['id' => 'alex/x'], 'sam', false)['error'] === 'not_owner');
 $ok('admin deletes any', models_delete($db, ['id' => 'alex/x'], 'owner', true)['deleted'] === 1);
 
-// Freedom F1 5b: corporate agents, their cards and flags come from the connector manifest, not from the code
-$ok('manifest loaded', co_corporate_agent('dispatcher') !== null && in_array('dispatcher', models_job_agents(), true));
-$ok('card from the manifest', ($all['home-main/dispatcher']['card']['dataStaysIn'] ?? '') === 'corporate');
-$ok('corporate blocked reads both names', co_corporate_blocked(['engieBlocked' => 'signin']) === 'signin'
-    && co_corporate_blocked(['corporateBlocked' => 'off', 'engieBlocked' => 'signin']) === 'off');
-co_corporate(['id' => 'acme', 'title' => 'Acme']); // an install without the employer's agents
+// Freedom F10: gateway agents, their cards and flags come from the installed module, not from the code
+$ok('module loaded (disabled = agents still known)', co_gateway_agent('dispatcher') !== null && in_array('dispatcher', models_job_agents(), true));
+$ok('card from the module', ($all['home-main/dispatcher']['card']['dataStaysIn'] ?? '') === 'corporate');
+$ok('blocked reads the new and the legacy names', co_gateway_blocked(['engieBlocked' => 'signin']) === 'signin'
+    && co_gateway_blocked(['corporateBlocked' => 'off', 'engieBlocked' => 'signin']) === 'off'
+    && co_gateway_blocked(['gatewayBlocked' => 'new', 'corporateBlocked' => 'off']) === 'new');
+co_gateways([]); // an install without the module
 $b = models_builtin(['home-main' => $home + ['agents' => $home['agents'] + ['x' => []]]], 'owner');
-$ok('no manifest agents: the corporate agent is unknown', !isset($b['home-main/dispatcher']) && !in_array('dispatcher', models_job_agents(), true));
+$ok('no module: the gateway agent is unknown', !isset($b['home-main/dispatcher']) && !in_array('dispatcher', models_job_agents(), true));
 $h2 = $home;
 $h2['agents']['gemini'] = ['displayName' => 'Gemini', 'corporate' => true];
 $b = models_builtin(['home-main' => $h2], 'owner');
-$ok('owner.json flag corporate = confidential', $b['home-main/gemini']['confidential'] === true && $b['home-main/gemini']['kind'] === 'corporate');
+$ok('owner.json flag corporate = confidential', $b['home-main/gemini']['confidential'] === true && $b['home-main/gemini']['kind'] === 'gateway');
+$h3 = $home;
+$h3['agents']['agy'] = ['displayName' => 'Agy', 'confidential' => true]; // Bridge F10 flag
+$b3 = models_builtin(['home-main' => $h3], 'owner');
+$ok('owner.json flag confidential = gateway', $b3['home-main/agy']['confidential'] === true && $b3['home-main/agy']['kind'] === 'gateway');
 // an older override row (slave allowed, not confidential) cannot open a resource its host now calls corporate
 $q("UPDATE kv SET data = ? WHERE scope = 'host:home-main' AND name = 'owner'", [json_encode(['scope' => 'host:home-main', 'name' => 'owner', 'data' => $h2])]);
 $q("INSERT INTO model_resources (id, env, kind, title, host_id, agent, models_json, card_json, slave_allowed, confidential, source, updated_utc) VALUES ('home-main/gemini', 'owner', 'subscription', '', 'home-main', 'gemini', '[]', '{}', 1, 0, 'auto', UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE confidential = 0, slave_allowed = 1");
 $g = models_all($db)['home-main/gemini'] ?? null;
 $ok('stored row keeps a corporate entry confidential', $g !== null && $g['confidential'] === true);
+$q("INSERT INTO model_resources (id, env, kind, title, host_id, agent, models_json, card_json, slave_allowed, confidential, source, updated_utc) VALUES ('owner/old', 'owner', 'corporate', 'Old', '', 'claude', '[]', '{}', 1, 0, 'user', UTC_TIMESTAMP(3))");
+$o = models_all($db)['owner/old'] ?? null;
+$ok('older row of the legacy kind: gateway, confidential', $o !== null && $o['kind'] === 'gateway' && $o['confidential'] === true);
 
 echo $fail === 0 ? "ALL OK\n" : "$fail FAILED\n";
 exit($fail === 0 ? 0 : 1);

@@ -9,8 +9,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/drive-lib.php';
 require_once __DIR__ . '/autoswitch-lib.php';
-require_once __DIR__ . '/corporate-lib.php';
+require_once __DIR__ . '/gateway-lib.php';
 require_once __DIR__ . '/push-lib.php';
+require_once __DIR__ . '/modules-lib.php';
 
 const CO_FIN_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const CO_FIN_FOLDER_MIME = 'application/vnd.google-apps.folder';
@@ -169,8 +170,9 @@ function co_finalize_job(array $req, array $res): ?string
     if (is_string($req['hostId'] ?? null) && $req['hostId'] !== '') $ev['hostId'] = $req['hostId'];
     elseif (isset($u['hostId'])) $ev['hostId'] = $u['hostId'];
     if (isset($u['agent'])) $ev['agent'] = $u['agent'];
-    // Canvas M3: the answer to comment threads is a row of its canvas turn (CO Web collapses both)
-    if (isset($u['canvas'])) $ev['canvas'] = $u['canvas'];
+    // F10 side jobs (ext/1): the answer to a job a module queued is a row of its turn under the same key (CO Web
+    // collapses both)
+    foreach (co_module_side_keys($db) as $k) if (isset($u[$k])) $ev[$k] = $u[$k];
     $ev['status'] = $phase;
     $ev['text'] = $text;
     if ($title !== null) $ev['autoTitle'] = $title;
@@ -187,10 +189,10 @@ function co_finalize_job(array $req, array $res): ?string
         'usage'            => $res['usage'] ?? null,
         'exportSkipped'    => $res['exportSkipped'] ?? [],
     ];
-    // Bridge 1.5.1: the job could not reach the corporate model (CO Web offers to resume the chat when it is back);
-    // result corporateBlocked or the legacy wire engieBlocked, written under both names for older CO Web
-    $blocked = co_corporate_blocked($res);
-    if ($blocked !== '') $ev['corporateBlocked'] = $ev['engieBlocked'] = $blocked;
+    // Bridge 1.5.1: the job could not reach the gateway model (the gateway's module lists the chat for a resume when it
+    // is back); read under the new and the legacy wire names, written under all of them for older CO Web
+    $blocked = co_gateway_blocked($res);
+    if ($blocked !== '') foreach (CO_GATEWAY_BLOCKED_FIELDS as $k) $ev[$k] = $blocked;
 
     // A concurrent writer (an open CO Web) may have answered meanwhile: check again right before the insert.
     if ($one("SELECT 1 AS x FROM events WHERE chat_id = ? AND job_id = ? AND type = 'assistant_message' LIMIT 1", [$chatId, $jobId])) {
@@ -340,7 +342,7 @@ function co_queue_fallback(): array
  * no cancel, no result and no Drive copy (fallback_utc) on the row job_claim locks; job_drive_claim runs nothing of
  * another host. The target must take its jobs from the database (job_claim within 60 s: Bridge, site agent 1.6.0+), so
  * Stop reaches it through job_claim; the chat's user_message gets the new hostId, so CO Web follows the job (events,
- * state, Stop) on the new host. Not moved: resumed provider sessions (they live on the first host), corporate agents,
+ * state, Stop) on the new host. Not moved: resumed provider sessions (they live on the first host), gateway agents,
  * files and context folders, browser devices, devices for an agent other than Claude (the relay serves Claude only),
  * agents the target lacks. Returns "jobId from>to" lines.
  */
@@ -351,10 +353,10 @@ function co_queue_handover(): array
     foreach (['home-main' => 'site', 'site' => 'home-main'] as $from => $to) {
         $owner = co_handover_target($db, $to);
         if ($owner === null) continue;
-        // the exclusions are in SQL (agents of the target without the corporate ones, auto, never moved, a new session,
+        // the exclusions are in SQL (agents of the target without the gateway ones, auto, never moved, a new session,
         // no context folders or files), so jobs that cannot move do not fill the window; PHP checks the devices
         $agents = array_values(array_filter(is_array($owner['agents'] ?? null) ? array_map('strval', array_keys($owner['agents'])) : ['claude'],
-            static fn(string $a): bool => co_corporate_agent($a) === null && co_db_id_ok($a)));
+            static fn(string $a): bool => co_gateway_agent($a) === null && co_db_id_ok($a)));
         if (!$agents) continue;
         $ph = implode(',', array_fill(0, count($agents), '?'));
         $st = $db->prepare("SELECT job_id, agent, request FROM jobs
@@ -417,7 +419,7 @@ function co_handover_blocked(array $req, string $to): ?string
     if (($req['conversation']['operation'] ?? 'new') !== 'new') return 'resume';
     if (!empty($req['attachments']) || !empty($req['contextFolders'])) return 'files';
     $agent = (string)($req['agent'] ?? '');
-    if (co_corporate_agent($agent) !== null) return 'corporate';
+    if (co_gateway_agent($agent) !== null) return 'gateway';
     $devices = is_array($req['devices'] ?? null) ? $req['devices'] : [];
     foreach ($devices as $d) {
         if (is_string($d) && str_starts_with($d, 'w-')) return 'browser devices';

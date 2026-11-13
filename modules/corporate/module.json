@@ -1,0 +1,255 @@
+{
+  "schema": 1,
+  "id": "corporate",
+  "version": "0.1.1",
+  "title": "Corporate assistants",
+  "description": "Models and tools of an employer (here ENGIE / Tractebel): the corporate LLM gateway reached through CO Desktop on the work laptop, a Claude dispatcher that delegates writing to it, Outlook, Teams, SharePoint, the employer portal and SAP HR. Everything it touches is confidential and stays in its own environment.",
+  "ext": ">=1 <2",
+  "scope": "environment",
+  "platforms": [
+    "windows"
+  ],
+  "requires": {
+    "core": [
+      "models",
+      "devices",
+      "push"
+    ],
+    "modules": []
+  },
+  "permissions": [
+    "models.register",
+    "device.tools",
+    "context",
+    "push.send",
+    "data.own"
+  ],
+  "confidential": true,
+  "warning": "Employer data: you decide. This module connects the models, mail, chats and documents of your employer. Check that your employer allows it; what the agents read stays in this environment and never goes to shared chats or other members.",
+  "isolation": "host",
+  "isolationReason": "the tools run in CO Desktop on the work laptop with the user's corporate sign-in",
+  "provides": {
+    "models": [
+      {
+        "id": "engie",
+        "kind": "llm",
+        "title": "ENGIE (Employer)",
+        "confidential": true,
+        "card": {
+          "summary": "Corporate ENGIE models.",
+          "strengths": "code, translation, reasoning",
+          "limits": "cannot create files; corporate data stays in its environment",
+          "dataStaysIn": "corporate"
+        }
+      },
+      {
+        "id": "dispatcher",
+        "kind": "dispatcher",
+        "title": "Dispatcher (ENGIE)",
+        "confidential": true,
+        "needsDevice": true,
+        "defaultModel": "claude-opus-5.5",
+        "job": true,
+        "family": "claude",
+        "card": {
+          "summary": "Claude that delegates writing to the corporate ENGIE models through a CO Desktop device.",
+          "strengths": "writes code and text well",
+          "limits": "cannot create files itself; needs a device with engie_chat; corporate data stays in its environment",
+          "dataStaysIn": "corporate"
+        }
+      }
+    ],
+    "deviceTools": [
+      {
+        "name": "engie_chat",
+        "kind": "llm",
+        "risk": "R"
+      },
+      {
+        "name": "engie_fetch",
+        "kind": "fetch",
+        "risk": "R"
+      },
+      {
+        "name": "outlook_search",
+        "risk": "R"
+      },
+      {
+        "name": "outlook_read",
+        "risk": "R"
+      },
+      {
+        "name": "outlook_folders",
+        "risk": "R"
+      },
+      {
+        "name": "outlook_draft",
+        "risk": "W"
+      },
+      {
+        "name": "outlook_move",
+        "risk": "W"
+      },
+      {
+        "name": "outlook_flag",
+        "risk": "W"
+      },
+      {
+        "name": "outlook_categorize",
+        "risk": "W"
+      },
+      {
+        "name": "outlook_save_attachments",
+        "risk": "W"
+      },
+      {
+        "name": "calendar_list",
+        "risk": "R"
+      },
+      {
+        "name": "calendar_find",
+        "risk": "R"
+      },
+      {
+        "name": "calendar_find_slot",
+        "risk": "R"
+      },
+      {
+        "name": "calendar_create",
+        "risk": "W"
+      },
+      {
+        "name": "calendar_update",
+        "risk": "W"
+      },
+      {
+        "name": "calendar_respond",
+        "risk": "W"
+      },
+      {
+        "name": "calendar_delete",
+        "risk": "D"
+      },
+      {
+        "name": "teams_chats",
+        "risk": "R"
+      },
+      {
+        "name": "teams_messages",
+        "risk": "R"
+      },
+      {
+        "name": "teams_search",
+        "risk": "R"
+      },
+      {
+        "name": "teams_fetch",
+        "risk": "R"
+      },
+      {
+        "name": "teams_probe",
+        "risk": "R"
+      },
+      {
+        "name": "sharepoint_list",
+        "risk": "R"
+      },
+      {
+        "name": "sharepoint_read",
+        "risk": "R"
+      },
+      {
+        "name": "sharepoint_download",
+        "risk": "W"
+      },
+      {
+        "name": "te_search",
+        "risk": "R"
+      },
+      {
+        "name": "te_projects",
+        "risk": "R"
+      },
+      {
+        "name": "te_doc",
+        "risk": "R"
+      },
+      {
+        "name": "te_fetch",
+        "risk": "R"
+      },
+      {
+        "name": "te_download",
+        "risk": "W"
+      },
+      {
+        "name": "sap_get",
+        "risk": "R"
+      }
+    ],
+    "gateway": {
+      "title": "ENGIE",
+      "employerTitle": "ENGIE (Employer)",
+      "portalTitle": "engie.ai",
+      "signinTitle": "Okta Verify",
+      "domains": [
+        "tractebel.engie.com",
+        "engie.com"
+      ],
+      "errorPattern": "ENGIE call failed|engie\\.ai",
+      "usageSource": "engie-savings",
+      "resumeText": "ENGIE is back online: engie_chat is available again. Continue the interrupted task from where you stopped. If it was already finished, reply briefly that nothing is left to do.",
+      "blockedMarkers": [
+        "[[corporate-blocked]]",
+        "[[engie-blocked]]"
+      ]
+    },
+    "context": [
+      {
+        "id": "rules",
+        "file": "context/rules.md"
+      }
+    ],
+    "tools": [
+      {
+        "name": "sap-hr",
+        "minVersion": "0.2.2"
+      },
+      {
+        "name": "docx-ops",
+        "minVersion": "0.1.0"
+      }
+    ],
+    "events": [],
+    "services": [],
+    "ui": []
+  },
+  "server": {
+    "entry": "server/ops.php",
+    "ops": {
+      "user": [
+        "corporate_waiting",
+        "corporate_resume"
+      ],
+      "push": [],
+      "host": []
+    },
+    "gatewayOps": {
+      "waiting": "corporate_waiting",
+      "resume": "corporate_resume"
+    }
+  },
+  "dataPolicy": {
+    "onDisable": "keep",
+    "onRemove": "ask",
+    "migrations": "additive"
+  },
+  "defaults": {
+    "enabled": false
+  },
+  "desktop": {
+    "connector": "connectors/corporate/desktop/CO.Corporate.csproj",
+    "settingsKey": "CorporateConnectors",
+    "note": "CO Desktop loads the connector itself today (agent B / IConnectorModule); see README"
+  }
+}

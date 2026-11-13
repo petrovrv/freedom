@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { corporate, pausedAgents } from './corporate.ts';
+import { gateway, onGatewayChange, pausedAgents } from './gateway.ts';
 // Static configuration of the CO web client.
 // Nothing here is secret: the OAuth client ID is public by design.
 
-export const APP_VERSION = '0.101.2';
-
-// Freedom F1: google.webClientId of install.json, put in by vite.config.ts (empty outside a vite build).
-declare const __CO_CLIENT_ID__: string | undefined;
-export const CLIENT_ID: string = typeof __CO_CLIENT_ID__ === 'string' ? __CO_CLIENT_ID__ : '';
+export const APP_VERSION = '0.103.0';
 
 // Full Drive scope: drive.file cannot see files written by Google Drive for Desktop
 // (verified with the probe on 2026-09-25).
@@ -42,21 +38,32 @@ export const ENVIRONMENTS: { id: EnvironmentId; displayName: string }[] = [];
 // other members are locked to their own. Real access control is the Drive ACL and the server.
 export const ALLOWLIST: Record<string, { env: EnvironmentId; owner: boolean }> = {};
 
-// 'claude' | 'codex' and the agents of the corporate connector (corporate.ts, from its manifest: e.g. its LLM gateway and
-// its dispatcher).
+// 'claude' | 'codex' and the agents of the confidential gateway (gateway.ts, from the module that provides it: e.g. its
+// LLM gateway and its dispatcher).
 export type AgentId = 'claude' | 'codex' | (string & {});
 
-export const AGENTS: { id: AgentId; displayName: string; capability: string | null }[] = [
+const BASE_AGENTS: { id: AgentId; displayName: string; capability: string | null }[] = [
   { id: 'claude', displayName: 'Claude', capability: null },
   { id: 'codex', displayName: 'GPT', capability: null },
-  // Corporate agents. 0.66.0: a paused connector (owner's decision 27.10) keeps them only so old messages show their
-  // agent's name; never offered in the composer, the new-project dialog or the task hint (PICKABLE_AGENTS).
-  ...corporate().agents.map((a) => ({ id: a.id, displayName: a.title, capability: null })),
 ];
 
+// Freedom F10: the gateway description arrives at runtime (db.php modules_list), so these lists are filled in place
+// (like ENVIRONMENTS) whenever it changes. Gateway agents of a disabled (paused) module stay in AGENTS only so old
+// messages show their agent's name; never offered in the composer, the new-project dialog or the task hint.
+export const AGENTS: { id: AgentId; displayName: string; capability: string | null }[] = [...BASE_AGENTS];
 // 0.66.0: agents a user can choose.
-export const RETIRED_AGENTS: ReadonlySet<string> = pausedAgents();
-export const PICKABLE_AGENTS = AGENTS.filter((a) => !RETIRED_AGENTS.has(a.id));
+const retired = new Set<string>();
+export const RETIRED_AGENTS: ReadonlySet<string> = retired;
+export const PICKABLE_AGENTS: { id: AgentId; displayName: string; capability: string | null }[] = [...BASE_AGENTS];
+
+function fillAgents(): void {
+  AGENTS.splice(0, AGENTS.length, ...BASE_AGENTS, ...gateway().agents.map((a) => ({ id: a.id, displayName: a.title, capability: null })));
+  retired.clear();
+  for (const id of pausedAgents()) retired.add(id);
+  PICKABLE_AGENTS.splice(0, PICKABLE_AGENTS.length, ...AGENTS.filter((a) => !retired.has(a.id)));
+}
+fillAgents();
+onGatewayChange(fillAgents);
 
 // Polling policy (TZ section 17). Never faster than 1 s.
 export const POLL_RUNNING_EVENTS_MS = 1500;
@@ -67,7 +74,7 @@ export const POLL_ACTIVITY_MS = 60000;
 export const POLL_VERSION_MS = 5 * 60000;
 
 export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
-// 0.67.0: a text paste this long gets the offer "Attach as a notebook (.md)" under the message box (canvas M4)
+// 0.67.0: a text paste this long gets the offer "Attach as a notebook (.md)" under the message box
 export const LONG_PASTE_CHARS = 3000;
 export const DEFAULT_TIMEOUT_MINUTES = 120; // 0.49.0: was 30 (web-device SPEC §12)
 

@@ -1,0 +1,129 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Test stand-in of CO Web for viewer.e2e.mjs: frames the viewer like the core does (sandboxed, own CSP) and answers
+     the ext/1 protocol with fixtures. Everything the page asks for is recorded in window.__reqs. -->
+<html lang="en">
+<head><meta charset="utf-8"><title>ext/1 test parent</title>
+<style>body { margin: 0; } iframe { border: 0; width: 900px; height: 760px; display: block; }</style>
+</head>
+<body>
+<iframe id="f" sandbox="allow-scripts allow-forms" title="Study viewer"></iframe>
+<script>
+(function () {
+  'use strict';
+  var cfg = JSON.parse(decodeURIComponent(location.hash.slice(1)));
+  var frame = document.getElementById('f');
+  var port = null;
+  window.__reqs = [];
+  window.__inits = 0;
+
+  function bytesOf(url) {
+    return fetch(url).then(function (r) { if (!r.ok) throw new Error('fixture ' + url + ': ' + r.status); return r.arrayBuffer(); });
+  }
+  function hex(buf, n) {
+    return Array.from(new Uint8Array(buf).slice(0, n)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+  }
+
+  var ops = {
+    'file.get': function (a) {
+      var f = cfg.files[a.path];
+      if (!f) return Promise.reject(new Error('not found'));
+      return bytesOf(f.url).then(function (b) {
+        return { name: f.name, mimeType: f.mimeType, id: f.id, md5: f.md5, modifiedTime: '2026-11-01T10:00:00Z', size: b.byteLength, bytes: b };
+      });
+    },
+    'file.pdf': function (a) {
+      if (!cfg.pdfUrl) return Promise.reject(new Error('no conversion'));
+      return bytesOf(cfg.pdfUrl).then(function (b) { return { bytes: b, note: cfg.pdfNote || '' }; });
+    },
+    'file.sibling': function (a) {
+      var s = cfg.sibling;
+      if (!s) return Promise.resolve(null);
+      if (a.withBytes === false) return Promise.resolve({ id: s.id, name: s.name, appProperties: s.appProperties, bytes: null });
+      return bytesOf(s.url).then(function (b) { return { id: s.id, name: s.name, appProperties: s.appProperties, bytes: b }; });
+    },
+    'file.putSibling': function (a) {
+      if (cfg.putFails) return Promise.reject(new Error('Drive said no'));
+      // like the core: an existing sibling is replaced only when the first app property has the same value
+      var s = cfg.sibling;
+      var k = Object.keys(a.appProperties || {})[0];
+      if (s && (!k || (s.appProperties || {})[k] !== a.appProperties[k])) return Promise.reject(new Error('a file of that name exists and is not yours'));
+      return Promise.resolve({ id: 'copy-1' });
+    },
+    'chat.ask': function () { return Promise.resolve({ ok: true }); },
+    'chat.reveal': function () { return Promise.resolve({}); },
+    'panel.close': function () { return Promise.resolve({}); },
+  };
+
+  // what the test reads back: the args without big buffers, plus what is inside the attached files
+  function record(m) {
+    var a = m.args || {};
+    var rec = { name: m.name, args: {} };
+    var jobs = [];
+    Object.keys(a).forEach(function (k) {
+      if (a[k] instanceof ArrayBuffer) rec.args[k] = { byteLength: a[k].byteLength, head: hex(a[k], 5) };
+      else if (k !== 'files') rec.args[k] = a[k];
+    });
+    if (Array.isArray(a.files)) {
+      rec.args.files = a.files.map(function (f) {
+        var o = { name: f.name, type: f.type, isArrayBuffer: f.bytes instanceof ArrayBuffer, byteLength: f.bytes && f.bytes.byteLength, head: hex(f.bytes, 8) };
+        if (f.type === 'text/plain') o.text = new TextDecoder().decode(f.bytes);
+        if (f.type === 'image/png') {
+          jobs.push(createImageBitmap(new Blob([f.bytes], { type: 'image/png' })).then(function (bmp) {
+            o.width = bmp.width;
+            o.height = bmp.height;
+            var c = document.createElement('canvas');
+            c.width = bmp.width;
+            c.height = bmp.height;
+            var x = c.getContext('2d');
+            x.drawImage(bmp, 0, 0);
+            var d = x.getImageData(0, 0, c.width, c.height).data;
+            var dark = 0;
+            for (var i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] < 600) dark++;
+            o.nonWhite = dark;
+          }));
+        }
+        return o;
+      });
+    }
+    return Promise.all(jobs).then(function () { window.__reqs.push(rec); });
+  }
+
+  function onPort(ev) {
+    var m = ev.data;
+    if (!m || m.ext !== 1) return;
+    if (m.t !== 'req') { window.__reqs.push({ name: '#' + m.t, args: m }); return; }
+    record(m).then(function () {
+      var op = ops[m.name];
+      return op ? op(m.args || {}) : Promise.reject(new Error('unknown request ' + m.name));
+    }).then(function (data) {
+      var tr = [];
+      if (data && data.bytes instanceof ArrayBuffer) tr.push(data.bytes);
+      port.postMessage({ ext: 1, t: 'result', id: m.id, ok: true, data: data }, tr);
+    }, function (e) {
+      port.postMessage({ ext: 1, t: 'result', id: m.id, ok: false, error: e.message });
+    });
+  }
+
+  window.__chat = function (events, canAsk) {
+    port.postMessage({ ext: 1, t: 'chat', events: events, canAsk: canAsk });
+  };
+
+  window.addEventListener('message', function (e) {
+    if (e.source !== frame.contentWindow || !e.data || e.data.ext !== 1 || e.data.t !== 'hello') return;
+    var ch = new MessageChannel();
+    port = ch.port1;
+    port.onmessage = onPort;
+    window.__inits++;
+    frame.contentWindow.postMessage({ ext: 1, t: 'init', ctx: {
+      ext: 1, module: 'study', version: '1.0.0', slot: 'ui.panel', uiId: 'viewer', me: 'owner@example.org',
+      owner: 'owner@example.org', vw: 1400, theme: { '--accent': '#1f5fbf', scheme: 'light' }, person: 'auto',
+      params: { study: cfg.path }, chat: { id: 'CHAT-1', title: 'Lecture' },
+    } }, '*', [ch.port2]);
+    if (cfg.chat) window.__chat(cfg.chat.events, cfg.chat.canAsk);
+  });
+  frame.src = '/agent/module.php?m=study&f=ui/viewer.html';
+})();
+</script>
+</body>
+</html>

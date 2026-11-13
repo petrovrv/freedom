@@ -52,6 +52,16 @@ function co_inbox_marks(mysqli $db, string $email): array
     ];
 }
 
+/** F10 side jobs of modules (ext/1, modules-lib.php): their answers never wait for the user. */
+function co_inbox_side_sql(mysqli $db): string
+{
+    require_once __DIR__ . '/modules-lib.php';
+    $sql = '';
+    foreach (co_module_side_keys($db) as $k) $sql .= "            AND JSON_EXTRACT(le.data, '$.$k') IS NULL
+";
+    return $sql;
+}
+
 /** Items waiting for the user of $env ($email keeps the read marks). */
 function co_inbox_list(mysqli $db, string $env, string $email): array
 {
@@ -73,7 +83,7 @@ function co_inbox_list(mysqli $db, string $env, string $email): array
            JOIN events le ON le.chat_id = m.chat_id AND le.seq = m.max_seq AND le.type = 'assistant_message'
           WHERE " . co_inbox_write_sql('p', 'c') . " AND p.archived = 0
             AND COALESCE(JSON_VALUE(c.data, '$.archived'), 'false') <> 'true'
-            AND JSON_EXTRACT(le.data, '$.canvas') IS NULL
+" . co_inbox_side_sql($db) . "
             -- 0.82.1: a [[silent]] answer (observer: nothing important) does not wait for the user
             AND LEFT(TRIM(le.text), 10) <> '[[silent]]'
             -- only answers that may need the user (classified exactly below), so routine replies do not fill the limit

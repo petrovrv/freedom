@@ -391,9 +391,13 @@ public sealed class MainWindow : Window
         return "if (location.origin === " + JsonSerializer.Serialize(origin) + ") { (() => {" +
             " const pending = new Map(); let n = 0;" +
             " window.chrome.webview.addEventListener('message', (e) => { const m = e.data || {}; const p = pending.get(m.id); if (!p) return; pending.delete(m.id); m.error ? p.reject(new Error(m.error)) : p.resolve(m.result); });" +
-            " const call = (type) => new Promise((resolve, reject) => { const id = ++n; pending.set(id, { resolve, reject }); window.chrome.webview.postMessage({ type, id }); });" +
+            " const call = (type, args) => new Promise((resolve, reject) => { const id = ++n; pending.set(id, { resolve, reject }); window.chrome.webview.postMessage(args === undefined ? { type, id } : { type, id, args }); });" +
             " window.coDesktop = Object.freeze(Object.assign(" + JsonSerializer.Serialize(info) +
-            ", { getAccessToken: () => call('getAccessToken'), signIn: () => call('signIn'), status: () => call('status'), voiceTyping: () => call('voiceTyping')" + extra + " }));" +
+            ", { getAccessToken: () => call('getAccessToken'), signIn: () => call('signIn'), status: () => call('status'), voiceTyping: () => call('voiceTyping')" +
+            // Freedom F10 (ext/1 device.tools): device ops of module settings pages and the per-device module switch
+            ", moduleOp: (module, op, args) => call('moduleOp', { module, op, args })" +
+            ", moduleDevice: () => call('moduleDevice'), moduleDeviceSet: (module, on) => call('moduleDeviceSet', { module, on: on === true })" +
+            extra + " }));" +
             " })(); }";
     }
 
@@ -407,11 +411,14 @@ public sealed class MainWindow : Window
         if (!e.Source.StartsWith(origin + "/", StringComparison.Ordinal) && e.Source != origin) return;
         int id;
         string type;
+        JsonElement margs = default;
         try
         {
+            if (e.WebMessageAsJson.Length > 64 * 1024) return;
             using var doc = JsonDocument.Parse(e.WebMessageAsJson);
             id = doc.RootElement.GetProperty("id").GetInt32();
             type = doc.RootElement.GetProperty("type").GetString() ?? "";
+            if (doc.RootElement.TryGetProperty("args", out var a)) margs = a.Clone();
         }
         catch (Exception) { return; }
 
@@ -449,6 +456,23 @@ public sealed class MainWindow : Window
                     await SignInAsync();
                     reply = new { id, result = new { } };
                     break;
+                // Freedom F10: modules with a device part (ext/1 device.tools); not for canvas windows
+                case "moduleDevice" when !canvas:
+                    reply = new { id, result = _s.ModuleLoader.States().Select(m => new { id = m.Id, on = m.On, active = m.Active, tools = m.Tools, problem = m.Problem, warning = m.Warning }) };
+                    break;
+                case "moduleDeviceSet" when !canvas:
+                    await _s.ModuleLoader.SetOnAsync(ArgStr(margs, "module"), margs.ValueKind == JsonValueKind.Object && margs.TryGetProperty("on", out var onv) && onv.ValueKind == JsonValueKind.True, _cts.Token);
+                    reply = new { id, result = new { } };
+                    break;
+                case "moduleOp" when !canvas:
+                {
+                    var opArgs = margs.ValueKind == JsonValueKind.Object && margs.TryGetProperty("args", out var oa) ? oa : default;
+                    if (opArgs.ValueKind == JsonValueKind.Undefined) opArgs = JsonDocument.Parse("{}").RootElement;
+                    var res = await _s.ModuleLoader.DeviceOpAsync(ArgStr(margs, "module"), ArgStr(margs, "op"), opArgs, _cts.Token);
+                    // the answer of the module goes back as plain JSON
+                    reply = new { id, result = res == null ? (JsonElement?)null : JsonDocument.Parse(res.ToJsonString()).RootElement };
+                    break;
+                }
                 default:
                     // 0.7.11: methods of connector modules (e.g. open/reload an external AI in its CO-browser tab).
                     if (canvas || !ConnectorHooks.WebMethods.TryGetValue(type, out var method)) throw new InvalidOperationException("unknown_request");
@@ -460,6 +484,9 @@ public sealed class MainWindow : Window
         try { target.PostWebMessageAsJson(JsonSerializer.Serialize(reply)); }
         catch (Exception ex) when (canvas) { Log.Write("canvas reply: " + ex.Message); /* the canvas window closed meanwhile */ }
     }
+
+    private static string ArgStr(JsonElement a, string name) =>
+        a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
 
     internal static readonly System.Text.RegularExpressions.Regex GoogleSignInHost = new(
         @"^([a-z0-9-]+\.)*(google\.[a-z]{2,3}(\.[a-z]{2})?|gstatic\.com|googleusercontent\.com|youtube\.com)$",
@@ -667,6 +694,7 @@ public sealed class MainWindow : Window
                 RefreshGrants();
             });
             _code.Text = "paired";
+            StartModulesLoop();
             if (_s.IsOwner && !_autoPairStarted) { _autoPairStarted = true; _ = Task.Run(AutoPairLoopAsync); }
             _ = Task.Run(async () =>
             {
@@ -828,7 +856,11 @@ public sealed class MainWindow : Window
             foreach (var c in _s.Connectors.All) await c.CheckAsync(_cts.Token);
         }));
 
-        // Panels of connector modules (corporate: a folder by link, the sign-in fallback).
+        // Freedom F10: modules of the workbench with a device part or a settings page (ui.settings, shown by CO Web).
+        p.Children.Add(_modulesBox);
+        RefreshModulesBox();
+        _s.ModuleLoader.Applied += () => Dispatcher.BeginInvoke(RefreshModulesBox);
+        // Connector modules compiled into the app keep their WPF panels until they have a ui.settings page.
         foreach (var m in _s.Modules)
             foreach (var panel in m.SettingsPanels().OfType<UIElement>()) p.Children.Add(panel);
 
@@ -839,6 +871,90 @@ public sealed class MainWindow : Window
         _s.Runtime.Folders.Changed += () => Dispatcher.BeginInvoke(RefreshConnectors);
         RefreshConnectors();
         return p;
+    }
+
+    // ------------------------------------------------------------------ modules (Freedom F10, SPEC §3.6)
+
+    private readonly StackPanel _modulesBox = new();
+    private bool _modulesLoop;
+
+    private void RefreshModulesBox()
+    {
+        _modulesBox.Children.Clear();
+        var list = _s.ModuleLoader.Modules.Where(m => m.Enabled && (m.HasDevicePart || m.Ui.Any(u => u.Slot == "ui.settings"))).ToList();
+        if (list.Count == 0) return;
+        var panel = new StackPanel();
+        _modulesBox.Children.Add(new GroupBox
+        {
+            Header = new TextBlock { Text = "Modules", FontWeight = FontWeights.SemiBold, FontSize = 14 },
+            Margin = new Thickness(0, 14, 0, 0), Padding = new Thickness(6, 2, 6, 6), Content = panel,
+        });
+        panel.Children.Add(Label("Modules the owner turned on in the workbench (Host → Modules). Tools of a module work on this " +
+            "computer only while it is on here; they ask like the built-in tools of the same class."));
+        var states = _s.ModuleLoader.States().ToDictionary(x => x.Id);
+        foreach (var m in list)
+        {
+            panel.Children.Add(new TextBlock { Text = m.Title + "  " + m.Version, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 8, 0, 0) });
+            if (states.TryGetValue(m.Id, out var st))
+            {
+                var check = new CheckBox { Content = "On this computer", IsChecked = st.On, Margin = new Thickness(0, 4, 0, 0) };
+                string id = m.Id, warning = st.Warning, title = m.Title;
+                check.Click += async (_, _) =>
+                {
+                    bool on = check.IsChecked == true;
+                    if (on && warning.Length > 0 && MessageBox.Show(this, title + "\n\n" + warning, "CO Desktop",
+                            MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
+                    {
+                        check.IsChecked = false;
+                        return;
+                    }
+                    try { await _s.ModuleLoader.SetOnAsync(id, on, _cts.Token); }
+                    catch (Exception ex) { MessageBox.Show(ex.Message, "CO Desktop"); }
+                    RefreshModulesBox();
+                };
+                panel.Children.Add(check);
+                string tools = string.Join(", ", m.Tools.Select(t => $"{t.Name} [{CO.Core.Modules.ModuleLoader.EffectiveClass(m, t)}]"));
+                if (tools.Length > 0) panel.Children.Add(Label("Tools: " + tools + (st.Active ? "" : " (off here)")));
+                if (st.Problem.Length > 0) panel.Children.Add(new TextBlock { Text = st.Problem, TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DarkOrange });
+            }
+            if (m.Ui.Any(u => u.Slot == "ui.settings"))
+            {
+                string id = m.Id;
+                panel.Children.Add(Btn("Settings of " + m.Title + "…", () => OpenModuleSettingsAsync(id)));
+            }
+        }
+    }
+
+    // The settings page of a module is its ui.settings page in CO Web (Host → Modules), the same on every platform.
+    private async Task OpenModuleSettingsAsync(string id)
+    {
+        if (_web.CoreWebView2 == null) throw new InvalidOperationException("The CO window is not ready.");
+        await _web.CoreWebView2.ExecuteScriptAsync("window.coOpenModules && window.coOpenModules(" + JsonSerializer.Serialize(id) + ")");
+        _web.Focus();
+    }
+
+    // Module list from the CO site: now and every 5 minutes; a changed tool set is published to Bridge.
+    private void StartModulesLoop()
+    {
+        if (_modulesLoop) return;
+        _modulesLoop = true;
+        _s.ModuleLoader.CatalogChanged += () => _ = Task.Run(async () =>
+        {
+            if (!_s.Runtime.State.Paired) return;
+            try { await _s.Runtime.PublishCatalogAsync(_cts.Token); }
+            catch (Exception ex) { Log.Write("module tools: catalog not published: " + ex.Message); }
+        });
+        _ = Task.Run(async () =>
+        {
+            while (!_cts.IsCancellationRequested)
+            {
+                if (_s.SignedIn)
+                    try { await _s.ModuleLoader.RefreshAsync(_cts.Token); }
+                    catch (OperationCanceledException) { return; }
+                    catch (Exception ex) { Log.Write("modules: " + ex.Message); }
+                try { await Task.Delay(TimeSpan.FromMinutes(5), _cts.Token); } catch (OperationCanceledException) { return; }
+            }
+        });
     }
 
     private void RefreshConnectors()

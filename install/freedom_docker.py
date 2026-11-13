@@ -11,7 +11,7 @@ with the same repo -> server map (freedom_setup.layout()) and the same secret wr
 
   python install/freedom_docker.py plan                       what would run where (no changes)
   python install/freedom_docker.py up [--no-build]            stack folder on the Docker host, secrets once (0600), compose up
-  python install/freedom_docker.py deploy [--diff] [--build] [--parts agent,auth,web,home,corporate,config,secrets,
+  python install/freedom_docker.py deploy [--diff] [--build] [--parts agent,auth,web,home,config,secrets,
                                            schema,cron,cli] [--oauth-client FILE] [--rewrite-config] [--no-bak]
                                                               site files, config, secrets, schema, members, cron lines
   python install/freedom_docker.py verify [--php-tests] [--wait-cron SEC] [--agent]
@@ -67,7 +67,7 @@ ROOT_PWD = 'MYSQL_PWD="$(cat /run/secrets/db_root_password)" '
 LOCAL_BINDS = ('127.0.0.1', 'localhost', '::1')
 DEFAULTS = {'project': 'freedom', 'cli': 'auto', 'stackDir': '', 'bind': '', 'httpPort': 0, 'httpsPort': 0,
             'tls': 'auto', 'acmeEmail': '', 'keyring': True, 'cpus': 2}
-PARTS = 'agent,auth,web,home,corporate,config,secrets,schema,cron'
+PARTS = 'agent,auth,web,home,config,secrets,schema,cron'  # F10: the server reads model gateways from modules, no connector manifest
 out = fs.out
 
 
@@ -414,7 +414,7 @@ def cmd_plan(a) -> int:
              else f'{s["bind"]}:{s["httpPort"]}->80')
     out('info', f'services: db (MariaDB 11, volume db), app ({s["image"]}: Apache+PHP 8.3+Node 24, volume home), '
                 f'cron (same image), caddy ({ports}); cpus app {s["cpus"]}')
-    for name in ('agent', 'auth', 'web', 'home', 'corporate'):
+    for name in ('agent', 'auth', 'web', 'home'):
         out('info', f'deploy {name}: {len(parts[name])} file(s) -> {parts[name][0][1].rsplit("/", 1)[0] if parts[name] else "-"}')
     if not parts['web']:
         out('warn', 'co-web/dist is missing: deploy --build (Node 20+ and npm on this computer) or build co-web first')
@@ -530,7 +530,7 @@ def cmd_deploy(a) -> int:
         out('FAIL', 'the app container is not running: freedom_docker.py up')
         return 1
     t = DockerTarget(h, cid)
-    items = [(f.read_bytes(), r, f.suffix == '.php') for name in ('agent', 'auth', 'web', 'home', 'corporate')
+    items = [(f.read_bytes(), r, f.suffix == '.php') for name in ('agent', 'auth', 'web', 'home')
              if name in want for f, r in parts[name]]
     if 'config' in want:
         items.append((server_config_text().encode(), f'{home}/co-agent/config.php', True))
@@ -753,7 +753,7 @@ def php_tests(h: Host, t: DockerTarget) -> int:
     try:
         buf = io.BytesIO()
         with tarfile.open(fileobj=buf, mode='w') as tar:
-            for sub in ('co-agent', 'co-web-auth', 'connectors'):
+            for sub in ('co-agent', 'co-web-auth', 'modules'):
                 for f in (REPO / sub).rglob('*'):
                     rel = f.relative_to(REPO).as_posix()
                     if f.is_file() and '/node_modules/' not in rel and '/logs/' not in rel and f.name != 'desktop.ini':

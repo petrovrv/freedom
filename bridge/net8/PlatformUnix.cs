@@ -63,7 +63,7 @@ namespace AiWorkbenchBridge
             "Connect Google from the tray (use --google-connect <client.json>)",
             "runAs (CLI under another OS account)",
             "launcher/updater (bridge/launcher is Windows-only; LaunchAgent/systemd restart instead)",
-            "corporate Outlook profile check (Windows registry)",
+            "employer Outlook profile check (Windows registry)",
         };
     }
 

@@ -78,9 +78,9 @@ $ok('job not synced yet, shared chat: refused', $put(['jobId' => 'J-new', 'chatI
 $req = ['agent' => 'claude', 'hostId' => 'site'];
 $ok('submit: shared chat, no devices -> allowed, restricted', share_submit_policy($db, 'P-own', 'CHAT-S', $req, false) === null && $req['restricted'] === true);
 $req = ['agent' => 'claude', 'devices' => ['d-b903ab04eea11ba2']];
-$ok('submit: shared chat with devices refused', share_submit_policy($db, 'P-own', 'CHAT-S', $req, false) === 'shared_chat_no_corporate');
+$ok('submit: shared chat with devices refused', share_submit_policy($db, 'P-own', 'CHAT-S', $req, false) === SHARE_REFUSED);
 $req = ['agent' => 'claude'];
-$ok('submit: subtask below the shared chat, corporate refused', share_submit_policy($db, 'P-own', 'CHAT-C', $req, true) === 'shared_chat_no_corporate');
+$ok('submit: subtask below the shared chat, confidential agent refused', share_submit_policy($db, 'P-own', 'CHAT-C', $req, true) === SHARE_REFUSED);
 $req = ['agent' => 'claude', 'restricted' => false, 'devices' => ['d-b903ab04eea11ba2']];
 $ok('submit: plain chat keeps devices, client flag dropped', share_submit_policy($db, 'P-own', 'CHAT-1', $req, false) === null && !isset($req['restricted']));
 $db->query("DELETE FROM relay_calls WHERE call_id <> '" . $c['callId'] . "'");

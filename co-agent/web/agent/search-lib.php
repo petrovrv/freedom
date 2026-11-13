@@ -1,21 +1,19 @@
 <?php
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// search-lib.php: associative chat search (schema 20, 2026-11-09).
-// Three ranked lists of chats are merged by reciprocal rank (RRF): full-text over messages (events), full-text over
-// protocol entries, and cosine over protocol vectors (potion-multilingual-128M, written by the aiwb-assoc tool from the
-// home PC). The query vector is built here from vec_words (sum of raw token embeddings per word / token count), because
-// PHP cannot run the model's tokenizer. Aliases (Wikidata, model, own names) add the other names of a thing the query
-// mentions as extra full-text words. Measured 08.11 on 22 golden questions (all chats of the owner): keywords MRR 0.66 ->
-// 0.87, plain questions 0.47 -> 0.69, English questions 0.29 -> 0.48.
+// search-lib.php: chat search of the core (schema 20, 2026-11-09; ext/1 search.provider since Freedom F10).
+// Ranked lists of chats are merged by reciprocal rank (RRF): the core's full-text over messages (events) and over
+// protocol entries, plus one list per search provider of an enabled module (manifest provides.search, hook 'chats').
+// A provider's 'expand' hook adds other names of the things a query mentions as extra full-text words (lower weight),
+// 'items' adds results that are not chats (documents), 'text' gives the indexed text of a project file. The core knows
+// no provider by name: it calls the hooks of modules-lib.php co_module_hooks('search') and merges what comes back.
 declare(strict_types=1);
 
 require_once __DIR__ . '/fts-lib.php';
+require_once __DIR__ . '/modules-lib.php';
 
 const CO_SEARCH_RRF_K = 60;
 const CO_SEARCH_DEPTH = 50;          // chats taken from each list
-const CO_VEC_DIM = 256;
-const CO_ALIAS_MAX_TERMS = 24;       // extra full-text terms from aliases
-const CO_ALIAS_MAX_GROUPS = 2;       // a query term in more groups than this expands nothing
+const CO_SEARCH_MAX_EXPAND = 24;     // extra full-text terms from the providers' expand hooks
 
 /** Rows of a prepared statement as associative arrays. */
 function co_search_q(mysqli $db, string $sql, array $params = []): array
@@ -28,61 +26,48 @@ function co_search_q(mysqli $db, string $sql, array $params = []): array
     return $rows;
 }
 
-/** Lower-case alias term: letters, digits and _ words joined by one space ('' when nothing is left). */
-function co_alias_norm(string $t): string
+/** Lower-case term: letters, digits and _ words joined by one space ('' when nothing is left). */
+function co_search_norm(string $t): string
 {
     preg_match_all('/[\p{L}\p{N}_]+/u', mb_strtolower($t, 'UTF-8'), $m);
     return mb_substr(implode(' ', $m[0]), 0, 120, 'UTF-8');
 }
 
 /**
- * Other names of the things a query mentions: every 1..3-word sequence of the query is looked up in aliases (general
- * rows and rows of $env); the remaining terms of the matched groups come back (at most CO_ALIAS_MAX_TERMS).
+ * Calls hook $hook of every search provider; a provider that throws is logged and skipped (the core search still
+ * answers). Returns [[provider id, result], ...] in the order of the module list.
  */
-function co_alias_expand(mysqli $db, string $env, string $q): array
+function co_search_call(mysqli $db, string $hook, array $in): array
 {
-    return array_merge([], ...array_values(co_alias_groups($db, $env, $q)));
-}
-
-/** co_alias_expand by the query sequence that called them: [query words => [other names]]. */
-function co_alias_groups(mysqli $db, string $env, string $q): array
-{
-    $words = co_fts_words($q);
-    $grams = [];
-    $n = count($words);
-    for ($i = 0; $i < $n; $i++) {
-        for ($k = 1; $k <= 3 && $i + $k <= $n; $k++) {
-            $grams[implode(' ', array_slice($words, $i, $k))] = true;
+    $out = [];
+    foreach (co_module_hooks($db, 'search') as $p) {
+        $fn = $p['hooks'][$hook] ?? null;
+        if ($fn === null) continue;
+        try {
+            $out[] = [$p['id'], $fn(co_module_ctx($db, $p['module']), $in)];
+        } catch (Throwable $e) {
+            error_log("search provider {$p['module']['id']}/{$p['id']} $hook: " . $e->getMessage());
         }
     }
-    if (!$grams) {
-        return [];
-    }
-    $grams = array_map('strval', array_keys($grams));
-    $in = implode(',', array_fill(0, count($grams), '?'));
-    // a term that names 3+ groups (a first name shared by several people, a word in many descriptions) is too vague
-    $groups = co_search_q($db, "SELECT a.env, a.grp, MIN(t.term) AS via FROM aliases a JOIN (SELECT term FROM aliases WHERE term IN ($in)
-                                  AND env IN ('', ?) GROUP BY term HAVING COUNT(*) <= " . CO_ALIAS_MAX_GROUPS . ") t ON t.term = a.term
-                                 WHERE a.env IN ('', ?) GROUP BY a.env, a.grp LIMIT 20", [...$grams, $env, $env]);
-    if (!$groups) {
-        return [];
-    }
-    $cond = implode(' OR ', array_fill(0, count($groups), '(env = ? AND grp = ?)'));
-    $params = [];
-    $via = [];
-    foreach ($groups as $g) {
-        array_push($params, $g['env'], $g['grp']);
-        $via[$g['env'] . '|' . $g['grp']] = (string)$g['via'];
-    }
-    $have = array_fill_keys($grams, true);
+    return $out;
+}
+
+/**
+ * Other names of the things a query mentions, by the query words that called them: [query words => [other names]]
+ * from the providers' expand hooks (at most CO_SEARCH_MAX_EXPAND names in all).
+ */
+function co_search_expand(mysqli $db, string $env, string $q): array
+{
+    if (trim($q) === '') return [];
     $out = [];
     $count = 0;
-    foreach (co_search_q($db, "SELECT env, grp, term FROM aliases WHERE $cond ORDER BY CHAR_LENGTH(term) LIMIT 200", $params) as $r) {
-        $t = (string)$r['term'];
-        if (!isset($have[$t]) && $count < CO_ALIAS_MAX_TERMS) {
-            $have[$t] = true;
-            $out[$via[$r['env'] . '|' . $r['grp']]][] = $t;
-            $count++;
+    foreach (co_search_call($db, 'expand', ['env' => $env, 'q' => $q]) as [, $groups]) {
+        foreach (is_array($groups) ? $groups : [] as $via => $names) {
+            foreach (is_array($names) ? $names : [] as $t) {
+                if (!is_string($t) || $t === '' || $count >= CO_SEARCH_MAX_EXPAND) continue;
+                $out[(string)$via][] = $t;
+                $count++;
+            }
         }
     }
     return $out;
@@ -90,9 +75,9 @@ function co_alias_groups(mysqli $db, string $env, string $q): array
 
 /**
  * BOOLEAN MODE query: each text (the user's query, the expanded terms) through co_fts_query on its own, so a long
- * question does not push the terms out of the 30-word cap; plus alias terms with the lower weight '<' - a one-word
- * alias as word and stem prefix, a longer one as a quoted phrase of its 3+ letter words. Duplicate terms are dropped
- * (the user's own term wins over the same alias term).
+ * question does not push the terms out of the 30-word cap; plus expansion names with the lower weight '<' - a one-word
+ * name as word and stem prefix, a longer one as a quoted phrase of its 3+ letter words. Duplicate terms are dropped
+ * (the user's own term wins over the same expansion term).
  */
 function co_search_fts_query(array $texts, array $aliases): string
 {
@@ -105,7 +90,7 @@ function co_search_fts_query(array $texts, array $aliases): string
         }
     }
     foreach ($aliases as $a) {
-        $ws = array_values(array_filter(explode(' ', co_alias_norm($a)), static fn($w) => mb_strlen($w, 'UTF-8') >= 3));
+        $ws = array_values(array_filter(explode(' ', co_search_norm($a)), static fn($w) => mb_strlen($w, 'UTF-8') >= 3));
         $terms = count($ws) === 1 ? explode(' ', co_fts_query($ws[0])) : (count($ws) > 1 ? ['"' . implode(' ', $ws) . '"'] : []);
         foreach ($terms as $t) {
             if ($t !== '' && !isset($out[$t])) {
@@ -116,88 +101,32 @@ function co_search_fts_query(array $texts, array $aliases): string
     return implode(' ', array_values($out));
 }
 
-/** int8 vector from VARBINARY(256). */
-function co_vec_unpack(string $bin): array
-{
-    return array_values(unpack('c' . CO_VEC_DIM, $bin));
-}
-
 /**
- * Query vector from vec_words: words found as they are, unknown words of 5+ letters by the most frequent word sharing
- * the longest prefix (down to 60% of the word, at least 4 letters). null when no word is known.
- */
-function co_vec_query(mysqli $db, array $words): ?array
-{
-    $words = array_values(array_unique(array_filter(array_map('strval', $words),
-        static fn($w) => mb_strlen($w, 'UTF-8') >= 2 && mb_strlen($w, 'UTF-8') <= 60 && !ctype_digit($w))));
-    if (!$words) {
-        return null;
-    }
-    $in = implode(',', array_fill(0, count($words), '?'));
-    $found = [];
-    foreach (co_search_q($db, "SELECT word, n, scale, v FROM vec_words WHERE word IN ($in)", $words) as $r) {
-        $found[(string)$r['word']] = $r;
-    }
-    $rows = [];
-    $lookups = 0;
-    foreach ($words as $w) {
-        if (isset($found[$w])) {
-            $rows[] = $found[$w];
-            continue;
-        }
-        $len = mb_strlen($w, 'UTF-8');
-        if ($len < 5 || preg_match('/^\p{L}+$/u', $w) !== 1) {
-            continue;
-        }
-        for ($k = $len - 1; $k >= max(4, (int)ceil($len * 0.6)) && $lookups < 15; $k--) {
-            $lookups++;
-            $p = addcslashes(mb_substr($w, 0, $k, 'UTF-8'), '%_\\');
-            $r = co_search_q($db, 'SELECT word, n, scale, v FROM vec_words WHERE word LIKE ? ORDER BY freq DESC LIMIT 1', [$p . '%']);
-            if ($r) {
-                $rows[] = $r[0];
-                break;
-            }
-        }
-    }
-    if (!$rows) {
-        return null;
-    }
-    $acc = array_fill(0, CO_VEC_DIM, 0.0);
-    $tokens = 0;
-    foreach ($rows as $r) {
-        $s = (float)$r['scale'];
-        foreach (co_vec_unpack((string)$r['v']) as $i => $x) {
-            $acc[$i] += $x * $s;
-        }
-        $tokens += (int)$r['n'];
-    }
-    $norm = sqrt(array_sum(array_map(static fn($x) => $x * $x, $acc)));
-    if ($norm <= 0.0 || $tokens <= 0) {
-        return null;
-    }
-    return array_map(static fn($x) => $x / $norm, $acc);
-}
-
-/**
- * Chats ranked by three lists merged by RRF. $scope: ['sql' => condition over p (projects) and c (chats), 'params' =>
- * its parameters]. $q is the text for full-text and vectors, $extraTerms are words that only widen the full-text search
- * (CO Web AI search terms); $messages false skips the message list (secretary hints: protocol and vectors only).
- * Returns ['chats' => [chatId => [...]], 'aliases' => [...], 'aliasGroups' => [query words => [...]], 'vector' => bool].
+ * Chats ranked by the core's lists and the providers' lists merged by RRF. $scope: ['sql' => condition over p
+ * (projects) and c (chats), 'params' => its parameters]. $q is the text for full-text and the providers, $extraTerms are
+ * words that only widen the full-text search (CO Web AI search terms); $messages false skips the message list
+ * (secretary hints: protocol and providers only).
+ * Returns ['chats' => [chatId => [...]], 'aliases' => [...], 'aliasGroups' => [query words => [...]], 'lists' => [ids
+ * of provider lists that ranked]].
+ *
+ * Hook 'chats' of a provider (ext/1 search.provider): in {env, q, text, where, params, depth} - where/params are the
+ * SQL condition over p and c (join `chats c` and `projects p` yourself); out: null (the provider had nothing to rank
+ * with) or a list of chats best first [{chatId, match?: string, entryId?: protocol entry id behind the match}].
  */
 function co_search_chats(mysqli $db, string $env, array $scope, string $q, array $extraTerms = [], ?string $exclude = null, bool $messages = true): array
 {
     $terms = implode(' ', $extraTerms);
     $text = trim($q . ' ' . $terms);
-    $aliasGroups = co_alias_groups($db, $env, $q);
-    $aliases = array_values(array_unique([...array_merge([], ...array_values($aliasGroups)), ...co_alias_expand($db, $env, $terms)]));
-    $aliases = array_slice($aliases, 0, CO_ALIAS_MAX_TERMS);
+    $aliasGroups = co_search_expand($db, $env, $q);
+    $aliases = array_values(array_unique([...array_merge([], ...array_values($aliasGroups)), ...array_merge([], ...array_values(co_search_expand($db, $env, $terms)))]));
+    $aliases = array_slice($aliases, 0, CO_SEARCH_MAX_EXPAND);
     $ftq = co_search_fts_query(array_values(array_filter([$q, $terms], static fn($t) => trim($t) !== '')), $aliases);
     $snipQ = trim($text . ' ' . implode(' ', $aliases));
     $where = $scope['sql'] . ($exclude !== null ? ' AND c.chat_id <> ?' : '');
     $params = $exclude !== null ? [...$scope['params'], $exclude] : $scope['params'];
     $join = 'JOIN chats c ON c.chat_id = x.chat_id JOIN projects p ON p.project_id = c.project_id';
 
-    $msg = $proto = $vec = [];
+    $msg = $proto = [];
     $info = [];
     if ($ftq !== '' && $messages) {
         // messages: the best message of each chat (rows come by score), up to 3 snippets
@@ -233,48 +162,41 @@ function co_search_chats(mysqli $db, string $env, array $scope, string $q, array
             $info[$id]['pid'] = (int)$r['id'];
         }
     }
-    // vectors of protocol entries
-    $qv = co_vec_query($db, co_fts_words($q !== '' ? $q : $text));
-    if ($qv !== null) {
-        $best = [];
-        $vjoin = 'JOIN chats c ON c.chat_id = pr.chat_id JOIN projects p ON p.project_id = c.project_id';
-        $st = $db->prepare("SELECT pr.chat_id, x.protocol_id, x.scale, x.v
-               FROM vec_protocol x JOIN protocol pr ON pr.id = x.protocol_id AND pr.chat_id = x.chat_id AND pr.status = 'active' $vjoin
-              WHERE $where");
-        $st->execute($params);
-        $res = $st->get_result();
-        while ($r = $res->fetch_assoc()) {
-            $v = co_vec_unpack((string)$r['v']);
-            $dot = 0.0;
-            for ($i = 0; $i < CO_VEC_DIM; $i++) {
-                $dot += $qv[$i] * $v[$i];
-            }
-            $dot *= (float)$r['scale'];
-            $id = (string)$r['chat_id'];
-            if (!isset($best[$id]) || $dot > $best[$id][0]) {
-                $best[$id] = [$dot, (int)$r['protocol_id']];
-            }
+    // lists of the search providers (modules)
+    $lists = ['messages' => $msg, 'protocol' => $proto];
+    $active = [];
+    foreach (co_search_call($db, 'chats', ['env' => $env, 'q' => $q, 'text' => $text, 'where' => $where, 'params' => $params,
+        'depth' => CO_SEARCH_DEPTH]) as [$pid, $rows]) {
+        if (in_array($pid, ['messages', 'protocol'], true)) continue;
+        if (!is_array($rows)) {
+            $lists[$pid] ??= []; // the provider had nothing to rank with: its rank is null for every chat
+            continue;
         }
-        $st->close();
-        uasort($best, static fn($a, $b) => $b[0] <=> $a[0]);
-        $best = array_slice($best, 0, CO_SEARCH_DEPTH, true);
-        $texts = [];
-        if ($best) {
-            $ids = array_column($best, 1);
+        // the scope is access control: a chat the provider returns outside it is dropped
+        $ids = array_values(array_unique(array_filter(array_map(static fn($r) => is_array($r) && is_string($r['chatId'] ?? null) ? $r['chatId'] : '',
+            array_slice($rows, 0, 4 * CO_SEARCH_DEPTH)))));
+        $inScope = [];
+        if ($ids) {
             $in = implode(',', array_fill(0, count($ids), '?'));
-            foreach (co_search_q($db, "SELECT id, msg_seq, text FROM protocol WHERE id IN ($in)", $ids) as $r) {
-                $texts[(int)$r['id']] = '#' . (int)$r['msg_seq'] . ' (protocol): ' . mb_substr((string)$r['text'], 0, 240, 'UTF-8');
+            foreach (co_search_q($db, "SELECT c.chat_id FROM chats c JOIN projects p ON p.project_id = c.project_id WHERE $where AND c.chat_id IN ($in)",
+                [...$params, ...$ids]) as $r) {
+                $inScope[(string)$r['chat_id']] = true;
             }
         }
-        foreach ($best as $id => $b) {
-            $vec[(string)$id] = count($vec);
-            $info[(string)$id]['v'] = $texts[$b[1]] ?? '';
-            $info[(string)$id]['vid'] = $b[1];
+        $list = [];
+        foreach ($rows as $r) {
+            $id = is_array($r) && is_string($r['chatId'] ?? null) ? $r['chatId'] : '';
+            if ($id === '' || !isset($inScope[$id]) || isset($list[$id]) || count($list) >= CO_SEARCH_DEPTH) continue;
+            $list[$id] = count($list);
+            if (is_string($r['match'] ?? null)) $info[$id]['x'][] = $r['match'];
+            if (is_int($r['entryId'] ?? null)) $info[$id]['xid'][] = $r['entryId'];
         }
+        $lists[$pid] = $list;
+        $active[] = $pid;
     }
 
     $out = [];
-    foreach ([$msg, $proto, $vec] as $list) {
+    foreach ($lists as $list) {
         foreach ($list as $id => $rank) {
             $out[(string)$id] = ($out[(string)$id] ?? 0.0) + 1.0 / (CO_SEARCH_RRF_K + $rank + 1);
         }
@@ -284,22 +206,25 @@ function co_search_chats(mysqli $db, string $env, array $scope, string $q, array
     foreach ($out as $id => $score) {
         $i = $info[$id] ?? [];
         $matches = [];
-        foreach ([$i['p'] ?? null, $i['v'] ?? null] as $m) {
+        foreach ([$i['p'] ?? null, ...($i['x'] ?? [])] as $m) {
             if ($m !== null && $m !== '' && !in_array($m, $matches, true)) {
                 $matches[] = $m;
             }
         }
         $matches = array_slice([...array_slice($matches, 0, 1), ...($i['m'] ?? []), ...array_slice($matches, 1)], 0, 4);
+        $ranks = [];
+        foreach ($lists as $name => $list) {
+            $ranks[$name] = isset($list[$id]) ? $list[$id] + 1 : null;
+        }
         $chats[(string)$id] = [
             'score'   => round($score, 6),
-            'ranks'   => ['messages' => isset($msg[$id]) ? $msg[$id] + 1 : null, 'protocol' => isset($proto[$id]) ? $proto[$id] + 1 : null,
-                          'vector' => isset($vec[$id]) ? $vec[$id] + 1 : null],
+            'ranks'   => $ranks,
             'matches' => $matches,
-            // protocol entries behind the protocol and vector matches (secretary hints quote them)
-            'entryIds' => array_values(array_unique(array_filter([$i['pid'] ?? null, $i['vid'] ?? null]))),
+            // protocol entries behind the protocol and provider matches (secretary hints quote them)
+            'entryIds' => array_values(array_unique(array_filter([$i['pid'] ?? null, ...($i['xid'] ?? [])]))),
         ];
     }
-    return ['chats' => $chats, 'aliases' => $aliases, 'aliasGroups' => $aliasGroups, 'vector' => $qv !== null];
+    return ['chats' => $chats, 'aliases' => $aliases, 'aliasGroups' => $aliasGroups, 'lists' => $active];
 }
 
 /** Host op find_chats (aiwb-chat find): chats of an env (own and shared with it) for a query, best first. */
@@ -340,161 +265,52 @@ function co_search_find(mysqli $db, array $in): array
         $chats[] = ['chatId' => $id, 'projectId' => (string)($m['project_id'] ?? ''), 'title' => (string)($m['title'] ?? ''),
             'updatedUtc' => co_db_iso($m['updated_utc'] ?? null), 'summary' => (string)($m['summary'] ?? '')] + $c;
     }
-    return ['env' => $env, 'aliases' => $res['aliases'], 'vector' => $res['vector'], 'chats' => $chats];
+    // vector: legacy wire of aiwb-chat (schema 20) - a provider list ranked
+    return ['env' => $env, 'aliases' => $res['aliases'], 'vector' => $res['lists'] !== [], 'lists' => $res['lists'], 'chats' => $chats];
 }
 
-// ---- host ops of the indexer (aiwb-assoc, push key)
-
-/** Decoded VARBINARY(256) vector from base64, or an exception. */
-function co_vec_b64(mixed $v): string
+/**
+ * Results that are not chats (CO Web AI search, user op search_items): every provider's 'items' hook, in {env, q,
+ * limit, projectId?} out a list best first of {kind, title, projectId, projectTitle?, path?, modified?, snippets?}
+ * (kind 'doc' with path = a project file relative to projects/, opened from Drive). Providers in the order of the module
+ * list, each cut to $limit.
+ */
+function co_search_items(mysqli $db, string $env, string $q, int $limit = 8, ?string $projectId = null): array
 {
-    $bin = is_string($v) ? base64_decode($v, true) : false;
-    if ($bin === false || strlen($bin) !== CO_VEC_DIM) {
-        throw new InvalidArgumentException('v must be base64 of ' . CO_VEC_DIM . ' bytes');
+    $q = trim($q);
+    if (mb_strlen($q, 'UTF-8') < 2) return [];
+    $q = mb_substr($q, 0, 300, 'UTF-8');
+    $out = [];
+    // an item must belong to a project of the env (the provider is asked for that env; the core checks it)
+    $own = [];
+    foreach (co_search_q($db, 'SELECT project_id FROM projects WHERE env = ?', [$env]) as $r) {
+        $own[(string)$r['project_id']] = true;
     }
-    return $bin;
-}
-
-/** Protocol entries without a current vector (removes vectors of gone or inactive entries first). */
-function co_vec_todo(mysqli $db, array $in): array
-{
-    $db->query("DELETE x FROM vec_protocol x LEFT JOIN protocol p ON p.id = x.protocol_id WHERE p.id IS NULL OR p.status <> 'active'");
-    $removed = $db->affected_rows;
-    $limit = max(1, min(5000, (int)($in['limit'] ?? 2000)));
-    $where = "p.status = 'active' AND (x.protocol_id IS NULL OR x.sha <> SHA1(p.text))";
-    $rows = co_search_q($db, "SELECT p.id, p.chat_id, p.text FROM protocol p LEFT JOIN vec_protocol x ON x.protocol_id = p.id
-                               WHERE $where ORDER BY p.id LIMIT ?", [$limit]);
-    $left = (int)(co_search_q($db, "SELECT COUNT(*) n FROM protocol p LEFT JOIN vec_protocol x ON x.protocol_id = p.id WHERE $where")[0]['n'] ?? 0);
-    return ['removed' => $removed, 'left' => $left,
-        'rows' => array_map(static fn($r) => ['id' => (int)$r['id'], 'chatId' => (string)$r['chat_id'], 'text' => (string)$r['text']], $rows)];
-}
-
-/** Upsert protocol vectors and word rows. */
-function co_vec_put(mysqli $db, array $in): array
-{
-    $prot = is_array($in['protocol'] ?? null) ? $in['protocol'] : [];
-    $words = is_array($in['words'] ?? null) ? $in['words'] : [];
-    if (count($prot) > 5000 || count($words) > 20000) {
-        throw new InvalidArgumentException('at most 5000 protocol rows and 20000 words per call');
-    }
-    $np = $nw = $skipped = 0;
-    $db->begin_transaction();
-    try {
-        $st = $db->prepare('INSERT INTO vec_protocol (protocol_id, chat_id, sha, scale, v) VALUES (?, ?, ?, ?, ?)
-                            ON DUPLICATE KEY UPDATE chat_id = VALUES(chat_id), sha = VALUES(sha), scale = VALUES(scale), v = VALUES(v)');
-        foreach ($prot as $r) {
-            $sha = (string)($r['sha'] ?? '');
-            if (!is_array($r) || preg_match('/^[0-9a-f]{40}$/', $sha) !== 1 || !is_int($r['id'] ?? null) || !is_string($r['chatId'] ?? null)) {
-                throw new InvalidArgumentException('protocol rows need id, chatId, sha, scale, v');
-            }
-            $st->execute([$r['id'], $r['chatId'], $sha, (float)($r['scale'] ?? 0), co_vec_b64($r['v'] ?? null)]);
-            $np++;
+    foreach (co_search_call($db, 'items', ['env' => $env, 'q' => $q, 'limit' => $limit, 'projectId' => $projectId]) as [$pid, $items]) {
+        foreach (array_slice(is_array($items) ? array_values($items) : [], 0, $limit) as $it) {
+            if (!is_array($it) || !is_string($it['title'] ?? null) || !is_string($it['projectId'] ?? null) || !isset($own[$it['projectId']])) continue;
+            $out[] = ['provider' => $pid, 'kind' => is_string($it['kind'] ?? null) ? $it['kind'] : 'item', 'title' => $it['title'],
+                'projectId' => $it['projectId'], 'projectTitle' => (string)($it['projectTitle'] ?? ''), 'path' => (string)($it['path'] ?? ''),
+                'modified' => (string)($it['modified'] ?? ''),
+                'snippets' => array_values(array_map('strval', array_filter(is_array($it['snippets'] ?? null) ? $it['snippets'] : [], 'is_string')))];
         }
-        $st->close();
-        $st = $db->prepare('INSERT INTO vec_words (word, n, scale, v, freq) VALUES (?, ?, ?, ?, ?)
-                            ON DUPLICATE KEY UPDATE n = VALUES(n), scale = VALUES(scale), v = VALUES(v), freq = VALUES(freq)');
-        foreach ($words as $r) {
-            $w = is_array($r) && is_string($r['w'] ?? null) ? $r['w'] : '';
-            if ($w === '' || mb_strlen($w, 'UTF-8') > 60 || $w !== mb_strtolower($w, 'UTF-8')) {
-                $skipped++; // lower case differs between Python and PHP for a few letters: skip, do not fail the batch
-                continue;
-            }
-            $st->execute([$w, max(1, min(30000, (int)($r['n'] ?? 1))), (float)($r['scale'] ?? 0), co_vec_b64($r['v'] ?? null), max(0, (int)($r['freq'] ?? 0))]);
-            $nw++;
+    }
+    return $out;
+}
+
+/** Indexed text of a project file (path relative to projects/), from the first provider that has it; '' = none. */
+function co_search_doc_text(mysqli $db, string $path, int $max = 20000): string
+{
+    foreach (co_module_hooks($db, 'search') as $p) {
+        $fn = $p['hooks']['text'] ?? null;
+        if ($fn === null) continue;
+        try {
+            $t = $fn(co_module_ctx($db, $p['module']), ['path' => $path, 'max' => $max]);
+        } catch (Throwable $e) {
+            error_log("search provider {$p['module']['id']}/{$p['id']} text: " . $e->getMessage());
+            continue;
         }
-        $st->close();
-        $db->commit();
-    } catch (Throwable $e) {
-        $db->rollback();
-        throw $e;
+        if (is_string($t) && $t !== '') return mb_substr($t, 0, $max, 'UTF-8');
     }
-    return ['protocol' => $np, 'words' => $nw, 'skipped' => $skipped];
-}
-
-/** Words already in vec_words (page by word). */
-function co_vec_words(mysqli $db, array $in): array
-{
-    $after = is_string($in['after'] ?? null) ? $in['after'] : '';
-    $limit = max(1, min(50000, (int)($in['limit'] ?? 50000)));
-    $rows = co_search_q($db, 'SELECT word, freq FROM vec_words WHERE word > ? ORDER BY word LIMIT ?', [$after, $limit]);
-    return ['words' => array_map(static fn($r) => [(string)$r['word'], (int)$r['freq']], $rows)];
-}
-
-/** Message texts for the vocabulary (page by event_id, each cut to 20000 characters). */
-function co_vec_texts(mysqli $db, array $in): array
-{
-    $after = is_string($in['after'] ?? null) ? $in['after'] : '';
-    $limit = max(1, min(2000, (int)($in['limit'] ?? 1000)));
-    $rows = co_search_q($db, "SELECT event_id, LEFT(text, 20000) t FROM events
-                               WHERE event_id > ? AND type IN ('user_message', 'assistant_message') ORDER BY event_id LIMIT ?", [$after, $limit]);
-    return ['rows' => array_map(static fn($r) => [(string)$r['event_id'], (string)($r['t'] ?? '')], $rows)];
-}
-
-/** Active protocol entries of an env's own projects (page by id): the corpus of aiwb-assoc aliases. */
-function co_vec_protocol_texts(mysqli $db, array $in): array
-{
-    $env = is_string($in['env'] ?? null) ? $in['env'] : '';
-    if (preg_match('/^[a-z0-9_-]{1,40}$/', $env) !== 1) {
-        throw new InvalidArgumentException('env required');
-    }
-    $after = max(0, (int)($in['after'] ?? 0));
-    $limit = max(1, min(5000, (int)($in['limit'] ?? 5000)));
-    $rows = co_search_q($db, "SELECT x.id, x.chat_id, x.text FROM protocol x JOIN chats c ON c.chat_id = x.chat_id
-                               JOIN projects p ON p.project_id = c.project_id
-                               WHERE p.env = ? AND x.status = 'active' AND x.id > ? ORDER BY x.id LIMIT ?", [$env, $after, $limit]);
-    return ['rows' => array_map(static fn($r) => [(int)$r['id'], (string)$r['chat_id'], (string)$r['text']], $rows)];
-}
-
-/** Aliases: replace the rows of the given groups (or add), list, delete. */
-function co_alias_op(mysqli $db, string $op, array $in): array
-{
-    if ($op === 'alias_list') {
-        $env = is_string($in['env'] ?? null) ? $in['env'] : null;
-        $rows = co_search_q($db, 'SELECT env, grp, term, source FROM aliases' . ($env !== null ? " WHERE env IN ('', ?)" : '') . ' ORDER BY env, grp, term',
-            $env !== null ? [$env] : []);
-        return ['aliases' => $rows];
-    }
-    $groups = is_array($in['groups'] ?? null) ? $in['groups'] : [];
-    if (count($groups) > 5000) {
-        throw new InvalidArgumentException('at most 5000 groups per call');
-    }
-    $n = 0;
-    $db->begin_transaction();
-    try {
-        $del = $db->prepare('DELETE FROM aliases WHERE env = ? AND grp = ?');
-        $ins = $db->prepare('INSERT IGNORE INTO aliases (env, grp, term, source, created_utc) VALUES (?, ?, ?, ?, UTC_TIMESTAMP(3))');
-        foreach ($groups as $g) {
-            $env = is_array($g) && is_string($g['env'] ?? null) ? $g['env'] : '';
-            $grp = is_array($g) && is_string($g['grp'] ?? null) ? $g['grp'] : '';
-            if (preg_match('/^[a-z0-9_-]{0,40}$/', $env) !== 1 || $grp === '' || mb_strlen($grp, 'UTF-8') > 80) {
-                throw new InvalidArgumentException('groups need env ("" or an env id) and grp');
-            }
-            if ($op === 'alias_delete') {
-                $del->execute([$env, $grp]);
-                $n += $del->affected_rows;
-                continue;
-            }
-            $source = in_array($g['source'] ?? '', ['wikidata', 'model', 'user'], true) ? $g['source'] : 'model';
-            $terms = [];
-            foreach ((array)($g['terms'] ?? []) as $t) {
-                $t = is_string($t) ? co_alias_norm($t) : '';
-                if (mb_strlen($t, 'UTF-8') >= 2) {
-                    $terms[$t] = true;
-                }
-            }
-            if (count($terms) < 2) {
-                continue; // one name alone expands nothing; the stored group stays as it is
-            }
-            $del->execute([$env, $grp]);
-            foreach (array_keys($terms) as $t) {
-                $ins->execute([$env, $grp, (string)$t, $source]);
-                $n += $ins->affected_rows;
-            }
-        }
-        $db->commit();
-    } catch (Throwable $e) {
-        $db->rollback();
-        throw $e;
-    }
-    return [$op === 'alias_delete' ? 'deleted' : 'inserted' => $n];
+    return '';
 }

@@ -36,7 +36,20 @@ function co_db(bool $fresh = false): mysqli
     }
 
     mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-    $m = new mysqli($cfg['host'], $cfg['user'], $cfg['password'], $cfg['db']);
+    // 2026-11-13: the hosting refuses a connect now and then while CO Web loads a chat (a burst of parallel calls):
+    // "Operation not permitted" (2002), dozens an hour; a short retry gets through instead of answering 500
+    for ($try = 1; ; $try++) {
+        try {
+            $m = new mysqli($cfg['host'], $cfg['user'], $cfg['password'], $cfg['db']);
+            break;
+        } catch (mysqli_sql_exception $e) {
+            if ($try >= 4 || str_contains($e->getMessage(), 'timed out')
+                || ($e->getCode() !== 2002 && !str_contains($e->getMessage(), 'Operation not permitted'))) {
+                throw $e;
+            }
+            usleep(150000 * $try + random_int(0, 100000));   // jitter: the calls of one burst do not retry together
+        }
+    }
     $m->set_charset('utf8mb4');
     $m->query("SET time_zone='+00:00'");
 

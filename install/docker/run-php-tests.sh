@@ -4,7 +4,7 @@
 # container (never the database of the install). The same sandbox as co-agent/tests/actions-test.py: per test a fresh
 # database with db/schema.sql and the seeded members owner/sam/alex, and a box where co_agent_home() finds
 # co-agent/secrets/db.json.
-#   run-php-tests.sh WORK      WORK/repo = co-agent, co-web-auth, connectors, co-web/src/diagnose.cases.json of the tree;
+#   run-php-tests.sh WORK      WORK/repo = co-agent, co-web-auth, modules, co-web/src/diagnose.cases.json of the tree;
 #                              WORK/db.json = {"host","db","user","password"} of the throwaway database (made by
 #                              freedom_docker.py verify --php-tests, dropped afterwards)
 set -u
@@ -35,12 +35,14 @@ for t in "$R"/co-agent/tests/*.php; do
               || { echo "FAIL $name: throwaway database"; fail=$((fail + 1)); failed="$failed $name"; continue; }
             box=$W/box-${name%.php}
             rm -rf "$box"
-            mkdir -p "$box/d1/d2/web" "$box/d1/d2/tests" "$box/co-agent/secrets" "$box/co-agent/connectors/corporate" \
+            mkdir -p "$box/d1/d2/web" "$box/d1/d2/tests" "$box/co-agent/secrets" \
                      "$box/d1/co-web/src"
             cp -r "$R/co-agent/web/agent" "$box/d1/d2/web/agent"
             cp -r "$R/co-web-auth/auth" "$box/d1/d2/web/auth"
             cp "$t" "$box/d1/d2/tests/"
-            [ -f "$R/connectors/corporate/manifest.json" ] && cp "$R/connectors/corporate/manifest.json" "$box/co-agent/connectors/corporate/"
+            cp -r "$R/co-agent/db" "$box/d1/d2/db"
+            # F10: modules-test.php / gateway-test.php install the modules of the tree
+            [ -d "$R/modules" ] && cp -r "$R/modules" "$box/d1/d2/modules"
             cp "$W/db.json" "$box/co-agent/secrets/db.json"
             chmod 600 "$box/co-agent/secrets/db.json"
             out=$(cd "$box/d1/d2/tests" && php "$box/d1/d2/tests/$name" 2>&1); rc=$?

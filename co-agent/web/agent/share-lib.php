@@ -2,6 +2,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 declare(strict_types=1);
 
+require_once __DIR__ . '/gateway-lib.php';
+
+// Error of a job or subtask a shared (restricted) chat may not run: devices, context folders or a confidential model.
+// The value is legacy wire (gateway-lib.php): CO Web shows its own text for it.
+const SHARE_REFUSED = CO_GATEWAY_SHARE_REFUSED;
+
 // Sharing of projects and chats between environments (schema 10, CO Web 0.45.0).
 
 /** Run a SELECT and return all rows (assoc). Always closes the statement. */
@@ -142,7 +148,7 @@ function share_is_shared(mysqli $db, string $projectId, ?string $chatId): bool
  * R2 (review S1-02, S5-01): the security context of a chat. Restricted = the chat, its project or any ancestor chat
  * (parent links in chat.json, up to 16 levels; a loop ends the walk) is shared, or one of their jobs was queued
  * restricted (request.restricted, written by the server only). A restricted job gets no devices (relay included), no
- * corporate agent and no context folders, and its subtasks inherit that, however deep.
+ * confidential (gateway) agent and no context folders, and its subtasks inherit that, however deep.
  */
 function share_restricted(mysqli $db, string $projectId, string $chatId): bool
 {
@@ -177,9 +183,9 @@ function share_restricted(mysqli $db, string $projectId, string $chatId): bool
 
 /**
  * job_submit of CO Web: restricted is written by the server only. A restricted chat gets restricted = true in its
- * request; devices, context folders or a corporate agent there give 'shared_chat_no_corporate' (else null).
+ * request; devices, context folders or a confidential agent there give SHARE_REFUSED (else null).
  */
-function share_submit_policy(mysqli $db, string $projectId, string $chatId, array &$req, bool $corporate): ?string
+function share_submit_policy(mysqli $db, string $projectId, string $chatId, array &$req, bool $confidential): ?string
 {
     unset($req['restricted']);
     if (!share_restricted($db, $projectId, $chatId)) {
@@ -188,8 +194,8 @@ function share_submit_policy(mysqli $db, string $projectId, string $chatId, arra
     $req['restricted'] = true;
     $devices = $req['devices'] ?? null;
     $folders = $req['contextFolders'] ?? null;
-    if ((is_array($devices) && $devices !== []) || (is_array($folders) && $folders !== []) || $corporate) {
-        return 'shared_chat_no_corporate';
+    if ((is_array($devices) && $devices !== []) || (is_array($folders) && $folders !== []) || $confidential) {
+        return SHARE_REFUSED;
     }
     return null;
 }

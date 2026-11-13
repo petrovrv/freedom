@@ -75,7 +75,7 @@ namespace AiWorkbenchBridge.Tests
                     foreach (KeyValuePair<string, AgentProfile> pair in cfg.agents)
                     {
                         AgentProfile agent = pair.Value;
-                        if (Corporate.IsGatewayRuntime(agent.kind)) continue;
+                        if (Gateway.IsGatewayRuntime(agent.kind)) continue;
                         if (String.IsNullOrWhiteSpace(agent.outputProtocol)) agent.outputProtocol = "raw";
                         if (agent.arguments == null) agent.arguments = new string[0];
                         var runtime = AgentRuntime.Get(agent.outputProtocol);

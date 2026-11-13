@@ -9,6 +9,8 @@
 // One attempt: the retry's user_message carries autoSwitchFrom, and a retry is never switched again.
 declare(strict_types=1);
 
+require_once __DIR__ . '/gateway-lib.php';
+
 /** Errors where a repeat on the same agent is pointless; matched on the error and on a short reply. */
 const CO_AUTOSWITCH_PATTERNS = [
     'limit' => '/usage limit|hit your (?:weekly |session |5-hour |daily )?limit|rate limit reached|Claude AI usage limit/i',
@@ -20,9 +22,9 @@ const CO_AUTOSWITCH_MAX_REPLY = 600;
 // Claude assistant content blocks and Codex items that are not actions.
 const CO_AUTOSWITCH_SAFE_BLOCKS = ['text', 'thinking', 'redacted_thinking'];
 const CO_AUTOSWITCH_SAFE_ITEMS = ['agent_message', 'reasoning', 'todo_list', 'error'];
-// Bridge events that mean something reached the outside or the run went on after its first turn.
-// 'engie' = legacy wire name of the corporate-model call event (Bridge before Freedom F1 5b)
-const CO_AUTOSWITCH_BAD_BRIDGE = ['events_dropped', 'followup', 'artifact', 'corporate', 'engie'];
+// Bridge events that mean something reached the outside or the run went on after its first turn, and the call of a
+// gateway model (its event types, legacy wire names included, in gateway-lib.php).
+const CO_AUTOSWITCH_BAD_BRIDGE = ['events_dropped', 'followup', 'artifact', ...CO_GATEWAY_EVENT_TYPES];
 const CO_AUTOSWITCH_HOSTS = ['home-main'];
 
 /** Which rule an error matches: [kind, matched text] or null. */

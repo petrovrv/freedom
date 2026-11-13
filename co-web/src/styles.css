@@ -279,35 +279,6 @@ code, pre { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; fon
 .tree-row button.folder { background: none; border: 0; padding: 0; cursor: pointer; text-align: left; flex: 1; }
 .tree-row { flex-wrap: wrap; column-gap: 10px; }
 .tree-row .link { white-space: nowrap; font-size: 12px; }
-/* Import */
-.import { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: auto; }
-.import h2 { margin: 0 0 4px; font-size: 17px; }
-.import ol { padding-left: 18px; max-width: 720px; }
-.dropzone { border: 2px dashed var(--line); border-radius: 12px; padding: 28px; display: flex; gap: 14px; align-items: center; justify-content: center; margin: 16px 0; max-width: 720px; }
-.import-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
-.import-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 18px; border-bottom: 1px solid var(--line); }
-.import-toolbar .search { width: auto; flex: 1; min-width: 180px; margin: 0; }
-.import-toolbar select { border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; background: var(--bg); max-width: 260px; }
-.import-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 320px; flex: 1; border-bottom: 1px solid var(--line); }
-.import-list { list-style: none; margin: 0; padding: 0; overflow: auto; max-height: 55vh; border-right: 1px solid var(--line); }
-.import-list li { display: flex; gap: 8px; align-items: flex-start; padding: 6px 12px; border-bottom: 1px solid var(--line); }
-.import-list li.focus { background: var(--user); }
-.import-list li.done { opacity: .55; }
-.import-list input { margin-top: 4px; }
-.import-item { flex: 1; min-width: 0; text-align: left; background: none; border: 0; cursor: pointer; display: flex; flex-direction: column; padding: 0; }
-.import-preview { overflow: auto; max-height: 55vh; padding: 12px 16px; }
-.import-preview h3 { margin: 0 0 2px; font-size: 15px; }
-.pv-msg { border-radius: 8px; padding: 6px 10px; margin: 8px 0; font-size: 13.5px; }
-.pv-msg.user { background: var(--user); }
-.pv-msg.assistant { background: var(--panel); border: 1px solid var(--line); }
-.import-targets { padding: 12px 18px; display: flex; flex-direction: column; gap: 8px; }
-.import-targets h4 { margin: 0; }
-.target-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.target-row .target-src { min-width: 200px; font-weight: 600; }
-.target-row input, .target-row select { border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; background: var(--bg); }
-.target-row input.invalid { border-color: var(--bad); }
-.import-progress, .import-result { padding: 10px 18px; }
-@media (max-width: 760px) { .import-body { grid-template-columns: minmax(0, 1fr); } .import-list { border-right: 0; } }
 .chat-head { display: flex; align-items: flex-start; gap: 10px; }
 .chat-head-actions { display: flex; gap: 4px; flex-wrap: wrap; }
 /* 0.74.0: phone - title and one row of ⓘ ⚙ ⋯; info and settings unfold under the title, actions drop down */
@@ -335,8 +306,6 @@ code, pre { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; fon
 .chat-menu .menu button:hover { background: var(--panel-2); }
 .danger-text { color: var(--bad); }
 @media (hover: none) { .chat-menu .icon-btn { opacity: .8; } }
-.dict { display: inline-flex; gap: 4px; align-items: center; }
-.dict select { border: 1px solid var(--line); border-radius: 7px; padding: 4px 4px; background: var(--bg); font-size: 12px; }
 .btn.rec { background: var(--bad); color: #fff; border-color: var(--bad); }
 @media (prefers-reduced-motion: no-preference) { .btn.rec { animation: pulse 1.4s ease-in-out infinite; } }
 @keyframes pulse { 50% { opacity: .7; } }
@@ -460,7 +429,7 @@ body.resizing-row iframe { pointer-events: none; }
 .inherited { opacity: .6; }
 .inherited .inherited-msg { border-style: dashed; }
 .branch-divider { text-align: center; color: var(--muted); font-size: 12px; margin: 10px 0 14px; border-top: 1px dashed var(--line); padding-top: 6px; }
-/* 0.37.0: environment templates (the corporate toggle is gone since 0.66.0) */
+/* 0.37.0: environment templates (the gateway toggle is gone since 0.66.0) */
 .templates-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 4px; }
 .templates-row .template { display: inline-flex; align-items: center; }
 /* 0.40.0: chat tree */
@@ -539,11 +508,11 @@ body.resizing-row iframe { pointer-events: none; }
 .artifact .art-name { text-align: left; }
 .artifact .file-menu .menu-pop { min-width: 190px; }
 
-/* 0.65.0 (canvas M3): comment threads from canvas, one collapsed row */
-.msg.canvas-row { background: transparent; border: 1px dashed var(--line); padding: 4px 12px; }
-.msg.canvas-row > summary { cursor: pointer; list-style: none; }
-.msg.canvas-row > summary::-webkit-details-marker { display: none; }
-.msg.canvas-row .msg-body { margin-top: 6px; }
+/* F10: a side job of a module (question + answer), one collapsed row */
+.msg.side-row { background: transparent; border: 1px dashed var(--line); padding: 4px 12px; }
+.msg.side-row > summary { cursor: pointer; list-style: none; }
+.msg.side-row > summary::-webkit-details-marker { display: none; }
+.msg.side-row .msg-body { margin-top: 6px; }
 .long-paste { margin: 4px 0; }
 
 /* 0.71.0: "Waiting for you" (Inbox.tsx) */
@@ -584,18 +553,18 @@ body.resizing-row iframe { pointer-events: none; }
 .inbox-memory ul { list-style: none; margin: 4px 0 0; padding: 0; font-size: 13px; }
 .inbox-memory li { padding: 3px 0; border-top: 1px dashed var(--line); }
 
-/* 0.78.0: study mode switch, its lines in the chat, formulas (KaTeX) */
-.btn.study-on { background: #e8f3ea; border-color: #7bb38a; color: #1f5c32; }
-.study-line { text-align: center; margin: 8px 0; }
+/* chat modes of modules: the switch, its lines in the chat; formulas (KaTeX) */
+.btn.mode-on { background: #e8f3ea; border-color: #7bb38a; color: #1f5c32; }
+.mode-line { text-align: center; margin: 8px 0; }
 .md .math-display { display: block; overflow-x: auto; overflow-y: hidden; margin: 8px 0; text-align: center; }
 .md .katex { font-size: 1.05em; }
-.study-tag { display: inline-block; margin: 2px 0 4px; }
-/* 0.82.0: Ask / WTF about selected text of an answer (study.css loads only with the viewer) */
+.msg-view-tag { display: inline-block; margin: 2px 0 4px; }
+/* 0.82.0: Ask / WTF about selected text of an answer  */
 .quote-ask { position: absolute; z-index: 6; width: min(340px, calc(100% - 16px)); background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 6px; box-shadow: 0 4px 14px rgb(0 0 0 / 0.25); }
 .quote-ask textarea { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; background: var(--panel); color: var(--fg); }
 .quote-ask-frag { margin: 0 2px 4px; max-height: 3.2em; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
-.quote-ask .study-ask-row { display: flex; gap: 6px; margin-top: 4px; }
-button.study-tag { cursor: pointer; font: inherit; font-size: 12px; }
+.quote-ask .quote-ask-row { display: flex; gap: 6px; margin-top: 4px; }
+button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
 .quote-frag p { margin: 0 0 4px; }
 .quote-frag { margin: 2px 0 6px; padding: 2px 10px; border-left: 3px solid var(--accent); color: var(--muted); font-size: 13px; max-height: 7.5em; overflow: auto; }
 /* 0.83.0: sidebar sort order */
@@ -734,35 +703,28 @@ button.study-tag { cursor: pointer; font: inherit; font-size: 12px; }
 .family-slot .fam-col { max-width: 82%; }
 .family-slot .fam-composer { padding-left: 6px; padding-right: 6px; }
 .fam-badge { display: inline-block; min-width: 17px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: #d93838; color: #fff; font-size: 11px; font-weight: 600; line-height: 17px; text-align: center; }
-.geo-bar { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.geo-bar.pc-stale .geo-chip { opacity: .55; }
-.geo-wrap { position: relative; }
-.geo-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 220px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); color: inherit; cursor: pointer; font-size: 12px; padding: 2px 8px; white-space: nowrap; }
-.geo-chip.stale, .geo-chip.nodata { opacity: .55; }
-.geo-initial { display: none; font-weight: 600; }
-.geo-name { font-weight: 600; }
-.geo-place { overflow: hidden; text-overflow: ellipsis; }
-.geo-arrow { font-weight: 700; }
-.geo-arrow.up { color: #d93838; }
-.geo-arrow.down { color: #1f9d55; }
-.geo-ask { display: inline-block; min-width: 15px; border-radius: 8px; background: var(--env); color: #fff; font-size: 10px; font-weight: 700; line-height: 15px; text-align: center; }
-.geo-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; width: min(300px, 86vw); display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 6px 20px rgba(0,0,0,.18); font-size: 13px; white-space: normal; }
-.geo-sugg { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
-.geo-sugg input { padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: inherit; }
-.geo-sugg-btns { display: flex; gap: 6px; }
-.geo-lock { font-size: 10px; }
-.geo-privacy { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
-.geo-privacy-mode { display: flex; gap: 6px; align-items: flex-start; cursor: pointer; }
-.geo-privacy select { padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: inherit; }
-.geo-sugg-btns { flex-wrap: wrap; }
-.geo-map { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: #e8e4dc; cursor: crosshair; touch-action: none; user-select: none; }
-.geo-map img { position: absolute; width: 256px; height: 256px; pointer-events: none; }
-.geo-map-pin { position: absolute; transform: translate(-50%, -100%); font-size: 20px; pointer-events: none; }
-.geo-map-zoom { position: absolute; top: 6px; right: 6px; display: flex; flex-direction: column; gap: 2px; }
-.geo-map-zoom button { width: 24px; height: 24px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: inherit; cursor: pointer; }
-.geo-map-attr { position: absolute; right: 2px; bottom: 1px; font-size: 9px; background: rgba(255,255,255,.7); color: #333; padding: 0 3px; }
-@media (max-width: 1100px) { .geo-name { display: none; } .geo-initial { display: inline; } .geo-chip { max-width: 140px; } }
-@media (max-width: 760px) { .geo-place { display: none; } .geo-bar { gap: 0; } .geo-chip { gap: 1px; padding: 2px 2px; border: 0; background: none; font-size: 11px; } .topbar .brand-sm { display: none; } .geo-pop { position: fixed; top: 48px; right: 8px; } }
+@media (max-width: 760px) { .topbar .brand-sm { display: none; } }
+/* F10 (SPEC §3.6): module pages in sandboxed iframes (ModuleSlot.tsx); an open popover of a page draws over the page */
+.module-group { display: inline-flex; align-items: center; gap: 4px; }
+.module-slot { position: relative; display: inline-block; flex: none; }
+.module-frame { display: block; border: 0; background: transparent; }
+.module-frame.overlay { position: absolute; right: 0; top: 0; z-index: 60; }
+/* ui.page fills the centre; ui.hint pages are hidden (they only read the composer text and answer with a hint) */
+.module-page { display: block; flex: 1; min-height: 0; width: 100%; height: 100%; }
+.module-page .module-frame { width: 100%; height: 100%; }
+.module-hidden { position: absolute; width: 0; height: 0; overflow: hidden; }
+.module-hidden .module-frame { width: 0; height: 0; }
+.module-settings { margin-top: 6px; }
+.module-settings .module-slot { display: block; max-width: 100%; }
+.module-ask-wrap { position: relative; }
+.module-ask { border: 1px dashed var(--line); border-radius: 12px; background: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 2px 8px; white-space: nowrap; }
+.module-ask-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; width: min(300px, 86vw); display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 6px 20px rgba(0,0,0,.18); font-size: 13px; white-space: normal; }
+.module-ask-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.modules-list { display: flex; flex-direction: column; gap: 10px; }
+.module-row { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.module-row-head { display: flex; align-items: center; gap: 8px; }
+.module-row-head b { flex: 1; }
+.module-people { display: grid; grid-template-columns: auto auto; gap: 4px 10px; align-items: center; justify-content: start; }
 .fam-top { border: 0; background: none; cursor: pointer; font-size: 16px; padding: 2px 6px; }
 .family-slot .fam-inputrow { gap: 2px; }
 .family-slot .fam-btn { width: 32px; height: 32px; font-size: 17px; }
@@ -816,3 +778,17 @@ button.study-tag { cursor: pointer; font: inherit; font-size: 12px; }
 .mp-models .chip-btn.on { background: #2f7fd8; border-color: #2f7fd8; color: #fff; }
 .mp-foot { align-self: flex-start; margin-top: 4px; }
 @media (max-width: 760px) { .mp-pop { position: fixed; left: 8px; right: 8px; bottom: 120px; width: auto; } .mp-btn .mp-name { max-width: 150px; } }
+
+/* F10 (ext/1): full-window module pages, a mode viewer of a module left of its chat */
+.module-page { position: fixed; inset: 0; display: flex; background: var(--bg); }
+.module-fill { flex: 1; display: flex; min-width: 0; min-height: 0; height: 100%; }
+.module-frame.fill { flex: 1; width: 100%; height: 100%; }
+.module-dead { padding: 16px; }
+.viewer-split { display: flex; height: 100%; min-height: 0; }
+.viewer-split > .viewer-pane { flex: 1 1 58%; display: flex; min-width: 0; min-height: 0; background: var(--panel-2); }
+.viewer-split > .viewer-chat { flex: 1 1 42%; min-width: 300px; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); }
+@media (max-width: 900px) {
+  .viewer-split { flex-direction: column; }
+  .viewer-split > .viewer-pane { flex: 1 1 55%; }
+  .viewer-split > .viewer-chat { flex: 1 1 45%; min-width: 0; border-left: 0; border-top: 1px solid var(--line); }
+}

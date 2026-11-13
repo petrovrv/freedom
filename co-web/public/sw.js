@@ -16,8 +16,6 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
-  // Lab pages are never cached and never replace the app shell.
-  if (url.pathname.startsWith('/lab')) return;
   // Sign-in endpoints carry cookies and redirects; they must never be cached as the shell.
   if (url.pathname.startsWith('/auth/')) return;
   if (e.request.mode === 'navigate') {

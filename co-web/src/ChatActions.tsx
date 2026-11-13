@@ -6,8 +6,7 @@ import { suggestChatTitle } from './search';
 import { deleteChat, moveChat, renameChat, type HostDirs, type Root } from './workbench';
 
 // 'title' = the rename dialog that starts with an AI-suggested title.
-// 'study' (0.78.0) switches study mode of the chat, no dialog.
-export type ChatAction = 'rename' | 'title' | 'move' | 'archive' | 'delete' | 'study';
+export type ChatAction = 'rename' | 'title' | 'move' | 'archive' | 'delete';
 
 // Rename (with AI title suggestion) / move / delete dialogs for one chat.
 export function ChatActionDialog({
@@ -132,9 +131,8 @@ export function ChatActionDialog({
 }
 
 // Compact "⋯" menu used in the sidebar.
-// 'study' is not offered here: the open chat keeps its own copy of the record (switch in the chat header instead)
 const ALL_CHAT_ACTIONS: ChatAction[] = ['rename', 'title', 'move', 'archive', 'delete'];
-type ChatMenuProps = { onPick: (a: ChatAction) => void; archived?: boolean; study?: boolean; actions?: ChatAction[] };
+type ChatMenuProps = { onPick: (a: ChatAction) => void; archived?: boolean; actions?: ChatAction[] };
 
 // 0.45.0: no permitted actions -> no menu (wrapper keeps hooks unconditional)
 export function ChatMenu(props: ChatMenuProps) {
@@ -142,7 +140,7 @@ export function ChatMenu(props: ChatMenuProps) {
   return <ChatMenuInner {...props} />;
 }
 
-function ChatMenuInner({ onPick, archived, study, actions = ALL_CHAT_ACTIONS }: ChatMenuProps) {
+function ChatMenuInner({ onPick, archived, actions = ALL_CHAT_ACTIONS }: ChatMenuProps) {
   const [open, setOpen] = useState(false);
   return (
     <span className="chat-menu" onClick={(e) => e.stopPropagation()}>
@@ -159,7 +157,7 @@ function ChatMenuInner({ onPick, archived, study, actions = ALL_CHAT_ACTIONS }: 
                 onPick(a);
               }}
             >
-              {a === 'rename' ? 'Rename' : a === 'title' ? 'Suggest title' : a === 'study' ? (study ? '🎓 Study mode: on (turn off)' : '🎓 Study mode') : a === 'move' ? 'Move to project…' : a === 'archive' ? (archived ? 'Restore from archive' : 'Archive') : 'Delete'}
+              {a === 'rename' ? 'Rename' : a === 'title' ? 'Suggest title' : a === 'move' ? 'Move to project…' : a === 'archive' ? (archived ? 'Restore from archive' : 'Archive') : 'Delete'}
             </button>
           ))}
         </span>

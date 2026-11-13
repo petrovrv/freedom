@@ -34,6 +34,7 @@ public sealed class Fixture : IDisposable
     public SnapshotStore Snapshots { get; }
     public AuditLog Audit { get; }
     public ToolHost Host { get; }
+    public ToolCatalog Catalog { get; } = new();
     public DateTime Now { get; set; } = new(2026, 9, 26, 12, 0, 0, DateTimeKind.Utc);
     private int _n;
 
@@ -48,7 +49,7 @@ public sealed class Fixture : IDisposable
         Folders.Add(Mail, "inbox", writable: false, project: false, synced: false);
         Snapshots = new SnapshotStore(Path.Combine(Root, "snap"));
         Audit = new AuditLog(Path.Combine(Root, "audit.jsonl"));
-        var cat = new ToolCatalog();
+        var cat = Catalog;
         foreach (var t in FsTools.All()) cat.Add(t);
         if (browser != null) foreach (var t in BrowserTools.All(browser)) cat.Add(t);
         if (extraTools != null) foreach (var t in extraTools) cat.Add(t);

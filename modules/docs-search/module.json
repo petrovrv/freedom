@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "id": "docs-search",
+  "version": "0.1.0",
+  "title": "Document search",
+  "description": "Full-text search over the documents of all projects (docx, pdf, xlsx, pptx, md, txt, csv, html, eml). The home PC indexes the project folders; CO Web AI search shows the documents next to the chats, agents search them with aiwb-docs, file notes read their text.",
+  "ext": ">=1 <2",
+  "scope": "household",
+  "platforms": ["windows", "macos", "linux"],
+  "requires": { "core": ["search"], "modules": [] },
+  "permissions": ["projects.read", "data.own", "search.provider", "host.key"],
+  "isolation": "host",
+  "isolationReason": "the indexer reads the project folders on the home PC (Drive) and writes the text with the host key",
+  "provides": {
+    "ui": [],
+    "tools": [{ "name": "aiwb-docs", "minVersion": "0.2.0" }],
+    "services": [{ "id": "indexer", "tool": "aiwb-docs", "run": "index", "kind": "schedule", "cron": "0 * * * *", "windowsTask": "\\AIWorkbench\\DocsIndex" }],
+    "data": { "server": "table m_docs_search_docs", "home": "none" },
+    "search": [{ "id": "docs", "hooks": ["items", "text"] }],
+    "events": [], "context": [], "models": [], "deviceTools": []
+  },
+  "server": {
+    "entry": "server/ops.php",
+    "ops": { "user": ["search_docs"], "push": [], "host": ["docs_state", "docs_put", "docs_delete", "docs_search"] }
+  },
+  "dataPolicy": { "onDisable": "keep", "onRemove": "ask", "migrations": "additive" },
+  "defaults": { "enabled": false }
+}

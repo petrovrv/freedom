@@ -10,12 +10,11 @@ require_once __DIR__ . '/ops-lib.php';
 require_once __DIR__ . '/share-lib.php';
 require_once __DIR__ . '/webdev-lib.php';
 require_once __DIR__ . '/relay-lib.php';
-require_once __DIR__ . '/corporate-resume-lib.php';
+require_once __DIR__ . '/gateway-lib.php';
 require_once __DIR__ . '/trace-lib.php';
 require_once __DIR__ . '/jobstats-lib.php';
 require_once __DIR__ . '/files-lib.php';
 require_once __DIR__ . '/followup-lib.php';
-require_once __DIR__ . '/canvas-lib.php';
 require_once __DIR__ . '/inbox-lib.php';
 require_once __DIR__ . '/failures-lib.php';
 require_once __DIR__ . '/actions-lib.php';
@@ -23,7 +22,7 @@ require_once __DIR__ . '/dossier-lib.php';
 require_once __DIR__ . '/browser-lib.php';
 require_once __DIR__ . '/search-lib.php';
 require_once __DIR__ . '/family-lib.php';
-require_once __DIR__ . '/geo-lib.php';
+require_once __DIR__ . '/modules-lib.php';
 require_once __DIR__ . '/models-lib.php';
 require_once __DIR__ . '/subs-lib.php';
 
@@ -338,12 +337,13 @@ function db_job_submit(array $in, callable $envAllowed, array $acc): array
         if (!share_can($role, 'write')) {
             co_json(403, ['error' => 'forbidden']);
         }
-        // shared chats: no devices, context folders or dispatcher (owner's corporate data stays out). R2: also a
-        // chat below a shared one (subtasks), and the job carries restricted so the site agent and relay refuse devices.
-        if (share_submit_policy($db, $pid, $cid, $req, co_corporate_agent((string)$req['agent']) !== null) !== null) {
+        // shared chats: no devices, context folders or gateway agents (the owner's confidential data stays out). R2: also
+        // a chat below a shared one (subtasks), and the job carries restricted so the site agent and relay refuse devices.
+        $refused = share_submit_policy($db, $pid, $cid, $req, co_gateway_agent((string)$req['agent']) !== null);
+        if ($refused !== null) {
             co_json(403, [
-                'error' => 'shared_chat_no_corporate',
-                'detail' => 'A shared chat cannot use devices, corporate models or context folders.',
+                'error' => $refused,
+                'detail' => 'A shared chat cannot use devices, confidential models or context folders.',
             ]);
         }
     }
@@ -745,120 +745,6 @@ function db_memory_status(mysqli $db, int $id): ?string
     return $row ? (string)$row['status'] : null;
 }
 
-// ---- Schema 7: project documents (aiwb-docs tool on the home PC) ----
-
-function db_doc_key(mixed $k): string
-{
-    if (!is_string($k) || !preg_match('/^[0-9a-f]{40}$/', $k)) {
-        throw new InvalidArgumentException('bad doc key');
-    }
-    return $k;
-}
-
-function db_docs_state(): array
-{
-    $docs = [];
-    $res = co_db()->query('SELECT doc_key, MAX(mtime), MAX(size), MAX(path) FROM docs GROUP BY doc_key');
-    while ($r = $res->fetch_row()) {
-        $docs[$r[0]] = [(int)$r[1], (int)$r[2], (string)$r[3]];
-    }
-    return ['docs' => $docs];
-}
-
-function db_docs_put(array $in): array
-{
-    $list = $in['docs'] ?? null;
-    if (!is_array($list) || !array_is_list($list) || count($list) > 200) {
-        throw new InvalidArgumentException('docs must be a list of up to 200');
-    }
-    $db = co_db();
-    $n = 0;
-    foreach ($list as $d) {
-        $key = db_doc_key($d['key'] ?? null);
-        $chunks = $d['chunks'] ?? null;
-        $path = (string)($d['path'] ?? '');
-        $project = (string)($d['projectId'] ?? '');
-        if (!is_array($chunks) || count($chunks) > 400 || $path === '' || mb_strlen($path) > 1000 || $project === '') {
-            throw new InvalidArgumentException('bad doc ' . $key);
-        }
-        $db->begin_transaction();
-        $db->prepare('DELETE FROM docs WHERE doc_key = ?')->execute([$key]);
-        $st = $db->prepare('INSERT INTO docs (doc_key, chunk, project_id, path, name, mtime, size, indexed_utc, text)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(3), ?)');
-        foreach (array_values($chunks) as $i => $text) {
-            // An empty document still gets one row: its state (mtime, size) must be known.
-            $st->execute([$key, $i, mb_substr($project, 0, 100), $path, mb_substr((string)($d['name'] ?? ''), 0, 255),
-                (int)($d['mtime'] ?? 0), (int)($d['size'] ?? 0), mb_substr((string)$text, 0, 60000)]);
-        }
-        $db->commit();
-        $n++;
-    }
-    return ['put' => $n];
-}
-
-function db_docs_delete(array $in): array
-{
-    $keys = $in['keys'] ?? null;
-    if (!is_array($keys) || !array_is_list($keys) || count($keys) > 1000) {
-        throw new InvalidArgumentException('keys must be a list of up to 1000');
-    }
-    $st = co_db()->prepare('DELETE FROM docs WHERE doc_key = ?');
-    $n = 0;
-    foreach ($keys as $k) {
-        $st->execute([db_doc_key($k)]);
-        $n += $st->affected_rows;
-    }
-    return ['deleted' => $n];
-}
-
-/** Best documents for a query: one row per document with up to 2 snippets. $env null = all (host). */
-function db_docs_search(array $in, ?string $env): array
-{
-    $q = is_string($in['q'] ?? null) ? trim($in['q']) : '';
-    $qLen = mb_strlen($q);
-    if ($qLen < 2 || $qLen > 300) {
-        throw new InvalidArgumentException('q must be 2..300 characters');
-    }
-    $limit = db_int($in, 'limit', 20, 1, 100);
-    $project = is_string($in['projectId'] ?? null) && $in['projectId'] !== '' ? $in['projectId'] : null;
-    $ftq = co_fts_query($q);
-    if ($ftq === '') {
-        return ['docs' => []];
-    }
-    $sql = 'SELECT d.doc_key, d.project_id, p.title AS ptitle, d.path, d.name, d.mtime, d.text,
-                   ' . co_fts_score_sql('MATCH(d.name, d.text) AGAINST(? IN BOOLEAN MODE)', 'd.text') . ' AS score
-              FROM docs d JOIN projects p ON p.project_id = d.project_id
-             WHERE MATCH(d.name, d.text) AGAINST(? IN BOOLEAN MODE)'
-        . ($env !== null ? ' AND p.env = ?' : '') . ($project !== null ? ' AND d.project_id = ?' : '')
-        . ' ORDER BY score DESC LIMIT 500';
-    $args = [$ftq, $ftq];
-    if ($env !== null) {
-        $args[] = $env;
-    }
-    if ($project !== null) {
-        $args[] = $project;
-    }
-    $st = co_db()->prepare($sql);
-    $st->execute($args);
-    $res = $st->get_result();
-    $docs = [];
-    while ($r = $res->fetch_assoc()) {
-        $k = $r['doc_key'];
-        if (!isset($docs[$k])) {
-            $docs[$k] = ['projectId' => $r['project_id'], 'projectTitle' => (string)$r['ptitle'], 'path' => $r['path'],
-                'name' => $r['name'], 'modified' => gmdate('Y-m-d\TH:i:s\Z', (int)$r['mtime']), 'score' => 0.0,
-                'snippets' => []];
-        }
-        $docs[$k]['score'] += (float)$r['score'];
-        if (count($docs[$k]['snippets']) < 2) {
-            $docs[$k]['snippets'][] = db_snippet((string)$r['text'], $q, 220);
-        }
-    }
-    $res->free();
-    $docs = array_values($docs);
-    usort($docs, static fn(array $a, array $b): int => $b['score'] <=> $a['score']);
-    return ['docs' => array_slice($docs, 0, $limit)];
-}
 
 /** S5 subtask_spawn: the chat folder under <project>/chats with its chat.json (owner's Drive token of the server). */
 function db_subtask_drive_chat(string $projectFolder, string $chatId, array $chatDoc): string
@@ -918,13 +804,15 @@ try {
             co_json(400, ['error' => 'bad_gz']);
         }
         if (!in_array($in['op'] ?? null, ['put', 'stats', 'shas', 'put_user', 'delete_chat',
-                'job_submit', 'job_post_events', 'job_result', 'append_event', 'docs_state', 'docs_put', 'docs_delete', 'docs_search', 'profile_put', 'templates_put', 'chat_read', 'memory_decide', 'tool_decide',
+                'job_submit', 'job_post_events', 'job_result', 'append_event', 'profile_put', 'templates_put', 'chat_read', 'memory_decide', 'tool_decide',
                 'webdev_register', 'webdev_heartbeat', 'webdev_result', 'webdev_call_put',
                 'relay_devices_put', 'relay_call_put', 'relay_result', 'sandbox_put',
-                'model_register', 'model_unregister', 'models_host', 'subtask_spawn', 'subtask_poll', 'model_set',
+                'model_register', 'model_unregister', 'models_host', 'modules_host', 'subtask_spawn', 'subtask_poll', 'model_set',
                 'files_list', 'files_set', 'files_merge', 'files_branch', 'files_restored', 'files_undone',
-            'followup_add', 'followup_list', 'followup_take', 'followup_done', 'followup_cancel', 'canvas_job', 'canvas_job_get', 'canvas_share_put', 'host_event',
-                'related', 'dossier_put', 'dossier_host', 'find_chats', 'vec_todo', 'vec_put', 'vec_words', 'vec_texts', 'protocol_texts', 'alias_put', 'alias_list', 'alias_delete', 'family_chats', 'family_post'], true)) {
+            'followup_add', 'followup_list', 'followup_take', 'followup_done', 'followup_cancel', 'host_event',
+                'related', 'dossier_put', 'dossier_host', 'find_chats', 'family_chats', 'family_post'], true)
+            // Freedom F10: host-key ops of enabled modules may come gzipped too (an indexer posting document text)
+            && !(is_string($in['op'] ?? null) && preg_match(CO_MODULE_OP_RE, $in['op']) && co_module_for_op(co_db(), 'host', $in['op']) !== null)) {
             co_json(400, ['error' => 'gz_ops_only']);
         }
     }
@@ -940,29 +828,15 @@ try {
             'append_event' => co_json(200, db_append_event($in)),
         };
     }
-    if (in_array($op, ['docs_state', 'docs_put', 'docs_delete', 'docs_search', 'chat_read'], true)) {
+    if ($op === 'chat_read') {
         co_db_host_auth();
-        match ($op) {
-            'chat_read'   => co_json(200, db_chat_read($in)),
-            'docs_state'  => co_json(200, db_docs_state()),
-            'docs_put'    => co_json(200, db_docs_put($in)),
-            'docs_delete' => co_json(200, db_docs_delete($in)),
-            'docs_search' => co_json(200, db_docs_search($in, is_string($in['env'] ?? null) ? $in['env'] : null)),
-        };
+        co_json(200, db_chat_read($in));
     }
-    // Schema 20 (search-lib.php): associative chat search for aiwb-chat find, vectors and aliases from aiwb-assoc
-    if (in_array($op, ['find_chats', 'vec_todo', 'vec_put', 'vec_words', 'vec_texts', 'protocol_texts', 'alias_put', 'alias_list', 'alias_delete'], true)) {
+    // Schema 20 (search-lib.php): chat search for aiwb-chat find. Freedom F10: the indexers of search provider modules
+    // write through their own host ops (manifest server.ops.host)
+    if ($op === 'find_chats') {
         co_db_host_auth();
-        $db = co_db();
-        match ($op) {
-            'find_chats' => co_json(200, co_search_find($db, $in)),
-            'vec_todo'   => co_json(200, co_vec_todo($db, $in)),
-            'vec_put'    => co_json(200, co_vec_put($db, $in)),
-            'vec_words'  => co_json(200, co_vec_words($db, $in)),
-            'vec_texts'  => co_json(200, co_vec_texts($db, $in)),
-            'protocol_texts' => co_json(200, co_vec_protocol_texts($db, $in)),
-            default      => co_json(200, co_alias_op($db, $op, $in)),
-        };
+        co_json(200, co_search_find(co_db(), $in));
     }
     // 09.11 (family-lib.php): agents post into family chats as AI Workbench (aiwb-chat family / post)
     if ($op === 'family_chats' || $op === 'family_post') {
@@ -986,24 +860,6 @@ try {
         co_db_host_auth();
         try {
             co_json(200, co_host_event_put(co_db(), $in));
-        } catch (InvalidArgumentException $e) {
-            co_json(400, ['error' => $e->getMessage()]);
-        }
-    }
-    // Canvas M3 (canvas-lib.php): canvas-bridge queues jobs for comment threads of documents open in canvas
-    if (in_array($op, ['canvas_job', 'canvas_job_get'], true)) {
-        co_db_host_auth();
-        try {
-            co_json(200, $op === 'canvas_job' ? co_canvas_job(co_db(), $in) : co_canvas_job_get(co_db(), $in));
-        } catch (InvalidArgumentException $e) {
-            co_json(400, ['error' => $e->getMessage()]);
-        }
-    }
-    // Canvas M5: canvas-bridge puts the file a user shares from the editor (Gmail draft made by CO Web, canvas_share_draft)
-    if ($op === 'canvas_share_put') {
-        co_db_host_auth();
-        try {
-            co_json(200, co_canvas_share_put($in));
         } catch (InvalidArgumentException $e) {
             co_json(400, ['error' => $e->getMessage()]);
         }
@@ -1061,6 +917,16 @@ try {
 
     // Schema 23 (models-lib.php, S5): model resources and subtasks on them (aiwb-subtask on the home PC and the site,
     // devices registering a subscription). The resource's owner allows slaves in CO Web (models_list / model_set).
+    // Schema 27 (modules-lib.php, Freedom F10): install/freedom_modules.py registers, updates, switches and removes modules
+    if ($op === 'modules_host') {
+        co_db_host_auth();
+        try {
+            co_json(200, co_modules_host(co_db(), $in));
+        } catch (InvalidArgumentException $e) {
+            co_json(400, ['error' => $e->getMessage()]);
+        }
+    }
+
     if (in_array($op, ['models_host', 'model_register', 'model_unregister', 'subtask_spawn', 'subtask_poll'], true)) {
         co_db_host_auth();
         try {
@@ -1078,15 +944,24 @@ try {
         }
     }
 
-    if (!in_array($op, ['projects', 'chats', 'events', 'search', 'search_chats', 'put_user', 'delete_chat',
-            'job_submit', 'job_get', 'job_events', 'job_cancel', 'job_stats', 'usage', 'search_docs', 'profile_get', 'profile_put', 'templates_get', 'templates_put', 'activity', 'protocol',
-            'memory_candidates', 'memory_decide', 'ops', 'health', 'host_light', 'shares_get', 'share_set', 'corporate_resume', 'engie_resume',
+    $coreOps = ['projects', 'chats', 'events', 'search', 'search_chats', 'put_user', 'delete_chat',
+            'job_submit', 'job_get', 'job_events', 'job_cancel', 'job_stats', 'usage', 'search_items', 'profile_get', 'profile_put', 'templates_get', 'templates_put', 'activity', 'protocol',
+            'memory_candidates', 'memory_decide', 'ops', 'health', 'host_light', 'shares_get', 'share_set',
             'webdev_register', 'webdev_heartbeat', 'webdev_claim', 'webdev_result', 'webdev_revoke', 'webdev_mine',
             'files_list', 'files_set', 'files_merge', 'files_branch', 'files_restored', 'files_undone',
-            'followup_add', 'followup_list', 'followup_take', 'followup_done', 'followup_cancel', 'canvas_ticket', 'canvas_share_draft',
+            'followup_add', 'followup_list', 'followup_take', 'followup_done', 'followup_cancel',
             'inbox', 'inbox_mark', 'action_decide', 'autoswitch', 'tool_candidates', 'tool_decide',
-            'related', 'dossier_context', 'dossier_get', 'dossier_put', 'browser_defaults', 'family_state', 'family_read', 'geo_state', 'geo_answer', 'geo_privacy', 'members',
-            'models_list', 'model_set', 'model_delete', 'subs_put'], true)) {
+            'related', 'dossier_context', 'dossier_get', 'dossier_put', 'browser_defaults', 'family_state', 'family_read', 'members',
+            'models_list', 'model_set', 'model_delete', 'subs_put', 'modules_list', 'module_set', 'module_person'];
+    // Schema 27 (modules-lib.php, Freedom F10): an op the core does not know may belong to an enabled module (manifest
+    // server.ops.user); core names always win
+    $moduleOp = !in_array($op, $coreOps, true);
+    // host-key ops of enabled modules (manifest server.ops.host): after every host op of the core, never a core user op
+    if ($moduleOp && preg_match(CO_MODULE_OP_RE, $op) && co_module_for_op(co_db(), 'host', $op) !== null) {
+        co_db_host_auth();
+        co_json(200, co_module_call(co_db(), 'host', $op, $in) ?? ['error' => 'unknown_op']);
+    }
+    if ($moduleOp && co_module_for_op(co_db(), 'user', $op) === null) {
         co_json(400, ['error' => 'unknown_op']);
     }
 
@@ -1139,15 +1014,23 @@ try {
     if ($op === 'family_state') {
         co_json(200, co_family_state($db, $myEnv, $email));
     }
-    // 0.91.0 (geo-lib.php): family presence from geo-presence (OwnTracks) for the header, place suggestions
-    if ($op === 'geo_state') {
-        co_json(200, co_geo_state($myEnv, $owner));
+    // Schema 27 (modules-lib.php, Freedom F10, SPEC §3.6): modules - list, switch on/off (owner), the person's own switch,
+    // and the user ops of enabled modules (their interface in CO Web calls them through the ext/1 bridge)
+    if ($op === 'modules_list') {
+        // gateways (gateway-lib.php): what installed modules with provides.gateway describe, enabled or not
+        co_json(200, co_modules_list($db, $myEnv, $owner, $coreOps) + ['gateways' => co_gateway_wire()]);
     }
-    if ($op === 'geo_answer') {
-        co_json(200, co_geo_answer($myEnv, $owner, $in));
+    if ($op === 'module_set') {
+        if (!$owner) co_json(403, ['error' => 'forbidden']);
+        co_json(200, co_module_set($db, co_module_in_str($in, 'id', 64), !empty($in['enabled']), $myEnv));
     }
-    if ($op === 'geo_privacy') {
-        co_json(200, co_geo_privacy($myEnv, $in));
+    if ($op === 'module_person') {
+        $env = isset($in['env']) ? co_module_in_str($in, 'env', 64) : $myEnv;
+        if ($env !== $myEnv && !$owner) co_json(403, ['error' => 'forbidden']);
+        co_json(200, co_module_person_set($db, co_module_in_str($in, 'id', 64), $env, co_module_in_str($in, 'mode', 8), $myEnv));
+    }
+    if ($moduleOp) {
+        co_json(200, co_module_call($db, 'user', $op, $in, $myEnv, $owner, $email) ?? ['error' => 'unknown_op']);
     }
     if ($op === 'family_read') {
         co_json(200, co_family_mark_read($db, $myEnv, db_id($in, 'chatId'), db_int($in, 'seq', 0, 0, 100000000)));
@@ -1664,24 +1547,6 @@ try {
                 co_json(400, ['error' => $e->getMessage()]);
             }
 
-        case 'canvas_ticket':
-            // CO Web 0.63.0: a signed ticket for canvas-bridge (canvas-lib.php)
-            try {
-                $t = co_canvas_ticket($db, $in, $acc);
-            } catch (InvalidArgumentException $e) {
-                co_json(400, ['error' => $e->getMessage()]);
-            }
-            co_json(isset($t['error']) ? ($t['error'] === 'forbidden' ? 403 : 404) : 200, $t);
-
-        case 'canvas_share_draft':
-            // CO Web 0.68.0 (canvas M5): the Gmail draft of a document shared from the editor, with this session's token
-            $d = co_canvas_share_draft($in, $acc);
-            co_json(match ($d['error'] ?? '') { '' => 200, 'forbidden' => 403, 'not_found' => 404, 'need_gmail' => 401, 'busy' => 409, 'uncertain' => 409, default => 502 }, $d);
-
-        case 'corporate_resume':
-        case 'engie_resume': // legacy name (CO Web before Freedom F1 5b)
-            // CO Web 0.52.0: resume chats that stopped because the corporate model was unavailable (corporate-resume-lib.php)
-            co_json(200, co_corporate_resume($db, $in, $acc, $envAllowed));
 
         // Schema 11: the browser side of the web device; every op checks the device belongs to the session user.
         case 'webdev_register':
@@ -1936,7 +1801,7 @@ try {
                     }
                     $out['permissions'] = ['files' => $p['files'], 'shell' => $p['shell'], 'web' => $p['web']];
                 }
-                foreach (['useDevice', 'useCorporate', 'useEngie'] as $flag) { // useEngie: legacy name of useCorporate
+                foreach (['useDevice', ...CO_GATEWAY_TEMPLATE_FLAGS] as $flag) { // gateway use: legacy wire names (gateway-lib.php)
                     if (($t[$flag] ?? null) !== null) {
                         if (!is_bool($t[$flag])) {
                             throw new InvalidArgumentException($at . '.' . $flag . ' must be a boolean');
@@ -2132,18 +1997,18 @@ try {
             $asking = array_map(static fn(array $r): string => (string)$r['chat_id'],
                 $st->get_result()->fetch_all(MYSQLI_ASSOC));
             $st->close();
-            // CO Web 0.52.0: chats whose last answer stopped because the corporate model was unavailable (own projects only);
-            // engieWaiting = legacy wire for CO Web before Freedom F1 5b
-            $corpWaiting = co_corporate_waiting($db, $env);
-            co_json(200, ['running' => $running, 'asking' => $asking, 'corporateWaiting' => $corpWaiting, 'engieWaiting' => $corpWaiting]);
+            // F10: chats stopped while a gateway model was unavailable come from the gateway's module (gateways[].ops.waiting)
+            co_json(200, ['running' => $running, 'asking' => $asking]);
 
-        case 'search_docs':
-            // CO Web 0.27.0: project documents (schema 7)
+        case 'search_items':
+            // Freedom F10 (search-lib.php, ext/1 search.provider): results of the search providers that are not chats
+            // (project documents of a document index module); CO Web AI search shows them next to the chats
             $env = $in['env'] ?? null;
             if (!$envAllowed($env)) {
                 co_json(403, ['error' => 'forbidden']);
             }
-            co_json(200, db_docs_search($in, $env));
+            $project = is_string($in['projectId'] ?? null) && $in['projectId'] !== '' ? $in['projectId'] : null;
+            co_json(200, ['items' => co_search_items($db, $env, is_string($in['q'] ?? null) ? $in['q'] : '', db_int($in, 'limit', 8, 1, 50), $project)]);
 
         case 'search_chats':
             // CO Web 0.16.0 AI search: every chat of the env, the ones found for the query and expanded terms first.
@@ -2168,8 +2033,8 @@ try {
                 $terms[] = $t;
             }
             $limit = db_int($in, 'limit', 300, 1, 300);
-            // Schema 20 (search-lib.php): messages, protocol entries and protocol vectors merged by rank; the user's own
-            // words (query, CO Web 0.88.0+) drive the vectors, the expanded terms widen the full-text lists
+            // Schema 20 (search-lib.php): messages, protocol entries and the lists of search providers merged by rank; the
+            // user's own words (query, CO Web 0.88.0+) go to the providers, the expanded terms widen the full-text lists
             $query = is_string($in['query'] ?? null) ? trim(mb_substr($in['query'], 0, 300, 'UTF-8')) : '';
             $found = co_search_chats($db, $env, ['sql' => 'p.env = ? AND p.archived = 0', 'params' => [$env]], $query, $terms);
             $hits = [];

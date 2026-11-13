@@ -1,0 +1,56 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* Import page (was the "Import" part of co-web/src/styles.css up to CO Web 0.102.0). Colors come from CO Web through
+   ext/1 (theme); the defaults below are the light theme. */
+:root { --bg: #f6f6f3; --panel: #fff; --panel-2: #f0f0ec; --fg: #1c1c1a; --muted: #6c6c66; --line: #deded8; --accent: #1f5fbf;
+  --accent-fg: #fff; --warn: #9a6400; --bad: #b3261e; --user: #e9f0fb; --code: #f3f3ef; }
+html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px system-ui, -apple-system, "Segoe UI", sans-serif; }
+* { box-sizing: border-box; }
+#app { height: 100%; }
+button, input, select { font: inherit; color: inherit; }
+code { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12.5px; background: var(--code); padding: 0 3px; border-radius: 4px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.tiny { font-size: 12px; }
+.pad { padding: 12px 14px; }
+.pre { white-space: pre-wrap; word-break: break-word; }
+.error-text { color: var(--bad); }
+.warn { color: var(--warn); padding: 4px 0; }
+.check { display: inline-flex; gap: 4px; align-items: center; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 7px; padding: 7px 14px; cursor: pointer; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn.ghost { background: transparent; }
+.btn.small { padding: 4px 10px; font-size: 13px; }
+.btn.tiny { padding: 2px 8px; font-size: 12px; }
+.search { padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); }
+.nav-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: auto; }
+.import h2 { margin: 0 0 4px; font-size: 17px; }
+.import ol { padding-left: 18px; max-width: 720px; }
+.dropzone { border: 2px dashed var(--line); border-radius: 12px; padding: 28px; display: flex; gap: 14px; align-items: center; justify-content: center; margin: 16px 0; max-width: 720px; }
+.import-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.import-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 18px; border-bottom: 1px solid var(--line); }
+.import-toolbar .search { width: auto; flex: 1; min-width: 180px; margin: 0; }
+.import-toolbar select { border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; background: var(--bg); max-width: 260px; }
+.import-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 320px; flex: 1; border-bottom: 1px solid var(--line); }
+.import-list { list-style: none; margin: 0; padding: 0; overflow: auto; max-height: 55vh; border-right: 1px solid var(--line); }
+.import-list li { display: flex; gap: 8px; align-items: flex-start; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+.import-list li.focus { background: var(--user); }
+.import-list li.done { opacity: .55; }
+.import-list input { margin-top: 4px; }
+.import-item { flex: 1; min-width: 0; text-align: left; background: none; border: 0; cursor: pointer; display: flex; flex-direction: column; padding: 0; }
+.import-preview { overflow: auto; max-height: 55vh; padding: 12px 16px; }
+.import-preview h3 { margin: 0 0 2px; font-size: 15px; }
+.pv-msg { border-radius: 8px; padding: 6px 10px; margin: 8px 0; font-size: 13.5px; }
+.pv-msg.user { background: var(--user); }
+.pv-msg.assistant { background: var(--panel); border: 1px solid var(--line); }
+.import-targets { padding: 12px 18px; display: flex; flex-direction: column; gap: 8px; }
+.import-targets h4 { margin: 0; }
+.target-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.target-row .target-src { min-width: 200px; font-weight: 600; }
+.target-row input, .target-row select { border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; background: var(--bg); }
+.target-row input.invalid { border-color: var(--bad); }
+.import-progress, .import-result { padding: 10px 18px; }
+.import-progress:empty { display: none; }
+@media (max-width: 760px) { .import-body { grid-template-columns: minmax(0, 1fr); } .import-list { border-right: 0; } }

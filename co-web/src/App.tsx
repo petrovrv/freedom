@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useState } from 'react';
-import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { Route, Routes, useNavigate } from 'react-router-dom';
 import { onAuth, signIn, type AuthState } from './auth';
 import { APP_VERSION } from './config';
 import Shell from './Shell';
-import Canvas from './Canvas';
-import CanvasShare from './CanvasShare';
+import ModulePage from './ModulePage';
 
 function Login({ error }: { error?: string }) {
   const [busy, setBusy] = useState(false);
@@ -65,14 +64,13 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/canvas" element={<Canvas />} />
-      <Route path="/canvas-share" element={<CanvasShare />} />
       <Route path="/e/:env" element={<Shell auth={auth} />} />
-      <Route path="/e/:env/import" element={<Shell auth={auth} />} />
+      <Route path="/e/:env/m/:moduleId/:pageId" element={<Shell auth={auth} />} />
       <Route path="/e/:env/inbox" element={<Shell auth={auth} />} />
       <Route path="/e/:env/p/:projectId" element={<Shell auth={auth} />} />
       <Route path="/e/:env/p/:projectId/c/:chatId" element={<Shell auth={auth} />} />
-      <Route path="*" element={<Navigate to={`/e/${auth.homeEnv}`} replace />} />
+      {/* F10: full-window pages of modules (/x/<module>/<page> or an address a module declared); else home */}
+      <Route path="*" element={<ModulePage home={`/e/${auth.homeEnv}`} me={auth.homeEnv} owner={!!auth.owner} />} />
     </Routes>
   );
 }

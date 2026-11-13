@@ -1,10 +1,10 @@
 <?php
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // models-lib.php (schema 23, S5 of chat CHAT-20261111085044-HV3A): one list of model resources - subscriptions on the
-// hosts (from their owner.json: agents and models), the site, subscriptions registered by devices (S4) and corporate
-// models - each with a card of what it can and cannot do and the flag "slave allowed": a leading agent of any member may
+// hosts (from their owner.json: agents and models), the site, subscriptions registered by devices (S4) and gateway
+// models of modules - each with a card of what it can and cannot do and the flag "slave allowed": a leading agent of any member may
 // then call it as a subagent (aiwb-subtask spawn --resource), without limits or confirmations. Own resources are always
-// callable; confidential ones (corporate) never leave their environment. Table model_resources overrides the built-in
+// callable; confidential ones (gateway models) never leave their environment. Table model_resources overrides the built-in
 // entries (flag, card, title) and holds the registered ones. subtask_spawn creates the child chat and its job here, so a
 // leading agent on the site needs no Drive or SSH of its own.
 declare(strict_types=1);
@@ -12,12 +12,12 @@ declare(strict_types=1);
 require_once __DIR__ . '/db-lib.php';
 require_once __DIR__ . '/members-lib.php';
 require_once __DIR__ . '/share-lib.php';
-require_once __DIR__ . '/corporate-lib.php';
+require_once __DIR__ . '/gateway-lib.php';
 
-const MODELS_KINDS = ['subscription', 'site', 'corporate', 'free'];
-// Freedom F1 5b: agents of the corporate connector (and their cards) come from its manifest (corporate-lib.php).
+const MODELS_KINDS = ['subscription', 'site', CO_GATEWAY_KIND, 'free']; // + CO_GATEWAY_LEGACY_KIND on input (co_gateway_kind)
+// Freedom F10: agents of model gateways (and their cards) come from installed modules (gateway-lib.php).
 const MODELS_CORE_AGENTS = ['claude', 'codex', 'gemini', 'agy'];
-const MODELS_CORE_JOB_AGENTS = ['claude', 'codex']; // agents a job may name today (Bridge, site agent), plus job agents of the connector
+const MODELS_CORE_JOB_AGENTS = ['claude', 'codex']; // agents a job may name today (Bridge, site agent), plus job agents of gateways
 const MODELS_MODEL_RE = '/^[A-Za-z0-9][A-Za-z0-9._:\/\[\]-]{0,79}$/';
 const MODELS_FRESH_SEC = 900;        // owner.json older than this: the host is offline
 const MODELS_MAX_CARD = 4000;
@@ -41,18 +41,22 @@ const MODELS_SITE_LIMITS = 'runs on the web server: no home devices except throu
 
 function models_agents(): array
 {
-    return array_merge(MODELS_CORE_AGENTS, array_keys(co_corporate_agents()));
+    return array_merge(MODELS_CORE_AGENTS, array_keys(co_gateway_agents()));
 }
 
 function models_job_agents(): array
 {
-    return array_merge(MODELS_CORE_JOB_AGENTS, array_keys(array_filter(co_corporate_agents(), fn($a) => $a['job'])));
+    return array_merge(MODELS_CORE_JOB_AGENTS, array_keys(array_filter(co_gateway_agents(), fn($a) => $a['job'])));
 }
 
-/** A corporate agent (always confidential): one of the connector's manifest, or flagged so by its host's owner.json. */
-function models_is_corporate(string $agent, ?array $ownerAgent = null): bool
+/**
+ * A gateway agent (always confidential): one of an installed module, or flagged so by its host's owner.json
+ * (confidential: true since Bridge F10; the legacy wire flag CO_GATEWAY_LEGACY_KIND of older Bridges).
+ */
+function models_is_gateway(string $agent, ?array $ownerAgent = null): bool
 {
-    return co_corporate_agent($agent) !== null || ($ownerAgent['corporate'] ?? false) === true;
+    return co_gateway_agent($agent) !== null || ($ownerAgent['confidential'] ?? false) === true
+        || ($ownerAgent[CO_GATEWAY_LEGACY_KIND] ?? false) === true;
 }
 
 function models_id(mixed $v): string
@@ -167,8 +171,8 @@ function models_builtin(array $owners, string $ownerEnv): array
             if (!is_string($agent) || !in_array($agent, models_agents(), true) || !is_array($a)) {
                 continue;
             }
-            $corporate = models_is_corporate($agent, $a);
-            $card = MODELS_DEFAULT_CARDS[$agent] ?? (co_corporate_agent($agent)['card'] ?? [])
+            $gateway = models_is_gateway($agent, $a);
+            $card = MODELS_DEFAULT_CARDS[$agent] ?? (co_gateway_agent($agent)['card'] ?? [])
                 ?: ['summary' => (string)($a['displayName'] ?? $agent)];
             if ($host === 'site') {
                 $card['limits'] = trim(($card['limits'] ?? '') . '; ' . MODELS_SITE_LIMITS, '; ');
@@ -182,7 +186,7 @@ function models_builtin(array $owners, string $ownerEnv): array
             $out[$host . '/' . $agent] = [
                 'id' => $host . '/' . $agent,
                 'env' => $ownerEnv,
-                'kind' => $corporate ? 'corporate' : ($host === 'site' ? 'site' : 'subscription'),
+                'kind' => $gateway ? CO_GATEWAY_KIND : ($host === 'site' ? 'site' : 'subscription'),
                 'title' => models_str($a['displayName'] ?? ucfirst($agent), 60) . ' · ' . models_host_label($host),
                 'host' => $host,
                 'agent' => $agent,
@@ -190,7 +194,7 @@ function models_builtin(array $owners, string $ownerEnv): array
                 'defaultModel' => is_string($a['defaultModel'] ?? null) ? $a['defaultModel'] : null,
                 'card' => $card,
                 'slaveAllowed' => false,
-                'confidential' => $corporate,
+                'confidential' => $gateway,
                 'source' => 'auto',
                 'builtin' => true,
                 'online' => models_host_online($o),
@@ -235,8 +239,8 @@ function models_all(mysqli $db): array
             $b['card'] = array_merge($b['card'], array_filter($card, static fn($v): bool => $v !== ''));
             $b['title'] = (string)$r['title'] !== '' ? (string)$r['title'] : $b['title'];
             $b['slaveAllowed'] = (int)$r['slave_allowed'] === 1;
-            // corporate entries stay confidential whatever an older stored row says (Freedom F1 5b)
-            $b['confidential'] = $b['kind'] === 'corporate' || (int)$r['confidential'] === 1;
+            // gateway entries stay confidential whatever an older stored row says (Freedom F1 5b)
+            $b['confidential'] = $b['kind'] === CO_GATEWAY_KIND || (int)$r['confidential'] === 1;
             $b['updatedUtc'] = co_db_iso((string)$r['updated_utc']);
             $list[$id] = $b;
             continue;
@@ -248,7 +252,7 @@ function models_all(mysqli $db): array
         $list[$id] = [
             'id' => $id,
             'env' => (string)$r['env'],
-            'kind' => (string)$r['kind'],
+            'kind' => co_gateway_kind((string)$r['kind']),
             'title' => (string)$r['title'],
             'host' => $host,
             'agent' => (string)$r['agent'],
@@ -256,8 +260,8 @@ function models_all(mysqli $db): array
             'defaultModel' => $r['default_model'] !== null ? (string)$r['default_model'] : null,
             'card' => $card,
             'slaveAllowed' => (int)$r['slave_allowed'] === 1,
-            'confidential' => (int)$r['confidential'] === 1 || (string)$r['kind'] === 'corporate'
-                || models_is_corporate((string)$r['agent']),
+            'confidential' => (int)$r['confidential'] === 1 || co_gateway_kind((string)$r['kind']) === CO_GATEWAY_KIND
+                || models_is_gateway((string)$r['agent']),
             'source' => (string)$r['source'],
             'builtin' => false,
             'online' => $host !== '' ? models_host_online($owners[$host] ?? null) : null,
@@ -331,6 +335,7 @@ function models_put(mysqli $db, array $in, string $by, ?string $callerEnv, bool 
             throw new InvalidArgumentException('id must start with "' . $env . '/"');
         }
         $kind = $in['kind'] ?? $cur['kind'] ?? 'subscription';
+        $kind = is_string($kind) ? co_gateway_kind($kind) : $kind;
         if (!in_array($kind, MODELS_KINDS, true)) {
             throw new InvalidArgumentException('invalid kind');
         }
@@ -367,9 +372,9 @@ function models_put(mysqli $db, array $in, string $by, ?string $callerEnv, bool 
         : ($cur !== null && !$cur['builtin'] ? $cur['card'] : (is_array($storedCard) ? $storedCard : []));
     $slave = array_key_exists('slaveAllowed', $in) ? $in['slaveAllowed'] === true : (bool)($cur['slaveAllowed'] ?? false);
     $conf = array_key_exists('confidential', $in) ? $in['confidential'] === true
-        : (bool)($cur['confidential'] ?? ($row['kind'] === 'corporate'));
-    if ($row['kind'] === 'corporate' || models_is_corporate((string)$row['agent'])) {
-        $conf = true; // corporate data never leaves its environment
+        : (bool)($cur['confidential'] ?? ($row['kind'] === CO_GATEWAY_KIND));
+    if ($row['kind'] === CO_GATEWAY_KIND || models_is_gateway((string)$row['agent'])) {
+        $conf = true; // data of a gateway never leaves its environment
     }
     $st = $db->prepare(
         'INSERT INTO model_resources (id, env, kind, title, host_id, agent, models_json, default_model, card_json,
@@ -462,7 +467,7 @@ function models_subtask_spawn(mysqli $db, array $in, callable $mkChat, callable 
         return ['ok' => false, 'error' => 'project_without_folder'];
     }
 
-    // as db_job_submit: a shared chat or project gets no devices and no corporate agent (the owner's corporate data stays out).
+    // as db_job_submit: a shared chat or project gets no devices and no gateway agent (the owner's confidential data stays out).
     // R2 (review S5-01): so does any chat below one - the restriction is inherited along the parent chain and the job
     // carries restricted, which its own subtasks find again however deep.
     $shared = share_restricted($db, (string)$p['project_id'], $parent);
@@ -473,7 +478,7 @@ function models_subtask_spawn(mysqli $db, array $in, callable $mkChat, callable 
     }
     if (!models_visible($r, $env)) {
         return ['ok' => false, 'error' => $r['confidential'] ? 'confidential' : 'slave_not_allowed',
-            'detail' => $r['confidential'] ? 'Corporate resource: only its own environment may use it.'
+            'detail' => $r['confidential'] ? 'Confidential resource: only its own environment may use it.'
                 : 'The owner of this resource has not allowed it as a slave.'];
     }
     if (!in_array($r['agent'], models_job_agents(), true) || $r['host'] === '') {
@@ -482,19 +487,19 @@ function models_subtask_spawn(mysqli $db, array $in, callable $mkChat, callable 
     if (!in_array($r['host'], array_keys(models_host_owners($db)), true)) {
         return ['ok' => false, 'error' => 'host_unknown', 'detail' => "Host {$r['host']} does not take jobs (no owner.json)."];
     }
-    $corp = co_corporate_agent($r['agent']);
-    if ($shared && ($devices !== [] || $corp !== null || $r['confidential'])) {
-        return ['ok' => false, 'error' => 'shared_chat_no_corporate', 'detail' => 'A shared chat cannot use devices or corporate models.'];
+    $gw = co_gateway_agent($r['agent']);
+    if ($shared && ($devices !== [] || $gw !== null || $r['confidential'])) {
+        return ['ok' => false, 'error' => SHARE_REFUSED, 'detail' => 'A shared chat cannot use devices or confidential models.'];
     }
-    if (($corp['needsDevice'] ?? false) && $devices === []) {
-        return ['ok' => false, 'error' => 'needs_device', 'detail' => "{$r['agent']} needs a device with the corporate connector (devices)."];
+    if (($gw['needsDevice'] ?? false) && $devices === []) {
+        return ['ok' => false, 'error' => 'needs_device', 'detail' => "{$r['agent']} needs a device with the gateway tools (devices)."];
     }
     $model = $in['model'] ?? $r['defaultModel'];
     if ($model !== null && (!is_string($model) || preg_match(MODELS_MODEL_RE, $model) !== 1)) {
         throw new InvalidArgumentException('invalid model');
     }
-    if ($model === null && ($corp['defaultModel'] ?? null) !== null) {
-        $model = $corp['defaultModel'];
+    if ($model === null && ($gw['defaultModel'] ?? null) !== null) {
+        $model = $gw['defaultModel'];
     }
 
     // R2 (review S5-02): one subtask per requestKey of the parent - a repeat after a lost answer gets the same chat and job

@@ -2,7 +2,7 @@
 // Smart chat titles. On the first message the chat gets an interim title from a heuristic (the
 // question openers "can you / можешь / как …" are cut off), and the agent is asked to add a title
 // marker to its first answer. The marker is stripped from the answer and becomes the final title,
-// so naming costs no extra job and the text never leaves the model the user chose (a corporate model stays corporate).
+// so naming costs no extra job and the text never leaves the model the user chose (a confidential model stays confidential).
 
 const MARKER_RE = /\[\[\s*chat-title\s*:\s*([^\]\n]{1,120}?)\s*\]\]/gi;
 

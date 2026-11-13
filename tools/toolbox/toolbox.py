@@ -1,4 +1,5 @@
-"""Manage the AI Workbench tool library: list, search, check, scan, index, new, commit, archive."""
+"""Manage the AI Workbench tool library: list, search, check, scan, index, new, commit, archive; tools of Freedom modules
+(install from a folder, module on/off/remove: modstate.py)."""
 import argparse
 import os
 import re
@@ -14,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import security  # noqa: E402  1.5.0: static security scan
+import modstate  # noqa: E402  1.7.0: tools of Freedom modules
 
 # 1.3.0: the working copy is C:\AIWorkbench\tools (local disk, origin = GitHub); G:\My Drive\AI-Workbench\tools is a
 # read-only mirror for running tools. Whichever copy this script runs from, writes go to the local working copy.
@@ -21,9 +23,9 @@ LOCAL = Path(os.environ.get("AIWB_TOOLS") or r"C:\AIWorkbench\tools")
 MIRROR = Path(os.environ.get("AIWB_TOOLS_MIRROR") or r"G:\My Drive\AI-Workbench\tools")
 ROOT = LOCAL if (LOCAL / ".git").is_dir() else Path(__file__).resolve().parent.parent
 INDEX = ROOT / "INDEX.md"
-CLAUDE_MD = Path.home() / ".claude" / "CLAUDE.md"
+CLAUDE_MD = Path(os.environ.get("AIWB_CLAUDE_MD") or Path.home() / ".claude" / "CLAUDE.md")
 # Global instructions of Codex (GPT agents) get the same list (1.2.0).
-AGENTS_MD = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "AGENTS.md"
+AGENTS_MD = Path(os.environ.get("AIWB_AGENTS_MD") or Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "AGENTS.md")
 BEGIN = "<!-- aiwb-tools-index:begin -->"
 END = "<!-- aiwb-tools-index:end -->"
 REQUIRED = ("name", "description", "version", "entry")
@@ -66,9 +68,13 @@ def problems(d: Path, meta: dict) -> list[str]:
     return errs
 
 
-def index_lines() -> list[str]:
+def index_lines(hide_off: bool = False) -> list[str]:
+    """One line per tool; hide_off (1.7.0) leaves out tools that only switched-off modules own."""
     lines = []
+    state = modstate.load() if hide_off else None
     for d, meta in tools():
+        if hide_off and modstate.off_reason(d.name, state):
+            continue
         lines.append(f"- `{d.name}` {meta.get('version', '?')} — {meta.get('description', '')}")
     return lines or ["- (пусто)"]
 
@@ -142,7 +148,9 @@ def write_index() -> None:
         "Правила — `README.md`.\n\n" + body + "\n",
         encoding="utf-8",
     )
-    # Mirror the index into the global CLAUDE.md and the Codex AGENTS.md so every agent session sees it.
+    # Mirror the index into the global CLAUDE.md and the Codex AGENTS.md so every agent session sees it; tools of a
+    # switched-off module are not offered there (1.7.0), INDEX.md (in git) stays the whole library.
+    body = "\n".join(index_lines(hide_off=True))
     for md in (CLAUDE_MD, AGENTS_MD):
         if not md.exists():
             continue
@@ -385,6 +393,82 @@ def cmd_archive(args) -> int:
     return 0
 
 
+def _version_tuple(v: str) -> tuple:
+    return tuple(int(x) for x in re.findall(r"\d+", v or "0")[:3]) or (0,)
+
+
+def cmd_install(args) -> int:
+    """1.7.0: copy a tool folder (a Freedom module's tools/<name>, an export's tools/<name>) into the library.
+    A tool already here at the same or a newer version is left alone; an older one is replaced only with --update.
+    The copy is scanned; unexcused security errors undo it. Not committed (toolbox.py commit NAME does that)."""
+    name = args.name
+    src = Path(args.src) / name
+    if not NAME_RE.match(name) or not (src / "SKILL.md").exists():
+        print(f"no tool {name} in {args.src}")
+        return 1
+    new_meta = parse_frontmatter(src / "SKILL.md")
+    errs = problems(src, new_meta)
+    if errs:
+        print(f"{name}: " + "; ".join(errs))
+        return 1
+    dst = ROOT / name
+    if (dst / "SKILL.md").exists():
+        have = parse_frontmatter(dst / "SKILL.md").get("version", "0")
+        if _version_tuple(have) >= _version_tuple(new_meta.get("version", "0")):
+            print(json.dumps({"tool": name, "status": "present", "version": have}))
+            return 0
+        if not args.update:
+            print(f"{name} {have} is here, {new_meta.get('version')} offered: add --update to replace it")
+            return 1
+    if run_scan([src]):
+        print(f"{name}: security errors, not installed")
+        return 1
+    tmp = ROOT / f".{name}.install"
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    skip = shutil.ignore_patterns("__pycache__", "*.pyc", "desktop.ini", "*.log", "node_modules")
+    shutil.copytree(src, tmp, ignore=skip)
+    old = ROOT / f".{name}.old"
+    if old.exists():
+        shutil.rmtree(old)
+    if dst.exists():
+        dst.rename(old)
+    tmp.rename(dst)
+    if old.exists():
+        shutil.rmtree(old)
+    write_index()
+    print(json.dumps({"tool": name, "status": "installed", "version": new_meta.get("version")}))
+    return 0
+
+
+def cmd_module(args) -> int:
+    """1.7.0: record which tools a module owns and whether it is on (the installer calls this)."""
+    tools_ = [t for t in (args.tools or "").split(",") if t] if args.tools is not None else None
+    try:
+        if args.state == "removed":
+            m = modstate.set_module(args.id, remove=True)
+        else:
+            m = modstate.set_module(args.id, enabled=args.state == "enabled", tools=tools_, version=args.version)
+    except ValueError as e:
+        print(str(e))
+        return 1
+    write_index()
+    print(json.dumps({"module": args.id, "state": args.state, "entry": m, "file": modstate.state_path()}, ensure_ascii=False))
+    return 0
+
+
+def cmd_modules(args) -> int:
+    st = modstate.load()
+    if args.json:
+        print(json.dumps({"file": modstate.state_path(), **st}, ensure_ascii=False, indent=1))
+        return 0
+    if not st["modules"]:
+        print(f"no module tools recorded ({modstate.state_path()})")
+    for mid, m in sorted(st["modules"].items()):
+        print(f"{mid} {m.get('version', '')} {'on' if m.get('enabled') else 'off'}: {', '.join(m.get('tools') or []) or '-'}")
+    return 0
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     p = argparse.ArgumentParser(description=__doc__)
@@ -413,6 +497,20 @@ def main() -> int:
     a.add_argument("name")
     a.add_argument("-m", "--message", required=True, help="why (e.g. no agent job used it for 60 days)")
     a.set_defaults(fn=cmd_archive)
+    i = sub.add_parser("install", help="copy a tool folder of a module or an export into the library (1.7.0)")
+    i.add_argument("name")
+    i.add_argument("--from", dest="src", required=True, help="folder that holds <name>/SKILL.md")
+    i.add_argument("--update", action="store_true", help="replace an older version that is already here")
+    i.set_defaults(fn=cmd_install)
+    mo = sub.add_parser("module", help="record a module's tools and its switch (1.7.0; install/freedom_modules.py calls it)")
+    mo.add_argument("id")
+    mo.add_argument("--state", choices=("enabled", "disabled", "removed"), required=True)
+    mo.add_argument("--tools", help="comma-separated tool names the module owns (kept when omitted)")
+    mo.add_argument("--version")
+    mo.set_defaults(fn=cmd_module)
+    ms = sub.add_parser("modules", help="tools of modules and their switches (1.7.0)")
+    ms.add_argument("--json", action="store_true")
+    ms.set_defaults(fn=cmd_modules)
     args = p.parse_args()
     return args.fn(args)
 

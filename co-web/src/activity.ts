@@ -3,7 +3,7 @@
 // into activity cards (TZ section 13, "Activity rendering").
 
 import type { BridgeEvent } from './types';
-import { corporate } from './corporate';
+import { gateway } from './gateway';
 
 export type ActivityKind = 'bridge' | 'command' | 'read' | 'write' | 'search' | 'tool' | 'reasoning' | 'error' | 'other';
 
@@ -41,7 +41,6 @@ const BRIDGE_LABELS: Record<string, string> = {
   completed: 'Completed',
   failed: 'Failed',
   timeout: 'Timed out',
-  policy_warning: `${corporate().title} policy: content written without the ${corporate().title} model`,
 };
 
 function short(s: string, n = 160): string {
@@ -228,7 +227,10 @@ export function applyBridgeEvents(st: ActivityState, events: BridgeEvent[]): Act
       if (e.content.trim()) upsert(next, { key: `stderr:${e.sequence}`, kind: 'other', label: `stderr: ${short(e.content)}`, raw: [e.content] });
       continue;
     }
-    const label = BRIDGE_LABELS[e.type] || e.type;
+    // policy_warning (dispatcher guard of Bridge): names come from the gateway description, known only at runtime
+    const label = e.type === 'policy_warning'
+      ? `${gateway().title} policy: content written without the ${gateway().title} model`
+      : BRIDGE_LABELS[e.type] || e.type;
     const detail = e.content && e.content !== label ? e.content : undefined;
     const kind: ActivityKind = /fail|error|missing|reject|warning/.test(e.type) ? 'error' : 'bridge';
     upsert(next, { key: `bridge:${e.sequence}`, kind, label, detail, status: kind === 'error' ? 'error' : 'ok', raw: [JSON.stringify(e)] });

@@ -2,7 +2,7 @@
 // S6 (CO Web 0.100.0): model choice of the composer from the one list of model resources (S5, Models.tsx) instead of
 // the two agent/model selects. One button shows the leading agent · model · executor; its list has the agents this
 // chat can lead with (per executor, with the card and a Slave allowed switch for own resources) and the helpers the
-// leading agent may call as subagents (devices, corporate, the family's slaves). The selection stays {agent, model}
+// leading agent may call as subagents (devices, a confidential gateway, the family's slaves). The selection stays {agent, model}
 // (+ an optional pinned host): routeHost, templates, retries and old events work as before.
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { dbModels, dbModelSet, type ModelResource } from './dbapi';

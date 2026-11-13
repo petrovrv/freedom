@@ -7,18 +7,19 @@ import { suggestProjectTitle } from './search';
 import { allProjectChats, deleteProject, foldProjectIntoChat, mergeProject, saveProjectMeta, type HostDirs, type Root } from './workbench';
 
 // 'title' = the rename dialog that starts with an AI-suggested title; 'fold' = move as a chat with subchats.
-// 'study' (0.78.0) switches studyDefault for new chats of the project, no dialog.
-export type ProjectAction = 'rename' | 'title' | 'merge' | 'fold' | 'archive' | 'delete' | 'study';
+// 'mode:<key>' (F10) switches a chat mode of a module for new chats of the project (<key>Default), no dialog.
+export type ProjectAction = 'rename' | 'title' | 'merge' | 'fold' | 'archive' | 'delete' | `mode:${string}`;
 
 // Owner: everything; editor of a shared project: rename only; viewer: no menu.
-export function projectActionsFor(p: Project, branched?: boolean): ProjectAction[] {
+export function projectActionsFor(p: Project, branched?: boolean, modeKeys: string[] = []): ProjectAction[] {
+  const modes = modeKeys.map((k): ProjectAction => `mode:${k}`);
   if (p.shareRole === 'viewer') return [];
-  if (p.shareRole === 'editor') return ['rename', 'title', 'study'];
-  const all: ProjectAction[] = ['rename', 'title', 'study', 'merge', 'fold', 'archive', 'delete'];
+  if (p.shareRole === 'editor') return ['rename', 'title', ...modes];
+  const all: ProjectAction[] = ['rename', 'title', ...modes, 'merge', 'fold', 'archive', 'delete'];
   return branched ? all.filter((a) => a !== 'fold') : all;
 }
 
-const LABEL: Record<Exclude<ProjectAction, 'archive' | 'study'>, string> = {
+const LABEL: Record<Exclude<ProjectAction, 'archive' | `mode:${string}`>, string> = {
   rename: 'Rename',
   title: 'Suggest title',
   merge: 'Merge with project…',
@@ -190,14 +191,19 @@ export function ProjectActionDialog({
   );
 }
 
-type ProjectMenuProps = { onPick: (a: ProjectAction) => void; archived?: boolean; study?: boolean; actions: ProjectAction[] };
+function modeLabel(modes: { key: string; label: string; on: boolean }[], key: string): string {
+  const m = modes.find((x) => x.key === key);
+  return m ? (m.on ? `${m.label}: on (turn off)` : m.label) : key;
+}
+
+type ProjectMenuProps = { onPick: (a: ProjectAction) => void; archived?: boolean; modes?: { key: string; label: string; on: boolean }[]; actions: ProjectAction[] };
 
 export function ProjectMenu(props: ProjectMenuProps) {
   if (!props.actions.length) return null;
   return <ProjectMenuInner {...props} />;
 }
 
-function ProjectMenuInner({ onPick, archived, study, actions }: ProjectMenuProps) {
+function ProjectMenuInner({ onPick, archived, modes = [], actions }: ProjectMenuProps) {
   const [open, setOpen] = useState(false);
   return (
     <span className="chat-menu" onClick={(e) => e.stopPropagation()}>
@@ -214,7 +220,7 @@ function ProjectMenuInner({ onPick, archived, study, actions }: ProjectMenuProps
                 onPick(a);
               }}
             >
-              {a === 'archive' ? (archived ? 'Restore from archive' : 'Archive') : a === 'study' ? (study ? '🎓 Study mode for new chats: on (turn off)' : '🎓 Study mode for new chats') : LABEL[a]}
+              {a === 'archive' ? (archived ? 'Restore from archive' : 'Archive') : a.startsWith('mode:') ? modeLabel(modes, a.slice(5)) : LABEL[a as keyof typeof LABEL]}
             </button>
           ))}
         </span>

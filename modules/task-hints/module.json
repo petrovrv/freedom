@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "id": "task-hints",
+  "version": "0.1.0",
+  "title": "Task hints",
+  "description": "Suggests next to the model picker which agent and model did best on this kind of task (code, Word, Excel, translation, editing, summary, reasoning, web) in the model bench. A suggestion only: the person switches the agent.",
+  "ext": ">=1 <2",
+  "scope": "household",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "requires": {
+    "core": [
+      "models"
+    ],
+    "modules": []
+  },
+  "permissions": [
+    "ui.hint",
+    "composer.read",
+    "tools"
+  ],
+  "provides": {
+    "ui": [
+      {
+        "slot": "ui.hint",
+        "id": "hint",
+        "entry": "ui/hint.html",
+        "title": "Task hints"
+      }
+    ],
+    "tools": [
+      {
+        "name": "aiwb-modelbench",
+        "minVersion": "0.2.0"
+      }
+    ],
+    "data": {
+      "server": "none",
+      "module": "ui/hint-data.js (written by aiwb-modelbench report --module modules/task-hints)"
+    },
+    "services": [],
+    "context": [],
+    "models": [],
+    "deviceTools": [],
+    "events": []
+  },
+  "localOnly": [
+    "tests/"
+  ],
+  "dataPolicy": {
+    "onDisable": "keep",
+    "onRemove": "keep",
+    "migrations": "additive"
+  },
+  "defaults": {
+    "enabled": false
+  }
+}

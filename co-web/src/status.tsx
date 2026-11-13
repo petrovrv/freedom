@@ -3,7 +3,7 @@
 // ChatStatusIcon — running / queued / waiting for your answer / unread / scheduled. Read tracking per browser
 // (localStorage co.seen); chats updated after the first run of this feature and never opened count as unread.
 import { useSyncExternalStore } from 'react';
-import { corporate } from './corporate';
+import { gateway } from './gateway';
 
 /* ---------- Project ring ---------- */
 
@@ -45,13 +45,13 @@ export function ProjectRing({ count }: { count: number }) {
 
 /* ---------- Chat status icon ---------- */
 
-// 0.52.0: 'corporate' = stopped because the corporate model was unavailable
-export type ChatStatus = 'running' | 'queued' | 'corporate' | 'unread' | 'asking' | 'scheduled' | 'idle';
+// 0.52.0: 'gateway' = stopped because the gateway model was unavailable
+export type ChatStatus = 'running' | 'queued' | 'gateway' | 'unread' | 'asking' | 'scheduled' | 'idle';
 
 const STATUS_TITLES: Record<ChatStatus, string> = {
   running: 'Running',
   queued: 'Queued',
-  corporate: `Stopped: ${corporate().title} was unavailable`,
+  gateway: 'Stopped: the gateway model was unavailable', // named at runtime in ChatStatusIcon
   unread: 'Unread',
   asking: 'Waiting for your answer',
   scheduled: 'Scheduled',
@@ -59,7 +59,7 @@ const STATUS_TITLES: Record<ChatStatus, string> = {
 };
 
 export function ChatStatusIcon({ status }: { status: ChatStatus }) {
-  const title = STATUS_TITLES[status] || undefined;
+  const title = status === 'gateway' ? `Stopped: ${gateway().title} was unavailable` : STATUS_TITLES[status] || undefined;
 
   switch (status) {
     case 'running': {
@@ -108,13 +108,13 @@ export function ChatStatusIcon({ status }: { status: ChatStatus }) {
           </svg>
         </span>
       );
-    // 0.52.0: stopped while the corporate model was unavailable (the first letter of its name)
-    case 'corporate':
+    // 0.52.0: stopped while the gateway model was unavailable (the first letter of its name)
+    case 'gateway':
       return (
         <span className="status-icon" title={title}>
           <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true">
             <circle cx={7} cy={7} r={6.5} fill="#7c3aed" />
-            <text x={7} y={7.5} textAnchor="middle" dominantBaseline="central" fontSize={9} fontWeight={700} fill="#fff">{corporate().title.slice(0, 1).toUpperCase()}</text>
+            <text x={7} y={7.5} textAnchor="middle" dominantBaseline="central" fontSize={9} fontWeight={700} fill="#fff">{gateway().title.slice(0, 1).toUpperCase()}</text>
           </svg>
         </span>
       );
@@ -152,15 +152,15 @@ export function ChatStatusIcon({ status }: { status: ChatStatus }) {
 
 export function chatStatus(o: {
   running?: 'queued' | 'running';
-  corporate?: boolean;
+  gateway?: boolean;
   asking: boolean;
   unread: boolean;
   scheduled: boolean;
 }): ChatStatus {
   if (o.running === 'running') return 'running';
   if (o.running === 'queued') return 'queued';
-  // 0.52.0: corporate-stopped after queued, before asking
-  if (o.corporate) return 'corporate';
+  // 0.52.0: gateway-stopped after queued, before asking
+  if (o.gateway) return 'gateway';
   if (o.asking) return 'asking';
   if (o.unread) return 'unread';
   if (o.scheduled) return 'scheduled';

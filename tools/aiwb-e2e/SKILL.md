@@ -1,7 +1,7 @@
 ---
 name: aiwb-e2e
 description: End-to-end check of CO Web - Playwright signs in as the owner, sends "reply pong" to Claude in a test chat, waits for the reply through the job queue, deletes the chat; exit 0 green / 1 red / 2 cannot run. Used by devtree finish as a merge gate. Also `shot` - screenshot of any CO Web page (local build or prod) signed in as the owner.
-version: 0.6.2
+version: 0.6.3
 entry: aiwb-e2e.py
 requires: [requests, paramiko, node 22+, "playwright + chromium (npm, local)"]
 platform: windows

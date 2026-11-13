@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "id": "canvas",
+  "version": "1.0.0",
+  "title": "Canvas",
+  "description": "Chat and project files (Word, Excel, PowerPoint; Markdown and text as a Word notebook) open in the ONLYOFFICE editor on the home PC and save back to Drive. Comment threads in the document are answered by the chat's agent; Share puts the document into a Gmail draft (never sent).",
+  "ext": ">=1 <2",
+  "scope": "household",
+  "platforms": ["windows"],
+  "requires": { "core": [], "modules": [] },
+  "permissions": ["ui.page", "ui.navigate", "data.own", "push.key"],
+  "localOnly": ["canvas-bridge/"],
+  "isolation": "host",
+  "isolationReason": "ONLYOFFICE Docs and canvas-bridge run on the home PC; Tailscale Funnel publishes them at a public HTTPS address of the PC",
+  "installConfig": { "publicUrl": "canvas.publicUrl" },
+  "provides": {
+    "ui": [
+      { "slot": "ui.page", "id": "editor", "entry": "ui/editor.html", "title": "Canvas", "path": "/canvas" },
+      { "slot": "ui.page", "id": "share", "entry": "ui/share.html", "title": "Gmail draft", "path": "/canvas-share" }
+    ],
+    "navigate": [{ "config": "publicUrl" }, "https://mail.google.com", "/auth/login.php"],
+    "fileActions": [
+      { "id": "office", "label": "Open in canvas", "exts": ["docx", "xlsx", "pptx"],
+        "open": { "page": "editor", "param": "path", "target": "blank" } },
+      { "id": "notebook", "label": "Open in canvas", "title": "Edit as a Word notebook (headings, lists); Save as Markdown writes it back",
+        "exts": ["md", "markdown", "txt"], "open": { "page": "editor", "param": "path", "target": "blank" } }
+    ],
+    "sideJobs": [{ "key": "canvas", "label": "✎ Canvas", "list": "threads", "item": "reply", "count": "ops", "countNoun": "tracked change" }],
+    "services": [{ "id": "bridge", "run": "canvas-bridge/canvas_bridge.py", "windowsTask": "\\AIWorkbench\\CanvasBridge" }],
+    "data": { "server": "files", "home": "%LOCALAPPDATA%\\AIWorkbenchCanvas (sessions, comment asks, log)" },
+    "events": [],
+    "context": [], "models": [], "deviceTools": []
+  },
+  "server": {
+    "entry": "server/ops.php",
+    "ops": { "user": ["canvas_ticket", "canvas_share_draft"], "push": [], "host": ["canvas_job", "canvas_job_get", "canvas_share_put"] },
+    "routes": []
+  },
+  "dataPolicy": {
+    "onDisable": "keep",
+    "onRemove": "keep",
+    "migrations": "additive",
+    "note": "Shared files are temporary (~/co-agent/state/canvas-share, one hour). The ticket key stays in ~/co-agent/secrets/canvas-ticket-key (home PC keyring aiwb/canvas / ticket); canvas jobs and their events are rows of the core."
+  },
+  "defaults": { "enabled": false }
+}

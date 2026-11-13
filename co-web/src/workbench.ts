@@ -16,9 +16,11 @@ import type {
   AttachmentRef, BridgeEvent, Chat, ChatEvent, ContextFolder, FolderIndex, JobPhase, JobResult, LimitsFile, Mode, OwnerInfo, Project, ChatPermissions } from './types';
 import { buildMemory, protocolUsable, type ContextMode } from './contextLevels';
 import type { ChatProtocol } from './dbapi';
+import { moduleList, sideJobsOf } from './moduleStore';
 import { mapLimit, newChatId, newEventId, newJobId, nowUtc, safeFileName, sha256Hex, uniqueNames } from './util';
 import { md5Hex } from './md5';
-import { corporateBlocked } from './corporate';
+import { importSpeaker } from './importPoint';
+import { gatewayBlocked, gatewayBlockedFields } from './gateway';
 import { dbChats, dbDeleteChat, dbEvents, dbJobCancel, dbJobEvents, dbJobGet, dbJobSubmit, dbProjects, dbPut, dbReadsPrimary, dbGetProfile, dbSharedProjects } from './dbapi';
 import { memoryIndex } from './memoryIndex';
 import { drivePath, ownerEnv } from './members';
@@ -136,7 +138,7 @@ export function unregisteredBridgeProjects(owner: OwnerInfo | null, env: Environ
 
 export async function createProject(
   root: Root,
-  input: { projectId: string; environmentId: EnvironmentId; title: string; description: string; defaultAgentId: AgentId; studyDefault?: boolean },
+  input: { projectId: string; environmentId: EnvironmentId; title: string; description: string; defaultAgentId: AgentId } & Record<string, unknown>,
 ): Promise<Project> {
   const projectsId = await ensurePath(root.id, ['projects']);
   if (await findChild(projectsId, input.projectId, true)) throw new Error(`Project ${input.projectId} already exists.`);
@@ -319,7 +321,8 @@ function driveLater(key: string, what: string, fn: () => Promise<unknown>): void
   });
 }
 
-export async function updateChatMeta(chat: Chat, patch: Partial<Pick<Chat, 'title' | 'titleAuto' | 'defaultMode' | 'projectId' | 'movedUtc' | 'permissions' | 'archived' | 'parent' | 'contextMode' | 'autoSwitch' | 'study' | 'studyLog' | 'studyDoc' | 'browser' | 'family'>>): Promise<Chat> {
+// patch: fields of the chat document, plus the fields of chat modes of modules (<key>, <key>Log, <key>Doc; F10)
+export async function updateChatMeta(chat: Chat, patch: Partial<Pick<Chat, 'title' | 'titleAuto' | 'defaultMode' | 'projectId' | 'movedUtc' | 'permissions' | 'archived' | 'parent' | 'contextMode' | 'autoSwitch' | 'browser' | 'family'>> & Record<string, unknown>): Promise<Chat> {
   const next = { ...chat, ...patch, updatedUtc: nowUtc() };
   // 0.45.0: shareRole is server-only, never written to chat.json
   const { folderId, legacy, shareRole, ...doc } = next;
@@ -494,7 +497,7 @@ export function familyName(email?: string): string {
 }
 
 export function speaker(e: ChatEvent): string {
-  if (e.imported) return e.imported.source === 'chatgpt' ? 'ChatGPT' : 'Claude (claude.ai)';
+  if (e.imported) return importSpeaker(e.imported.source);
   return agentName(e.agent);
 }
 
@@ -683,9 +686,9 @@ export function workbenchNote(hostId: string, project: Project, chat: Chat, mode
     }. Before writing code, check it (tool_list or toolbox.py search) and use a fitting tool after reading its help; extend existing tools instead of rewriting, save reusable new code as a tool, and keep secrets only in keyring.`,
     // S5 (0.99.0): model resources and slaves (aiwb-subtask 0.6.0, db.php subtask_spawn)
     '- Other models as subagents: tool aiwb-subtask, "models" lists the model resources this chat may call (own ' +
-      'subscriptions, the site, family models allowed as slaves, corporate ones) with capability cards; "spawn --resource ID" ' +
+      'subscriptions, the site, family models allowed as slaves, confidential ones) with capability cards; "spawn --resource ID" ' +
       'runs a part of the task there as a child chat, "wait" collects the answers. Use it when a part suits another model ' +
-      'better or parts can run in parallel; corporate data stays with resources of its own environment.',
+      'better or parts can run in parallel; confidential data stays with resources of its own environment.',
     ...(clean ? [] : ['- AI-Workbench/CONTEXT.md is the overview of the system itself; AI-Workbench/context/*.md hold the details per part (devices, release, site and database, …).']),
     '[End of AI Workbench environment]',
   ].join('\n');
@@ -1039,8 +1042,9 @@ export async function finalizeTurn(
     modelReported: r?.modelReported ?? null,
     usage: r?.usage ?? null,
     exportSkipped: r?.exportSkipped || [],
-    ...(corporateBlocked(r) ? { corporateBlocked: corporateBlocked(r), engieBlocked: corporateBlocked(r) } : {}),
-    ...(userEv.canvas ? { canvas: userEv.canvas } : {}),
+    ...gatewayBlockedFields(gatewayBlocked(r)),
+    // F10: the answer to a side job of a module carries its key too (CO Web collapses both into one row)
+    ...Object.fromEntries(sideJobsOf(moduleList()).filter((j) => (userEv as unknown as Record<string, unknown>)[j.key]).map((j) => [j.key, (userEv as unknown as Record<string, unknown>)[j.key]])),
   });
 }
 

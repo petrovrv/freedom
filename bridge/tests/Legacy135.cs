@@ -107,7 +107,7 @@ namespace AiWorkbenchBridge.Tests
                 agent.outputProtocol == "claude-stream-json" ? cloudDeniedTools : null));
 
             // v1.2.1: a Claude-based agent with a defaultModel (dispatcher) gets its modelArguments also when the user
-            // left "Default": they carry the corporate delegation policy, and without them the dispatcher ran as plain Claude.
+            // left "Default": they carry the gateway delegation policy, and without them the dispatcher ran as plain Claude.
             string model = request.model;
             if (String.IsNullOrEmpty(model) && agent.outputProtocol == "claude-stream-json")
                 model = agent.defaultModel;

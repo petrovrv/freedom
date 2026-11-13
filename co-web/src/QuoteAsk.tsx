@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// CO Web 0.82.0: select text in an agent's answer -> a small box with Ask and WTF?! (as in the study viewer).
+// CO Web 0.82.0: select text in an agent's answer -> a small box with Ask and WTF?!.
 // The question goes to the chat as "[quote: #N] …" (chatQuote.ts); formulas are quoted as their TeX source.
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { quoteMessage } from './chatQuote';
@@ -131,7 +131,7 @@ export default function QuoteAsk({ box, canAsk, onAsk }: { box: RefObject<HTMLDi
           if (e.key === 'Escape') setPicked(null);
         }} />
       {copyStatus === 'failed' && <div className="tiny" role="alert">Could not copy. Select the text and use your browser's Copy command.</div>}
-      <div className="study-ask-row">
+      <div className="quote-ask-row">
         <button type="button" className="btn tiny" title="Copy the selected text" onMouseDown={(e) => e.preventDefault()} onClick={() => void copy()}>{copyStatus === 'copied' ? 'Copied!' : 'Copy'}</button>
         <button type="button" className="btn tiny primary" disabled={!canAsk || !question.trim()} title={`Ask about the selected text (${MOD}Enter)`} onClick={() => ask(false)}>Ask</button>
         <button type="button" className="btn tiny" disabled={!canAsk} title="Explain the selected text again from scratch, more simply" onClick={() => ask(true)}>WTF?!</button>

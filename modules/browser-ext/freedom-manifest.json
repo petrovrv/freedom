@@ -1,0 +1,100 @@
+{
+ "format": "freedom-release/1",
+ "version": "0.1.0",
+ "created": "2026-11-12T22:31:26Z",
+ "files": [
+  {
+   "path": "extension/background.js",
+   "size": 446,
+   "sha256": "51c7d24f2fdd56548f631eb1463e56033af18937252618a07411106bb857b697"
+  },
+  {
+   "path": "extension/icons/128.png",
+   "size": 9951,
+   "sha256": "d8fc65d51914be56306702e4050073bab180b6373cd90169d4b4633e2ad3122f"
+  },
+  {
+   "path": "extension/icons/16.png",
+   "size": 786,
+   "sha256": "db90d2b34c108f1ad005ff995377085b76cae022dab442a8ae0db68db59f5250"
+  },
+  {
+   "path": "extension/icons/32.png",
+   "size": 2019,
+   "sha256": "c88bebcd91b4d2a6821e47deec216214ddc35da69527b92b89d42706be2787b1"
+  },
+  {
+   "path": "extension/icons/48.png",
+   "size": 3283,
+   "sha256": "58627bb64f47e6896cce5668e4fcc178b8388a3db8ef63f6073f79ece5518781"
+  },
+  {
+   "path": "extension/manifest.json",
+   "size": 1361,
+   "sha256": "33db3781ce2587d2b299410100ae9713e1be9103d876e4acd28f4fd43ef7283a"
+  },
+  {
+   "path": "extension/page.js",
+   "size": 32181,
+   "sha256": "b3640265610fc7cdf1af530296c1ebd6bf2b4a6a26be45d96e5ded50770853d7"
+  },
+  {
+   "path": "extension/panel.css",
+   "size": 1928,
+   "sha256": "58c78046658ab1a6e9806fa06daf2a37281f1cf014a7544e5b9d415fa0f62155"
+  },
+  {
+   "path": "extension/panel.html",
+   "size": 1123,
+   "sha256": "3cc7c6f7d29c2db6bb8923d27f7aebad709cab2327453473ef933d01220e06e1"
+  },
+  {
+   "path": "extension/panel.js",
+   "size": 34644,
+   "sha256": "13ded2c1d02fbb1bf42c8f764b984b8865c7dd74c39d7097e294afeacfa90292"
+  },
+  {
+   "path": "module.json",
+   "size": 2314,
+   "sha256": "b267ba3f202ae50c97578578e5b8ca5a47683f46261193f5bbf098a616a0bf25"
+  },
+  {
+   "path": "package.py",
+   "size": 3414,
+   "sha256": "1cccc4d098e418b5db937ceff1809a6ca75078fc1759d62ddebada52fe93d5b6"
+  },
+  {
+   "path": "README.md",
+   "size": 6032,
+   "sha256": "5e1c2984222c25a9f95055880c61ea6d5f4415f83c625887e2aeb17945cb6100"
+  },
+  {
+   "path": "tests/cookie-test.mjs",
+   "size": 3212,
+   "sha256": "2d4525780f2e24467631243d221369848d2fad3edb93c92e98c9fd20fe3a98e1"
+  },
+  {
+   "path": "tests/live-test.mjs",
+   "size": 6359,
+   "sha256": "4f02660b4755ace9ba4eef9da1664dd8bafe111c2c9d82fbb20d45cd85103ab8"
+  },
+  {
+   "path": "tests/run.py",
+   "size": 3597,
+   "sha256": "bde51a767b932bd49fcffb34f359db28a2eae5ed80c135a1baaf68cbce663b2c"
+  },
+  {
+   "path": "tests/tools-test.mjs",
+   "size": 12217,
+   "sha256": "7898596a44f1b69506e040a76756f1c3fbc2f2fb0d07eb406aff877a8d5ac839"
+  }
+ ],
+ "signatures": [
+  {
+   "name": "maintainer-1",
+   "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
+   "sig": "ViS79khg9KPEs3A8S3+6RpR0/i+NILlxiKm38o952BivleTfi6CUS4mmlXUIgdxEecFLcxlHDYAcNqjDgItWCw=="
+  }
+ ],
+ "module": "browser-ext"
+}

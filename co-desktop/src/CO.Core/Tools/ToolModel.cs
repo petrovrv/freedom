@@ -91,18 +91,48 @@ public static class Schema
 
 public sealed class ToolCatalog
 {
+    private readonly object _sync = new();
     private readonly Dictionary<string, IDeviceTool> _tools = new(StringComparer.Ordinal);
+    // Freedom F10: tools taken out of the catalog (a module switched off) answer with this reason instead of unknown_tool.
+    private readonly Dictionary<string, (string Code, string Message)> _retired = new(StringComparer.Ordinal);
 
     public void Add(IDeviceTool t)
     {
         if (!ToolNames.IsValid(t.Descriptor.Name))
             throw new ArgumentException($"Invalid tool name '{t.Descriptor.Name}'.");
-        _tools.Add(t.Descriptor.Name, t);
+        lock (_sync)
+        {
+            _tools.Add(t.Descriptor.Name, t);
+            _retired.Remove(t.Descriptor.Name);
+        }
     }
 
-    public bool TryGet(string name, out IDeviceTool tool) => _tools.TryGetValue(name, out tool!);
+    /// <summary>Takes a tool out (module switched off or updated); later calls get code/message instead of unknown_tool.</summary>
+    public bool Remove(string name, string code, string message)
+    {
+        lock (_sync)
+        {
+            if (!_tools.Remove(name)) return false;
+            _retired[name] = (code, message);
+            return true;
+        }
+    }
 
-    public IEnumerable<ToolDescriptor> Descriptors => _tools.Values.Select(t => t.Descriptor);
+    public bool Contains(string name) { lock (_sync) return _tools.ContainsKey(name); }
+
+    public bool TryGet(string name, out IDeviceTool tool) { lock (_sync) return _tools.TryGetValue(name, out tool!); }
+
+    public bool TryGetRetired(string name, out string code, out string message)
+    {
+        lock (_sync)
+        {
+            bool ok = _retired.TryGetValue(name, out var r);
+            (code, message) = ok ? r : ("", "");
+            return ok;
+        }
+    }
+
+    public IEnumerable<ToolDescriptor> Descriptors { get { lock (_sync) return _tools.Values.Select(t => t.Descriptor).ToList(); } }
 
     // Catalog published in the pairing request and in devices/<id>.json (MCP tools/list shape).
     public JsonArray ToMcpList()

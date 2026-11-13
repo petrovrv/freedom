@@ -516,7 +516,7 @@ namespace AiWorkbenchBridge
 
     internal sealed partial class BridgeApplicationContext : ApplicationContext
     {
-        private const string BridgeVersion = "1.16.0";
+        private const string BridgeVersion = "1.17.0";
         private const int ProtocolMinor = 2;
 
         private static readonly string[] KnownModes = new string[] { "chat", "cowork" };
@@ -625,6 +625,7 @@ namespace AiWorkbenchBridge
 
             _driveRoot = ExpandPath(_config.driveRoot, _appDir);
             ReadGuard.DriveRoot = _driveRoot;
+            try { Modules.OwnerEnv = OwnerPushEnv() ?? ""; Modules.Reload(); } catch { } // F10: installed modules and the cached switches before any job or device call
             ReadGuard.RunAsActive = _config.runAs != null && !String.IsNullOrWhiteSpace(_config.runAs.user);
             InitializeTray();
 
@@ -798,8 +799,8 @@ namespace AiWorkbenchBridge
                 AgentProfile agent = pair.Value;
                 if (agent == null)
                     throw new InvalidOperationException("Agent '" + pair.Key + "' is null.");
-                // The corporate gateway runtime (kind "corporate", legacy "engie") is driven by Bridge itself — no executable.
-                if (!Corporate.IsGatewayRuntime(agent.kind) && String.IsNullOrWhiteSpace(agent.executable))
+                // The gateway runtime (kind "gateway", legacy kinds) is driven by Bridge itself — no executable.
+                if (!Gateway.IsGatewayRuntime(agent.kind) && String.IsNullOrWhiteSpace(agent.executable))
                     throw new InvalidOperationException(
                         "Agent '" + pair.Key + "' has no executable.");
 
@@ -998,7 +999,7 @@ namespace AiWorkbenchBridge
             if (!String.IsNullOrEmpty(agent.rateLimitSessionsDir))
                 agent.rateLimitSessionsDir = ExpandPath(agent.rateLimitSessionsDir, _appDir);
 
-            if (!Corporate.IsGatewayRuntime(agent.kind) &&
+            if (!Gateway.IsGatewayRuntime(agent.kind) &&
                 (agent.models != null && agent.models.Count > 0 ||
                  !String.IsNullOrEmpty(agent.modelCatalogFile)) &&
                 (agent.modelArguments == null || agent.modelArguments.Length == 0))
@@ -1473,6 +1474,7 @@ namespace AiWorkbenchBridge
                 MaybePublishFolderIndex();
                 MaybeRefreshCodexLimits();
                 MaybeRunSchedules();
+                MaybeTickModules();                      // F10: module switches, services, tools, models
                 ProcessCancelRequests();
                 FinalizeStrandedClaimedJobs();
 
@@ -1717,6 +1719,8 @@ namespace AiWorkbenchBridge
             List<string> missingArtifacts = new List<string>();
             List<ArtifactFailure> failedArtifacts = new List<ArtifactFailure>();
             byte[] requestBytes = null;
+            bool continuationQueued = false;     // v1.16.0: stopped for the update, continuation queued (maybe failed)
+            string continuationJobId = null;
 
             try
             {
@@ -1820,6 +1824,8 @@ namespace AiWorkbenchBridge
                     }
                 }
 
+                PrepareModulesForJob(request, eventWriter); // F10: modules of the job, context, job.before hooks
+
                 eventWriter.Write(
                     "bridge",
                     "started",
@@ -1836,6 +1842,7 @@ namespace AiWorkbenchBridge
                     : null;
                 object sessionLock = sessionKey == null ? null : _sessionLocks.GetOrAdd(sessionKey, delegate(string k) { return new object(); });
                 bool sessionHeld = false;
+                WaitForEarlierContinuations(jobId, eventWriter); // v1.16.0: continuations of one chat in their order
                 AgentRunResult runResult;
                 try
                 {
@@ -1852,19 +1859,39 @@ namespace AiWorkbenchBridge
                                 throw new InvalidOperationException("The previous message in this chat is still running.");
                         }
                     }
-                    if (Corporate.IsGatewayRuntime(agent.kind))
+                    if (Gateway.IsGatewayRuntime(agent.kind))
                         SupNoProcessOk(jobId, true); // v1.9.0: the gateway runtime runs over HTTP without a process
-                    runResult = Corporate.IsGatewayRuntime(agent.kind)
-                        ? RunGatewayAgent(jobId, localJobDir, request, agent, eventWriter)
-                        : RunAgent(
-                            jobId,
-                            localJobDir,
-                            request,
-                            workspace,
-                            agent,
-                            modeProfile,
-                            timeoutMinutes,
-                            eventWriter);
+                    try
+                    {
+                        runResult = Gateway.IsGatewayRuntime(agent.kind)
+                            ? RunGatewayAgent(jobId, localJobDir, request, agent, eventWriter)
+                            : RunAgent(
+                                jobId,
+                                localJobDir,
+                                request,
+                                workspace,
+                                agent,
+                                modeProfile,
+                                timeoutMinutes,
+                                eventWriter);
+                    }
+                    catch (UpdatePausedException)
+                    {
+                        // v1.16.0: stopped by the update before the agent started: the same request runs again
+                        if (!_cancelRequested.ContainsKey(jobId))
+                        {
+                            continuationJobId = QueueUpdateContinuation(requestBytes, request, null, eventWriter);
+                            continuationQueued = true;
+                        }
+                        throw;
+                    }
+                    // v1.16.0: queued while the chat's session lock is still held, so that a message of the chat waiting
+                    // for this one is continued after it (the next process runs continuations in this order).
+                    if (runResult.stoppedForUpdate && !_cancelRequested.ContainsKey(jobId))
+                    {
+                        continuationJobId = QueueUpdateContinuation(requestBytes, request, runResult.sessionId, eventWriter);
+                        continuationQueued = true;
+                    }
                 }
                 finally
                 {
@@ -1873,16 +1900,16 @@ namespace AiWorkbenchBridge
                 }
 
                 // v1.1.6: every Claude-based agent (claude, dispatcher) reports the same subscription: one "claude" entry.
-                // The corporate dispatcher's entry is its savings share, refreshed from the usage ledger.
+                // The gateway dispatcher's entry is its savings share, refreshed from the usage ledger.
                 if (runResult.limits != null)
                     UpdateLimits(AgentRuntime.Get(agent.outputProtocol).LimitsAgentId(request.agent), runResult.limits);
-                if (Corporate.IsDispatcher(request.agent) && runResult.usage != null)
+                if (Gateway.IsDispatcher(request.agent) && runResult.usage != null)
                 {
                     BookUsage(request.agent, request.jobId, "claude", request.model, runResult.usage.inputTokens, runResult.usage.outputTokens);
                     // v1.2.6: warn when the dispatcher generated content itself instead of delegating to the gateway.
                     CheckDispatcherPolicy(request.jobId, runResult.usage.outputTokens, eventWriter);
                 }
-                else if (Corporate.IsDispatcher(request.agent))
+                else if (Gateway.IsDispatcher(request.agent))
                 {
                     RefreshDispatcherSavings();
                 }
@@ -1930,12 +1957,7 @@ namespace AiWorkbenchBridge
                     artifactsOk;
 
                 // v1.16.0: stopped for the Bridge update: "cancelled" (not a failure), continued by a new job of the chat
-                bool pausedForUpdate =
-                    !success && !wasCancelled && UpdatePauseRequested(jobId) &&
-                    !Corporate.IsGatewayRuntime(agent.kind);
-                string continuationJobId = pausedForUpdate
-                    ? QueueUpdateContinuation(requestBytes, request, runResult.sessionId, eventWriter)
-                    : null;
+                bool pausedForUpdate = continuationQueued && !success;
                 string pauseMessage = pausedForUpdate
                     ? UpdatePauseMessage(_updatePaused[jobId], continuationJobId)
                     : null;
@@ -2017,8 +2039,10 @@ namespace AiWorkbenchBridge
                 // v1.5.1: strip the agent's marker before it reaches the user and use it as the block signal.
                 bool blockedMarker;
                 string finalText = StripBlockedMarker(runResult.finalResponse, out blockedMarker);
-                result.corporateBlocked = CorporateBlockedReason(request, finalStatus, blockedMarker);
-                result.engieBlocked = result.corporateBlocked; // legacy wire (server and CO Web before Freedom F1 5b)
+                result.gatewayBlocked = GatewayBlockedReason(request, finalStatus, blockedMarker);
+                // legacy wire names of the same value (servers and CO Web before F10)
+                result.corporateBlocked = result.gatewayBlocked;
+                result.engieBlocked = result.gatewayBlocked;
                 EndDeviceJob(request.jobId);
                 result.hostId = _config.hostId;
                 result.jobId = request.jobId;
@@ -2080,14 +2104,12 @@ namespace AiWorkbenchBridge
             {
                 // 1.8.2: an error caused by the user's Stop (the process was killed) is a cancellation, not a failure
                 bool cancelledByClient = _cancelRequested.ContainsKey(jobId);
-                // v1.16.0: a job stopped by the update before its agent started runs again as a new job of the chat
+                // v1.16.0: stopped by the update (continuation queued above): "cancelled" with the pause message
                 string pauseMessage = null;
-                string continuationJobId = null;
-                if (!cancelledByClient && ex is UpdatePausedException && request != null && requestBytes != null)
+                if (continuationQueued)
                 {
-                    continuationJobId = QueueUpdateContinuation(requestBytes, request, null, eventWriter);
                     pauseMessage = UpdatePauseMessage(_updatePaused[jobId], continuationJobId);
-                    cancelledByClient = true; // ends "cancelled" with pauseMessage, not "failed"
+                    cancelledByClient = true;
                 }
                 Log("Job " + jobId + (pauseMessage != null ? " paused: " + ex.Message : (cancelledByClient ? " cancelled: " : " failed: ") + ex));
 
@@ -2152,6 +2174,11 @@ namespace AiWorkbenchBridge
             }
             finally
             {
+                if (request != null)
+                {
+                    try { RunModuleHooks("job.after", request, finalStatus); } catch { } // F10: in the background
+                }
+
                 if (eventWriter != null)
                 {
                     eventWriter.DisposeAndFlush();
@@ -2201,8 +2228,11 @@ namespace AiWorkbenchBridge
                         TryDeleteDirectory(localJobDir);
                 }
 
-                if (!String.IsNullOrEmpty(stagedAttachmentRoot))
+                // v1.16.0: the continuation (resumed session or the same request) still refers to the staged files
+                if (!String.IsNullOrEmpty(stagedAttachmentRoot) && continuationJobId == null)
                     TryDeleteDirectory(stagedAttachmentRoot);
+
+                ContinuationDone(jobId);
 
                 byte cancelIgnored;
                 _cancelRequested.TryRemove(jobId, out cancelIgnored);
@@ -2700,12 +2730,41 @@ namespace AiWorkbenchBridge
             bool hasAttachments = request.attachments != null && request.attachments.Count > 0;
             bool hasContexts = request.resolvedContexts != null && request.resolvedContexts.Count > 0;
 
-            if (!hasAttachments && !hasContexts)
+            bool hasModules = !String.IsNullOrEmpty(request.moduleContext);
+
+            if (!hasAttachments && !hasContexts && !hasModules)
                 return request.instruction;
 
             StringBuilder sb = new StringBuilder();
             sb.AppendLine(request.instruction);
+            AppendAttachmentNotes(sb, request);
 
+            if (hasContexts)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Connected context folders (use them as reference material; do not copy them wholesale):");
+                foreach (ResolvedContext rc in request.resolvedContexts)
+                {
+                    sb.AppendLine("- " + rc.label + " [" + (rc.write ? "read-write" : "read-only: do not modify") + "]: " + rc.fullPath);
+                }
+            }
+
+            if (hasModules)
+            {
+                // F10 ext/1 "context": rules of the modules enabled for this environment
+                sb.AppendLine();
+                sb.AppendLine("Rules of the workbench modules enabled for you:");
+                sb.AppendLine(request.moduleContext);
+            }
+
+            return sb.ToString();
+        }
+
+        // The attached files of the prompt: chat files and the staged .co-attachments/<jobId>/ list (v1.16.0: also for
+        // the continuation of a job paused before its agent started).
+        private static void AppendAttachmentNotes(StringBuilder sb, JobRequest request)
+        {
+            bool hasAttachments = request.attachments != null && request.attachments.Count > 0;
             List<string> notes = request.chatFileNotes ?? new List<string>();
             List<AttachmentRequest> staged = !hasAttachments ? new List<AttachmentRequest>() : notes.Count == 0
                 ? request.attachments
@@ -2730,18 +2789,6 @@ namespace AiWorkbenchBridge
                 foreach (AttachmentRequest attachment in staged)
                     sb.AppendLine("- .co-attachments/" + request.jobId + "/" + attachment.path.Replace('\\', '/'));
             }
-
-            if (hasContexts)
-            {
-                sb.AppendLine();
-                sb.AppendLine("Connected context folders (use them as reference material; do not copy them wholesale):");
-                foreach (ResolvedContext rc in request.resolvedContexts)
-                {
-                    sb.AppendLine("- " + rc.label + " [" + (rc.write ? "read-write" : "read-only: do not modify") + "]: " + rc.fullPath);
-                }
-            }
-
-            return sb.ToString();
         }
 
         private JobRequest ReadAndValidateJob(string folderJobId, byte[] requestBytes)
@@ -2864,8 +2911,8 @@ namespace AiWorkbenchBridge
         }
 
         // Last total_token_usage recorded in the Codex rollout of a session (null when not found).
-        // v1.1: corporate gateway runtime (config kind "corporate", legacy "engie"). No CLI process: Bridge calls the
-        // device tool of kind corporate-llm (connector manifest; it reaches the gateway with the user's portal session)
+        // v1.1: gateway runtime (config kind "gateway", legacy kinds). No CLI process: Bridge calls the device tool of
+        // kind llm of the gateway module (F10 module manifest; it reaches the gateway with the user's portal session)
         // and returns its reply as the job's final response. The gateway is a locked chat assistant, so the model cannot drive tools — the harness passes the prompt (and any
         // document text already assembled by BuildAgentPrompt) and streams back the answer.
         private AgentRunResult RunGatewayAgent(
@@ -2881,13 +2928,13 @@ namespace AiWorkbenchBridge
 
             if (request.devices == null || request.devices.Count == 0)
             {
-                result.error = "The " + Corporate.Title + " agent needs a device: pick the computer signed in to " + Corporate.PortalTitle + ".";
+                result.error = "The " + Gateway.Title + " agent needs a device: pick the computer signed in to " + Gateway.PortalTitle + ".";
                 return result;
             }
-            string gatewayTool = Corporate.ToolOf(Corporate.LlmKind);
+            string gatewayTool = Gateway.ToolOf(Gateway.LlmKind);
             if (gatewayTool == null)
             {
-                result.error = Corporate.Title + " call failed: no gateway tool (kind " + Corporate.LlmKind + ") in the corporate connector manifest " + Corporate.ManifestPath() + ".";
+                result.error = Gateway.Title + " call failed: no gateway tool (device tool of kind llm) in an installed module (" + Modules.Root() + ").";
                 return result;
             }
             string deviceId = request.devices[0];
@@ -2911,7 +2958,7 @@ namespace AiWorkbenchBridge
             callArgs["prompt"] = BuildAgentPrompt(request);
             string argsJson = JsonUtil.Serialize(callArgs);
 
-            eventWriter.Write("bridge", "corporate", "Asking " + Corporate.Title + " model '" + model + "' via device " + deviceId + "…");
+            eventWriter.Write("bridge", "gateway", "Asking " + Gateway.Title + " model '" + model + "' via device " + deviceId + "…");
 
             Dictionary<string, object> reply;
             try
@@ -2920,7 +2967,7 @@ namespace AiWorkbenchBridge
             }
             catch (Exception ex)
             {
-                result.error = Corporate.Title + " call failed: " + ex.Message;
+                result.error = Gateway.Title + " call failed: " + ex.Message;
                 return result;
             }
 
@@ -2934,7 +2981,7 @@ namespace AiWorkbenchBridge
                 if (reply.TryGetValue("error", out errObj) && errObj is Dictionary<string, object>)
                     errMsg = DeviceWire.S((Dictionary<string, object>)errObj, "message");
                 result.error = !String.IsNullOrEmpty(errMsg) ? errMsg
-                    : (Corporate.Title + " call failed" + (String.IsNullOrEmpty(content) ? "." : ": " + content));
+                    : (Gateway.Title + " call failed" + (String.IsNullOrEmpty(content) ? "." : ": " + content));
                 return result;
             }
 
@@ -3226,6 +3273,7 @@ namespace AiWorkbenchBridge
                                 "bridge",
                                 "update_pause",
                                 "Bridge update: stopping the agent; the job continues after the restart.");
+                            result.stoppedForUpdate = true;
                             if (jobObject != null && assignedToJobObject)
                                 jobObject.Terminate(4);
                             else
@@ -4333,7 +4381,7 @@ namespace AiWorkbenchBridge
                     owner.runningJobs = _runningJobs.Count;
                     owner.relayActive = RelayActiveCount; // v1.14.0: the CO Desktop doctor never ends a Bridge serving relay calls
                     owner.stateSinceUtc = _stateSinceUtc.ToString("o");
-                    CheckDeviceHeartbeats();             // v1.4.1: push when a device of the corporate connector goes silent
+                    CheckDeviceHeartbeats();             // v1.4.1: push when a device of the gateway module goes silent
                     owner.updatedUtc = DateTime.UtcNow.ToString("o");
 
                     AtomicFile.WriteJson(_hostOwnerPath, owner);
@@ -4674,8 +4722,11 @@ namespace AiWorkbenchBridge
                 info.efforts = agent.efforts ?? new string[0];
                 info.defaultModel = agent.defaultModel;
                 info.defaultEffort = agent.defaultEffort;
-                if (Corporate.IsAgent(pair.Key) || Corporate.IsGatewayRuntime(agent.kind))
-                    info.corporate = true;
+                if (Gateway.IsAgent(pair.Key) || Gateway.IsGatewayRuntime(agent.kind))
+                {
+                    info.confidential = true;
+                    info.corporate = true; // legacy wire of confidential (servers before F10)
+                }
                 result[pair.Key] = info;
             }
 
@@ -5053,6 +5104,7 @@ namespace AiWorkbenchBridge
         {
             _exiting = true;
             StopFastTransport();
+            try { StopAllModuleServices(); } catch { } // F10: module services stop with Bridge
 
             try
             {
@@ -6630,7 +6682,7 @@ namespace AiWorkbenchBridge
         public int outputDrainTimeoutSeconds { get; set; }
         public int hostLeaseSeconds { get; set; }
         public int maxParallelJobs { get; set; }
-        // v1.2.6: Claude output tokens above which a corporate dispatcher job with 0 gateway tokens gets a policy_warning event;
+        // v1.2.6: Claude output tokens above which a gateway dispatcher job with 0 gateway tokens gets a policy_warning event;
         // 0 = default 4000, negative = off.
         public int dispatcherPolicyWarnTokens { get; set; }
         // Freedom F1: base URL of the CO site (https://co.example.org); empty = the origin of dbQueue.url or push.url
@@ -6752,8 +6804,8 @@ namespace AiWorkbenchBridge
         public bool requiresGitRepository { get; set; }
         public Dictionary<string, string> environment { get; set; }
 
-        // v1.1: runtime kind. Empty/absent = launch "executable" (claude/codex CLI). "corporate" (legacy "engie") = no
-        // process; Bridge calls the connector's gateway tool and returns its reply (corporate models via the gateway).
+        // v1.1: runtime kind. Empty/absent = launch "executable" (claude/codex CLI). "gateway" (or a legacy kind) = no
+        // process; Bridge calls the gateway module's model tool and returns its reply.
         public string kind { get; set; }
 
         // v0.6: optional label shown by the web client.
@@ -6844,7 +6896,8 @@ namespace AiWorkbenchBridge
         public string[] efforts { get; set; }
         public string defaultModel { get; set; }
         public string defaultEffort { get; set; }
-        public bool? corporate { get; set; } // Freedom F1 5b: an agent of the corporate connector (server: confidential)
+        public bool? confidential { get; set; } // F10: an agent of a gateway module (its data stays in its environment)
+        public bool? corporate { get; set; }    // legacy wire of confidential
     }
 
     internal sealed class OwnerProjectInfo
@@ -6891,7 +6944,7 @@ namespace AiWorkbenchBridge
 
         // v1.0 (protocol v3, minor 2)
         public List<string> devices { get; set; }
-        // v1.3.5: device tools hidden from this job (CO Web: a paused or switched-off corporate connector)
+        // v1.3.5: device tools hidden from this job (CO Web: a paused or switched-off connector)
         public List<string> deviceToolsDeny { get; set; }
         public bool tainted { get; set; }
         public JobTaskRequest task { get; set; }
@@ -6902,6 +6955,9 @@ namespace AiWorkbenchBridge
         // v1.10.0: agent browser settings of the chat (db.php browser_settings), filled before the agent starts
         [ScriptIgnore]
         public BridgeApplicationContext.BrowserSettings browserSettings { get; set; }
+        // F10: instructions of enabled modules (context fragments, job.before answers), filled before the agent starts
+        [ScriptIgnore]
+        public string moduleContext { get; set; }
     }
 
 
@@ -6973,8 +7029,9 @@ namespace AiWorkbenchBridge
         // v1.0: the Run read untrusted content through device tools (TZ-CO-DESKTOP §9.4).
         public bool tainted { get; set; }
 
-        // v1.5.1: why the corporate model was unavailable to this job (CO Web offers to resume the chat when it is back);
-        // null otherwise. engieBlocked = the same value under the legacy wire name.
+        // v1.5.1: why the gateway model was unavailable to this job (CO Web offers to resume the chat when it is back);
+        // null otherwise. The other two carry the same value under legacy wire names.
+        public string gatewayBlocked { get; set; }
         public string corporateBlocked { get; set; }
         public string engieBlocked { get; set; }
     }
@@ -7030,6 +7087,7 @@ namespace AiWorkbenchBridge
 
     internal sealed class AgentRunResult
     {
+        public bool stoppedForUpdate { get; set; } // v1.16.0: RunAgent stopped the agent for the Bridge update
         public string startedUtc { get; set; }
         public int exitCode { get; set; }
         public bool timedOut { get; set; }
@@ -7067,8 +7125,8 @@ namespace AiWorkbenchBridge
         public int windowMinutes { get; set; }
         public double usedPercent { get; set; }
         public string resetsAtUtc { get; set; }
-        public long? corpTokens { get; set; }     // v1.1.6, corporate dispatcher savings windows only
-        public long? engieTokens { get; set; }    // legacy wire name of corpTokens
+        public long? corpTokens { get; set; }     // v1.1.6, gateway dispatcher savings windows only (legacy wire name)
+        public long? engieTokens { get; set; }    // legacy wire name of corpTokens (older)
         public long? claudeTokens { get; set; }
         public int? jobs { get; set; }
 
@@ -7155,7 +7213,7 @@ namespace AiWorkbenchBridge
         public string version { get; set; }
         public string lastHeartbeatUtc { get; set; }
         public bool online { get; set; }
-        public OwnerDeviceCorp corp { get; set; } // Freedom F1 5b: corporate connector session {id, state}
+        public OwnerDeviceCorp corp { get; set; } // Freedom F1 5b: gateway session of the device {id, state} (wire name)
         public string engie { get; set; }         // legacy wire of corp.state
         public string kind { get; set; }        // v1.5.0: desktop | web
         public string @short { get; set; }      // v1.5.0: same as shortName (web device spec field)

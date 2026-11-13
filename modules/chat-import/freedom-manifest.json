@@ -1,0 +1,80 @@
+{
+ "format": "freedom-release/1",
+ "version": "0.1.2",
+ "created": "2026-11-12T22:49:29Z",
+ "files": [
+  {
+   "path": "build.mjs",
+   "size": 1266,
+   "sha256": "bc4deebc07470c84dde13649daa14d3d1d1fbe80925c5bf9bcc09a800e210d52"
+  },
+  {
+   "path": "module.json",
+   "size": 2459,
+   "sha256": "2f2065552464b7007645f0acb83e0cd210256ee9ea9e607c15db6c96f1396846"
+  },
+  {
+   "path": "README.md",
+   "size": 2546,
+   "sha256": "118b97be84c5d47f53f817359ab7b43d343157010f47414157c3a531457de082"
+  },
+  {
+   "path": "src/page.ts",
+   "size": 20446,
+   "sha256": "44a1caac98970dbec504e58d67c2687e41b44c4fc225c8cc9f60c0bdd96f0834"
+  },
+  {
+   "path": "src/parse.ts",
+   "size": 8646,
+   "sha256": "fe321cb392c57da61c55f42e530b68708ce43efe795eadb4b7f92a79f79baba3"
+  },
+  {
+   "path": "src/zip.ts",
+   "size": 2450,
+   "sha256": "c7e8397367845a5db382d250fd07435dfeefcbf3a00f6e24304b680173410b6c"
+  },
+  {
+   "path": "tests/coweb-e2e.mjs",
+   "size": 21341,
+   "sha256": "6875bb4d527268c3c1a432c3658ee9b49bba77805e2a3dd66f0f50c0ca5b5f01"
+  },
+  {
+   "path": "tests/page-e2e.mjs",
+   "size": 9831,
+   "sha256": "15fc37cf2842dfe7ab000198b6c7e294209dc42fb33fd13bd17057a1773c7aa4"
+  },
+  {
+   "path": "tests/parse.selftest.ts",
+   "size": 2897,
+   "sha256": "e1440a3a894963fff83d7b6360a99934114e8106b84d406afff49ce8077c7718"
+  },
+  {
+   "path": "tsconfig.json",
+   "size": 407,
+   "sha256": "3907aa54f4255203ad2a9851b3ea656203cfea7f1c3aeb2e4529bb9f86078860"
+  },
+  {
+   "path": "ui/import.css",
+   "size": 4471,
+   "sha256": "3ab1c90277a3b53effd3f21bd7178317d8d14012a71f918ec58152702ff05c80"
+  },
+  {
+   "path": "ui/import.html",
+   "size": 356,
+   "sha256": "c6bace20e14bdd431dc1f02077de1f3bc449b94a653fb08ba849bbe3aab6b64f"
+  },
+  {
+   "path": "ui/import.js",
+   "size": 23848,
+   "sha256": "ef7fe3a2028d065e066e3b2a3a02116c9608036ff268203bf0ff000865909051"
+  }
+ ],
+ "signatures": [
+  {
+   "name": "maintainer-1",
+   "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
+   "sig": "EGmbvx7lIrJZUeP32OD4vgdxRfnykSmysx/auUFyGABICwwbgtENbRT7EIB2GNoyZ1I/87eRKw+Cx3M5ciX3Cg=="
+  }
+ ],
+ "module": "chat-import"
+}

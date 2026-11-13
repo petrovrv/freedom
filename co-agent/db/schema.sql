@@ -153,23 +153,8 @@ ALTER TABLE chats ADD COLUMN IF NOT EXISTS summary TEXT NULL;
 ALTER TABLE chats ADD COLUMN IF NOT EXISTS summary_utc DATETIME(3) NULL;
 UPDATE meta SET v = '6' WHERE k = 'schema' AND v IN ('1', '2', '3', '4', '5');
 
--- Schema 7 (2026-10-16, document search): text of project documents (docx, pdf, xlsx, pptx, md, txt, ...) in chunks,
--- written by the aiwb-docs tool on the home PC (db.php docs_state / docs_put / docs_delete), searched by CO Web
--- (search_docs) and agents (docs_search). doc_key = sha1 of the path relative to AI-Workbench/projects.
-CREATE TABLE IF NOT EXISTS docs (
-  doc_key     CHAR(40)      NOT NULL,
-  chunk       INT           NOT NULL,
-  project_id  VARCHAR(100)  NOT NULL,
-  path        VARCHAR(1000) NOT NULL,             -- relative to AI-Workbench/projects, forward slashes
-  name        VARCHAR(255)  NOT NULL,
-  mtime       BIGINT        NOT NULL,             -- seconds, of the indexed file
-  size        BIGINT        NOT NULL,
-  indexed_utc DATETIME(3)   NOT NULL,
-  text        MEDIUMTEXT    NOT NULL,
-  PRIMARY KEY (doc_key, chunk),
-  KEY ix_docs_project (project_id),
-  FULLTEXT KEY ft_docs (name, text)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Schema 7 (2026-10-16, document search): text of project documents. Freedom F10: the table belongs to a document index
+-- module (search provider, ext/1 search.provider); its install hook takes over the docs table of an older server.
 UPDATE meta SET v = '7' WHERE k = 'schema' AND v IN ('1', '2', '3', '4', '5', '6');
 
 -- Schema 8 (2026-10-17, chat protocol): the secretary (cron/protocol.php, the same model as the chat's agent) keeps
@@ -536,43 +521,10 @@ CREATE TABLE IF NOT EXISTS dossier (
 ALTER TABLE protocol ADD FULLTEXT INDEX IF NOT EXISTS ft_protocol_text (text);
 UPDATE meta SET v = '19' WHERE k = 'schema' AND v IN ('1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18');
 
--- Schema 20 (2026-11-09, associative search; web/agent/search-lib.php). Chat search merges three ranked lists by
--- reciprocal rank (RRF): full-text over messages, full-text over protocol entries, and vectors of protocol entries.
--- The vectors come from the static model minishlab/potion-multilingual-128M (256 dims) computed on the home PC by the
--- library tool aiwb-assoc (hourly task). PHP cannot run the model, so the query vector is built from vec_words: for
--- each word the sum of its raw token embeddings and the token count; query = sum / count, normalised (model2vec mean
--- pooling per word). Vectors are int8 with a float scale.
-CREATE TABLE IF NOT EXISTS vec_words (
-  word        VARCHAR(60)   CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, -- lower case
-  n           SMALLINT      NOT NULL,             -- tokens of the word
-  scale       FLOAT         NOT NULL,             -- sum of token vectors = v * scale
-  v           VARBINARY(256) NOT NULL,            -- int8
-  freq        INT           NOT NULL DEFAULT 0,   -- occurrences in the corpus (prefix fallback picks the most frequent)
-  PRIMARY KEY (word)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE IF NOT EXISTS vec_protocol (
-  protocol_id BIGINT        NOT NULL,             -- protocol.id
-  chat_id     VARCHAR(60)   NOT NULL,
-  sha         CHAR(40)      NOT NULL,             -- sha1 of protocol.text the vector was computed from
-  scale       FLOAT         NOT NULL,             -- 1 / |v|: cosine = dot(query, v) * scale
-  v           VARBINARY(256) NOT NULL,            -- int8
-  PRIMARY KEY (protocol_id),
-  KEY ix_vec_protocol_chat (chat_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
--- Aliases: names of one thing (Wikidata labels and aliases in ru/en/uk/nl, variants suggested by a model, own names
--- of the environment). A query that contains a term gets the other terms of its group as extra full-text words.
--- env '' = for every environment (general terms), otherwise only for that environment (own names, people).
-CREATE TABLE IF NOT EXISTS aliases (
-  id          BIGINT        NOT NULL AUTO_INCREMENT,
-  env         VARCHAR(40)   NOT NULL DEFAULT '',
-  grp         VARCHAR(80)   NOT NULL,             -- Wikidata Q-id or own key
-  term        VARCHAR(120)  CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, -- lower case, words separated by one space
-  source      VARCHAR(12)   NOT NULL,             -- wikidata|model|user
-  created_utc DATETIME(3)   NOT NULL,
-  PRIMARY KEY (id),
-  UNIQUE KEY ux_aliases (env, grp, term),
-  KEY ix_aliases_term (term)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Schema 20 (2026-11-09, associative search; web/agent/search-lib.php): chat search merges ranked lists by reciprocal
+-- rank (RRF). Freedom F10: vectors and aliases belong to a search provider module (ext/1
+-- search.provider) that adds its list to the core's full-text lists; its install hook takes over the vector and alias
+-- tables of an older server.
 UPDATE meta SET v = '20' WHERE k = 'schema' AND v IN ('1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19');
 
 -- Schema 21 (2026-11-11, Freedom F1; web/agent/members-lib.php). members: the people of this workbench (owner, family or
@@ -636,16 +588,16 @@ UPDATE meta SET v = '22' WHERE k = 'schema' AND v IN ('1', '2', '3', '4', '5', '
 
 -- Schema 23 (2026-11-11, S5 of chat CHAT-20261111085044-HV3A; web/agent/models-lib.php). Model resources: one list of
 -- subscriptions (agents in the hosts' owner.json are built in), the site, subscriptions registered by devices (S4) and
--- corporate models. A row overrides a built-in entry (source 'auto': flag, card, title) or is a resource of its own
+-- gateway models of modules. A row overrides a built-in entry (source 'auto': flag, card, title) or is a resource of its own
 -- (source 'user' or 'device'). slave_allowed: leading agents of other environments may call it as a subagent
 -- (aiwb-subtask spawn --resource), without limits or confirmations; confidential: never outside its environment.
 CREATE TABLE IF NOT EXISTS model_resources (
   id            VARCHAR(80)  NOT NULL,            -- "<host>/<agent>" for built-in entries, else free [a-z0-9._/-]
   env           VARCHAR(40)  NOT NULL,            -- whose resource
-  kind          VARCHAR(16)  NOT NULL,            -- subscription|site|corporate|free
+  kind          VARCHAR(16)  NOT NULL,            -- subscription|site|gateway|free (+ the legacy gateway kind of older rows)
   title         VARCHAR(80)  NOT NULL DEFAULT '', -- '' = the built-in title
   host_id       VARCHAR(40)  NOT NULL DEFAULT '', -- executor that runs its jobs ('' = none yet)
-  agent         VARCHAR(16)  NOT NULL,            -- claude|codex|dispatcher|engie|gemini|agy
+  agent         VARCHAR(16)  NOT NULL,            -- claude|codex|gemini|agy or an agent of a gateway module
   models_json   TEXT         NOT NULL,            -- [{id,label}]
   default_model VARCHAR(80)  NULL,
   card_json     TEXT         NOT NULL,            -- {summary, strengths, limits, dataStaysIn, notes}
@@ -723,3 +675,44 @@ CREATE TABLE IF NOT EXISTS sandbox_resources (
   KEY ix_sandbox_host (host_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 UPDATE meta SET v = '26' WHERE k = 'schema' AND v IN ('1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25');
+
+-- Schema 27 (2026-11-12, Freedom F10, SPEC §3.6, owner 12.11 QCJE #21-#25; web/agent/modules-lib.php).
+-- Modules: optional features outside the core (family presence, employer model gateways, ...). The core knows no module by
+-- name: it reads these rows. install/freedom_modules.py checks the signature of a module at home, uploads its files and
+-- registers it here with the sha256 of every server file (push.php module_install, host key); the server includes a
+-- module file only when its row is enabled, standard (signed by the Freedom maintainers) and the file hash matches.
+CREATE TABLE IF NOT EXISTS modules (
+  id            VARCHAR(64)  NOT NULL,              -- [a-z0-9-], also the folder name ~/co-agent/modules/<id>
+  version       VARCHAR(32)  NOT NULL,
+  enabled       TINYINT(1)   NOT NULL DEFAULT 0,
+  standard      TINYINT(1)   NOT NULL DEFAULT 0,    -- signed by the maintainers of the distribution (may run PHP here)
+  publisher     VARCHAR(160) NOT NULL DEFAULT '',   -- key id that signed it
+  manifest_json MEDIUMTEXT   NOT NULL,              -- module.json as installed
+  files_json    MEDIUMTEXT   NOT NULL,              -- {relative path: sha256} of the files on this server
+  installed_utc DATETIME(3)  NOT NULL,
+  updated_utc   DATETIME(3)  NOT NULL,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- The person's own switch for a module that keeps data about people (manifest personal): auto | ask | off. A row the
+-- owner set (set_by <> env) is only a default; once the person chose (set_by = env) nobody else changes it.
+CREATE TABLE IF NOT EXISTS module_people (
+  module_id   VARCHAR(64) NOT NULL,
+  env         VARCHAR(64) NOT NULL,
+  mode        VARCHAR(8)  NOT NULL,
+  set_by      VARCHAR(64) NOT NULL,
+  updated_utc DATETIME(3) NOT NULL,
+  PRIMARY KEY (module_id, env)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Life cycle journal: install, update, enable, disable, remove, person switches.
+CREATE TABLE IF NOT EXISTS module_log (
+  id          BIGINT       NOT NULL AUTO_INCREMENT,
+  module_id   VARCHAR(64)  NOT NULL,
+  action      VARCHAR(16)  NOT NULL,
+  version     VARCHAR(32)  NOT NULL DEFAULT '',
+  by_env      VARCHAR(64)  NOT NULL DEFAULT '',
+  detail_json TEXT         NOT NULL,
+  utc         DATETIME(3)  NOT NULL,
+  PRIMARY KEY (id),
+  KEY ix_module_log (module_id, utc)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+UPDATE meta SET v = '27' WHERE k = 'schema' AND v IN ('1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26');

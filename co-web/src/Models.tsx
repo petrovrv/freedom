@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // S5 (CO Web 0.99.0, schema 23): one list of model resources — subscriptions of the hosts, the site, subscriptions
-// registered by devices, corporate models — with a card of what each can and cannot do and the flag "slave allowed":
+// registered by devices, confidential gateway models — with a card of what each can and cannot do and the flag "slave allowed":
 // a leading agent of any member may then call it as a subagent (aiwb-subtask spawn --resource), without limits or
 // confirmations. Own resources are always callable by own agents; confidential ones never leave their environment.
 import { Fragment, useEffect, useState } from 'react';
 import { dbModelDelete, dbModels, dbModelSet, type ModelCard, type ModelResource } from './dbapi';
 import { refreshModelResources } from './ModelPicker';
+import { isGatewayKind } from './gateway';
 
-const KIND_LABEL: Record<string, string> = { subscription: 'subscription', site: 'site', corporate: 'corporate', free: 'free' };
+const KIND_LABEL: Record<string, string> = { subscription: 'subscription', site: 'site', free: 'free' };
+const kindLabel = (k: string) => (isGatewayKind(k) ? 'confidential' : KIND_LABEL[k] ?? k);
 const CARD_FIELDS: [keyof ModelCard, string][] = [
   ['summary', 'Summary'],
   ['strengths', 'Good at'],
@@ -71,7 +73,7 @@ export function ModelsSection() {
       <p className="muted small">
         Any leading agent may call these models as subagents (tool aiwb-subtask: <code>models</code>, <code>spawn --resource</code>).
         Your own models are always available to your own agents; <b>Slave allowed</b> lets the agents of the other members use
-        them too, without limits or confirmations. Confidential (corporate) models never serve another environment.
+        them too, without limits or confirmations. Confidential models (e.g. of an employer) never serve another environment.
       </p>
       {err && <p className="error-text small">{err}</p>}
       {list.length === 0 && <p className="muted small">No models yet: the hosts have not announced their agents.</p>}
@@ -84,7 +86,7 @@ export function ModelsSection() {
               <span className={`host-pill ${state}`} title={`Host ${r.host || '—'}: ${state}`}>{state}</span>{' '}
               <b>{r.title}</b>{' '}
               <span className="muted small">
-                {r.agent}{r.host ? ` on ${r.host}` : ''} · {KIND_LABEL[r.kind] ?? r.kind}
+                {r.agent}{r.host ? ` on ${r.host}` : ''} · {kindLabel(r.kind)}
                 {!mine && ` · of ${r.env}`}
                 {r.confidential && ' · confidential'}
               </span>
@@ -122,7 +124,7 @@ export function ModelsSection() {
                   <input type="checkbox" checked={r.slaveAllowed} disabled={busy || r.confidential}
                     onChange={(e) => void save(r.id, { slaveAllowed: e.target.checked })} /> Slave allowed
                 </label>{' '}
-                <label title="Corporate: never serves another environment, even with Slave allowed">
+                <label title="Confidential: never serves another environment, even with Slave allowed">
                   <input type="checkbox" checked={r.confidential} disabled={busy}
                     onChange={(e) => void save(r.id, { confidential: e.target.checked })} /> Confidential
                 </label>{' '}

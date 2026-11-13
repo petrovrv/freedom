@@ -1,0 +1,35 @@
+{
+ "format": "freedom-release/1",
+ "version": "0.1.0",
+ "created": "2026-11-12T21:56:45Z",
+ "files": [
+  {
+   "path": "module.json",
+   "size": 1679,
+   "sha256": "566301e8f6b867babc34871618b68725a292df7616eea3b4b21f089406c5da72"
+  },
+  {
+   "path": "README.md",
+   "size": 3518,
+   "sha256": "ff4b1515a0fa3d62764931156f7f405c8a0cff22dc5864b6fd21d777ed2601ac"
+  },
+  {
+   "path": "server/assoc-lib.php",
+   "size": 16093,
+   "sha256": "b400886a689c7136f6ddd6e0fc3145bbfe8c2737e1cbac9b363084ab7778832a"
+  },
+  {
+   "path": "server/ops.php",
+   "size": 4758,
+   "sha256": "49863bc61a1146d44e1bbe92670c960edfc86a3628cb749600c40bb8fd145b78"
+  }
+ ],
+ "signatures": [
+  {
+   "name": "maintainer-1",
+   "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
+   "sig": "amfDDpmVc/nHDRhhYhks/l4X9qLZeK9tsf/CW6WR38RVU/CHmXQK85OXwC1uwE4zNLjNn+IYws7mIOwdWysqCg=="
+  }
+ ],
+ "module": "assoc-search"
+}

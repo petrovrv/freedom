@@ -5,7 +5,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/lib.php';
 require_once __DIR__ . '/push-lib.php';
-require_once __DIR__ . '/geo-lib.php';
+require_once __DIR__ . '/modules-lib.php';
 
 header('Cache-Control: no-store');
 
@@ -75,14 +75,23 @@ try {
         co_json(200, co_watch_heartbeat($host, $version));
     }
 
-    // ---------- geo_put (home PC geo-presence, same key as notify): family presence for the CO Web header ----------
-    if ($op === 'geo_put') {
-        $expected = co_push_notify_key();
-        $given = co_push_str($_SERVER['HTTP_X_CO_PUSH_KEY'] ?? null);
-        if ($expected === '' || !hash_equals($expected, $given)) {
-            co_json(403, ['error' => 'forbidden']);
+    // ---------- push-key ops of enabled modules (schema 27, Freedom F10; e.g. a status put of a home PC service) ----------
+    if (preg_match(CO_MODULE_OP_RE, $op) && !in_array($op, ['heartbeat', 'watch', 'key', 'notify', 'subscribe', 'unsubscribe', 'status', 'test'], true)) {
+        $db = null;
+        try {
+            $db = co_db();
+            $mod = co_module_for_op($db, 'push', $op);
+        } catch (Throwable) {
+            $mod = null;
         }
-        co_json(200, co_geo_put($in));
+        if ($mod !== null) {
+            $expected = co_push_notify_key();
+            $given = co_push_str($_SERVER['HTTP_X_CO_PUSH_KEY'] ?? null);
+            if ($expected === '' || !hash_equals($expected, $given)) {
+                co_json(403, ['error' => 'forbidden']);
+            }
+            co_json(200, co_module_call($db, 'push', $op, $in) ?? ['error' => 'unknown_op']);
+        }
     }
 
     // ---------- watch (anyone; only triggers the throttled check, reveals no host details) ----------

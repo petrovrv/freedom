@@ -1,0 +1,17 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Module study: the study viewer (slot ui.panel). viewer.js is built from ui-src/ by build.mjs. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Study viewer</title>
+<link rel="stylesheet" href="?m=study&amp;f=ui/viewer.css">
+</head>
+<body>
+<div id="root"></div>
+<!-- viewer.js first: it hooks window.coExt before ext1.js says hello (ui-src/coExt.ts) -->
+<script src="?m=study&amp;f=ui/viewer.js"></script>
+<script src="/ext/ext1.js"></script>
+</body>
+</html>

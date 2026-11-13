@@ -663,7 +663,7 @@ namespace AiWorkbenchBridge
             return true;
         }
 
-        // A job waiting for the previous message of its chat, or a corporate gateway job, has no process by design.
+        // A job waiting for the previous message of its chat, or a gateway job, has no process by design.
         private void SupNoProcessOk(string jobId, bool on)
         {
             if (String.IsNullOrEmpty(jobId))
@@ -1256,7 +1256,7 @@ namespace AiWorkbenchBridge
     // inbox (the old Bridge is paused and does not take it), its job row and chat message into the database, so CO Web
     // shows it queued and Stop reaches it. The next Bridge process (new version, or the old one after a rollback) takes
     // these continuations before any job of the database queue (update-continuations.txt, at most 5 min).
-    // Gateway (corporate) runs have no process and finish over HTTP; the drain still waits for them and for relay calls.
+    // Gateway runs have no process and finish over HTTP; the drain still waits for them and for relay calls.
     // A supervisor drain (marker "supervisor") is never turned into a pause: it is withdrawn after drainTimeoutMinutes.
     internal sealed class UpdatePausedException : Exception
     {
@@ -1271,6 +1271,7 @@ namespace AiWorkbenchBridge
         private readonly ConcurrentDictionary<string, string> _updatePaused =
             new ConcurrentDictionary<string, string>(StringComparer.Ordinal); // jobId -> target version ("" unknown)
         private DateTime _drainSinceUtc = DateTime.MinValue;
+        private string _drainText;                       // drain.request as read when the wait (re)started
         private bool _updatePauseStarted;
         private readonly HashSet<string> _resumeFirst = new HashSet<string>(StringComparer.Ordinal);
         private DateTime _resumeFirstUntilUtc = DateTime.MinValue;
@@ -1336,13 +1337,21 @@ namespace AiWorkbenchBridge
         private void UpdateDrainStarted()
         {
             _drainSinceUtc = DateTime.UtcNow;
+            _drainText = ReadDrainText();
             _updatePauseStarted = false;
         }
 
         private void UpdateDrainCancelled()
         {
             _drainSinceUtc = DateTime.MinValue;
+            _drainText = null;
             _updatePauseStarted = false;
+        }
+
+        private string ReadDrainText()
+        {
+            try { return File.ReadAllText(Path.Combine(_localStateRoot, "drain.request"), Encoding.UTF8); }
+            catch { return null; }
         }
 
         // CheckDrainRequest, under _scanLock, while jobs still run: pause them once the update has waited long enough.
@@ -1350,12 +1359,20 @@ namespace AiWorkbenchBridge
         // continuation; a job still waiting for its chat stops before its agent starts (UpdatePausedException).
         private void MaybePauseForUpdate()
         {
-            if (_updatePauseStarted || !UpdatePauseDue(_drainSinceUtc, DateTime.UtcNow, Sup.updateDrainMinutes))
+            if (_updatePauseStarted)
                 return;
-            string text;
-            try { text = File.ReadAllText(Path.Combine(_localStateRoot, "drain.request"), Encoding.UTF8); }
-            catch { return; }
-            if (!IsUpdateDrain(text))
+            string text = ReadDrainText();
+            if (text == null)
+                return;
+            if (text != _drainText)
+            {
+                // rewritten without being deleted (a supervisor drain became the launcher's update): wait from now
+                _drainText = text;
+                _drainSinceUtc = DateTime.UtcNow;
+                _updateTo = ReadDrainVersion();
+                return;
+            }
+            if (!IsUpdateDrain(text) || !UpdatePauseDue(_drainSinceUtc, DateTime.UtcNow, Sup.updateDrainMinutes))
                 return;
             if (_supLauncherExe != null && !SupLauncherAlive())
                 return; // nobody would start Bridge again: keep the jobs running (SupBlockDrainExit)
@@ -1378,35 +1395,32 @@ namespace AiWorkbenchBridge
             return _updatePaused.ContainsKey(jobId);
         }
 
-        // Queues the continuation of a paused job; its jobId, or null when it could not be queued.
+        // Queues the continuation of a paused job; its jobId, or null when it could not be queued. Nothing that can fail
+        // comes after the job row: the chat message first (the answer needs it), then the package (commit marker last),
+        // then the job row (CO Web shows it queued, Stop reaches it; without it the job still runs from the inbox).
         private string QueueUpdateContinuation(byte[] requestBytes, JobRequest request, string sessionId, EventBatchWriter events)
         {
+            if (request == null || requestBytes == null)
+                return null;
+            string pkg = null;
             try
             {
                 string updateTo;
                 _updatePaused.TryGetValue(request.jobId, out updateTo);
                 string json = new UTF8Encoding(false).GetString(requestBytes).TrimStart('﻿');
                 Dictionary<string, object> original = JsonUtil.Deserialize<Dictionary<string, object>>(json);
-                string jobId = "JOB-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture) + "-" + RandomPart(6);
+                string jobId = NextContinuationJobId();
                 Dictionary<string, object> req = BuildUpdateContinuation(original, jobId, sessionId, IsJobTainted(request.jobId), updateTo);
-
-                // Job row first (CO Web shows it queued, Stop reaches it), then the chat message (the answer needs it),
-                // then the package with its commit marker last.
-                try
+                if (String.IsNullOrEmpty(sessionId))
                 {
-                    Dictionary<string, object> row = new Dictionary<string, object>();
-                    row["hostId"] = _config.hostId;
-                    row["state"] = "inbox";
-                    row["request"] = req;
-                    Dictionary<string, object> put = new Dictionary<string, object>();
-                    put["jobs"] = new object[] { row };
-                    if (DbqEnabled)
-                        DbqCall("put", put, true);
+                    // The same request again: its staged files stay under .co-attachments/<old jobId>/ (kept by ProcessJob).
+                    StringBuilder notes = new StringBuilder();
+                    AppendAttachmentNotes(notes, request);
+                    if (notes.Length > 0)
+                        req["instruction"] = (DictString(original, "instruction") ?? "") + Environment.NewLine + notes.ToString();
                 }
-                catch (Exception ex)
-                {
-                    Log("Update continuation " + jobId + ": job row not written to the database (" + ex.Message + ").");
-                }
+                object conversation;
+                req.TryGetValue("conversation", out conversation);
 
                 Dictionary<string, object> ev = new Dictionary<string, object>();
                 ev["schemaVersion"] = 1;
@@ -1425,18 +1439,35 @@ namespace AiWorkbenchBridge
                 ev["author"] = "bridge";
                 ev["attachments"] = new object[0];
                 ev["returnFiles"] = new object[0];
-                ev["conversation"] = req["conversation"];
+                ev["conversation"] = conversation;
                 ev["mode"] = request.mode;
                 ev["model"] = request.model;
                 ev["effort"] = request.effort;
                 string chatDir = SafeCombineUnderRoot(_projectsDir, Path.Combine(request.projectId, "chats", request.chatId));
                 AppendUserEvent(chatDir, ev, "Update continuation " + jobId);
 
-                string pkg = Path.Combine(_inboxDir, jobId);
+                pkg = Path.Combine(_inboxDir, jobId);
                 Directory.CreateDirectory(pkg);
                 byte[] reqBytes = new UTF8Encoding(false).GetBytes(JsonPretty(JsonUtil.Serialize(req)));
                 File.WriteAllBytes(Path.Combine(pkg, "request.json"), reqBytes);
                 CommitMarkerUtil.WriteForBytes(reqBytes, "request.json", Path.Combine(pkg, "request.ready"));
+                pkg = null; // committed: it runs
+
+                try
+                {
+                    Dictionary<string, object> row = new Dictionary<string, object>();
+                    row["hostId"] = _config.hostId;
+                    row["state"] = "inbox";
+                    row["request"] = req;
+                    Dictionary<string, object> put = new Dictionary<string, object>();
+                    put["jobs"] = new object[] { row };
+                    if (DbqEnabled)
+                        DbqCall("put", put, true);
+                }
+                catch (Exception ex)
+                {
+                    Log("Update continuation " + jobId + ": job row not written to the database (" + ex.Message + "); it runs from the inbox.");
+                }
                 try
                 {
                     File.AppendAllText(Path.Combine(_localStateRoot, ContinuationsFile), jobId + Environment.NewLine, new UTF8Encoding(false));
@@ -1454,11 +1485,55 @@ namespace AiWorkbenchBridge
             catch (Exception ex)
             {
                 Log("Job " + request.jobId + ": update continuation could not be queued: " + ex.Message);
+                if (pkg != null)
+                    TryDeleteDirectory(pkg);
                 return null;
             }
         }
 
-        // At start: continuations the previous process queued run before any job of the database queue.
+        private readonly object _continuationIdLock = new object();
+        private string _lastContinuationId = "";
+
+        // Increasing ids: the next process claims its inbox in name order, so continuations start in the queued order.
+        private string NextContinuationJobId()
+        {
+            lock (_continuationIdLock)
+            {
+                string id;
+                int tries = 0;
+                do
+                {
+                    if (++tries % 40 == 0)
+                        Thread.Sleep(1000);
+                    id = "JOB-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture) + "-" + RandomPart(6);
+                }
+                while (String.CompareOrdinal(id, _lastContinuationId) <= 0);
+                _lastContinuationId = id;
+                return id;
+            }
+        }
+
+        // Session of a request as ProcessJob locks it (agent:sessionId for resume/fork), or null.
+        internal static string ContinuationSessionKey(Dictionary<string, object> req)
+        {
+            if (req == null)
+                return null;
+            object convObj;
+            Dictionary<string, object> conv = req.TryGetValue("conversation", out convObj) ? convObj as Dictionary<string, object> : null;
+            if (conv == null)
+                return null;
+            string op = DictString(conv, "operation");
+            string session = DictString(conv, "sessionId");
+            if (String.IsNullOrEmpty(op) || op == "new" || String.IsNullOrEmpty(session))
+                return null;
+            return DictString(req, "agent") + ":" + session;
+        }
+
+        // Continuations of the previous process per session, in the order it queued them (update-continuations.txt).
+        private readonly Dictionary<string, List<string>> _continuationOrder = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+        // At start: continuations the previous process queued run before any job of the database queue, and those of
+        // one session in their order (the paused job before a message of its chat that was waiting for it).
         private void LoadUpdateContinuations()
         {
             string path = Path.Combine(_localStateRoot, ContinuationsFile);
@@ -1466,13 +1541,32 @@ namespace AiWorkbenchBridge
             {
                 if (!File.Exists(path))
                     return;
+                string[] lines = File.ReadAllLines(path, Encoding.UTF8);
                 lock (_resumeFirst)
                 {
-                    foreach (string line in File.ReadAllLines(path, Encoding.UTF8))
+                    foreach (string line in lines)
                     {
                         string id = line.Trim();
-                        if (id.Length > 0)
-                            _resumeFirst.Add(id);
+                        if (id.Length == 0 || _resumeFirst.Contains(id))
+                            continue;
+                        _resumeFirst.Add(id);
+                        string key = null;
+                        try
+                        {
+                            string rp = Path.Combine(Path.Combine(_inboxDir, id), "request.json");
+                            if (File.Exists(rp))
+                                key = ContinuationSessionKey(JsonUtil.Deserialize<Dictionary<string, object>>(
+                                    File.ReadAllText(rp, Encoding.UTF8).TrimStart('﻿')));
+                        }
+                        catch
+                        {
+                        }
+                        if (key == null)
+                            continue;
+                        List<string> order;
+                        if (!_continuationOrder.TryGetValue(key, out order))
+                            _continuationOrder[key] = order = new List<string>();
+                        order.Add(id);
                     }
                     _resumeFirstUntilUtc = DateTime.UtcNow.AddMinutes(5);
                 }
@@ -1499,6 +1593,59 @@ namespace AiWorkbenchBridge
                 }
                 _resumeFirst.RemoveWhere(delegate(string id) { return !Directory.Exists(Path.Combine(_inboxDir, id)); });
                 return _resumeFirst.Count > 0;
+            }
+        }
+
+        // ProcessJob, before the session lock: a continuation waits (at most 10 min) until the continuations queued
+        // before it for the same session have finished; one that is no longer in the inbox, claimed or running is done.
+        private void WaitForEarlierContinuations(string jobId, EventBatchWriter events)
+        {
+            DateTime until = DateTime.UtcNow.AddMinutes(10);
+            bool told = false;
+            try
+            {
+                while (!_exiting && DateTime.UtcNow < until)
+                {
+                    string earlier = null;
+                    lock (_resumeFirst)
+                    {
+                        foreach (List<string> order in _continuationOrder.Values)
+                        {
+                            int at = order.IndexOf(jobId);
+                            for (int k = 0; k < at && earlier == null; k++)
+                            {
+                                string id = order[k];
+                                if (_runningJobs.ContainsKey(id) || Directory.Exists(Path.Combine(_inboxDir, id)) ||
+                                    Directory.Exists(Path.Combine(_claimedDir, id)))
+                                    earlier = id;
+                            }
+                        }
+                    }
+                    if (earlier == null)
+                        return;
+                    if (!told)
+                    {
+                        told = true;
+                        SupNoProcessOk(jobId, true);
+                        if (events != null)
+                            events.Write("bridge", "queued", "Waiting for the earlier continuation " + earlier + " of this chat.");
+                    }
+                    Thread.Sleep(1000);
+                }
+            }
+            finally
+            {
+                if (told)
+                    SupNoProcessOk(jobId, false);
+            }
+        }
+
+        private void ContinuationDone(string jobId)
+        {
+            lock (_resumeFirst)
+            {
+                foreach (List<string> order in _continuationOrder.Values)
+                    order.Remove(jobId);
             }
         }
     }

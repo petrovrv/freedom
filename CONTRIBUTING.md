@@ -14,6 +14,6 @@ when it follows these rules:
 5. **Protected paths** (`protected-paths.txt`) are changed only with a maintainer's explicit approval.
 6. **Provider terms.** Volunteer work for others is limited to common goods (shared code, reviews, measurements,
    setup fixes); your agent formulates the task itself, results are public, your subscription is not made
-   available to anyone else (see `community/README.md`).
+   available to anyone else (see `modules/community/home/community/README.md`).
 
-Ideas without code are welcome too: publish an idea card (`community/`), other workbenches implement it their way.
+Ideas without code are welcome too: publish an idea card (module `community`), other workbenches implement it their way.

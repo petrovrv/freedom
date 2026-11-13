@@ -9,12 +9,13 @@ require_once CO_AGENT_WEB . '/lib.php'; // co_agent_claude (also via db-lib.php)
 require_once CO_AGENT_WEB . '/db-lib.php';
 require_once CO_AGENT_WEB . '/drive-lib.php';
 require_once CO_AGENT_WEB . '/files-lib.php';
+require_once CO_AGENT_WEB . '/search-lib.php';
 
 const CO_FILES_TEXT_EXT = ['md', 'txt', 'csv', 'json', 'html', 'htm', 'xml', 'yaml', 'yml', 'tex', 'svg', 'ini', 'toml'];
 
 /**
  * One-line annotations ("what is this document about") for up to $limit live files whose head changed, from the text
- * aiwb-docs indexed (docs) or, for small text files, the first 6 KB downloaded from Drive. One Haiku call per run.
+ * a document index module has (search provider) or, for small text files, the first 6 KB downloaded from Drive. One Haiku call per run.
  */
 function co_files_annotate(int $limit = 6): int
 {
@@ -32,16 +33,8 @@ function co_files_annotate(int $limit = 6): int
     }
     $items = [];
     foreach ($rows as $r) {
-        $text = '';
-        $docPath = preg_replace('#^projects/#', '', (string)$r['path']);
-        $st = $db->prepare('SELECT text FROM docs WHERE doc_key = ? ORDER BY chunk LIMIT 2');
-        $key = sha1($docPath);
-        $st->bind_param('s', $key);
-        $st->execute();
-        foreach ($st->get_result()->fetch_all(MYSQLI_NUM) as [$t]) {
-            $text .= $t . "\n";
-        }
-        $st->close();
+        // Freedom F10: the indexed text comes from a search provider module (ext/1 search.provider hook 'text')
+        $text = co_search_doc_text($db, (string)preg_replace('#^projects/#', '', (string)$r['path']), 200000);
         $ext = strtolower(pathinfo((string)$r['name'], PATHINFO_EXTENSION));
         if ($text === '' && $r['folder_id'] && (in_array($ext, CO_FILES_TEXT_EXT, true) || $r['kind'] === 'temp')) {
             try {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// CO Web 0.82.0: Ask / WTF about a fragment of an agent's answer (select text in the chat, as in the study viewer).
+// CO Web 0.82.0: Ask / WTF about a fragment of an agent's answer (select text in the chat).
 // Pure helpers: the message the chat sends ("[quote: #12]" tag + question + the fragment + a note for the agent) and
 // what a person sees of it (a label and the quoted fragment instead of the tag and the note).
 

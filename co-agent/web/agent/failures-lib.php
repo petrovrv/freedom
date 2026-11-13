@@ -8,7 +8,7 @@
 // php co-agent/db/backfill-failures.php [days]. host_events: Bridge supervisor events (db.php op host_event), 90 days.
 // db.php op health (owner) and aiwb-smoke status (SQL) read the summary.
 declare(strict_types=1);
-require_once __DIR__ . '/corporate-lib.php';
+require_once __DIR__ . '/gateway-lib.php';
 
 const CO_FAIL_DIAG_VER = 1;
 const CO_FAIL_EVENTS_DAYS = 90;
@@ -17,21 +17,22 @@ const CO_FAIL_EVENTS_DAYS = 90;
 function co_fail_rules(): array
 {
     return [
+        ['bridge_update_pause', '', 'error', '/Paused for the Bridge update/i'], // Bridge 1.16.0: first, as in diagnose.ts
         ['codex_limit', 'codex', 'all', '/usage limit|hit your usage limit|rate limit reached/i'],
         ['claude_limit', 'claude', 'all', '/hit your (?:weekly |session |5-hour )?limit|usage limit reached|Claude AI usage limit/i'],
         ['claude_auth', 'claude', 'all', '/Invalid API key|Please run \/login|OAuth token (?:has )?expired|OAuth session expired|Failed to authenticate|authentication_error|Not logged in|\b401\b/i'],
         ['codex_auth', 'codex', 'all', '/\b401\b|Unauthorized|refresh token|codex login|not logged in|token_expired/i'],
         ['model_not_found', '', 'all', "/model_not_found|model is not supported|model (?:\\S+ )?(?:does not exist|not found)|There's an issue with the selected model|not_found_error[^\\n]*model/i"],
         ['bridge_stuck_job', '', 'error', '/bridge_stuck_job/i'],
-        // Freedom F1 5b: was kind 'engie' (older rows keep it); the connector's own messages come from its manifest
-        ['corporate', '', 'error', static fn(array $c): bool => (bool)preg_match(co_corporate_error_re(), $c['error'])],
+        // gateway model unreachable (older job_failures rows keep the earlier kinds of this rule); each gateway's own
+        // messages come from its module (gateway-lib.php)
+        ['gateway', '', 'error', static fn(array $c): bool => (bool)preg_match(co_gateway_error_re(), $c['error'])],
         ['context_too_long', '', 'all', '/prompt is too long|context_length_exceeded|context window|maximum context/i'],
         ['session_missing', '', 'error', static fn(array $c): bool => (bool)preg_match('/No conversation found/i', $c['all'])
             || (preg_match('/session/i', $c['error']) && preg_match('/not found|no conversation|missing/i', $c['error']))],
         ['timeout', '', 'error', '/Agent exceeded timeout of \d+ minutes|timed? ?out/i'],
         ['network', '', 'all', "/ENOTFOUND|EAI_AGAIN|getaddrinfo|Can't reach the API server|remote name could not be resolved/i"],
         ['overloaded', '', 'error', '/overloaded|\b(?:529|503|502)\b|500 Internal|stream disconnected|Service Unavailable|Reconnecting|ECONNRESET|network error/i'],
-        ['bridge_update_pause', '', 'error', '/Paused for the Bridge update/i'], // Bridge 1.16.0
         ['bridge_restart', '', 'error', '/BridgeAgent restarted/i'],
         ['cancelled', '', 'error', '/Cancellation requested/i'],
         ['busy', '', 'error', '/previous message in this chat is still running/i'],
@@ -115,7 +116,7 @@ function co_fail_diagnose(string $error, string $text, string $agent, ?int $exit
     $agent = strtolower($agent);
     $c = ['error' => $error, 'text' => $text, 'all' => $text !== '' ? $error . "\n" . $text : $error];
     $isCodex = $agent === 'codex';
-    $isClaude = $agent === 'claude' || (co_corporate_agent($agent)['family'] ?? '') === 'claude';
+    $isClaude = $agent === 'claude' || (co_gateway_agent($agent)['family'] ?? '') === 'claude';
     $kind = 'fallback';
     foreach (co_fail_rules() as [$k, $fam, $scope, $test]) {
         if (($fam === 'codex' && !$isCodex) || ($fam === 'claude' && !$isClaude)) {

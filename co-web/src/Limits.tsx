@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { RETIRED_AGENTS } from './config';
-import { corporate } from './corporate';
+import { gateway, gatewayTokens } from './gateway';
 import type { AgentLimits, LimitsFile, LimitWindow } from './types';
 
-const AGENT_LABEL: Record<string, string> = {
-  claude: 'Claude', codex: 'GPT',
-  ...Object.fromEntries(corporate().agents.map((a) => [a.id, `${a.title} saved`])),
-};
+const BASE_LABEL: Record<string, string> = { claude: 'Claude', codex: 'GPT' };
+// gateway agents are known only at runtime (gateway.ts, from db.php modules_list)
+const agentLabel = (id: string): string => BASE_LABEL[id] ?? (() => { const g = gateway().agents.find((a) => a.id === id); return g ? `${g.title} saved` : id; })();
 const WINDOW_LABEL: Record<string, string> = { session: 'Session', week: 'Week' };
 
 function fmtTime(iso?: string | null): string {
@@ -27,29 +26,29 @@ export function windowState(w: LimitWindow): { pct: number; reset: boolean } {
 
 const level = (pct: number) => (pct >= 90 ? 'bad' : pct >= 75 ? 'warn' : 'ok');
 
-// Corporate dispatcher (Bridge 1.1.6): share of generated tokens written by the corporate models instead of the Claude
-// subscription (limits source = usageSource of the connector manifest).
+// Gateway dispatcher (Bridge 1.1.6): share of generated tokens written by the gateway models instead of the Claude
+// subscription (limits source = usageSource of the gateway description).
 // More is better, so the colour runs the other way. Before 1.1.6 Bridge wrote a copy of the Claude limits here.
-const isSavings = (a: AgentLimits) => !!corporate().usageSource && a.source === corporate().usageSource;
-const corpTok = (w: LimitWindow) => w.corpTokens ?? w.engieTokens; // engieTokens: legacy wire (Bridge before 5b)
+const isSavings = (a: AgentLimits) => !!gateway().usageSource && a.source === gateway().usageSource;
+const gwTok = (w: LimitWindow) => gatewayTokens(w);
 const savedLevel = (pct: number) => (pct >= 50 ? 'ok' : pct >= 20 ? 'warn' : 'low');
 const kTok = (n?: number | null) => (n ?? 0) >= 10000 ? `${Math.round((n ?? 0) / 1000)}k` : `${n ?? 0}`;
 
 function savingsTip(w: LimitWindow): string {
   const span = WINDOW_LABEL[w.id] || w.key;
-  const t = corporate().title;
+  const t = gateway().title;
   return `Dispatcher · ${span}: ${Math.round(w.usedPercent)}% of generated tokens came from ${t} models\n` +
-    `${t} ${kTok(corpTok(w))} · Claude ${kTok(w.claudeTokens)} output tokens · ${w.jobs ?? 0} job(s)\n` +
+    `${t} ${kTok(gwTok(w))} · Claude ${kTok(w.claudeTokens)} output tokens · ${w.jobs ?? 0} job(s)\n` +
     `window ends ${fmtTime(w.resetsAtUtc)} (same as the Claude subscription)`;
 }
 
-// Agents shown: everything except the agents of a paused corporate connector (0.66.0: its savings row is hidden).
+// Agents shown: everything except the agents of a paused gateway (0.66.0: its savings row is hidden).
 const shown = (limits: LimitsFile | null) =>
   Object.entries(limits?.agents || {}).filter(([agent, a]) => a.windows?.length && !RETIRED_AGENTS.has(agent));
 
 function tip(agent: string, a: AgentLimits, w: LimitWindow): string {
   const { reset } = windowState(w);
-  const name = `${AGENT_LABEL[agent] || agent} · ${WINDOW_LABEL[w.id] || w.key}${w.windowMinutes ? ` (${w.windowMinutes >= 1440 ? w.windowMinutes / 1440 + ' d' : w.windowMinutes / 60 + ' h'})` : ''}`;
+  const name = `${agentLabel(agent)} · ${WINDOW_LABEL[w.id] || w.key}${w.windowMinutes ? ` (${w.windowMinutes >= 1440 ? w.windowMinutes / 1440 + ' d' : w.windowMinutes / 60 + ' h'})` : ''}`;
   const state = reset ? `reset at ${fmtTime(w.resetsAtUtc)}` : `${w.usedPercent}% used, resets ${fmtTime(w.resetsAtUtc)}`;
   return `${name}: ${state}\nobserved ${fmtTime(a.observedUtc)}${a.plan ? ` · plan ${a.plan}` : ''}`;
 }
@@ -65,7 +64,7 @@ export function LimitsBar({ limits }: { limits: LimitsFile | null }) {
     <div className="limits" aria-label="Usage limits">
       {entries.map(([agent, a]) => (
         <div key={agent} className="lim-agent">
-          <span className="lim-name">{agent === 'codex' ? 'GPT' : AGENT_LABEL[agent] || agent}</span>
+          <span className="lim-name">{agentLabel(agent)}</span>
           {ordered(a)
             .filter((w) => w.id === 'session' || w.id === 'week')
             .map((w) => {
@@ -96,7 +95,7 @@ export function LimitsDetail({ limits }: { limits: LimitsFile | null }) {
       {entries.map(([agent, a]) => (
         <div key={agent}>
           <div className="small">
-            <b>{AGENT_LABEL[agent] || agent}</b>{isSavings(a) ? <span className="muted tiny"> · {corporate().title} share of generated tokens</span> : null}
+            <b>{agentLabel(agent)}</b>{isSavings(a) ? <span className="muted tiny"> · {gateway().title} share of generated tokens</span> : null}
             <span className="muted tiny"> · observed {fmtTime(a.observedUtc)}{a.plan ? ` · plan ${a.plan}` : ''}</span>
           </div>
           {ordered(a).map((w) => {
@@ -108,7 +107,7 @@ export function LimitsDetail({ limits }: { limits: LimitsFile | null }) {
                   <span className="lim-fill" style={{ width: `${pct}%` }} />
                 </span>
                 <span className="tiny">{reset ? `reset ${fmtTime(w.resetsAtUtc)}` : isSavings(a)
-                  ? `${w.usedPercent}% saved · ${corporate().title} ${kTok(corpTok(w))} / Claude ${kTok(w.claudeTokens)}`
+                  ? `${w.usedPercent}% saved · ${gateway().title} ${kTok(gwTok(w))} / Claude ${kTok(w.claudeTokens)}`
                   : `${w.usedPercent}% · ${fmtTime(w.resetsAtUtc)}`}</span>
               </div>
             );

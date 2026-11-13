@@ -1,0 +1,370 @@
+{
+ "targets": [
+  {
+   "id": "engie:gpt-6.1-sol",
+   "agent": "engie",
+   "model": "gpt-6.1-sol",
+   "label": "GPT-6.1-Sol (corporate)",
+   "tier": "engie",
+   "web": true
+  },
+  {
+   "id": "engie:gpt-6-sol",
+   "agent": "engie",
+   "model": "gpt-6-sol",
+   "label": "GPT-6-Sol (corporate)",
+   "tier": "engie",
+   "web": true
+  },
+  {
+   "id": "engie:gpt-6-luna",
+   "agent": "engie",
+   "model": "gpt-6-luna",
+   "label": "GPT-6-Luna (corporate)",
+   "tier": "engie",
+   "web": true
+  },
+  {
+   "id": "engie:mistral-large-3",
+   "agent": "engie",
+   "model": "mistral-large-3",
+   "label": "Mistral Large 3 (corporate)",
+   "tier": "engie",
+   "web": true
+  },
+  {
+   "id": "engie:claude-opus-5.5",
+   "agent": "engie",
+   "model": "claude-opus-5.5",
+   "label": "Claude Opus 5.5 (corporate)",
+   "tier": "engie",
+   "web": false
+  },
+  {
+   "id": "engie:claude-sonnet-5.5",
+   "agent": "engie",
+   "model": "claude-sonnet-5.5",
+   "label": "Claude Sonnet 5.5 (corporate)",
+   "tier": "engie",
+   "web": false
+  },
+  {
+   "id": "engie:claude-sonnet-5",
+   "agent": "engie",
+   "model": "claude-sonnet-5",
+   "label": "Claude Sonnet 5 (corporate)",
+   "tier": "engie",
+   "web": false
+  },
+  {
+   "id": "engie:claude-haiku-4.5",
+   "agent": "engie",
+   "model": "claude-haiku-4.5",
+   "label": "Claude Haiku 4.5 (corporate)",
+   "tier": "engie",
+   "web": false
+  },
+  {
+   "id": "claude:sonnet",
+   "agent": "claude",
+   "model": "sonnet",
+   "label": "Claude Sonnet (subscription)",
+   "tier": "light",
+   "web": true
+  },
+  {
+   "id": "claude:opus-5.5",
+   "agent": "claude",
+   "model": "claude-opus-5-5",
+   "label": "Claude Opus 5.5 (subscription)",
+   "tier": "heavy",
+   "web": true,
+   "categories": [
+    "code",
+    "docx",
+    "xlsx",
+    "reasoning",
+    "edit"
+   ]
+  },
+  {
+   "id": "codex:gpt-6-luna",
+   "agent": "codex",
+   "model": "gpt-6-luna",
+   "label": "GPT-6-Luna (subscription)",
+   "tier": "light",
+   "web": true
+  },
+  {
+   "id": "codex:gpt-6.1-sol",
+   "agent": "codex",
+   "model": "gpt-6.1-sol",
+   "label": "GPT-6.1-Sol (subscription)",
+   "tier": "light",
+   "web": true,
+   "disabled": "Codex with a ChatGPT account: 'gpt-6.1-sol' model is not supported (2026-10-18)"
+  },
+  {
+   "id": "codex:gpt-6-sol",
+   "agent": "codex",
+   "model": "gpt-6-sol",
+   "label": "GPT-6-Sol (subscription)",
+   "tier": "light",
+   "web": true
+  },
+  {
+   "id": "codex:gpt-6-astra",
+   "agent": "codex",
+   "model": "gpt-6-astra",
+   "label": "GPT-6-Astra (subscription)",
+   "tier": "heavy",
+   "web": true,
+   "categories": [
+    "code",
+    "reasoning",
+    "docx"
+   ]
+  }
+ ],
+ "tasks": [
+  {
+   "id": "code-meter-parse",
+   "category": "code",
+   "title": "Hourly kWh from cumulative meter",
+   "for": "all",
+   "mode": "chat",
+   "heavy": false,
+   "prompt": "Write a Python function hourly_kwh(rows: list[tuple[str, float]]) -> dict[str, float]. Each row is (timestamp 'YYYY-MM-DDTHH:MM:SS', naive, cumulative meter reading in kWh). Rules: 1) Sort rows by timestamp; input may be unsorted. 2) For duplicate timestamps, keep only the row appearing last in the input list. 3) For each consecutive pair (prev, cur), delta = cur - prev; if cur < prev (meter reset to 0), delta = cur. 4) Attribute the whole delta to the hour of cur's timestamp, key 'YYYY-MM-DDTHH' (a reading at 10:00:00 belongs to hour 10). 5) The first reading yields no consumption; omit hours with nothing attributed; fewer than 2 distinct readings returns {}. Standard library only. Give the code and a short test.",
+   "check": {
+    "regex": [
+     "def\\s+hourly_kwh"
+    ]
+   },
+   "judge": {
+    "rubric": "10/10: correct sorting, last-wins dedup in input order, reset delta = cur, attribution to later reading's hour, empty/one-row case, correct keys, runnable. -3 wrong dedup (e.g. first-wins or max), -3 wrong reset handling, -2 wrong attribution or key format, -2 crashes on edge cases, -1 no test.",
+    "reference": "Example: [('2026-01-01T00:30:00',100),('2026-01-01T00:10:00',95),('2026-01-01T01:15:00',110),('2026-01-01T00:30:00',101),('2026-01-01T01:45:00',3)] -> after sort/dedup: 00:10=95, 00:30=101, 01:15=110, 01:45=3 -> {'2026-01-01T00':6.0,'2026-01-01T01':12.0} (9 + 3 after reset)."
+   }
+  },
+  {
+   "id": "code-bugfix",
+   "category": "code",
+   "title": "Fix thermal power unit bug",
+   "for": "all",
+   "mode": "chat",
+   "heavy": false,
+   "prompt": "This function should return the thermal power in kW of a water flow, but results look about 3600x too high. Find the bug, explain it in one sentence, and give the corrected line.\n\ndef thermal_power_kw(flow_m3h, t_supply_c, t_return_c):\n    '''Thermal power of a water flow, in kW.'''\n    cp = 4.186    # kJ/(kg*K)\n    rho = 1000.0  # kg/m3\n    if flow_m3h < 0:\n        raise ValueError('negative flow')\n    dT = t_supply_c - t_return_c\n    if dT < 0:\n        dT = -dT\n    m_dot = flow_m3h  # kg/s\n    power_kw = m_dot * cp * dT\n    return power_kw\n\n\nif __name__ == '__main__':\n    p = thermal_power_kw(36.0, 90.0, 70.0)\n    print(f'Power: {p:.1f} kW')",
+   "check": {
+    "regex": [
+     "3600"
+    ]
+   },
+   "judge": {
+    "rubric": "10/10: identifies m_dot = flow_m3h as missing m3/h to kg/s conversion (x rho, /3600), gives fixed line m_dot = flow_m3h * rho / 3600, notes cp in kJ/(kg*K) makes result kW. -4 fix omits rho or 3600, -3 changes cp or other correct lines, -2 no numeric sanity check or wrong value, -1 verbose.",
+    "reference": "Fix: m_dot = flow_m3h * rho / 3600  # kg/s. Example 36 m3/h, dT 20 K: 10 kg/s * 4.186 * 20 = 837.2 kW (buggy code gives 3013.9)."
+   }
+  },
+  {
+   "id": "docx-review",
+   "category": "docx",
+   "title": "Spec inconsistency review",
+   "for": "all",
+   "mode": "chat",
+   "heavy": false,
+   "prompt": "Review this gas compressor station spec excerpt. It contains exactly 3 technical inconsistencies. Reply ONLY with a JSON list of {\"para\": n, \"comment\": \"...\"}, one item per inconsistency, citing the paragraph where it shows up.\n1. Scope: station capacity approx. 25 MMSCFD of pipeline-quality natural gas.\n2. Design: station design pressure 70 barg; suction pressure 40 barg.\n3. Rated flow: 120,000 Nm3/h (0 degC, 1.01325 bar).\n4. Driver: VSD electric motor, rated 12 MW, 11 kV.\n5. Discharge piping design pressure 7.5 MPa(g); suction piping 4.0 MPa(g).\n6. Performance: compressor shaft power at rated point 13.5 MW incl. margins.",
+   "check": {
+    "regex": [
+     "\"para\"\\s*:\\s*\"?(1|3)\\b",
+     "\"para\"\\s*:\\s*\"?(2|5)\\b",
+     "\"para\"\\s*:\\s*\"?(4|6)\\b"
+    ]
+   },
+   "judge": {
+    "rubric": "10/10: valid JSON list with exactly 3 items: (a) design pressure 70 barg vs 7.5 MPa = 75 bar; (b) 120,000 Nm3/h is about 100+ MMSCFD, not 25; (c) 12 MW motor cannot drive 13.5 MW shaft power. Each comment states both values and the conversion. -3 per missed inconsistency, -2 per false positive (e.g. flagging 40 barg vs 4.0 MPa, which is consistent), -1 for wrong conversion math, -2 for non-JSON or extra prose.",
+    "reference": "Pressure: para 2/5, 7.5 MPa = 75 bar > 70 barg. Flow: para 1/3, 25 MMSCFD is about 28,000-29,500 Nm3/h; 120,000 Nm3/h is about 100-107 MMSCFD. Power: para 4/6, motor 12 MW < 13.5 MW shaft power. Para 2 vs 5 suction (40 barg = 4.0 MPa) is consistent."
+   }
+  },
+  {
+   "id": "docx-create",
+   "category": "docx",
+   "title": "Create pump test docx",
+   "for": "agents",
+   "mode": "cowork",
+   "heavy": false,
+   "prompt": "Using python-docx, create bench-report.docx in the current working directory with a heading \"Pump test\" and a 3x2 table with rows: Flow | 120 m3/h; Head | 45 m; Efficiency | 78 %. Save it, then re-open the file with python-docx and reply with the heading text followed by the six cell texts in row order, all joined by ';' on a single line.",
+   "check": {
+    "regex": [
+     "Pump test",
+     "120 m3/h",
+     "45 m\\b",
+     "78 %"
+    ]
+   },
+   "judge": {
+    "rubric": "10/10: file actually created via python-docx, re-opened and read back (not echoed from memory); heading styled as a heading; table 3 rows x 2 cols; final line exactly matches the reference. -3 if not re-read from file, -2 for wrong order or separator, -2 for extra or missing cells, -1 for cosmetic deviations in text.",
+    "reference": "Pump test;Flow;120 m3/h;Head;45 m;Efficiency;78 %"
+   }
+  },
+  {
+   "id": "xlsx-calc",
+   "category": "xlsx",
+   "title": "Monthly generation and weighted availability",
+   "for": "all",
+   "mode": "chat",
+   "heavy": false,
+   "prompt": "Below is monthly data for a gas-fired unit (CSV):\nmonth,generation_mwh,availability_pct\nJan,1000,95\nFeb,900,92\nMar,1000,96\nApr,800,90\nMay,700,85\nJun,600,80\nJul,600,83\nAug,700,88\nSep,800,91\nOct,900,94\nNov,1000,97\nDec,1000,98\n\n1) What is the total annual generation in MWh?\n2) What is the generation-weighted mean availability in %, rounded to 0.1?\nShow the calculation briefly, then give both final numbers on separate lines.",
+   "check": {
+    "regex": [
+     "\\b10\\s*(\\{,\\}|[ ,.  ])?\\s*000\\b",
+     "\\b91[.,]7(?!\\d)"
+    ]
+   },
+   "judge": {
+    "rubric": "10/10: total = 10000 MWh and weighted mean availability = 91.7 % (exact 91.71), with a brief correct method (sum of gen x avail divided by total gen). Deduct 5 if the simple arithmetic mean (90.75) is given as the answer. Deduct 3 for wrong rounding or arithmetic slips in intermediate sums even if the final value is right. Deduct 1-2 for missing units or excessive verbosity. Score 0 if either final number is wrong.",
+    "reference": "Total generation = 10000 MWh. Sum of gen x avail = 95000+82800+96000+72000+59500+48000+49800+61600+72800+84600+97000+98000 = 917100. Weighted mean = 917100/10000 = 91.71 -> 91.7 %. Unweighted mean (distractor) = 1089/12 = 90.75 %."
+   }
+  },
+  {
+   "id": "xlsx-create",
+   "category": "xlsx",
+   "title": "Create xlsx with SUM formula",
+   "for": "agents",
+   "mode": "cowork",
+   "heavy": false,
+   "prompt": "Using Python and openpyxl, create a file bench.xlsx in the current directory. In the first sheet, put the values 12.5, 7.25, 30, 0.25, 50 in cells A1:A5 and the formula =SUM(A1:A5) in cell A6 (as a real Excel formula, not a hard-coded value). Save the file. Then compute the value of A6 in Python (openpyxl does not evaluate formulas, so compute it yourself from the inputs). Reply with exactly one line in the form A6=<value> and nothing else.",
+   "check": {
+    "regex": [
+     "A6\\s*=\\s*100(\\.0+)?"
+    ]
+   },
+   "judge": {
+    "rubric": "10/10: bench.xlsx created with openpyxl, A1:A5 hold 12.5, 7.25, 30, 0.25, 50 as numbers, A6 holds the formula =SUM(A1:A5) (not a static value), and the reply is exactly A6=100 (or A6=100.0). Deduct 3 if A6 contains a hard-coded value instead of the formula. Deduct 2 if the reply has extra text beyond the single required line. Deduct 2 if values are stored as text. Score 0 if the file is not created or the value is wrong.",
+    "reference": "12.5 + 7.25 + 30 + 0.25 + 50 = 100. Expected reply: A6=100 (A6=100.0 acceptable). A6 cell content: =SUM(A1:A5)."
+   }
+  },
+  {
+   "id": "reasoning-heatrate",
+   "category": "reasoning",
+   "title": "CCGT net efficiency and heat rate",
+   "for": "all",
+   "mode": "chat",
+   "heavy": false,
+   "prompt": "A combined-cycle gas turbine (CCGT) plant burns natural gas at a fuel mass flow of 16 kg/s. The fuel lower heating value (LHV) is 50 MJ/kg. The net electrical output is 460 MW. Calculate (1) the net electrical efficiency on an LHV basis in %, and (2) the net heat rate in kJ/kWh. Show the calculation briefly and state both final values clearly.",
+   "check": {
+    "regex": [
+     "\\b57[.,]50?\\b",
+     "\\b6\\s*(\\{,\\}|[ ,.  ])?\\s*26(0[.,]8\\d*|0[.,]9|1)\\b"
+    ]
+   },
+   "judge": {
+    "rubric": "10/10: correct fuel heat input (16 x 50 = 800 MW_th), efficiency 460/800 = 57.5 %, heat rate 3600/0.575 = 6260.9 kJ/kWh (about 6261), with LHV basis stated and a clear, concise derivation. Deduct 3 for a wrong heat rate formula or units (e.g., Btu/kWh or kJ/kWh confusion), 3 for arithmetic errors, 2 for missing intermediate step, 1 for excessive verbosity or unclear final values.",
+    "reference": "Heat input = 16 kg/s x 50 MJ/kg = 800 MW. Net efficiency = 460/800 = 57.5 % (LHV). Heat rate = 3600 kJ/kWh / 0.575 = 6260.87 kJ/kWh, approx. 6261 kJ/kWh (equivalently 800,000 kW_th / 460,000 kW x 3600)."
+   }
+  },
+  {
+   "id": "reasoning-schedule",
+   "category": "reasoning",
+   "title": "Maintenance scheduling puzzle",
+   "for": "all",
+   "mode": "chat",
+   "heavy": true,
+   "prompt": "Four generating units A, B, C and D must each undergo maintenance in exactly one of four consecutive weeks (week 1 to week 4), with exactly one unit per week. Constraints: (1) Unit C is fixed in week 4 because of a contractor booking. (2) Precedence: A must be maintained in an earlier week than B. (3) A and D share a cooling-water system, so they must not be in adjacent weeks. (4) Capacity: reserve margin is lowest in week 1, so the largest unit, D, cannot be in week 1. Find the schedule satisfying all constraints and answer in the form: A=week n, B=week n, C=week n, D=week n.",
+   "check": {
+    "regex": [
+     "A\\s*=\\s*week\\s*1\\b",
+     "B\\s*=\\s*week\\s*2\\b",
+     "C\\s*=\\s*week\\s*4\\b",
+     "D\\s*=\\s*week\\s*3\\b"
+    ]
+   },
+   "judge": {
+    "rubric": "10/10: gives the unique schedule A=week 1, B=week 2, C=week 4, D=week 3 in the requested format, with brief valid reasoning (C fixed leaves weeks 1-3 for A, B, D; A before B; A-D non-adjacent eliminates alternatives) and ideally notes uniqueness. Deduct 10 for a wrong assignment, 2 for not using the requested format, 2 for flawed or missing reasoning, 1 for claiming multiple solutions or not addressing uniqueness.",
+    "reference": "Unique solution: A=week 1, B=week 2, C=week 4, D=week 3. With C=4, permutations of A,B,D over weeks 1-3: A1B2D3 valid; A1B3D2 fails (A,D adjacent); A2B3D1 fails (adjacent, and D in week 1); B1A2D3, B1A3D2, D1... fail precedence or constraints. All other 18 of 24 permutations violate C=4."
+   }
+  },
+  {
+   "id": "translate-en-fr",
+   "category": "translate",
+   "title": "PEM electrolyser commissioning EN->FR",
+   "for": "all",
+   "mode": "chat",
+   "heavy": false,
+   "prompt": "Translate the following technical paragraph into French. Keep all numbers and units exactly, using French number formatting. Output only the translation.\n\nThe 20 MW PEM electrolyser was commissioned in three phases. During stack conditioning, the operating pressure was gradually raised to 30 bar. The specific energy consumption measured at nominal load was 4.5 kWh/Nm3 of hydrogen. Gas analysis confirmed a hydrogen purity of 99.999 % downstream of the drying unit. The stack temperature must not exceed 60 °C during continuous operation.",
+   "check": {
+    "regex": [
+     "4[,.]5",
+     "99,999"
+    ]
+   },
+   "judge": {
+    "rubric": "10/10: accurate, fluent, technical French; all 5 sentences translated; all values kept (20 MW, 30 bar, 4,5 kWh/Nm3, 99,999 %, 60 °C) with French decimal commas; correct key terms: électrolyseur, mise en service, empilement, pression de fonctionnement, consommation énergétique spécifique, charge nominale. Deduct 1 per wrong or missing key term, 2 per altered or missing number/unit, 1 for English decimal points, 1-3 for awkward or literal phrasing, 3 for omitted sentences, 1 for added commentary.",
+    "reference": "L'électrolyseur PEM de 20 MW a été mis en service en trois phases. Pendant le conditionnement de l'empilement, la pression de fonctionnement a été progressivement portée à 30 bar. La consommation énergétique spécifique mesurée à charge nominale était de 4,5 kWh/Nm3 d'hydrogène. L'analyse des gaz a confirmé une pureté de l'hydrogène de 99,999 % en aval de l'unité de séchage. La température de l'empilement ne doit pas dépasser 60 °C en fonctionnement continu."
+   }
+  },
+  {
+   "id": "edit-ru-email",
+   "category": "edit",
+   "title": "Rewrite clumsy Russian email",
+   "for": "all",
+   "mode": "chat",
+   "heavy": false,
+   "prompt": "Перепиши это письмо на русском языке: кратко, профессионально, в активном залоге, менее 80 слов. Сохрани все факты и ничего не добавляй. Выведи только письмо.\n\nУважаемые коллеги! Настоящим доводим до вашего сведения, что по причине задержки поставки запасных частей проведение инспекции турбины, которое было запланировано на 14 ноября 2026 года, не может быть осуществлено в запланированный срок. В связи с вышеизложенным нами было принято решение о переносе проведения инспекции турбины на 21 ноября 2026 года. Также доводим до вашего сведения, что в связи с переносом сроков проведения инспекции возникают дополнительные расходы, которые составляют 18 500 EUR. Данные дополнительные расходы будут выставлены отдельным счётом. Просим вас в обязательном порядке подтвердить ваше согласие с переносом сроков проведения инспекции и с дополнительными расходами в срок не позднее 7 ноября 2026 года. Заранее благодарим вас за понимание и за оперативное рассмотрение данного вопроса. С уважением, отдел технического обслуживания",
+   "check": {
+    "regex": [
+     "\\b21\\b",
+     "18(\\s| | |\\.)?500",
+     "\\b7\\b"
+    ]
+   },
+   "judge": {
+    "rubric": "10/10: all facts kept (reason: spare parts delay; 14 -> 21 November 2026; 18 500 EUR extra cost; separate invoice; confirm by 7 November 2026; sender: maintenance department); under 80 words; natural professional Russian, active voice, no bureaucratic filler or repetitions. Deduct 2 per missing or altered fact, 3 for any invented fact, 2 if 80+ words, 1-3 for remaining clumsy or bureaucratic style, 1 for language errors, 1 for added commentary.",
+    "reference": "Уважаемые коллеги,\nиз-за задержки поставки запасных частей мы переносим инспекцию турбины с 14 на 21 ноября 2026 г. Перенос повлечёт дополнительные расходы в размере 18 500 EUR, которые будут выставлены отдельным счётом. Просим подтвердить согласие с новой датой и дополнительными расходами до 7 ноября 2026 г.\nБлагодарим за оперативный ответ.\nС уважением,\nотдел технического обслуживания"
+   }
+  },
+  {
+   "id": "summary-meeting",
+   "category": "summary",
+   "title": "CCGT outage meeting summary",
+   "for": "all",
+   "mode": "chat",
+   "heavy": false,
+   "prompt": "Summarize the meeting note below into three sections: Decisions, Actions (owner, date), Risks. Use only information in the note.\n\nMeeting notes - Unit 2 CCGT major outage planning, 12 Oct. Present: Janssens (outage manager), Moreau (operations), Verhoeven (finance), Dubois (OEM liaison). Started late because of the call with dispatch. Long talk about timing: March clashes with the spring maintenance window of the neighbouring plant, so after a lot of back and forth we agreed the GT outage now starts 14 April 2027 instead of March. Dubois said the OEM still wants 45 days but Janssens pushed back, and in the end the group fixed the duration at 42 days, final. Then hot gas path parts: the refurbishment quote was cheaper but the condition report from the last borescope was bad, so the decision is to buy a new HGP set from the OEM, not refurbish. Somebody mentioned the HRSG drum inspection, no conclusion, to be discussed next time. Moreau raised the steam turbine valve inspection; everyone agreed it can wait, so it is deferred to the 2028 minor outage. Janssens will send the final outage scope to the OEM by 15 November 2026. Moreau to get the grid operator to confirm the outage slot, needs to be done by 30 November 2026. Verhoeven takes the updated budget estimate including the new HGP parts, due 8 December 2026. Dubois warned that lead time for first-stage blades is currently long and delivery could slip past April, which is a real risk to the start date. Also the scaffolding contractor is booked on another site outage in April, so availability might be a problem. Coffee machine broken again, facilities informed. Next meeting in two weeks.",
+   "check": {
+    "regex": [
+     "Janssens",
+     "Moreau",
+     "Verhoeven"
+    ]
+   },
+   "judge": {
+    "rubric": "10/10: three sections containing exactly the 4 decisions, 3 actions with correct owner and date, and 2 risks from the reference. Deduct 2 per missing or wrong item (owner or date errors count). Deduct 2 per invented item, including listing the HRSG drum inspection as a decision, giving Dubois an action, or including the coffee machine. Deduct 1 for wrong structure or excessive length.",
+    "reference": "Decisions: (1) GT outage start moved to 14 April 2027 (from March); (2) duration fixed at 42 days; (3) buy new HGP set from OEM instead of refurbishing; (4) steam turbine valve inspection deferred to 2028 minor outage. Actions: (1) Janssens - send final outage scope to OEM - 15 Nov 2026; (2) Moreau - obtain grid operator confirmation of outage slot - 30 Nov 2026; (3) Verhoeven - updated budget estimate incl. new HGP parts - 8 Dec 2026. Risks: (1) first-stage blade lead time may delay delivery past April and the start date; (2) scaffolding contractor availability conflict with another site outage in April. HRSG drum inspection is NOT a decision."
+   }
+  },
+  {
+   "id": "web-python-version",
+   "category": "web",
+   "title": "Latest stable Python 3",
+   "for": "all",
+   "mode": "chat",
+   "heavy": false,
+   "prompt": "Using a web search, what is the latest stable Python 3 release and its release date? Cite the source URL.",
+   "judge": {
+    "rubric": "10/10: names a stable (non-prerelease) version 3.14.x or newer with a plausible release date and a python.org URL (e.g. python.org/downloads or a release page). Deduct 3 for a missing or non-python.org URL, 2 for a wrong or missing date, 3 for naming a pre-release as stable. Score 0-3 if the model says it cannot browse, or answers from memory with a version older than 3.14.",
+    "reference": "Python 3.14.0 was released 7 Oct 2025; Python 3.15.0 was scheduled for 1 Oct 2026 (PEP 790), so a current answer is likely 3.15.x or a recent 3.14.x maintenance release. Source: https://www.python.org/downloads/"
+   }
+  },
+  {
+   "id": "web-iea-weo",
+   "category": "web",
+   "title": "IEA WEO 2025 URL and findings",
+   "for": "all",
+   "mode": "chat",
+   "heavy": false,
+   "prompt": "Using a web search, give the official IEA page URL of the World Energy Outlook 2025 and two headline findings from it.",
+   "judge": {
+    "rubric": "10/10: gives a URL on iea.org containing world-energy-outlook-2025 plus two plausible headline findings explicitly attributed to WEO 2025. Deduct 3 per missing or implausible finding, 2 if findings are not attributed to the report. Deduct heavily (score 0-3) for an invented or non-iea.org URL, or for stating that it cannot browse. Findings from older WEO editions presented as 2025 findings lose 3 each.",
+    "reference": "URL: https://www.iea.org/reports/world-energy-outlook-2025 (published 12 Nov 2025). Plausible headline themes: reintroduction of a Current Policies Scenario in which oil and gas demand keep rising longer; strong electricity demand growth (age of electricity, data centres, cooling, EVs); a large wave of new LNG supply; energy security and critical minerals supply concentration; continued rapid solar and renewables growth. Verify exact figures against the page."
+   }
+  }
+ ]
+}

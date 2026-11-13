@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // CO Web 0.29.0: self-check of routeHost (run: npm test, or node src/routing.selftest.ts).
 import type { OwnerInfo } from './types.ts';
-import { setCorporate } from './corporate.ts';
+import { setGateway } from './gateway.ts';
 import { autoHost, hostHealth, hostLight, hostStateText, routeHost, HOME, SITE } from './routing.ts';
 
 export function routeSelfTest(): string[] {
@@ -10,8 +10,8 @@ export function routeSelfTest(): string[] {
   const ONLINE = 0;
   const OFFLINE = 2 * 60 * 60 * 1000;
 
-  setCorporate({ agents: [{ id: 'corpbot' }] }); // Freedom F1 5b: corporate agents come from the connector manifest
-  const homeAgents = { claude: {}, codex: {}, corpbot: {} };
+  setGateway({ module: 'acme-gw', agents: [{ id: 'gwbot' }] }); // Freedom F10: gateway agents come from modules_list
+  const homeAgents = { claude: {}, codex: {}, gwbot: {} };
   const siteAgents = { claude: {}, codex: {} };
 
   const owner = (hostId: string, ageMs: number, agents: Record<string, unknown>): OwnerInfo =>
@@ -57,15 +57,15 @@ export function routeSelfTest(): string[] {
   check('codex devices, home offline: waits',
     routeHost({ selected: HOME, agent: 'codex', wantsDevices: true, owners: { [HOME]: owner(HOME, OFFLINE, homeAgents), [SITE]: owner(SITE, ONLINE, homeAgents) } }),
     HOME, null);
-  check('corpbot from site',
-    routeHost({ selected: SITE, agent: 'corpbot', wantsDevices: false, owners: owners(ONLINE, ONLINE) }),
-    HOME, 'Sent to Home: corpbot runs only at home');
+  check('gwbot from site',
+    routeHost({ selected: SITE, agent: 'gwbot', wantsDevices: false, owners: owners(ONLINE, ONLINE) }),
+    HOME, 'Sent to Home: gwbot runs only at home');
   check('home offline, claude failover',
     routeHost({ selected: HOME, agent: 'claude', wantsDevices: false, owners: owners(OFFLINE, ONLINE) }),
     SITE, 'Sent to Site: Home is offline');
-  check('home offline, corpbot waits',
-    routeHost({ selected: SITE, agent: 'corpbot', wantsDevices: false, owners: owners(OFFLINE, ONLINE) }),
-    HOME, 'Sent to Home: corpbot runs only at home (Home is offline — the job waits in its queue)');
+  check('home offline, gwbot waits',
+    routeHost({ selected: SITE, agent: 'gwbot', wantsDevices: false, owners: owners(OFFLINE, ONLINE) }),
+    HOME, 'Sent to Home: gwbot runs only at home (Home is offline — the job waits in its queue)');
   check('both online',
     routeHost({ selected: SITE, agent: 'codex', wantsDevices: false, owners: owners(ONLINE, ONLINE) }),
     SITE, null);

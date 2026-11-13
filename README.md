@@ -28,11 +28,39 @@ your changes.
 | `co-agent/` | the server: PHP + MariaDB job queue, chat history, protocol, site agent (Node) |
 | `co-web-auth/` | Google sign-in for CO Web |
 | `co-desktop/` | CO Desktop (Windows, .NET 8 + WebView2) and CO Resident (macOS): device tools, self-healing, subscriptions screen |
-| `browser-ext/` | browser extension: CO in the side panel, agent tools in your tabs |
 | `connectors/corporate/` | optional corporate connector (off by default; your employer's data is your responsibility) |
-| `community/` | idea cards, outbound filter, digest, Nostr agent forum, volunteer work, shared projects, reputation |
+| `modules/` | standard modules (SPEC §3.6), each with `module.json`; e.g. `modules/browser-ext/`: the browser extension (CO in the side panel, agent tools in your tabs), `modules/community/`: idea cards, outbound filter, digest, Nostr agent forum, volunteer work, shared projects, reputation |
 | `install/` | setup wizard without AI (`freedom_setup.py`), Docker variant, Google Cloud playbook |
 | `tools/` | core tools: toolbox, read-guard, devtree, aiwb-e2e, aiwb-smoke, aiwb-subtask, aiwb-budget, ... |
+
+## How it runs
+
+- **Your PC first.** Bridge on your computer takes the jobs whenever it is online, from any device (phone, browser,
+  laptop): it has your files, CLIs, shell and browser. The server runs a job itself only when your PC is offline; a
+  job no executor took within 60 s moves once to the other live one.
+- **The PC from anywhere.** A job that does run on the server reaches the devices of its owner through an HTTP relay
+  on the server (MCP over HTTP; long calls are streamed in short segments). Bridge publishes your PC there with the
+  `pc_*` tools (shell, read, write, edit, list, search, upload, download): the owner gets the whole PC behind the
+  same prompt-injection guard as at home, household members only their own sandbox (on Windows a WSL distro with one
+  user each, no Windows drives, no LAN; `tools/wsl-family-sandbox`). Sandboxes are resources of a provider: your own,
+  then one a household member offers, else none. Library tools callable through the relay are an explicit allow-list
+  in Bridge's config (`devices.relayTools`). The old Node stdio relay stays as a fallback (`CO_RELAY_STDIO=1`).
+- **Push.** Bridge sends the push when a job of your PC ends; the server sends it for its own jobs, with the same
+  rules, once per job. A chat gets exactly one answer per job.
+- **Updates do not wait for long jobs.** When Bridge updates itself it pauses running jobs (after
+  `drainTimeoutMinutes`) and continues each one as a new job in the same chat after the restart, resuming the agent
+  session where it stopped.
+- **Context levels.** A new agent session gets layered context (instincts, reflexes, heuristics, experience,
+  memory: profile, project memory, dossier, this chat's protocol). Per chat you choose Full context, Reference (no
+  project memory or other chats) or Clean view (only this chat's own messages).
+
+## Modules
+
+Everything beyond the core is a module (`modules/<id>/module.json`, SPEC §3.6): header chips, pages, server ops of
+standard modules, tools of the library, background services and schedules, secrets by name. The core installs,
+switches, updates and removes them (`install/freedom_modules.py`, CO Web → Host → Modules) and never names one in its
+code (the export checks it). Standard modules are signed by the maintainers; your own modules live outside this
+repository and are signed with your key (`install/freedom_compose.md`).
 
 ## Install
 
@@ -49,6 +77,9 @@ Start with `python install/freedom_setup.py preflight` and follow `install/PILOT
 inside: AI appears after you sign in to your own subscription (`freedom_setup.py subs`). Stuck? `freedom_setup.py
 report` prints a log without secrets, names, mails, hosts or paths that you can paste into your own claude.ai or
 chatgpt.com chat, or post on the forum.
+
+Then add the modules you want, e.g. `python install/freedom_modules.py install modules/community --enable`, and check
+the result with `python install/freedom_compose.py --inventory <your inventory>`.
 
 ## Self-improvement
 

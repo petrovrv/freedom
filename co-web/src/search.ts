@@ -10,7 +10,7 @@ import { FOLDER_MIME, getJson, list, q, resolveFile } from './drive';
 import type { Chat, Project } from './types';
 import { loadChatEvents } from './workbench';
 import { mapLimit } from './util';
-import { dbSearchChats, dbSearchDocs } from './dbapi';
+import { dbSearchChats, dbSearchItems } from './dbapi';
 
 export interface ChatRef {
   chatFolderId: string;
@@ -202,9 +202,9 @@ export async function aiSearch(projects: Project[], query: string, onStep: (s: s
   const { terms } = await callAgent<{ terms: string[] }>('/agent/search.php', { step: 'expand', query });
   onStep(`Searching chats and documents for: ${terms.join(', ')}`);
   const env = projects[0]?.environmentId;
-  const docsP = env ? dbSearchDocs(env, [query, ...terms].join(' '), 8).catch(() => null) : Promise.resolve(null);
+  const itemsP = env ? dbSearchItems(env, [query, ...terms].join(' '), 8).catch(() => null) : Promise.resolve(null);
   const chats = (await dbCandidates(projects, terms, query)) || (await driveCandidates(projects, terms));
-  const docs = (await docsP) || [];
+  const items = (await itemsP) || [];
 
   onStep(`Ranking ${chats.length} chats and ${projects.length} projects…`);
   const res = await callAgent<{ projects?: { id: string; why?: string }[]; results?: { id: string; why?: string }[] }>('/agent/search.php', {
@@ -227,11 +227,11 @@ export async function aiSearch(projects: Project[], query: string, onStep: (s: s
       out.push({ projectId: c.project.projectId, projectTitle: c.project.title, chatId: c.chatId, title: c.title, why: r.why || '', activityUtc: c.modifiedUtc });
     }
   }
-  // Documents by full-text score (not ranked by Haiku)
-  for (const d of docs) {
+  // Items of the search providers (documents of a document index module) in their own order (not ranked by Haiku)
+  for (const d of items) {
     out.push({
-      projectId: d.projectId, projectTitle: d.projectTitle, title: d.name, why: (d.snippets[0] || '').replace(/\s+/g, ' '),
-      activityUtc: d.modified, docPath: d.path,
+      projectId: d.projectId, projectTitle: d.projectTitle, title: d.title, why: (d.snippets[0] || '').replace(/\s+/g, ' '),
+      activityUtc: d.modified, ...(d.kind === 'doc' && d.path ? { docPath: d.path } : {}),
     });
   }
   return out;

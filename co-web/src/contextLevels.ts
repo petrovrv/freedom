@@ -48,8 +48,10 @@ export interface LevelsInput {
   projectMemory: string;
   // 0.76.0: the work-plan line (workPlan.ts), in every mode; empty where the executor cannot keep the plan file
   workPlan?: string;
-  // 0.78.0: study mode rules or the "turned off" note (studyMode.ts), in every mode
-  study?: string;
+  // F10 (ext/1 chat.mode): rules of the chat's modes that are on, or their "turned off" notes (moduleModes.ts), in every mode
+  modes?: string;
+  // F10 (ext/1 context): instructions of enabled modules, in every mode
+  moduleContext?: string;
   // 0.85.0: the dossier block (db.php dossier_context; people only in shared projects), level 4 of the full mode
   dossier?: string;
 }
@@ -67,7 +69,7 @@ export function buildLevels(i: LevelsInput): string {
   push('[2. Reflexes]', reflexes);
   if (i.mode === 'reference') lines.push(REFERENCE_NOTE);
 
-  const heuristics = [i.mode === 'full' ? (i.projectInstructions ?? '').trim() : '', (i.workPlan ?? '').trim(), (i.study ?? '').trim()];
+  const heuristics = [i.mode === 'full' ? (i.projectInstructions ?? '').trim() : '', (i.workPlan ?? '').trim(), (i.modes ?? '').trim(), (i.moduleContext ?? '').trim()];
   push('[3. Heuristics]', heuristics.filter((x) => x).join('\n'));
   if (i.mode === 'full') push('[4. Experience]', [(i.dossier ?? '').trim(), (i.projectMemory ?? '').trim()].filter((x) => x).join('\n\n'));
 

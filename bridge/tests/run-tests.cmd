@@ -15,7 +15,7 @@ if not exist "%CSC%" set "CSC=%WINDIR%\Microsoft.NET\Framework\v4.0.30319\csc.ex
   /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll ^
   /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll ^
   BridgeAgent.cs BridgeAgentRuntimes.cs BridgeAgentParsers.cs GoogleTransport.cs BridgeDevices.cs DeviceWire.cs BridgeUsage.cs BridgeCorporate.cs BridgeSchedules.cs BridgePush.cs BridgeDbQueue.cs BridgeFollowups.cs BridgePcTools.cs ^
-  tests\Legacy135.cs tests\AgentRuntimeTests.cs tests\AgentRuntimeTests.Parsers.cs tests\AgentRuntimeTests.Arguments.cs tests\SupervisorTests.cs tests\RelayTests.cs tests\CorporateTests.cs tests\PcToolsTests.cs
+  tests\Legacy135.cs tests\AgentRuntimeTests.cs tests\AgentRuntimeTests.Parsers.cs tests\AgentRuntimeTests.Arguments.cs tests\SupervisorTests.cs tests\RelayTests.cs tests\ModulesTests.cs tests\PcToolsTests.cs
 if errorlevel 1 (
     echo TEST BUILD FAILED
     exit /b 1

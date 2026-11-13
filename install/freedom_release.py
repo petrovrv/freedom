@@ -47,7 +47,9 @@ def list_files(root: pathlib.Path) -> list[pathlib.Path]:
     out = []
     for p in sorted(root.rglob("*")):
         rel = p.relative_to(root).as_posix()
-        if p.is_file() and rel != MANIFEST_NAME and p.name != "desktop.ini" and ".git/" not in rel + "/":
+        # byte-code caches appear wherever Python ran (tests, a service): never part of what is signed
+        if (p.is_file() and rel != MANIFEST_NAME and p.name != "desktop.ini" and ".git/" not in rel + "/"
+                and "/__pycache__/" not in "/" + rel and p.suffix != ".pyc"):
             out.append(p)
     return out
 
@@ -87,9 +89,35 @@ def load_trust(path: pathlib.Path) -> dict:
     return {"keys": keys, "threshold": thr}
 
 
+def purge_bytecode(root: pathlib.Path) -> int:
+    """Deletes byte-code caches under root (not signed, so not verifiable; Python would run a planted .pyc whose header
+    matches its signed source). Returns how many files went."""
+    import os
+    n = 0
+    # os.walk does not follow links or junctions: nothing outside root is touched
+    for d, dirs, files in os.walk(root, topdown=False, followlinks=False):
+        cache = "__pycache__" in pathlib.Path(d).relative_to(root).parts
+        for f in files:
+            if cache or f.endswith((".pyc", ".pyo")):
+                try:
+                    os.unlink(os.path.join(d, f))
+                    n += 1
+                except OSError:
+                    pass   # left in place: the strict check refuses it as a file the manifest does not list
+        if cache:
+            try:
+                os.rmdir(d)
+            except OSError:
+                pass
+    return n
+
+
 def verify(root: pathlib.Path, manifest: dict, trust: dict, strict: bool = False) -> list[str]:
-    """Problems found; empty list = verified."""
+    """Problems found; empty list = verified. strict also removes byte-code caches first (they are never signed) and
+    then refuses any file the manifest does not list."""
     problems = []
+    if strict:
+        purge_bytecode(root)
     if manifest.get("format") != FORMAT:
         problems.append(f"unknown manifest format {manifest.get('format')!r}")
     body = canonical(manifest)

@@ -1,0 +1,50 @@
+{
+ "format": "freedom-release/1",
+ "version": "0.1.0",
+ "created": "2026-11-12T22:07:18Z",
+ "files": [
+  {
+   "path": "module.json",
+   "size": 1271,
+   "sha256": "9ea50be58b7450f203dc9e9c0254532e06e01dd50d66e5f24d11dcbd02784099"
+  },
+  {
+   "path": "README.md",
+   "size": 1493,
+   "sha256": "13edb0e9b32ab83440cdfb1bbede9269bd5ba8a587de0581d9f8e2c9947624e1"
+  },
+  {
+   "path": "tests/hint.selftest.mjs",
+   "size": 2552,
+   "sha256": "dd2636ab7efa576df3d6ade1f958f4deb774a02ed50c1299f7336d7ef20d4546"
+  },
+  {
+   "path": "tests/page-e2e.mjs",
+   "size": 4333,
+   "sha256": "094757dcef55fbb163fd85994ef0aecc12d477095ef7098a1704e58a41f4070f"
+  },
+  {
+   "path": "ui/hint-data.js",
+   "size": 2486,
+   "sha256": "d166863c44b4e447792f11be266fe96f8646912c1d105cdf672c67ca4b7d588b"
+  },
+  {
+   "path": "ui/hint.html",
+   "size": 324,
+   "sha256": "77a2d9e1353d211487aca5823a716961d2a439bd64bd3b7bfc43b2947713eb8b"
+  },
+  {
+   "path": "ui/hint.js",
+   "size": 4664,
+   "sha256": "945af9748e63bf4fd22910dd7712ea78a2bf75257742bbe8ed0115229148ca51"
+  }
+ ],
+ "signatures": [
+  {
+   "name": "maintainer-1",
+   "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
+   "sig": "+5xwTQaeJQKwOTC0/XHChnOoqF0cAm53NTgwWKdHAX7SAr8C5BV57MRgJW49sJ8ITCme8WWbUC7OTxVigRiZCQ=="
+  }
+ ],
+ "module": "task-hints"
+}

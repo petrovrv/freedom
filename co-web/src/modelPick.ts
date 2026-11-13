@@ -2,10 +2,11 @@
 // S6 (CO Web 0.100.0): the chat's model choice from the one list of model resources (S5, db.php models_list).
 // "Lead" entries are what this chat can run as its leading agent: every agent an executor (home Bridge, site agent)
 // announces in its owner.json, enriched with its resource (card, slave allowed). Everything else the environment may
-// call - subscriptions registered by devices, corporate models, the family's slaves - is a "helper": the leading agent
+// call - subscriptions registered by devices, confidential gateway models, the family's slaves - is a "helper": the leading agent
 // calls it as a subagent (aiwb-subtask spawn --resource). Pure module (no browser APIs): modelPick.selftest.ts.
 import type { ModelResource } from './dbapi.ts';
 import type { CatalogModel, OwnerInfo } from './types.ts';
+import { gateway, isGatewayKind } from './gateway.ts';
 
 export interface LeadEntry {
   id: string; // <host>/<agent>, the id of the built-in resource
@@ -60,10 +61,10 @@ export function currentLead(lead: LeadEntry[], agent: string, pinned: string | n
     ?? lead.find((l) => l.agent === agent) ?? null;
 }
 
-/** Group label of a helper (own subscription on a device, corporate, the family's). */
+/** Group label of a helper (own subscription on a device, a confidential gateway, the family's). */
 export function helperGroup(r: ModelResource): string {
   if (!r.own) return `Family: ${r.env}`;
-  if (r.kind === 'corporate') return 'Corporate';
+  if (isGatewayKind(r.kind)) return gateway().module ? gateway().title : 'Confidential';
   if (r.kind === 'site') return 'Site';
   return 'Your devices';
 }

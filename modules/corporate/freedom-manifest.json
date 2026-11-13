@@ -1,0 +1,40 @@
+{
+ "format": "freedom-release/1",
+ "version": "0.1.1",
+ "created": "2026-11-12T23:36:05Z",
+ "files": [
+  {
+   "path": "context/rules.md",
+   "size": 667,
+   "sha256": "6c33452488be7821adffc5c5cfc1f2f40207cbd7395f492260b99296af840873"
+  },
+  {
+   "path": "module.json",
+   "size": 6025,
+   "sha256": "3566ddda3be20940740155e4c25b767056e30a7c7b322667f5d78d435ac8cbb5"
+  },
+  {
+   "path": "README.md",
+   "size": 4103,
+   "sha256": "c115548b3bbf0ee3032d59be604079a4a63efcf74fc03afde8124b21f685a19a"
+  },
+  {
+   "path": "server/ops.php",
+   "size": 1705,
+   "sha256": "e29a271bbbfeff2fa4e558ca5758fbc03eea76aab3703d5dccbcea317f1c5a9f"
+  },
+  {
+   "path": "server/resume-lib.php",
+   "size": 16987,
+   "sha256": "92af251420ca72686926da977328fc8bd7472e440fe7790f49b480b7f4d5af95"
+  }
+ ],
+ "signatures": [
+  {
+   "name": "maintainer-1",
+   "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
+   "sig": "XIZo0ss3qIqmt4Iv1oA7bsI9UZTavdpp/x0nCJ+hHmRxy3oXlEiyVNj2k1cSfyv6xdpk90iYU9X4doOUzK0rBw=="
+  }
+ ],
+ "module": "corporate"
+}

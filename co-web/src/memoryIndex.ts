@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // CO Web 0.73.0: memory on demand. A project whose context/memory.md holds the marker line MEMORY_INDEX_MARKER gives
 // new agent sessions an index of the file (one line per entry, long entries cut) plus the commands that read a full
-// entry; the full file is still sent when the agent cannot run them (the site executor, the corporate agents) or the file
+// entry; the full file is still sent when the agent cannot run them (the site executor, the gateway agents) or the file
 // is small. Entry numbers are the order of "- " lines, the same as aiwb-memory get/list -n and the server's
 // co_memory_parse_lines.
 

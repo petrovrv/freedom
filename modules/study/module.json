@@ -1,0 +1,127 @@
+{
+  "schema": 1,
+  "id": "study",
+  "version": "1.0.0",
+  "title": "Study mode",
+  "description": "A tutor mode for chats: the agent leads a learner to the answer with hints instead of giving it right away. A study viewer shows a course document next to the chat: select text or an area and ask about it; every question leaves a marker on its page.",
+  "ext": ">=1 <2",
+  "scope": "household",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "requires": {
+    "core": [],
+    "modules": []
+  },
+  "permissions": [
+    "files.read",
+    "files.write",
+    "chat.read",
+    "chat.post"
+  ],
+  "localOnly": ["ui-src/", "tests/", "build.mjs"],
+  "provides": {
+    "modes": [
+      {
+        "key": "study",
+        "label": "Study mode",
+        "short": "Study",
+        "icon": "🎓",
+        "rules": "context/rules.md",
+        "offNote": "context/off.md",
+        "hintOn": "Study mode is on: the agent asks what you tried and leads you with hints; the full solution comes after three hints and your own attempt. Click to turn off.",
+        "hintOff": "Turn on study mode: the agent becomes a tutor and leads you to the answer instead of giving it right away.",
+        "projectLabel": "Study mode for new chats",
+        "newProjectHint": "Study mode for new chats: the agent leads to the answer with hints instead of giving it right away",
+        "inherit": true,
+        "viewer": {
+          "panel": "viewer",
+          "param": "study",
+          "titlePrefix": "📖"
+        }
+      }
+    ],
+    "ui": [
+      {
+        "slot": "ui.panel",
+        "id": "viewer",
+        "entry": "ui/viewer.html",
+        "title": "Study viewer"
+      }
+    ],
+    "fileActions": [
+      {
+        "id": "viewer",
+        "label": "Open in study viewer",
+        "title": "Read it next to a study chat: select text or an area and ask, or press WTF",
+        "exts": [
+          "pdf",
+          "doc",
+          "docx",
+          "odt",
+          "rtf",
+          "txt",
+          "md",
+          "markdown",
+          "ppt",
+          "pptx",
+          "odp",
+          "xls",
+          "xlsx",
+          "ods",
+          "jpg",
+          "jpeg",
+          "png",
+          "webp",
+          "gif",
+          "bmp"
+        ],
+        "exclude": "\\.study\\.pdf$",
+        "open": {
+          "mode": "study"
+        }
+      }
+    ],
+    "messageViews": [
+      {
+        "match": "^\\s*\\[doc: ([^\\],]+), p\\. (\\d+), page((?: [01]\\.\\d{3}){4})?\\]( WTF)?",
+        "label": "📖 $1 · p. $2",
+        "strip": [
+          "\\n*\\[Study viewer: [\\s\\S]*\\]\\s*$"
+        ],
+        "replace": [
+          [
+            "I do not understand this at all\\. Explain from scratch what is written here: every symbol and notation, what each line means, and why it is there \\(what it is for in the course\\)\\. Start from what I would need to know first\\.",
+            "WTF?! Explain this from scratch."
+          ]
+        ]
+      },
+      {
+        "match": "^\\s*\\[doc: ([^\\],]+), p\\. (\\d+), (area|text)((?: [01]\\.\\d{3}){4})?\\]( WTF)?",
+        "label": "📖 $1 · p. $2 · $3",
+        "strip": [
+          "\\n*\\[Study viewer: [\\s\\S]*\\]\\s*$"
+        ],
+        "replace": [
+          [
+            "I do not understand this at all\\. Explain from scratch what is written here: every symbol and notation, what each line means, and why it is there \\(what it is for in the course\\)\\. Start from what I would need to know first\\.",
+            "WTF?! Explain this from scratch."
+          ]
+        ]
+      }
+    ],
+    "tools": [],
+    "services": [],
+    "context": []
+  },
+  "dataPolicy": {
+    "onDisable": "keep",
+    "onRemove": "keep",
+    "migrations": "additive"
+  },
+  "defaults": {
+    "enabled": false
+  }
+}

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { ModelsSection } from './Models';
+import { ModulesSection } from './Modules';
+import { getAuth } from './auth';
 import { useNavigate } from 'react-router-dom';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatEvent, ContextFolder } from './types';
@@ -14,7 +16,8 @@ import { ContextFoldersSection } from './ContextFolders';
 import { SchedulesSection } from './Schedules';
 import { AccountConnectorsSection } from './AccountConnectors';
 import { FolderPicker } from './FolderPicker';
-import { FileMenu, canvasItem, googleDocsUrl, hasGoogleDocs, studyItem } from './FileMenu';
+import { FileMenu, googleDocsUrl, hasGoogleDocs, moduleFileItems } from './FileMenu';
+import { moduleList } from './moduleStore';
 import { LimitsDetail } from './Limits';
 import { NotificationsSection } from './Notifications';
 import { OpsSection } from './Ops';
@@ -35,7 +38,7 @@ import {
   saveProjectContextFile, readProjectContextFile, saveProjectInstructions, saveProjectMeta, uploadProjectFile, type HostDirs, type HostHealth, type Root,
 } from './workbench';
 import { memberNames } from './members';
-import { corporate } from './corporate';
+import { confidentialPatch, gateway, projectConfidential } from './gateway';
 
 type Tab = InspectorTab;
 
@@ -188,7 +191,7 @@ function ProjectTab({
       </p>
 
       <p className="small">
-        {/* 0.28.0: project type and corporate flag (flag only, no effect yet) */}
+        {/* 0.28.0: project type and confidential flag (flag only, no effect yet) */}
         <label>
           Type{' '}
           <select
@@ -209,16 +212,16 @@ function ProjectTab({
         <label title="Marks the project as holding employer data. For now only a flag.">
           <input
             type="checkbox"
-            checked={project.corporate === true}
+            checked={projectConfidential(project)}
             onChange={async (e) => {
               try {
-                onProjectChanged(await saveProjectMeta(project, { corporate: e.target.checked }));
+                onProjectChanged(await saveProjectMeta(project, confidentialPatch(e.target.checked)));
               } catch (err) {
                 setMsg(categorize(err).message);
               }
             }}
           />{' '}
-          Corporate ({corporate().title} data)
+          Confidential ({gateway().employerTitle} data)
         </label>
       </p>
 
@@ -429,6 +432,9 @@ function HostTab({ owner, health, limits, host, hostPref, onHostPref }: {
       <AutoSwitchToggle />
       <h5 id="models-section">Models</h5>
       <ModelsSection />
+      {/* F10 (SPEC §3.6): installed modules, on/off, the person's own switch */}
+      <h5 id="modules-section">Modules</h5>
+      <ModulesSectionForMe />
       <h5>Data</h5>
       <DataSourceToggle />
       <DbQueueToggle />
@@ -475,7 +481,7 @@ function DriveTree({ root, path, emptyText }: { root: Root; path: string; emptyT
   return <FolderNode id={folderId} path={path} emptyText={emptyText} />;
 }
 
-// path: the folder relative to AI-Workbench (0.63.0, for Open in canvas)
+// path: the folder relative to AI-Workbench (0.63.0, for the file menu items of modules)
 function FolderNode({ id, path, emptyText }: { id: string; path: string; emptyText?: string }) {
   const [items, setItems] = useState<DriveFile[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -520,7 +526,7 @@ function FolderItem({ f, path }: { f: DriveFile; path: string }) {
 }
 
 function FileItem({ f, path }: { f: DriveFile; path: string }) {
-  const goStudy = useNavigate();
+  const goModule = useNavigate();
   const [busy, setBusy] = useState(false);
   const [picking, setPicking] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -553,8 +559,7 @@ function FileItem({ f, path }: { f: DriveFile; path: string }) {
             { label: 'Download', onClick: () => void download() },
             { label: 'Open in Drive', onClick: () => window.open(f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`, '_blank', 'noopener') },
             hasGoogleDocs(f.name) && { label: 'Open in Google Docs', onClick: () => window.open(googleDocsUrl(f.id, f.name) || '', '_blank', 'noopener') },
-            canvasItem(f.name, path),
-            studyItem(f.name, path, (href) => goStudy(href)),
+            ...moduleFileItems(moduleList(), f.name, path, (href) => goModule(href)),
             { label: 'Save to Drive…', onClick: () => setPicking(true) },
           ]}
         />
@@ -1226,4 +1231,10 @@ export function SessionTab({
       )}
     </div>
   );
+}
+
+function ModulesSectionForMe() {
+  const a = getAuth();
+  const signed = a.status === 'signed_in' || a.status === 'expired';
+  return <ModulesSection me={signed ? a.homeEnv : undefined} owner={signed && a.owner} />;
 }

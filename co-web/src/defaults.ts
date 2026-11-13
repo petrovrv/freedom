@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Agent and model for the first message of a chat (CO Web 0.12.0).
 // The subscription (Claude or GPT) with the most headroom left in limits.json. 0.66.0: the owner no longer starts on the
-// corporate dispatcher (its connector is paused).
+// gateway dispatcher (its module is disabled).
 
 import type { AgentId } from './config';
 import { windowState } from './Limits';

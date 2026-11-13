@@ -41,8 +41,9 @@ const BROKEN = new Set(['failed', 'cancelled', 'timed_out']);
 
 // The trailing jobs of this chat that ended without completing (a retry that failed again keeps the first start, so
 // a plan written by the first attempt still counts). null when the last answer of the chat completed.
-export function brokenRun(events: ChatEvent[], chatId: string): BrokenRun | null {
-  const own = events.filter((e) => (!e.chatId || e.chatId === chatId) && !e.canvas);
+export function brokenRun(events: ChatEvent[], chatId: string, isSide: (e: ChatEvent) => boolean = () => false): BrokenRun | null {
+  // side jobs of modules (own agent session) are not turns of this chat
+  const own = events.filter((e) => (!e.chatId || e.chatId === chatId) && !isSide(e));
   const answers = own.filter((e) => e.type === 'assistant_message' && e.jobId);
   let last: ChatEvent | null = null;
   let first: ChatEvent | null = null;

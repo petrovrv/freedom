@@ -1,6 +1,8 @@
 <?php
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Associative chat search (search-lib.php, schema 20) against a throwaway MariaDB (never production).
+// Chat search of the core (search-lib.php, schema 20) with the search provider modules assoc-search and docs-search
+// (Freedom F10, ext/1 search.provider) against a throwaway MariaDB (never production): the core alone, pre-F10 tables
+// taken over by the install hooks, vectors and aliases of assoc-search, documents of docs-search, a switched-off module.
 // Driver: python co-agent/tests/actions-test.py --test search-test.php
 declare(strict_types=1);
 require __DIR__ . '/../web/agent/db-lib.php';
@@ -19,15 +21,42 @@ $throws = static function (callable $f): bool {
     try { $f(); } catch (InvalidArgumentException) { return true; }
     return false;
 };
+// what install/freedom_modules.py does before op module_install: upload the files, hash them
+$install = static function (string $id) use ($db): array {
+    $src = realpath(__DIR__ . "/../modules/$id");
+    $dst = co_module_home($id);
+    co_module_rmtree($dst);
+    $files = [];
+    $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($src, FilesystemIterator::SKIP_DOTS));
+    foreach ($it as $f) {
+        $rel = str_replace('\\', '/', substr($f->getPathname(), strlen($src) + 1));
+        @mkdir(dirname("$dst/$rel"), 0700, true);
+        copy($f->getPathname(), "$dst/$rel");
+        if ($rel !== 'module.json' && $rel !== 'README.md' && $rel !== 'freedom-manifest.json') $files[$rel] = hash_file('sha256', "$dst/$rel");
+    }
+    $man = json_decode((string)file_get_contents("$src/module.json"), true);
+    return co_module_install($db, ['manifest' => $man, 'files' => $files, 'standard' => true, 'publisher' => 'ed25519:test']);
+};
 // int8 vector with one hot axis (plus a small tail so that the norm is not trivial)
 $hot = static function (int $axis, int $val = 100): string {
-    $v = array_fill(0, CO_VEC_DIM, 0);
+    $v = array_fill(0, 256, 0);
     $v[$axis] = $val;
     $v[255] = 5;
-    return pack('c' . CO_VEC_DIM, ...$v);
+    return pack('c256', ...$v);
 };
 
-foreach (['events', 'protocol', 'chats', 'projects', 'shares', 'vec_words', 'vec_protocol', 'aliases'] as $t) $db->query("DELETE FROM $t");
+foreach (['events', 'protocol', 'chats', 'projects', 'shares', 'modules'] as $t) $db->query("DELETE FROM $t");
+co_modules($db, true);
+// tables of a pre-F10 server (schema 7 and 20 in the core): the install hooks must take them over with their rows
+$db->query("CREATE TABLE aliases (id BIGINT NOT NULL AUTO_INCREMENT, env VARCHAR(40) NOT NULL DEFAULT '', grp VARCHAR(80) NOT NULL,
+    term VARCHAR(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, source VARCHAR(12) NOT NULL, created_utc DATETIME(3) NOT NULL,
+    PRIMARY KEY (id), UNIQUE KEY ux_aliases (env, grp, term), KEY ix_aliases_term (term)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+$db->query("INSERT INTO aliases (env, grp, term, source, created_utc) VALUES ('sam', 'own:voice', 'голос', 'user', UTC_TIMESTAMP()), ('sam', 'own:voice', 'voice', 'user', UTC_TIMESTAMP())");
+$db->query("CREATE TABLE docs (doc_key CHAR(40) NOT NULL, chunk INT NOT NULL, project_id VARCHAR(100) NOT NULL, path VARCHAR(1000) NOT NULL,
+    name VARCHAR(255) NOT NULL, mtime BIGINT NOT NULL, size BIGINT NOT NULL, indexed_utc DATETIME(3) NOT NULL, text MEDIUMTEXT NOT NULL,
+    PRIMARY KEY (doc_key, chunk), KEY ix_docs_project (project_id), FULLTEXT KEY ft_docs (name, text)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+$db->query("INSERT INTO docs VALUES ('" . sha1('P1/old.md') . "', 0, 'P1', 'P1/old.md', 'old.md', 5, 10, UTC_TIMESTAMP(), 'старый индекс про теплообменник'), ('" . sha1('P1/b.md') . "', 0, 'P1', 'P1/b.md', 'b.md', 5, 10, UTC_TIMESTAMP(), 'другое')");
+// (two rows: the length-damped score of a one-row FULLTEXT table overflows in MariaDB)
 $q("INSERT INTO projects (project_id, env, title, data, sha, synced_utc) VALUES ('P1', 'owner', 'Proj', '{}', 'x', UTC_TIMESTAMP()),
     ('P2', 'sam', 'Sam', '{}', 'x', UTC_TIMESTAMP()), ('P3', 'owner', 'Old', '{}', 'x', UTC_TIMESTAMP())");
 $q("UPDATE projects SET archived = 1 WHERE project_id = 'P3'");
@@ -39,7 +68,7 @@ $ev = [
     ['CHAT-B', 'Обсуждали голосовой ввод на телефоне и повторы слов'],
     ['CHAT-C', 'Разное про погоду и планы на выходные'],
     ['CHAT-D', 'Тут ничего про поиск'],
-    ['CHAT-S', 'ONLYOFFICE у Софии тоже не открывается'],
+    ['CHAT-S', 'ONLYOFFICE у Марии тоже не открывается'],
     ['CHAT-X', 'ONLYOFFICE в архивном проекте'],
 ];
 foreach ($ev as $i => [$c, $t]) {
@@ -57,10 +86,28 @@ foreach ($pr as [$c, $n, $t]) {
 $q("UPDATE protocol SET status = 'superseded' WHERE chat_id = 'CHAT-D' AND entry_no = 2");
 $scope = ['sql' => 'p.env = ? AND p.archived = 0', 'params' => ['owner']];
 
+// ---- the core alone: full-text lists only, no provider list, no items
+$r = co_search_chats($db, 'owner', $scope, 'голосовой ввод');
+$ok('core alone: messages and protocol rank, no provider list', ($r['chats']['CHAT-B']['ranks'] ?? null) === ['messages' => 1, 'protocol' => 1] && $r['lists'] === []);
+$ok('core alone: no items, no document text', co_search_items($db, 'owner', 'теплообменник') === [] && co_search_doc_text($db, 'P1/old.md') === '');
+
+// ---- install both modules: pre-F10 tables renamed, rows kept
+$r = $install('assoc-search');
+$ok('assoc-search installed, hook renamed the pre-F10 alias table', $r['ok'] && $r['hook']['renamed'] === ['aliases'] && !$q("SHOW TABLES LIKE 'aliases'"));
+$r = $install('docs-search');
+$ok('docs-search installed, hook renamed docs', $r['ok'] && $r['hook']['renamed'] === ['docs'] && !$q("SHOW TABLES LIKE 'docs'"));
+$ok('installed but off: still the core alone', co_search_items($db, 'owner', 'теплообменник') === [] && co_search_chats($db, 'owner', $scope, 'x y')['lists'] === []);
+co_module_set($db, 'assoc-search', true, 'owner');
+co_module_set($db, 'docs-search', true, 'owner');
+co_module_load(co_modules($db)['assoc-search']); // the module's functions for the checks below
+co_module_load(co_modules($db)['docs-search']);
+$ok('a second install keeps the tables (no rename, no loss)', $install('docs-search')['hook']['renamed'] === [] && count($q('SELECT * FROM m_docs_search_docs')) === 2);
+$ok('pre-F10 document found through the provider', array_column(co_search_items($db, 'owner', 'теплообменник'), 'path') === ['P1/old.md']);
+
 // ---- full-text over messages and protocol, merged
 $r = co_search_chats($db, 'owner', $scope, 'ONLYOFFICE');
 $ok('messages: ONLYOFFICE finds CHAT-A, not other envs or archived projects', array_keys($r['chats']) === ['CHAT-A']);
-$ok('no vectors yet: vector=false', $r['vector'] === false);
+$ok('no vectors yet: the provider ranks nothing, its rank stays null', $r['lists'] === [] && array_key_exists('vector', $r['chats'][array_key_first($r['chats'])]['ranks']));
 $r = co_search_chats($db, 'owner', $scope, 'диктовка android');
 $ok('protocol only: диктовка android finds CHAT-B via the protocol entry', isset($r['chats']['CHAT-B']) && $r['chats']['CHAT-B']['ranks']['protocol'] === 1);
 $ok('protocol match carries the message number', str_starts_with($r['chats']['CHAT-B']['matches'][0] ?? '', '#1 (protocol): '));
@@ -81,9 +128,9 @@ $n = co_alias_op($db, 'alias_put', ['groups' => [
 ]])['inserted'];
 $ok('alias_put: terms normalised and deduplicated', $n === 4);
 $ok('alias expand: phrase in the query -> other names of the group', co_alias_expand($db, 'owner', 'Почему офисный редактор недоступен') === ['onlyoffice']);
-co_alias_op($db, 'alias_put', ['groups' => [['env' => 'owner', 'grp' => 'g1', 'terms' => ['саша', 'александра']], ['env' => 'owner', 'grp' => 'g2', 'terms' => ['саша', 'александр']],
-    ['env' => 'owner', 'grp' => 'g3', 'terms' => ['саша', 'дети']]]]);
-$ok('alias expand: a term in 3+ groups expands nothing', co_alias_expand($db, 'owner', 'саша') === [] && co_alias_expand($db, 'owner', 'александра') === ['саша']);
+co_alias_op($db, 'alias_put', ['groups' => [['env' => 'owner', 'grp' => 'g1', 'terms' => ['женя', 'евгения']], ['env' => 'owner', 'grp' => 'g2', 'terms' => ['женя', 'евгений']],
+    ['env' => 'owner', 'grp' => 'g3', 'terms' => ['женя', 'дети']]]]);
+$ok('alias expand: a term in 3+ groups expands nothing', co_alias_expand($db, 'owner', 'женя') === [] && co_alias_expand($db, 'owner', 'евгения') === ['женя']);
 co_alias_op($db, 'alias_delete', ['groups' => [['env' => 'owner', 'grp' => 'g1'], ['env' => 'owner', 'grp' => 'g2'], ['env' => 'owner', 'grp' => 'g3']]]);
 $ok('alias expand: rows of another env are not used', co_alias_expand($db, 'owner', 'погода') === []);
 $r = co_search_chats($db, 'owner', $scope, 'офисный редактор недоступен');
@@ -94,8 +141,8 @@ $ok('alias query: user words as they are, aliases with <, phrase quoted, no stra
     && substr_count($fq, 'onlyoffic*') === 1);
 co_alias_op($db, 'alias_put', ['groups' => [['env' => 'owner', 'grp' => 'own:onlyoffice', 'terms' => ['onlyoffice', 'only office']]]]);
 co_alias_op($db, 'alias_put', ['groups' => [['env' => 'owner', 'grp' => 'own:onlyoffice', 'terms' => ['typo']]]]);
-$ok('alias_put: one term leaves the stored group alone', count($q("SELECT * FROM aliases WHERE grp = 'own:onlyoffice'")) === 2);
-$ok('alias_put replaces the group', count($q("SELECT * FROM aliases WHERE grp = 'own:onlyoffice'")) === 2);
+$ok('alias_put: one term leaves the stored group alone', count($q("SELECT * FROM m_assoc_search_aliases WHERE grp = 'own:onlyoffice'")) === 2);
+$ok('alias_put replaces the group', count($q("SELECT * FROM m_assoc_search_aliases WHERE grp = 'own:onlyoffice'")) === 2);
 $ok('alias_delete', co_alias_op($db, 'alias_delete', ['groups' => [['env' => 'sam', 'grp' => 'own:voice']]])['deleted'] === 2);
 $ok('alias_list for an env includes general rows', count(co_alias_op($db, 'alias_list', ['env' => 'owner'])['aliases']) === 2);
 
@@ -121,16 +168,16 @@ $ok('vec_put: protocol vectors and words', co_vec_put($db, ['protocol' => $put, 
     ['w' => 'voice', 'n' => 1, 'scale' => 0.01, 'v' => base64_encode($hot(1)), 'freq' => 3],
 ]]) === ['protocol' => 3, 'words' => 4, 'skipped' => 0]);
 $ok('vec_put: upper-case word skipped, not stored', co_vec_put($db, ['words' => [['w' => 'Backup', 'n' => 1, 'scale' => 1, 'v' => base64_encode($hot(1))]]])['skipped'] === 1
-    && !$q("SELECT * FROM vec_words WHERE word = 'Backup'"));
+    && !$q("SELECT * FROM m_assoc_search_vec_words WHERE word = 'Backup'"));
 $ok('vec_todo: nothing left', co_vec_todo($db, [])['left'] === 0);
 $r = co_search_chats($db, 'owner', $scope, 'nightly backup');
-$ok('vector: English "backup" finds the Russian protocol entry of CHAT-C', $r['vector'] === true && array_key_first($r['chats']) === 'CHAT-C'
+$ok('vector: English "backup" finds the Russian protocol entry of CHAT-C', $r['lists'] === ['vector'] && array_key_first($r['chats']) === 'CHAT-C'
     && $r['chats']['CHAT-C']['ranks']['vector'] === 1 && $r['chats']['CHAT-C']['ranks']['messages'] === null);
-$q("UPDATE vec_protocol SET chat_id = 'CHAT-B' WHERE chat_id = 'CHAT-C'");
+$q("UPDATE m_assoc_search_vec_protocol SET chat_id = 'CHAT-B' WHERE chat_id = 'CHAT-C'");
 $r = co_search_chats($db, 'owner', $scope, 'nightly backup');
 $ok('vector: a row whose chat_id disagrees with its protocol entry is ignored', ($r['chats']['CHAT-C']['ranks']['vector'] ?? null) === null
     && !str_contains(implode(' ', $r['chats']['CHAT-B']['matches'] ?? []), 'резервная'));
-$q("UPDATE vec_protocol x JOIN protocol p ON p.id = x.protocol_id SET x.chat_id = p.chat_id");
+$q("UPDATE m_assoc_search_vec_protocol x JOIN protocol p ON p.id = x.protocol_id SET x.chat_id = p.chat_id");
 $qv = co_vec_query($db, ['резервной']);
 $ok('vector: unknown form by the most frequent word with the longest prefix', $qv !== null && $qv[2] > 0.9);
 $ok('vector: no known word -> null', co_vec_query($db, ['zzzzqq', '2026']) === null);
@@ -138,7 +185,7 @@ $q("UPDATE protocol SET text = 'Голосовой ввод: исправлен�
 $ok('vec_todo: changed text needs a new vector', co_vec_todo($db, [])['left'] === 1);
 $q("DELETE FROM protocol WHERE chat_id = 'CHAT-D'");
 $t = co_vec_todo($db, []);
-$ok('vec_todo: vectors of deleted entries are removed', $t['removed'] === 1 && count($q('SELECT * FROM vec_protocol')) === 2);
+$ok('vec_todo: vectors of deleted entries are removed', $t['removed'] === 1 && count($q('SELECT * FROM m_assoc_search_vec_protocol')) === 2);
 $w = co_vec_words($db, ['after' => 'резервная']);
 $ok('vec_words pages by word', $w['words'] === [['резервуар', 1]]);
 $tx = co_vec_texts($db, ['limit' => 2]);
@@ -173,6 +220,33 @@ $ok('hints: two words of the message (one through its alias) give a hint', in_ar
 $ok('hints: entries carry no internal fields', !array_key_exists('rare', co_related($db, 'owner', 'Как спустить космический лифт для здания', 'CHAT-A', false)['hits'][0] ?? ['rare' => 1]));
 
 $ok('hints: a stem of digits (230000V) does not break the hints', is_array(co_related($db, 'owner', 'Кабель 230000V и 100000kWh для здания лифт', 'CHAT-A', false)['hits']));
+
+// ---- documents (docs-search): host ops of the indexer, items of the AI search, text for file notes
+$put = co_module_call($db, 'host', 'docs_put', ['docs' => [['key' => sha1('P1/spec.docx'), 'projectId' => 'P1', 'path' => 'P1/spec.docx',
+    'name' => 'spec.docx', 'mtime' => 100, 'size' => 2000, 'chunks' => ['Технические требования к теплообменнику', 'второй кусок']],
+    ['key' => sha1('P2/sam.md'), 'projectId' => 'P2', 'path' => 'P2/sam.md', 'name' => 'sam.md', 'mtime' => 1, 'size' => 1, 'chunks' => ['теплообменник Сэма']]]]);
+$ok('docs_put through the module host op', $put === ['put' => 2]);
+$ok('docs_state', count(co_module_call($db, 'host', 'docs_state', [])['docs']) === 4);
+$items = co_search_items($db, 'owner', 'теплообменник');
+$ok('search_items: documents of the env from the provider', count($items) === 2 && !in_array('P2/sam.md', array_column($items, 'path'), true)
+    && $items[0]['provider'] === 'docs' && $items[0]['kind'] === 'doc' && $items[0]['projectTitle'] === 'Proj');
+$ok('search_items: projectId filter', array_column(co_search_items($db, 'sam', 'теплообменник', 8, 'P2'), 'path') === ['P2/sam.md']);
+$ok('doc text for file notes', str_starts_with(co_search_doc_text($db, 'P1/spec.docx'), 'Технические требования') && co_search_doc_text($db, 'P1/none.md') === '');
+$ok('docs_search (agents): all envs with the host key', count(co_module_call($db, 'host', 'docs_search', ['q' => 'теплообменник'])['docs']) === 3);
+$ok('legacy search_docs: own env', count(co_module_call($db, 'user', 'search_docs', ['env' => 'sam', 'q' => 'теплообменник'], 'sam', false)['docs']) === 1);
+$ok('legacy search_docs: another env refused', $throws(fn() => co_module_call($db, 'user', 'search_docs', ['env' => 'owner', 'q' => 'теплообменник'], 'sam', false)));
+$ok('docs_delete', co_module_call($db, 'host', 'docs_delete', ['keys' => [sha1('P2/sam.md')]])['deleted'] === 1);
+
+// ---- switched off: the core searches alone again, the data stays
+co_module_set($db, 'assoc-search', false, 'owner');
+co_module_set($db, 'docs-search', false, 'owner');
+$r = co_search_chats($db, 'owner', $scope, 'nightly backup');
+$ok('off: no provider list, no expansion', $r['lists'] === [] && $r['aliases'] === [] && co_search_items($db, 'owner', 'теплообменник') === []);
+$ok('off: host ops of the indexers are not dispatched', co_module_for_op($db, 'host', 'vec_put') === null && co_module_for_op($db, 'host', 'docs_put') === null);
+$ok('off: data kept', count($q('SELECT * FROM m_docs_search_docs')) > 0 && count($q('SELECT * FROM m_assoc_search_vec_protocol')) > 0);
+co_module_remove($db, ['id' => 'docs-search', 'data' => 'erase']);
+co_module_remove($db, ['id' => 'assoc-search', 'data' => 'erase']);
+$ok('remove with erase drops the module tables', !$q("SHOW TABLES LIKE 'm_docs_search_docs'") && !$q("SHOW TABLES LIKE 'm_assoc_search_%'"));
 
 echo $fail ? "\n$fail FAILED\n" : "\nall ok\n";
 exit($fail ? 1 : 0);

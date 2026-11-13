@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Minimal MCP stdio server exposing the AIWB CLI tool library (stdlib only, Python 3.9+).
 
-toolbox 1.4.0. Registered as MCP server "aiwb-tools" for Claude Code and Codex on the home PC and on the site agent
+toolbox 1.4.0 (1.7.0: tools of switched-off modules are unavailable, modstate.py). Registered as MCP server "aiwb-tools" for Claude Code and Codex on the home PC and on the site agent
 (the CO site of the install), so every agent sees the same library: tool_list, tool_help (SKILL.md), tool_run.
 """
 import importlib.util
@@ -11,6 +11,12 @@ import re
 import subprocess
 import sys
 import traceback
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import modstate  # toolbox 1.7.0: tools of switched-off Freedom modules
+except ImportError:  # an older copy of the library without it
+    modstate = None
 
 ROOT = os.path.abspath(os.environ.get("AIWB_TOOLS")
                        or os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -99,8 +105,12 @@ def module_for(req):
     return PIP_TO_MODULE.get(name, name.replace("-", "_"))
 
 
-def unavailable_reason(meta):
+def unavailable_reason(meta, state=None):
     reasons = []
+    if modstate is not None:
+        off = modstate.off_reason(meta.get("folder", ""), state)
+        if off:
+            reasons.append(off)
     platforms = [p.lower() for p in as_list(meta.get("platform"))]
     if platforms and all(p.startswith("win") for p in platforms) and not IS_WINDOWS:
         reasons.append("windows only")
@@ -141,12 +151,13 @@ def tool_list(args):
         return "'query' must be a string", True
     words = query.lower().split()
     lines, unavailable = [], []
+    state = modstate.load() if modstate is not None else None
     for folder, m in load_tools().items():
         desc = str(m.get("description", ""))
         hay = ("%s %s %s" % (folder, m.get("name", ""), desc)).lower()
         if not all(w in hay for w in words):
             continue
-        reason = unavailable_reason(m)
+        reason = unavailable_reason(m, state)
         if reason:
             unavailable.append("%s (%s)" % (folder, reason))
         else:

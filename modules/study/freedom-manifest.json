@@ -1,0 +1,105 @@
+{
+ "format": "freedom-release/1",
+ "version": "1.0.0",
+ "created": "2026-11-12T22:35:03Z",
+ "files": [
+  {
+   "path": "build.mjs",
+   "size": 2626,
+   "sha256": "d4030e165222a91e51784e80bf93994df00a6cee0f4204c43ea188873f332fd0"
+  },
+  {
+   "path": "context/off.md",
+   "size": 86,
+   "sha256": "22f01fd6be6c0689835dfc3e6fdc6cfce218efc3ae2f0f142782672cf570ae8c"
+  },
+  {
+   "path": "context/rules.md",
+   "size": 1380,
+   "sha256": "4ba4bf23bac69a33db4d59b5dc863a26b0a21ad1d5a89c512cd559598ff1bfc7"
+  },
+  {
+   "path": "module.json",
+   "size": 3752,
+   "sha256": "2f7fbb652cf323b0b53bc5dd1a6ee9c2b215b0a83a8499195786f4ccdc2487ce"
+  },
+  {
+   "path": "README.md",
+   "size": 2042,
+   "sha256": "38099fd51e9d615a393490b367f6b335ea3495a11f4a2e4ceabbb96ea58e67de"
+  },
+  {
+   "path": "tests/fixtures.mjs",
+   "size": 3254,
+   "sha256": "cc2bc3b57b80a22665944209b1fc2a6ad12782df066904b5f4c7fac1f1588a56"
+  },
+  {
+   "path": "tests/parent.html",
+   "size": 5860,
+   "sha256": "d995220f9c9d50159a74e8d47dfd8b2de6de1e09dd4d5d15a86697808f5d039e"
+  },
+  {
+   "path": "tests/studyDoc.selftest.ts",
+   "size": 4207,
+   "sha256": "51e2b230ee3418cc25d0d76c2d34a88f072c5915f6e501ecf12620a6b6f66344"
+  },
+  {
+   "path": "tests/viewer.e2e.mjs",
+   "size": 22103,
+   "sha256": "0d93894c0dd36b75dd7018556cc17056e16eee43098feeed72f25882c9dabd83"
+  },
+  {
+   "path": "tests/views.selftest.ts",
+   "size": 1563,
+   "sha256": "765b888703499edc527e7e3435382e8db3e52447135671696a17d108a6dd8676"
+  },
+  {
+   "path": "ui/viewer.css",
+   "size": 6705,
+   "sha256": "f4af7aff94160afd35757040cb8401cf80703321c1609c8f4fc34a27561b266a"
+  },
+  {
+   "path": "ui/viewer.html",
+   "size": 609,
+   "sha256": "b13690e6d023d6a213e952653cc0f1614aaeee64688f0f56b9bc4125aa56efe3"
+  },
+  {
+   "path": "ui/viewer.js",
+   "size": 1890755,
+   "sha256": "fb71d417a723adf8fcca0b29defa2a96d4e28ca9b693dd86c37fd5390aa1a5a9"
+  },
+  {
+   "path": "ui-src/coExt.ts",
+   "size": 4213,
+   "sha256": "edcf1be18f602102483c93e67d2fd3f42f7edf31409e7236c8f868563ed26a80"
+  },
+  {
+   "path": "ui-src/main.tsx",
+   "size": 1826,
+   "sha256": "5c934a0c5b511bd4a2ea53c41244246e51eef833fdfcabe03a4a7b1d7739f149"
+  },
+  {
+   "path": "ui-src/studyConvert.ts",
+   "size": 4648,
+   "sha256": "4b55a0417dd0af49f0269a2a84c770f01bedcdbca2dbd075ab9139e0f9414ec8"
+  },
+  {
+   "path": "ui-src/studyDoc.ts",
+   "size": 7545,
+   "sha256": "03121ac187391813cab4ce7f09b0390faa5da43ab9f34708c2478d22ae90cd2e"
+  },
+  {
+   "path": "ui-src/StudyViewer.tsx",
+   "size": 25694,
+   "sha256": "0e9515adb69a77db729f7c0f8d0ee7e32e55e58755f71fe2bc34ea3a6e46660e"
+  }
+ ],
+ "signatures": [
+  {
+   "name": "maintainer-1",
+   "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
+   "sig": "2bHfH85tjURimRU8sL0z3Yd37lPYb2Z/mq0WlCaJF1qIgHgpFzB+n8nk3vtWpRLhffRcapyu3FhzgDQ4Mu8lBQ=="
+  }
+ ],
+ "module": "study"
+}

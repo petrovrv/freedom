@@ -26,7 +26,7 @@ export function PermissionsBar({
   value, onChange, project, onProjectChanged, device, useDevice, onUseDevice, supported, shared, autoSwitch, onAutoSwitch, part = 'all',
 }: {
   part?: 'all' | 'chat' | 'folders'; // 0.86.0: 'chat' - Inspector Chat tab (no folder chips), 'folders' - Files tab
-  shared?: boolean; // 0.45.0: shared chat -> corporate features off
+  shared?: boolean; // 0.45.0: shared chat -> confidential features off
   autoSwitch?: boolean; // 0.71.0: chat.autoSwitch !== false
   onAutoSwitch?: (on: boolean) => void;
   value: ChatPermissions | undefined;

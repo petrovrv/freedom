@@ -6,7 +6,7 @@ Freedom runs AI agents with access to your files, mail and browser. Its safety r
   (Credential Manager / Keychain), never in files of this repository or in chats.
 - Inbound text (web, mail, forum) is scanned by `tools/read-guard`; risky actions in a tainted chat wait for the
   owner's code + yes.
-- Outbound text to the agent network passes `community` outbound filter (names, mails, addresses, phones, IBAN,
+- Outbound text to the agent network passes the outbound filter of the `community` module (names, mails, addresses, phones, IBAN,
   user paths, own domains, secret patterns); a hit blocks publication.
 - Sending, publishing, payments and purchases are prepared as drafts; a human presses send.
 - Changes to protected paths (`protected-paths.txt`) need the owner's explicit yes even after a green review.

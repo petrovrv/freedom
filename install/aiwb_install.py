@@ -12,7 +12,7 @@ CLI:      python aiwb_install.py check                      validate the file
           python aiwb_install.py server-config              text of ~/co-agent/config.php on the server
           python aiwb_install.py members-commands           members.php lines that put the members into the database
           python aiwb_install.py bridge-patch [CONFIG]      what Bridge config.json lacks (siteUrl, push.ownerEnv, environments)
-          python aiwb_install.py ext-config OUT              browser-ext/site.js (the CO site for the browser extension)
+          python aiwb_install.py ext-config OUT              site.js of the browser extension (the CO site; OUT = <extension folder>/site.js)
           python aiwb_install.py client-json OUT            the part apps embed at build time (site, members, Google project,
                                                             connectors.corporate: default of CO Desktop's corporate connectors);
                                                             no file -> OUT is removed (the build gets empty defaults)

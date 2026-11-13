@@ -11,13 +11,12 @@ export interface Project {
   createdUtc: string;
   updatedUtc: string;
   archived: boolean;
-  // 0.28.0: work (default), service (system/admin), sandbox (tests); corporate = holds employer data (flag only for now)
+  // 0.28.0: work (default), service (system/admin), sandbox (tests); confidential = holds employer data (flag only for
+  // now; read with projectConfidential(), which also knows its legacy project.json name, dropped on the next save)
   kind?: 'work' | 'service' | 'sandbox';
-  corporate?: boolean;
+  confidential?: boolean;
   // Folders on the home computer / Google Drive attached as read-only or writable context.
   contextFolders?: ContextFolder[];
-  // 0.78.0: new chats of the project start in study mode (studyMode.ts); a chat's own switch wins
-  studyDefault?: boolean;
   // Folder exists in Drive but has no project.json (created before CO).
   legacy?: boolean;
   folderId: string;
@@ -37,7 +36,7 @@ export interface Chat {
   createdUtc: string;
   updatedUtc: string;
   defaultMode?: Mode;
-  importedFrom?: { source: 'claude' | 'chatgpt'; id: string; importedUtc: string };
+  importedFrom?: { source: string; id: string; importedUtc: string };
   // Set when the chat moved to another project: provider sessions from before are not resumed.
   movedUtc?: string;
   legacy?: boolean;
@@ -58,11 +57,7 @@ export interface Chat {
   shareRole?: 'editor' | 'viewer'; // 0.45.0: role of a chat shared one by one (server)
   // 0.71.0: false = no automatic retry on the other agent after a limit / sign-in / model error (autoswitch-lib.php)
   autoSwitch?: boolean;
-  // 0.78.0: study mode of this chat (absent = the project's studyDefault) and who switched it when (studyMode.ts)
-  study?: boolean;
-  studyLog?: StudySwitch[];
-  // 0.80.0: the chat of a document in the study viewer (path relative to AI-Workbench); one chat per document
-  studyDoc?: string;
+  // F10: chat modes of modules keep their state under their own keys (<key>, <key>Log, <key>Doc; moduleModes.ts)
   // 0.87.0: agent browser settings of this chat over the environment defaults (browser-lib.php); only the keys set
   browser?: BrowserSettings;
   // 0.89.0: family chat (FamilyChat.tsx) - people write to each other, the agent (@co) answers when called; the server
@@ -79,12 +74,6 @@ export interface BrowserSettings {
   captchaKeep?: boolean;
 }
 
-export interface StudySwitch {
-  on: boolean;
-  by: string;
-  utc: string;
-}
-
 export type Mode = 'chat' | 'cowork';
 
 // What agents may do in a chat (Bridge 1.1 "permissions"); sent with every message.
@@ -98,8 +87,6 @@ export interface EnvTemplate {
   hostId?: string;
   permissions?: ChatPermissions;
   useDevice?: boolean;
-  useCorporate?: boolean; // ignored while the corporate connector is paused (0.66.0)
-  useEngie?: boolean; // legacy name of useCorporate; old templates may still carry it
 }
 
 export interface ChatPermissions {
@@ -215,15 +202,12 @@ export interface ChatEvent {
   modelReported?: string | null;
   usage?: Usage | null;
   exportSkipped?: ExportSkip[];
-  imported?: { source: 'claude' | 'chatgpt'; originalId?: string };
+  imported?: { source: string; originalId?: string };
   // user_message: the instruction carried the AI Workbench environment note.
   workbenchNote?: boolean;
-  // 0.52.0: assistant_message - the job could not reach the corporate model (Bridge 1.5.1 reason); user_message - sent
-  // by "Resume all". engie*: legacy wire names (server and Bridge before Freedom F1 5b), read with corporateBlocked().
-  corporateBlocked?: string;
-  engieBlocked?: string;
-  corporateResume?: boolean;
-  engieResume?: boolean;
+  // 0.52.0: assistant_message - the job could not reach the gateway model (Bridge 1.5.1 reason); read with
+  // gatewayBlocked() (gateway.ts), which also knows the legacy wire names.
+  gatewayBlocked?: string;
   // user_message (0.36.0): context mode of the turn and what the new/resumed session got (protocol, history, resume).
   contextMode?: 'full' | 'reference' | 'clean';
   contextPack?: 'resume' | 'protocol' | 'history' | 'none';
@@ -234,9 +218,8 @@ export interface ChatEvent {
   followupOf?: string;
   // user_message (0.71.0): the server retried the failed job with this id on the other agent (autoswitch-lib.php)
   autoSwitchFrom?: string;
-  // user_message and assistant_message (0.65.0, canvas M3): a job about comment threads of a document open in canvas;
-  // its own agent session, shown as one collapsed row and left out of the chat conversation
-  canvas?: { path: string; file: string };
+  // user_message and assistant_message (F10 side jobs): a job a module queued carries {path, file} under the module's
+  // key; its own agent session, shown as one collapsed row and left out of the chat conversation (moduleStore.sideJobsOf)
   // assistant_message
   status?: string;
   sessionId?: string | null;
@@ -282,9 +265,8 @@ export interface JobResult {
   modelReported?: string | null;
   usage?: Usage | null;
   exportSkipped?: ExportSkip[];
-  // Bridge 1.5.1: why the corporate model was unavailable to this job (engieBlocked: legacy wire)
-  corporateBlocked?: string | null;
-  engieBlocked?: string | null;
+  // Bridge 1.5.1: why the gateway model was unavailable to this job (read with gatewayBlocked(): also the legacy names)
+  gatewayBlocked?: string | null;
 }
 
 export interface BridgeEvent {
@@ -350,8 +332,8 @@ export interface OwnerDevice {
   version: string;
   lastHeartbeatUtc: string | null;
   online: boolean;
-  corp?: { id?: string; state?: string } | null; // connector session (Freedom F1 5b), read with corpState()
-  engie?: string; // legacy wire of corp.state: online|signin|offline|unknown|off, "" on CO Desktop before 0.7.13
+  // gateway session (Freedom F10): online|signin|offline|unknown|off; read with gatewayState() (also the legacy fields)
+  gateway?: { id?: string; state?: string } | null;
 }
 
 export interface LimitWindow {
@@ -360,10 +342,9 @@ export interface LimitWindow {
   windowMinutes: number;
   usedPercent: number;
   resetsAtUtc?: string | null;
-  // Bridge 1.1.6, the corporate dispatcher's savings windows only: output tokens written by the corporate models
-  // (corpTokens; engieTokens = legacy wire) and by Claude, jobs counted.
-  corpTokens?: number | null;
-  engieTokens?: number | null;
+  // Bridge 1.1.6, the gateway dispatcher's savings windows only: output tokens written by the gateway models
+  // (gatewayTokens, read with gatewayTokens() of gateway.ts: also the legacy names) and by Claude, jobs counted.
+  gatewayTokens?: number | null;
   claudeTokens?: number | null;
   jobs?: number | null;
 }

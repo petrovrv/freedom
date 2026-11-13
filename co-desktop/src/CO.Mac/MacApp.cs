@@ -214,8 +214,11 @@ public static unsafe class MacApp
         return "if (location.origin === " + JsonSerializer.Serialize(Origin) + ") { (() => {" +
             " const pending = new Map(); let n = 0;" +
             " Object.defineProperty(window, '__coReply', { value: (m) => { const p = pending.get(m.id); if (!p) return; pending.delete(m.id); m.error ? p.reject(new Error(m.error)) : p.resolve(m.result); } });" +
-            " const call = (type) => new Promise((resolve, reject) => { const id = ++n; pending.set(id, { resolve, reject }); window.webkit.messageHandlers.co.postMessage(JSON.stringify({ type, id })); });" +
-            " window.coDesktop = Object.freeze(Object.assign(" + JsonSerializer.Serialize(info) + ", { status: () => call('status') }));" +
+            " const call = (type, args) => new Promise((resolve, reject) => { const id = ++n; pending.set(id, { resolve, reject }); window.webkit.messageHandlers.co.postMessage(JSON.stringify(args === undefined ? { type, id } : { type, id, args })); });" +
+            " window.coDesktop = Object.freeze(Object.assign(" + JsonSerializer.Serialize(info) + ", { status: () => call('status')" +
+            // Freedom F10 (ext/1 device.tools): device ops of module settings pages and the per-device switch, like CO Desktop
+            ", moduleOp: (module, op, args) => call('moduleOp', { module, op, args })" +
+            ", moduleDevice: () => call('moduleDevice'), moduleDeviceSet: (module, on) => call('moduleDeviceSet', { module, on: on === true }) }));" +
             " })(); }";
     }
 
@@ -326,10 +329,15 @@ public static unsafe class MacApp
         catch (Exception ex) { Log.Write($"window app: {what}: {ex}"); }
     }
 
+    // Work for the main thread from a worker (module call answers); run by the next tick.
+    private static readonly System.Collections.Concurrent.ConcurrentQueue<Action> _mainQueue = new();
+    private static void MainThread(Action a) => _mainQueue.Enqueue(a);
+
     [UnmanagedCallersOnly]
     private static void OnTick(IntPtr self, IntPtr sel, IntPtr timer) => Guard("tick", () =>
     {
         if (File.Exists(ShowFile)) { File.Delete(ShowFile); ShowMain(); }
+        while (_mainQueue.TryDequeue(out var job)) job();   // F10: answers of module calls made on a worker
         // Status every 2 s from a worker (launchctl, file reads), applied to the menu on the next tick.
         if (Interlocked.Exchange(ref _refreshing, 1) == 0)
             _ = Task.Run(() => { try { _snap = Compute(); } catch (Exception ex) { Log.Write("window app: status: " + ex.Message); } finally { _refreshing = 0; } });
@@ -603,14 +611,25 @@ public static unsafe class MacApp
         if (UrlOf(Send(web, "URL")) is not string page || !Uri.TryCreate(page, UriKind.Absolute, out var pu) || !SameOrigin(pu)) return;
         int id;
         string type;
+        JsonElement args = default;
+        string text = FromStr(body) ?? "";
+        if (text.Length > 64 * 1024) return;
         try
         {
-            using var doc = JsonDocument.Parse(FromStr(body) ?? "");
+            using var doc = JsonDocument.Parse(text);
             id = doc.RootElement.GetProperty("id").GetInt32();
             type = doc.RootElement.GetProperty("type").GetString() ?? "";
+            if (doc.RootElement.TryGetProperty("args", out var a)) args = a.Clone();
         }
         catch (Exception) { return; }
         var s = _snap;
+        if (type is "moduleOp" or "moduleDevice" or "moduleDeviceSet")
+        {
+            // module calls may run a module's device file: off the main thread, the answer comes back on it
+            MacModules.Start(type, args, id, reply => MainThread(() =>
+                Send(web, "evaluateJavaScript:completionHandler:", Str("window.__coReply(" + reply + ")"), IntPtr.Zero)));
+            return;
+        }
         object reply = type == "status"
             ? new { id, result = new { deviceId = s.DeviceId, name = s.Name, @short = s.Short, paired = Connected(s) } }
             : new { id, error = "unknown_request" };

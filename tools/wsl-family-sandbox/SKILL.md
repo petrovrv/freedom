@@ -1,7 +1,7 @@
 ---
 name: wsl-family-sandbox
 description: Children's WSL2 sandbox aiwb-family on the home PC (Ubuntu 24.04) — household members (install.json members) compile and run code (C/C++, Python, Node LTS, .NET 8, Java 21, Rust) without seeing the owner's files, Windows drives, other distros, LAN or tailnet; cgroup limits on CPU/memory/processes, disk image per user, own netns with internet only, auto-clean of /tmp. Commands create / status / add-user / reset-user / del-user / check / run / destroy. Use to (re)build the sandbox or to run a child's command (the Bridge pc_* interface).
-version: 0.1.2
+version: 0.1.3
 entry: wsl-family-sandbox.py
 requires: [WSL 2.6+ (wsl --install --name/--location/--vhd-size), internet for apt/nodejs.org on create]
 secrets: []
@@ -10,7 +10,7 @@ allowed_hosts: [nodejs.org, static.rust-lang.org, pypi.org, registry.npmjs.org]
 
 # wsl-family-sandbox
 
-Отдельный дистрибутив WSL2 `aiwb-family` (`C:\AIWorkbench\wsl\aiwb-family`, диск до 40 ГБ), где София и Александра через Bridge компилируют и запускают код. Изнутри не видно ни файлов Windows и Drive, ни соседних дистрибутивов (Ubuntu с CoreScoping), ни домашней сети и tailnet.
+Отдельный дистрибутив WSL2 `aiwb-family` (`C:\AIWorkbench\wsl\aiwb-family`, диск до 40 ГБ), где члены семьи через Bridge компилируют и запускают код. Изнутри не видно ни файлов Windows и Drive, ни соседних дистрибутивов (Ubuntu с CoreScoping), ни домашней сети и tailnet.
 
 ## Интерфейс для Bridge (pc_*)
 
@@ -63,6 +63,7 @@ uid детей — с 3001: правило `meta skuid` действует на 
 
 ## История
 
+- 0.1.3 — 2026-11-13 — тексты без имён членов семьи (экспорт Freedom); поведение не изменилось.
 - 0.1.2 — 2026-11-12 — `add-user`/`create` отказываются от существующей учётки дистрибутива вне uid 3001–3998 (root, daemon …): раньше она переводилась в песочницу (ревью шага 6a мастера Freedom).
 
 - 0.1.1 — 2026-11-12 — пользователи по умолчанию — члены домохозяйства из install.json (`AIWB_SANDBOX_USERS` для замены), без имён в коде и документации (Freedom F7); у владельца результат тот же.

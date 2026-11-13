@@ -1,7 +1,7 @@
 ---
 name: toolbox
-description: Manage this tool library — search for an existing tool, create a new one from the template, validate, security-scan tools (secrets, hosts, remote exec, TLS off, writes), regenerate INDEX.md, commit, archive an unused tool.
-version: 1.6.2
+description: Manage this tool library — search for an existing tool, create a new one from the template, validate, security-scan tools (secrets, hosts, remote exec, TLS off, writes), regenerate INDEX.md, commit, archive an unused tool; tools of Freedom modules (install a tool from a module or export folder, module on/off/remove — tools of a switched-off module are refused by the MCP server).
+version: 1.7.0
 entry: toolbox.py
 requires: [git]
 secrets: []
@@ -24,6 +24,9 @@ python toolbox/toolbox.py scan [name ...] [--json] [-v]  # только пров
 python toolbox/toolbox.py index                     # пересобрать INDEX.md
 python toolbox/toolbox.py commit outlook-export -m "Add outlook-export"
 python toolbox/toolbox.py archive outlook-export -m "no agent job used it for 60 days"
+python toolbox/toolbox.py install gmail-draft --from <folder with gmail-draft/> [--update]   # 1.7.0
+python toolbox/toolbox.py module mail-sheets --state enabled|disabled|removed [--tools a,b] [--version V]
+python toolbox/toolbox.py modules [--json]
 ```
 
 `index` и `commit` переписывают `INDEX.md` и блок между `<!-- aiwb-tools-index:begin -->` и `<!-- aiwb-tools-index:end -->` в `%USERPROFILE%\.claude\CLAUDE.md` и (с 1.2.0) в `%USERPROFILE%\.codex\AGENTS.md` (или `%CODEX_HOME%\AGENTS.md`), чтобы каждая сессия Claude и Codex на этом компьютере видела список инструментов. Codex в режиме Chat запускается с `project_doc_max_bytes=0` и `AGENTS.md` не читает; список видит Codex в режиме Cowork.
@@ -31,6 +34,16 @@ python toolbox/toolbox.py archive outlook-export -m "no agent job used it for 60
 `commit` коммитит только перечисленные папки и `INDEX.md`; занятый `index.lock` ждёт до 60 с. С 1.5.0 перед коммитом проверяет безопасность этих инструментов: при ошибке (`error`) без исключения коммит не делается, код выхода 1.
 
 `archive` (с 1.6.0) переносит инструмент в `_archive/<имя>` (`git mv`), дописывает в «Историю» его SKILL.md строку `- archived — дата — причина`, пересобирает `INDEX.md` и коммитит перенос; дальше как у `commit` — push, зеркало, сайт. Папки на `_` не видны в `list`, `INDEX.md`, MCP `aiwb-tools` и на сайте. Вернуть: `git mv _archive/<имя> <имя>`, затем `commit <имя>`. Архив предлагает ночной проход по заданиям (CO Web → Waiting for you → Tool library, `cron/tool-learn.php`): принятое предложение выполняет агент-задание, которое перед `archive` проверяет задачи планировщика и `schedules.json`.
+
+## Инструменты модулей Freedom (с 1.7.0)
+
+Модуль Freedom (SPEC §3.6, `install/freedom_modules.py` в исходниках) перечисляет свои инструменты библиотеки в `module.json` → `provides.tools`. Установщик вызывает toolbox сам:
+
+- `install NAME --from DIR` — копирует `DIR/NAME` в библиотеку (папка `tools/` модуля или выгрузки Freedom). Инструмент той же или более новой версии уже есть — ничего не делает (`present`); более старая — заменяет только с `--update`. Копия проходит проверку безопасности; при ошибке не ставится. Коммит не делается (`commit NAME`, если библиотека — git).
+- `module ID --state enabled|disabled|removed [--tools a,b]` — записывает, какие инструменты принадлежат модулю и включён ли он. Файл состояния — `tool-modules.json` рядом с `install.json` (`%LOCALAPPDATA%\AIWorkbench\`; `AIWB_TOOL_MODULES`), вне библиотеки: библиотека — git с зеркалом и копией на сайте, а выключатель — факт одной установки. `removed` снимает запись, файлы инструментов остаются.
+- Инструмент, которым владеют только выключенные модули, `mcp_server.py` показывает в `tool_list` как «unavailable here: … (module X is off …)», а `tool_run` отказывает с этой причиной. В блок `CLAUDE.md`/`AGENTS.md` он не попадает; `INDEX.md` (в git) по-прежнему перечисляет всю библиотеку. Инструменты, которых нет ни в одном модуле (ядро, свои инструменты владельца), не затрагиваются; без файла состояния всё работает как до 1.7.0.
+- Копия библиотеки на сайте (`site-sync`) файла состояния не получает: выключенный модуль на сайте пока не отключает инструмент.
+- Тест: `python toolbox/tests/test_modules.py` (временная библиотека; `AIWB_CLAUDE_MD`, `AIWB_AGENTS_MD`, `AIWB_TOOL_MODULES` уводят записи от настоящих файлов).
 
 ## Проверка безопасности (с 1.5.0)
 
@@ -71,6 +84,7 @@ security:
 
 ## История
 
+- 1.7.0 — 2026-11-12 — Freedom F10: инструменты модулей — команды `install --from`, `module --state`, `modules`; `modstate.py` (файл `tool-modules.json` рядом с install.json); `mcp_server.py` отказывает инструментам выключенного модуля, блок CLAUDE.md/AGENTS.md их не показывает; `AIWB_CLAUDE_MD`/`AIWB_AGENTS_MD` для тестов. Без файла состояния поведение прежнее.
 - 1.6.2 — 2026-11-12 — Freedom: в коде нет личных имён — свой домен в `ALLOWED_HOSTS` берётся из install.json (`site.url` и родительский домен; `AIWB_SITE_URL`, `AIWB_ALLOWED_HOSTS`), разрешённые папки записи — из `%LOCALAPPDATA%` текущего пользователя, папка hz.py — `AIWB_HZ_DIR` или `~/.ssh` (исключение `write-outside` для неё больше не нужно), Python для hz.py — anaconda, если есть, иначе текущий. Результат `scan` у владельца прежний.
 - 1.6.1 — 2026-11-11 — `mcp_server.py`: в `requires` проверяются как Python-модули только голые pip-спецификации (`openpyxl`, `pint>=0.20`); описания программ («node 22+», «Microsoft Edge», «playwright (npm, local)») больше не делают инструмент «недоступным»; запятые внутри скобок и кавычек не режут элемент списка. Повод: S2, `tool_run browser-agent` с Site через relay отвечал «missing python modules: node 22+…».
 - 1.6.0 — 2026-11-01 — команда `archive <имя> -m <причина>`: перенос в `_archive/<имя>` с записью в «Историю» и коммитом (для предложений «archive» ночного прохода по заданиям, схема 15).

@@ -45,6 +45,13 @@ $now = gmdate('Y-m-d\TH:i:s\Z');
 $old = gmdate('Y-m-d\TH:i:s\Z', time() - 3600);
 
 // Site alive (fresh owner.json, Claude only), Home draining for an update
+// F10: the gateway agents come from the installed modules; fixture: the corporate module installed and disabled
+$st = $db->prepare("REPLACE INTO modules (id, version, enabled, standard, publisher, manifest_json, files_json, installed_utc, updated_utc)
+    VALUES ('corporate', '0.1.0', 0, 1, 'test', ?, '{}', UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))");
+$st->execute([(string)file_get_contents(__DIR__ . '/../modules/corporate/module.json')]);
+co_gateways(null, true);
+$ok('gateway agent never moves', co_handover_blocked(['hostAuto' => true, 'agent' => 'dispatcher'], 'site') === 'gateway'
+    && co_handover_blocked(['hostAuto' => true, 'agent' => 'claude'], 'site') === null);
 $owner('site', ['hostId' => 'site', 'updatedUtc' => $now, 'agents' => ['claude' => []]]);
 $poll('site', 3); // site agent 1.6.0 takes its jobs from the database
 $owner('home-main', ['hostId' => 'home-main', 'updatedUtc' => $now, 'state' => 'updating', 'agents' => ['claude' => [], 'codex' => [], 'dispatcher' => []]]);
@@ -63,7 +70,7 @@ $young = $job('home-main', [], 20);                                        // no
 $manual = $job('home-main', ['hostAuto' => false]);                        // the user chose Home by hand
 $resume = $job('home-main', ['conversation' => ['operation' => 'resume', 'sessionId' => 's-1']]);
 $codex = $job('home-main', ['agent' => 'codex']);                          // the site has no GPT
-$corp = $job('home-main', ['agent' => 'dispatcher']);                      // corporate agent
+$corp = $job('home-main', ['agent' => 'dispatcher']);                      // gateway agent
 $dev = $job('home-main', ['devices' => ['d-b903ab04eea11ba2']]);           // Claude + device: relay on the site
 $web = $job('home-main', ['devices' => ['w-a0275c0ec9f70721']]);           // browser device: not relayed
 $ctx = $job('home-main', ['contextFolders' => [['rootId' => 'r', 'relativePath' => 'x']]]);
@@ -81,7 +88,7 @@ $ok('11.11 job -> site', $r['host'] === 'site' && $r['state'] === 'inbox' && $r[
 $ok('claude with a device -> site (relay)', $row($dev)['host'] === 'site');
 $ev = json_decode((string)$db->query("SELECT data FROM events WHERE event_id = 'EVT-S8-1'")->fetch_row()[0], true);
 $ok('user_message names the new host', $ev['hostId'] === 'site' && $ev['text'] === 'hello');
-foreach (['young' => $young, 'manual' => $manual, 'resume' => $resume, 'codex' => $codex, 'corporate' => $corp, 'browser device' => $web,
+foreach (['young' => $young, 'manual' => $manual, 'resume' => $resume, 'codex' => $codex, 'gateway' => $corp, 'browser device' => $web,
           'context folders' => $ctx, 'Drive copy' => $fb, 'cancelled' => $cancel, 'claimed' => $claimed, 'moved once' => $moved] as $k => $id) {
     $ok("$k stays at home", $row($id)['host'] === 'home-main');
 }

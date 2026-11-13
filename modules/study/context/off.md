@@ -1,0 +1,1 @@
+[Study mode was turned off in this chat: answer normally and do not mention the mode.]

@@ -1,0 +1,50 @@
+{
+ "format": "freedom-release/1",
+ "version": "0.1.0",
+ "created": "2026-11-12T21:30:45Z",
+ "files": [
+  {
+   "path": "module.json",
+   "size": 1239,
+   "sha256": "ded4c5324f3c19f7f7b0e34baa4cbfeec2ac381b3272ccb0f4f68a74e4b9b32b"
+  },
+  {
+   "path": "README.md",
+   "size": 2972,
+   "sha256": "1ffb4895832e47fe6dfad2838d4350c25a2579ab279de2b4384478dd56ce3d90"
+  },
+  {
+   "path": "server/ops.php",
+   "size": 814,
+   "sha256": "67e9d08436297c42f12956c08740d3ac401bdeb01a1fdc671ee9e0e82dd4b309"
+  },
+  {
+   "path": "server/transcribe-lib.php",
+   "size": 7905,
+   "sha256": "e89cd839bbea2d9bbdf4abd20b25766a03d5363d64dce9f5466ec32e1016cf52"
+  },
+  {
+   "path": "ui/composer.css",
+   "size": 1281,
+   "sha256": "5e2fa33be0164e8548fdb1bbcf6afd46b4652695c9b7d8227fe92269bcf095c8"
+  },
+  {
+   "path": "ui/composer.html",
+   "size": 358,
+   "sha256": "b77bee6e6bd1f07e62298ad0670dcbfa4da4f80ddff6e406d1622357e173aa54"
+  },
+  {
+   "path": "ui/composer.js",
+   "size": 6017,
+   "sha256": "720517c86b97c21999bdb441a7add050289c55e2b4d7f0f1790a201645610b1d"
+  }
+ ],
+ "signatures": [
+  {
+   "name": "maintainer-1",
+   "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
+   "sig": "87buSDSbDKfoTe3LeATUsoA9xrIXIclsvXXHh0LbkYgwf1JCBE3THyx66heOD8E9Z722XJA454C1Fpwq6N8YAQ=="
+  }
+ ],
+ "module": "dictation"
+}

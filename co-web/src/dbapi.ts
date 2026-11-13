@@ -2,6 +2,8 @@
 // Database reads (CO Web 0.15.0, step 3 of the Drive → MariaDB migration). /agent/db.php serves the projects, chats
 // and events that cron/drive-sync.php copied from Drive (lag ≤ 1 min). null = fall back to Drive.
 import { parseRelated, type DossierRow, type Related } from './secretaryHints';
+import type { ModuleInfo } from './extBridge';
+import { gateway, setGateways } from './gateway';
 import { getToken } from './auth';
 import type { BrowserSettings, EnvTemplate } from './types';
 
@@ -87,7 +89,7 @@ export interface DbChatHit {
 }
 
 // Every chat of the env with its full-text matches for the terms (AI search, CO Web 0.16.0); null on failure.
-// 0.88.0: the user's own query too - the server merges messages, protocol entries and protocol vectors (schema 20).
+// 0.88.0: the user's own query too - the server merges messages, protocol entries and the lists of search providers.
 export async function dbSearchChats(env: string, terms: string[], limit = 300, query = ''): Promise<DbChatHit[] | null> {
   const rows = await call('search_chats', { env, terms, limit, ...(query ? { query: query.slice(0, 300) } : {}) }, 'chats');
   if (!rows) return null;
@@ -101,24 +103,29 @@ export async function dbSearchChats(env: string, terms: string[], limit = 300, q
   }));
 }
 
-// 0.27.0: project documents indexed by the aiwb-docs tool (schema 7); null on failure.
-export interface DbDocHit {
+// Freedom F10: results of the search providers of enabled modules that are not chats (ext/1 search.provider hook
+// 'items', db.php search_items), e.g. project documents of a document index; none without such a module. null on failure.
+export interface DbSearchItem {
+  provider: string;
+  kind: string; // 'doc': path is a project file
   projectId: string;
   projectTitle: string;
-  path: string; // relative to AI-Workbench/projects: <projectId>/files/...
-  name: string;
+  path: string; // kind 'doc': relative to AI-Workbench/projects: <projectId>/files/...
+  title: string;
   modified: string;
   snippets: string[];
 }
 
-export async function dbSearchDocs(env: string, q: string, limit = 8): Promise<DbDocHit[] | null> {
-  const rows = await call('search_docs', { env, q: q.slice(0, 300), limit }, 'docs');
+export async function dbSearchItems(env: string, q: string, limit = 8): Promise<DbSearchItem[] | null> {
+  const rows = await call('search_items', { env, q: q.slice(0, 300), limit }, 'items');
   if (!rows) return null;
   return rows.map((r) => ({
+    provider: String(r.provider ?? ''),
+    kind: String(r.kind ?? 'item'),
     projectId: String(r.projectId),
     projectTitle: String(r.projectTitle ?? ''),
     path: String(r.path ?? ''),
-    name: String(r.name ?? ''),
+    title: String(r.title ?? ''),
     modified: String(r.modified ?? ''),
     snippets: Array.isArray(r.snippets) ? r.snippets.map(String) : [],
   }));
@@ -252,7 +259,7 @@ export async function dbJobSubmit(
   if (res.status === 403 || res.status === 400) {
     const j = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
     let msg: string;
-    if (j.error === 'shared_chat_no_corporate') {
+    if (/^shared_chat_no_/.test(String(j.error || ''))) {
       msg = j.detail || 'A shared chat cannot use devices or context folders.';
     } else if (j.error === 'forbidden') {
       msg = 'You cannot send messages in this chat.';
@@ -460,8 +467,9 @@ export interface ChatActivity {
   since: string | null;
 }
 
-// 0.52.0: chat whose job stopped because the corporate model was unavailable
-export interface CorporateWaiting {
+// 0.52.0: chat whose job stopped because the gateway model was unavailable (Freedom F10: listed by the module's op
+// gateway().ops.waiting, see dbGatewayWaiting)
+export interface GatewayWaiting {
   chatId: string;
   projectId: string;
   title: string;
@@ -472,7 +480,7 @@ export interface CorporateWaiting {
 
 export async function dbActivity(
   env: string,
-): Promise<{ running: ChatActivity[]; asking: string[]; corporateWaiting: CorporateWaiting[] } | null> {
+): Promise<{ running: ChatActivity[]; asking: string[] } | null> {
   try {
     const j = await rawCall('activity', { env });
     const running: ChatActivity[] = Array.isArray(j?.running)
@@ -484,9 +492,22 @@ export async function dbActivity(
         }))
       : [];
     const asking: string[] = Array.isArray(j?.asking) ? j.asking.map((id: unknown) => String(id)) : [];
-    // 0.52.0: chats stopped while the corporate model was unavailable (engieWaiting: server before Freedom F1 5b)
-    const waiting = j?.corporateWaiting ?? j?.engieWaiting;
-    const corporateWaiting: CorporateWaiting[] = Array.isArray(waiting)
+    return { running, asking };
+  } catch {
+    return null;
+  }
+}
+
+/** 0.52.0 / F10: chats stopped while the gateway model was unavailable - the module's user op ops.waiting; [] without
+ * a gateway, while it is paused or when the module does not serve the op. */
+export async function dbGatewayWaiting(env: string): Promise<GatewayWaiting[]> {
+  const g = gateway();
+  const op = g.ops.waiting;
+  if (!op || g.paused) return [];
+  try {
+    const j = await dbModuleCall(op, { env });
+    const waiting = j.waiting ?? j.chats;
+    return Array.isArray(waiting)
       ? waiting
           .map((w: Record<string, unknown>) => ({
             chatId: String(w?.chatId ?? ''),
@@ -496,12 +517,23 @@ export async function dbActivity(
             reason: String(w?.reason ?? ''),
             since: typeof w?.since === 'string' ? w.since : null,
           }))
-          .filter((w: CorporateWaiting) => w.chatId !== '' && w.eventId !== '')
+          .filter((w: GatewayWaiting) => w.chatId !== '' && w.eventId !== '')
       : [];
-    return { running, asking, corporateWaiting };
   } catch {
-    return null;
+    return [];
   }
+}
+
+/** Resume chats the gateway blocked (the module's user op ops.resume; 1..20 chats). null = the module has no such op. */
+export async function dbGatewayResume(
+  chatIds: string[], deviceId?: string,
+): Promise<{ chatId: string; jobId: string | null; error: string | null }[] | null> {
+  const g = gateway();
+  const op = g.ops.resume;
+  if (!op || g.paused) return null;
+  const j = await dbModuleCall(op, deviceId ? { chatIds, deviceId } : { chatIds });
+  const rows = Array.isArray(j.results) ? (j.results as Record<string, unknown>[]) : [];
+  return rows.map((r) => ({ chatId: String(r?.chatId ?? ''), jobId: typeof r?.jobId === 'string' ? r.jobId : null, error: typeof r?.error === 'string' ? r.error : null }));
 }
 
 // ---------- 0.32.0: chat protocol kept by the server's secretary (schema 8) ----------
@@ -1158,41 +1190,60 @@ export async function dbFamilyRead(chatId: string, seq: number): Promise<void> {
   await rawCall('family_read', { chatId, seq });
 }
 
-// 0.91.0: family presence for the header (geo-lib.php, written by geo-presence on the home PC)
-export interface GeoMember {
-  user: string; name: string; state: 'home' | 'left' | 'coming' | 'walk' | 'there' | 'moving' | 'stale' | 'nodata' | 'away'; place: string; activity?: string; icon?: string;
-  since?: number; updated?: number; etaMin?: number; km?: number; batt?: number;
+// Freedom F10 (schema 27, modules-lib.php): modules. The core knows no module by name; their pages call their own
+// declared ops through the ext/1 bridge (extBridge.ts, ModuleSlot.tsx), which ends in dbModuleCall.
+// F10: the answer also describes the confidential gateway of an installed module (field gateways, gateway.ts); its last
+// copy is kept in localStorage so a reload knows it (paused agents re-routed) before modules_list answers again.
+const GATEWAYS_KEY = 'co.gateways';
+try {
+  const c = typeof localStorage !== 'undefined' ? localStorage.getItem(GATEWAYS_KEY) : null;
+  if (c) setGateways(JSON.parse(c));
+} catch { /* storage unavailable or broken copy: neutral */ }
+
+export async function dbModules(): Promise<ModuleInfo[]> {
+  return (await dbModuleList()).modules;
 }
-/** kind place: "remember this place?"; kind icon (0.97.0): a known place without an icon asks for an emoji. */
-export interface GeoSuggestion { id: string; user: string; area: string; reason: string; kind?: 'place' | 'icon'; place?: string }
-/** 0.97.0: the member's own privacy mode (geo_privacy); only the member sets it. */
-export type GeoMode = 'full' | 'home' | 'saved' | 'map' | 'off';
-export interface GeoPrivacy { mode: GeoMode; place?: string; lat?: number; lon?: number; until?: number; ts?: number; manual?: { state: 'home' | 'coming'; ts: number } }
-export interface GeoPlace { name: string; icon: string }
-export interface GeoState {
-  updated: number; now: number; members: GeoMember[]; suggestions: GeoSuggestion[];
-  places: GeoPlace[]; privacy: GeoPrivacy; center?: [number, number]; tileToken?: string;
+/** modules_list with the labels of import sources of every installed module (also switched-off ones). */
+export async function dbModuleList(): Promise<{ modules: ModuleInfo[]; importLabels: { source: string; label?: string; speaker?: string }[] }> {
+  const r = await rawCall('modules_list', {});
+  const gws = Array.isArray(r.gateways) ? r.gateways : [];
+  setGateways(gws);
+  try { localStorage.setItem(GATEWAYS_KEY, JSON.stringify(gws)); } catch { /* storage unavailable */ }
+  return { modules: Array.isArray(r.modules) ? (r.modules as ModuleInfo[]) : [], importLabels: Array.isArray(r.importLabels) ? r.importLabels : [] };
 }
-export async function dbGeoState(): Promise<GeoState> {
-  const j = await rawCall('geo_state', {});
-  const pv = j.privacy && typeof j.privacy === 'object' ? j.privacy as GeoPrivacy : { mode: 'full' as GeoMode };
-  return {
-    updated: Number(j.updated) || 0, now: Number(j.now) || Math.floor(Date.now() / 1000),
-    members: Array.isArray(j.members) ? j.members : [], suggestions: Array.isArray(j.suggestions) ? j.suggestions : [],
-    places: Array.isArray(j.places) ? j.places : [], privacy: pv,
-    tileToken: typeof j.tileToken === 'string' ? j.tileToken : undefined,
-    center: Array.isArray(j.center) && j.center.length === 2 ? [Number(j.center[0]), Number(j.center[1])] : undefined,
-  };
+export async function dbModuleSet(id: string, enabled: boolean): Promise<void> {
+  const r = await rawCall('module_set', { id, enabled });
+  if (!r.ok) throw new Error(String(r.error || 'module_set failed'));
 }
-/** Set the own privacy mode and/or a manual state ('' clears it). */
-export async function dbGeoPrivacy(p: { mode?: GeoMode; place?: string; lat?: number; lon?: number; until?: number; manual?: '' | 'home' | 'coming' }): Promise<GeoPrivacy> {
-  const j = await rawCall('geo_privacy', p);
-  if (!j.ok) throw new Error(String(j.error || 'geo_privacy failed'));
-  return j.privacy as GeoPrivacy;
+/** The person's own switch of a module with data about people; env = another member only for the owner's default. */
+export async function dbModulePerson(id: string, mode: 'auto' | 'ask' | 'off', env?: string): Promise<void> {
+  const r = await rawCall('module_person', env ? { id, mode, env } : { id, mode });
+  if (!r.ok) throw new Error(String(r.error || 'module_person failed'));
 }
-/** Name a suggested frequent place, or decline it with an empty name. */
-export async function dbGeoAnswer(id: string, name: string): Promise<void> {
-  await rawCall('geo_answer', { id, name });
+/** A user op of a module (already checked by the bridge against the module's declared ops). */
+export async function dbModuleCall(op: string, args: Record<string, unknown>, timeoutMs = TIMEOUT_MS): Promise<Record<string, unknown>> {
+  const { op: _op, gz: _gz, ...rest } = args; // rawCall spreads params after op: an "op" key there would replace it
+  void _op; void _gz;
+  const res = await post({ op, ...rest }, false, Math.min(600000, Math.max(TIMEOUT_MS, timeoutMs)));
+  if (!res) throw new Error('Database is not reachable.');
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Database: ${j.error || res.status}${j.detail ? ` (${j.detail})` : ''}`);
+  return j;
+}
+/** ext/1 upload: a file posted to an upload the module declared (agent/module.php?m=<id>&u=<name>, multipart 'file'). */
+export async function dbModuleUpload(id: string, name: string, file: Blob, filename: string, fields: Record<string, string>): Promise<Record<string, unknown>> {
+  const form = new FormData();
+  for (const [k, v] of Object.entries(fields)) form.append(k, v);
+  form.append('file', file, filename);
+  const headers: Record<string, string> = { 'X-CO-Auth': '1' };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`/agent/module.php?m=${encodeURIComponent(id)}&u=${encodeURIComponent(name)}`, {
+    method: 'POST', headers, body: form, credentials: 'same-origin', cache: 'no-store',
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(String(j.detail || j.error || `HTTP ${res.status}`));
+  return j;
 }
 
 // Global switch of the automatic Claude <-> Codex retry on limit / sign-in / model errors (owner sets it).
@@ -1207,7 +1258,7 @@ export interface ModelCard { summary?: string; strengths?: string; limits?: stri
 export interface ModelResource {
   id: string;
   env: string;
-  kind: 'subscription' | 'site' | 'corporate' | 'free' | string;
+  kind: 'subscription' | 'site' | 'gateway' | 'free' | string; // legacy wire kind: isGatewayKind()
   title: string;
   host: string;
   agent: string;

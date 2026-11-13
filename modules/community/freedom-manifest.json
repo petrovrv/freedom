@@ -1,0 +1,280 @@
+{
+ "format": "freedom-release/1",
+ "version": "0.1.0",
+ "created": "2026-11-13T01:33:44Z",
+ "files": [
+  {
+   "path": "home/community/__init__.py",
+   "size": 222,
+   "sha256": "c13bbc8ae6baa0d5ea88a89fee8abb4eb4767087def3a24f412b272991362bee"
+  },
+  {
+   "path": "home/community/__main__.py",
+   "size": 97,
+   "sha256": "9ef3e114ab0884e7989f42eb7f436f0937b725c6abb42e2d322b0b3b166299d1"
+  },
+  {
+   "path": "home/community/agent.py",
+   "size": 25575,
+   "sha256": "f287878a876ced1ffda107ab757f002c139d0e47d2c3ec0d06fb7bef294b0189"
+  },
+  {
+   "path": "home/community/archive.py",
+   "size": 17399,
+   "sha256": "7cef3dba7342767ad95cd2f5577909e626231e0472769648697520e768f09e52"
+  },
+  {
+   "path": "home/community/budget.py",
+   "size": 3166,
+   "sha256": "622017053c56e3a0a13272b9b80c871005516aeb426a9f7a36cc477a224fab0f"
+  },
+  {
+   "path": "home/community/cards.py",
+   "size": 4994,
+   "sha256": "d11743649e664d954ff813b892f453a64f102b6eae3fc48c8921d1080b8f8d60"
+  },
+  {
+   "path": "home/community/cli.py",
+   "size": 19048,
+   "sha256": "74ce38e535fbf771d220a1074d3875c4c9697efe5fd13f93b43c2d65bc0b46ce"
+  },
+  {
+   "path": "home/community/client.py",
+   "size": 6230,
+   "sha256": "d36edd99b75aa717fb9df72157fe280d5d1f5c998474be57e4db1620cebe0e16"
+  },
+  {
+   "path": "home/community/config.py",
+   "size": 5119,
+   "sha256": "9ba5b817bf4d4eab53c8ff8b9628d7ebdcabea3be22fd80c84eb44ac67a1c76d"
+  },
+  {
+   "path": "home/community/digest.py",
+   "size": 9522,
+   "sha256": "dc67d33a17ea3503964369bf268b257be665a5540a4774d3daf18d3db8917f49"
+  },
+  {
+   "path": "home/community/gate.py",
+   "size": 3944,
+   "sha256": "12641b35574eefb5a4212dced7d596806b750f3d2f5e8cd3e8266346ed734341"
+  },
+  {
+   "path": "home/community/guard.py",
+   "size": 3259,
+   "sha256": "4e2ab715b0ab99313e9b3bb8b3b70d53e165eb780d285254768962ef27da58cc"
+  },
+  {
+   "path": "home/community/identity.py",
+   "size": 6512,
+   "sha256": "20ec31f085f6229ad5d5c23df2ec21842d94b6c6e1bddaced65515aa90cb9982"
+  },
+  {
+   "path": "home/community/keys.py",
+   "size": 2219,
+   "sha256": "4c2885c5d016a9d4ed51718b42c81fbf7975a543f61921deb4e74cf701c52076"
+  },
+  {
+   "path": "home/community/nostr.py",
+   "size": 10788,
+   "sha256": "267b97c279394faab6172236478630881ae0dca432da030cb07dc55ccad59801"
+  },
+  {
+   "path": "home/community/outfilter.py",
+   "size": 27924,
+   "sha256": "7b0fecf2c3e384e88c0b636f2ee8acad54744c08cc4c054c237a2c5e0ab45350"
+  },
+  {
+   "path": "home/community/page.py",
+   "size": 3199,
+   "sha256": "46ab508fd8b3357c1da682046758c5240607f38f69704a17530a9252b543207a"
+  },
+  {
+   "path": "home/community/projects.py",
+   "size": 10080,
+   "sha256": "e00d69e4769a6a9b815fe87bb3505085f71dcb34f7f44c8adb277ed199b4aec0"
+  },
+  {
+   "path": "home/community/README.md",
+   "size": 25512,
+   "sha256": "ffdede9d27b80cf06258cad37a1b8d639f12afb77673b7fb2767cd76521b8c8c"
+  },
+  {
+   "path": "home/community/relay.py",
+   "size": 13534,
+   "sha256": "a42b693fd82f154f5c9deef92d17afd55aa838d8f99e7182e297ef383bf6695e"
+  },
+  {
+   "path": "home/community/reputation.py",
+   "size": 5091,
+   "sha256": "e03f98e27c326aaf68a36cd9fa692cb039f2104cf2f0e171807a8538ecf9645d"
+  },
+  {
+   "path": "home/community/requirements.txt",
+   "size": 219,
+   "sha256": "15648e9e541a7f7b7d7bfc6ceb17c6d9a36ea7398cf0626501c348868d795c11"
+  },
+  {
+   "path": "home/community/schemas.py",
+   "size": 11222,
+   "sha256": "0fba8b33db8d7eaa30b95a6626c9c4dbb32e6bb88e9bbe1c0ff45e4f9008369d"
+  },
+  {
+   "path": "home/community/schnorr.py",
+   "size": 7000,
+   "sha256": "bac73c0014514a2e593facb0e36001e7f55839a4543b3ad33fb0aa3e4b0998b3"
+  },
+  {
+   "path": "home/community/secretscan.py",
+   "size": 10847,
+   "sha256": "f89731765cc738b91e8577f93b7740dcca408944e954ad9c666a86eab9481db2"
+  },
+  {
+   "path": "home/community/tests/__init__.py",
+   "size": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "path": "home/community/tests/helpers.py",
+   "size": 2937,
+   "sha256": "cf88b3715c536a478c09e495f907e4c990700dab051087a8c3af5bc7ef2e4398"
+  },
+  {
+   "path": "home/community/tests/test_cards_archive.py",
+   "size": 6851,
+   "sha256": "37743cf4b8277c9960022082aae685a0d21d3f3bc7a3b83a3e6ebd73f19a8d2e"
+  },
+  {
+   "path": "home/community/tests/test_cli.py",
+   "size": 7732,
+   "sha256": "1423794f5640b1ed25684f2e880352967c505e2c12d584e6363a2035db66a1f8"
+  },
+  {
+   "path": "home/community/tests/test_codex_review.py",
+   "size": 6346,
+   "sha256": "5c1d4dce54ee402cefcc9d841da00629eeabfd67bb0bca2dcffa793c87bc7522"
+  },
+  {
+   "path": "home/community/tests/test_codex_review2.py",
+   "size": 9149,
+   "sha256": "9c0b666fae595c58393abb85086a742cf93490ae2a88144e1168870cfa99b644"
+  },
+  {
+   "path": "home/community/tests/test_crypto_nostr.py",
+   "size": 6872,
+   "sha256": "82ee56085eef6b0d34b8c10538c4e8466b3eca737e2d38e1718f0ad69d8de026"
+  },
+  {
+   "path": "home/community/tests/test_digest_agent_volunteer.py",
+   "size": 14082,
+   "sha256": "10a48e3e564581400d17fd1a7d0ab53b8c2b10adf3703f8ec5c02728f5fae0dd"
+  },
+  {
+   "path": "home/community/tests/test_integration.py",
+   "size": 14554,
+   "sha256": "dfca539b64b11a307a59d812d3b122318f380011d06c4c6cabf1cd3f45c58bf2"
+  },
+  {
+   "path": "home/community/tests/test_outfilter.py",
+   "size": 9313,
+   "sha256": "238cd7a129b168bc003d16848d7fa9ce700cebff0bcbd403c6720de4c74c1934"
+  },
+  {
+   "path": "home/community/tests/test_page.py",
+   "size": 1413,
+   "sha256": "839d9223ed23581690ddd88a45d89b450aa45d2090b4bb04d884a4e535d83a96"
+  },
+  {
+   "path": "home/community/tests/test_projects_reputation.py",
+   "size": 10934,
+   "sha256": "8303ab6071c4d1d10cf5ab1619285665a4b552a2787511abc8580332d7ca9492"
+  },
+  {
+   "path": "home/community/tests/test_relay_identity.py",
+   "size": 9613,
+   "sha256": "f2de4268d97b439183148ef41691ec83fc6b1f0e1037441a5c6ad26c8963da01"
+  },
+  {
+   "path": "home/community/tests/test_rereview.py",
+   "size": 12330,
+   "sha256": "2099dc11bf0259c229cb180500d56bdef65707aac1ca68734f095da422b9e38e"
+  },
+  {
+   "path": "home/community/tests/test_review_fixes.py",
+   "size": 24548,
+   "sha256": "7591803a75dcf60052a0bf1480fcaa3fd17658fb1e8632605a434d722f9f5ecb"
+  },
+  {
+   "path": "home/community/tests/test_round3.py",
+   "size": 14195,
+   "sha256": "b840de10af0cb395f2d8a0c0af7cb88ea7c773ff466355396d0dc31a1610a1c5"
+  },
+  {
+   "path": "home/community/tests/test_round4.py",
+   "size": 4698,
+   "sha256": "707709aaf99ddefb88988e83cbc39609fcd2a4e627394d5cae904a18f690da98"
+  },
+  {
+   "path": "home/community/tests/test_round5.py",
+   "size": 5167,
+   "sha256": "c4e8b96259e27441c9eb433b50508e06a29866922478da6dfb5aadbbdc55c9f1"
+  },
+  {
+   "path": "home/community/tests/test_secretscan.py",
+   "size": 4979,
+   "sha256": "1b51f518e0d6362f6f1cefbbfa14d2814208a5e6b410d80dea11b663fe944908"
+  },
+  {
+   "path": "home/community/tests/test_server_ops.py",
+   "size": 2363,
+   "sha256": "ee216afb1e0335eb8bd1be875e0be42db6e5f1b0eeca2bf429fb0798d885d65b"
+  },
+  {
+   "path": "home/community/tests/test_storage_guard.py",
+   "size": 3261,
+   "sha256": "44334830fd71694c2671f64cff10073ec11c8d4987de1ac6a780c15644a83181"
+  },
+  {
+   "path": "home/community/volunteer.py",
+   "size": 8568,
+   "sha256": "41b76d28a8973756fafc65f5be2a4ee22e7c1b1f5a616078ca2d6dccee891411"
+  },
+  {
+   "path": "module.json",
+   "size": 1914,
+   "sha256": "8409f59273a5753141d3dd6c305b51c138a2722526582a1cad2094aa464775a1"
+  },
+  {
+   "path": "README.md",
+   "size": 1811,
+   "sha256": "5fa82019e0ed5244c09ee715093965c29b58686ca7efef944cefa265f52a66f7"
+  },
+  {
+   "path": "server/ops.php",
+   "size": 1578,
+   "sha256": "fa72e30d8e1964142f1b81027ea68a8705c01c1d9394e7bfc6facf84cbf04ec2"
+  },
+  {
+   "path": "ui/forum.css",
+   "size": 832,
+   "sha256": "397390ae5aabd41beaf40f88cb4c126d97003d792aa361ba25aa39269251e232"
+  },
+  {
+   "path": "ui/forum.html",
+   "size": 386,
+   "sha256": "f7e62c9c886e662851249c4ae4a865f5d2d13ba750986d172f0225669862c4e7"
+  },
+  {
+   "path": "ui/forum.js",
+   "size": 3585,
+   "sha256": "fec3c02455995829be8f2b2f8870be48191f23eb82fb5f83ebd5de8e12c0fe0d"
+  }
+ ],
+ "signatures": [
+  {
+   "name": "maintainer-1",
+   "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
+   "sig": "8nE7Jvm6CCG+yz/MMnxcGLEYFVQX4kYEnfz+JFGJEZTsyILvBdxjbn37M1Cwi1MxRKhqLaAk4uUq2CnAwHDMAg=="
+  }
+ ],
+ "module": "community"
+}

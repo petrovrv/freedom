@@ -39,6 +39,8 @@ async function main() {
     const context = await browser.newContext({ viewport: { width: 1400, height: 900 }, serviceWorkers: 'block' });
     // CO Web signs in through window.coDesktop.getAccessToken, as inside CO Desktop.
     await context.addInitScript(([token, email, host]) => {
+      // 0.6.3: init scripts run in every frame; sandboxed module frames (CO Web 0.102.0+) have no storage and no session
+      if (window.top !== window) return;
       localStorage.setItem('co.host', host);
       localStorage.setItem('co.hostPref', host); // CO Web 0.98.0+ (S2): executor preference; co.host is for older builds
       // 0.2.1: the emulated CO Desktop has a paired device; with its tools on, CO Web sends every job to Home

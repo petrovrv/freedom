@@ -3,9 +3,12 @@
 // and the last events of the Bridge supervisor (launcher watchdog, restart ladder; host_events). db.php op "health", owner only.
 import { useEffect, useState } from 'react';
 import { dbHealth, type HealthReport } from './dbapi';
-import { corporate } from './corporate';
+import { gateway, isGatewayFailureKind } from './gateway';
 
 // Short labels of the diagnosis kinds (co-web/src/diagnose.ts and co-agent/web/agent/failures-lib.php).
+// The gateway kind names its model at runtime (also the legacy kind names of older job_failures rows).
+const kindLabel = (k: string) => (isGatewayFailureKind(k) ? `${gateway().title} unavailable` : KIND_LABEL[k] || k);
+
 const KIND_LABEL: Record<string, string> = {
   codex_limit: 'ChatGPT usage limit',
   claude_limit: 'Claude usage limit',
@@ -13,8 +16,6 @@ const KIND_LABEL: Record<string, string> = {
   codex_auth: 'Codex signed out',
   model_not_found: 'Model not available',
   bridge_stuck_job: 'Hung job closed by Bridge',
-  corporate: `${corporate().title} unavailable`,
-  engie: `${corporate().title} unavailable`, // kind of job_failures rows before Freedom F1 5b
   context_too_long: 'Conversation too long',
   session_missing: 'Session missing',
   timeout: 'Job time limit',
@@ -78,7 +79,7 @@ export function HealthSection() {
           <tbody>
             {r.failures.map((f) => (
               <tr key={f.kind} title={f.lastDetail || undefined}>
-                <td>{KIND_LABEL[f.kind] || f.kind}</td>
+                <td>{kindLabel(f.kind)}</td>
                 <td style={f.n24 ? { ...num, color: danger } : num}>{f.n24}</td>
                 <td style={num}>{f.n7}</td>
                 <td>

@@ -77,6 +77,8 @@ public static class Program
         public required DeviceRuntime Runtime { get; init; }
         public required ShellSettings Shell { get; init; }
         public required CO.Core.Subscriptions.SubscriptionManager Subs { get; init; }
+        // Freedom F10 (SPEC §3.6, ext/1 device.tools): tools of the workbench modules that are on for this Mac
+        public required CO.Core.Modules.ModuleLoader Modules { get; init; }
     }
 
     private static OAuthClient ReadClient()
@@ -140,7 +142,13 @@ public static class Program
             subs.Report = (all, ct) => auth.HasRefreshToken && runtime.State.Account.Length > 0 ? registry.PutAsync(all, ct) : Task.FromResult("not signed in to CO");
         }
         runtime.Catalog.Add(new CO.Core.Subscriptions.CliSubsTool(subs));
-        if (!writer) return new Parts { Http = http, Secrets = secrets, Auth = auth, Runtime = runtime, Shell = shell, Subs = subs };
+        // F10: module tools from the list kept in modules.json, so the catalog has them before the site answers
+        var modules = new CO.Core.Modules.ModuleLoader(runtime.Catalog, Paths.DataDir,
+            InstallDefaults.SiteUrl.StartsWith("https://", StringComparison.Ordinal) ? new CO.Core.Modules.ModuleRegistryClient(auth, InstallDefaults.SiteUrl) : null,
+            log: Log.Write);
+        modules.Managed = () => runtime.State.Managed;
+        modules.LoadCached();
+        if (!writer) return new Parts { Http = http, Secrets = secrets, Auth = auth, Runtime = runtime, Shell = shell, Subs = subs, Modules = modules };
 
         runtime.State.OwnerEmail = OwnerEmail;
         if (runtime.State.Name == Environment.MachineName || runtime.State.Name.Length == 0)
@@ -161,7 +169,7 @@ public static class Program
             try { runtime.Folders.Add(results, ResultsFolderId, writable: false, project: false, synced: false); }
             catch (Exception ex) { Log.Write("results folder not registered: " + ex.Message); }
         }
-        return new Parts { Http = http, Secrets = secrets, Auth = auth, Runtime = runtime, Shell = shell, Subs = subs };
+        return new Parts { Http = http, Secrets = secrets, Auth = auth, Runtime = runtime, Shell = shell, Subs = subs, Modules = modules };
     }
 
     // Read-only view of device.json (written atomically by the writer) and the pairing code it implies.
@@ -392,6 +400,7 @@ public static class Program
         var nextUpdateCheck = DateTime.UtcNow.AddMinutes(2);
         string? codeShown = null;
         DateTime? codeSeenUtc = null;
+        bool modulesLoop = false;
 
         while (!stop.IsCancellationRequested)
         {
@@ -434,6 +443,26 @@ public static class Program
                 rt.Host!.Completed += (call, r) => Log.Write($"{(r.Ok ? "ok " : "ERR")} {call.Tool} run={call.RunId} {(r.Ok ? "" : r.Error?.Code)}");
                 Log.Write("serving tool calls");
                 MacUpdater.Confirm(Version);
+                // F10: module list every 5 minutes (switches the CO window changed come in this way too); a changed tool
+                // set is published to Bridge. Once per process.
+                if (!modulesLoop)
+                {
+                    modulesLoop = true;
+                    p.Modules.CatalogChanged += () => _ = Task.Run(async () =>
+                    {
+                        try { await rt.PublishCatalogAsync(stop.Token); }
+                        catch (Exception ex) when (!stop.IsCancellationRequested) { Log.Write("module tools: catalog not published: " + ex.Message); }
+                    });
+                    _ = Task.Run(async () =>
+                    {
+                        while (!stop.IsCancellationRequested)
+                        {
+                            try { await p.Modules.RefreshAsync(stop.Token); }
+                            catch (Exception ex) when (!stop.IsCancellationRequested) { Log.Write("modules: " + ex.Message); }
+                            try { await Task.Delay(TimeSpan.FromMinutes(5), stop.Token); } catch (OperationCanceledException) { return; }
+                        }
+                    });
+                }
                 // S4: subscriptions registered on the server at start and every 6 h
                 _ = Task.Run(async () =>
                 {

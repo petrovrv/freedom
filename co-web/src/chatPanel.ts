@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// 0.86.0: the chat's own controls (permission chips, study, protocol … delete) live in the Inspector "Chat" tab and the
+// 0.86.0: the chat's own controls (permission chips, modes, protocol … delete) live in the Inspector "Chat" tab and the
 // context folder chips in its "Files" tab. ChatView keeps their state and renders them into these slots with a portal;
 // the header keeps the title, the project and one status line that opens the tab.
 import { useSyncExternalStore } from 'react';

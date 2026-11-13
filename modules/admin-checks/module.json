@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "id": "admin-checks",
+  "version": "0.1.0",
+  "title": "Administrator checks",
+  "description": "Golden-task suite of the workbench (aiwb-evals: real jobs through the queue with PASS/FAIL) and the weekly restore test of the nightly database dump (aiwb-backup-check, push to the owner on failure).",
+  "ext": ">=1 <2",
+  "scope": "install",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "requires": {
+    "core": [
+      "jobs",
+      "push"
+    ],
+    "modules": []
+  },
+  "permissions": [
+    "jobs.submit",
+    "push.send",
+    "host.key"
+  ],
+  "isolation": "host",
+  "isolationReason": "the backup check restores the dump from the Drive backup folder into a throwaway local MariaDB (127.0.0.1) and reads production statistics with the host key; evals submit jobs with the host key",
+  "provides": {
+    "tools": [
+      {
+        "name": "aiwb-evals",
+        "minVersion": "0.1.1"
+      },
+      {
+        "name": "aiwb-backup-check",
+        "minVersion": "0.1.1"
+      }
+    ],
+    "services": [
+      {
+        "id": "backup-check",
+        "kind": "schedule",
+        "cron": "0 5 * * 0",
+        "tool": "aiwb-backup-check",
+        "run": "run --notify",
+        "windowsTask": "\\AIWorkbench\\BackupCheck"
+      }
+    ],
+    "secrets": [
+      {
+        "name": "aiwb/co-push",
+        "account": "default",
+        "why": "host key of the site (core secret, shared with Bridge)"
+      }
+    ],
+    "ui": [],
+    "events": [
+      "push.send"
+    ],
+    "context": [],
+    "models": [],
+    "deviceTools": []
+  },
+  "dataPolicy": {
+    "onDisable": "keep",
+    "onRemove": "keep",
+    "migrations": "additive"
+  },
+  "defaults": {
+    "enabled": false
+  }
+}

@@ -1,0 +1,115 @@
+{
+ "format": "freedom-release/1",
+ "version": "1.0.0",
+ "created": "2026-11-12T22:35:01Z",
+ "files": [
+  {
+   "path": "canvas-bridge/.gitignore",
+   "size": 33,
+   "sha256": "b79da2595a1c5b5d27ece102ffacdb3959835672c7ce4ba6d2209595b1baca11"
+  },
+  {
+   "path": "canvas-bridge/agent_threads.py",
+   "size": 15430,
+   "sha256": "afc04158deced6771c0781622f9562b4a1affb0363da581e6db31b7b4fa1f404"
+  },
+  {
+   "path": "canvas-bridge/canvas_bridge.py",
+   "size": 44695,
+   "sha256": "815fcbfdc6e1b4bf9689e9e4c7fd9c799fb17f184a8c743ea49ebf22d1370d21"
+  },
+  {
+   "path": "canvas-bridge/edit.html",
+   "size": 2764,
+   "sha256": "8e5e8234c9f5e3806c46b6a01d405825fa03829f548c1748764e6ccaf4d54b1f"
+  },
+  {
+   "path": "canvas-bridge/edit.js",
+   "size": 7548,
+   "sha256": "5733b046de9f48a286a339372fd9ad47b353a76c6199f6241c96133774f29e49"
+  },
+  {
+   "path": "canvas-bridge/notebook.py",
+   "size": 7159,
+   "sha256": "dc005a117eec794710a8b6947c1110b7d4215be49919cdf5403084a56b0f5227"
+  },
+  {
+   "path": "canvas-bridge/plugin/code.js",
+   "size": 15570,
+   "sha256": "6ae76305465ac9e457172e6892bccb4bb8d45b65ae461db0a9c65c13d9b885da"
+  },
+  {
+   "path": "canvas-bridge/plugin/config.json",
+   "size": 716,
+   "sha256": "7d5ef4a951588e2d63bb88f186c586dc79950d074d049da8f97b626d81c80ed2"
+  },
+  {
+   "path": "canvas-bridge/plugin/icon.png",
+   "size": 617,
+   "sha256": "475e8b090b6b6018f7a3296d11b38d734c3c58effef3ff0a0b882b697090c4ad"
+  },
+  {
+   "path": "canvas-bridge/plugin/index.html",
+   "size": 243,
+   "sha256": "babdb637d1e6be3cb4886cc3b59ac0ad0bb143943b54545b238092e3334a2a4c"
+  },
+  {
+   "path": "canvas-bridge/share.py",
+   "size": 7169,
+   "sha256": "5ac3122dac5af395a39411023eb8aadf1240d5e82e40f37008dad0b3d429fa45"
+  },
+  {
+   "path": "module.json",
+   "size": 2649,
+   "sha256": "8493728dd68bb06efdf1e5c4fb72e94fc5a51d2a8fd541069dd3520643563824"
+  },
+  {
+   "path": "README.md",
+   "size": 4579,
+   "sha256": "9309c96e01b1d09d8764a5b1f5de14200842f38e4fc099f4ddddd1c19b8c2ed7"
+  },
+  {
+   "path": "server/canvas-lib.php",
+   "size": 23691,
+   "sha256": "93b790970f4bedde629f5bb4fab529c1823ae5a8aae59f6fffab8ce33adc8589"
+  },
+  {
+   "path": "server/ops.php",
+   "size": 2361,
+   "sha256": "27616915b68bd6ac15ab9c0776d09156f9c62d26a183e674b158c23b172fdb1f"
+  },
+  {
+   "path": "ui/editor.html",
+   "size": 452,
+   "sha256": "e38dfaacf198ae72d99e426627dac54cb29639219d71031926b8c831848daa94"
+  },
+  {
+   "path": "ui/editor.js",
+   "size": 3445,
+   "sha256": "9b3997df4f722470b7d2d9b46c22ba2930624bea508f307c8a65a9b09673b74a"
+  },
+  {
+   "path": "ui/page.css",
+   "size": 1360,
+   "sha256": "080a84f603c05a140b7417319d95262b016b2c4547465536d1eaf4200c76679a"
+  },
+  {
+   "path": "ui/share.html",
+   "size": 460,
+   "sha256": "afb370cd24a4bf379d093f96dc22228b2109bcaeb6069123432f4628ddd7c836"
+  },
+  {
+   "path": "ui/share.js",
+   "size": 5209,
+   "sha256": "7ea4a2346093bb1a9610e4caa30b11a0c2f8cb262db5f28eb6d8728f03a20d3b"
+  }
+ ],
+ "signatures": [
+  {
+   "name": "maintainer-1",
+   "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
+   "sig": "pMdfe8KKlUvwlK36AiyCk+9aA4x4c2K+ab5VxLTScsMX7nGwnQGTDOqMnSnTF8OTfX3LXRk3Wca1EMY+PV5ADQ=="
+  }
+ ],
+ "module": "canvas"
+}

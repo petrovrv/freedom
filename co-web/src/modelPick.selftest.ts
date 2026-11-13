@@ -20,12 +20,13 @@ const health = () => true;
 
 const resources = [
   res('home-main/claude', { slaveAllowed: true }), res('home-main/codex'), res('site/claude', { kind: 'site' }),
-  res('home-main/engie', { kind: 'corporate', confidential: true }),
+  res('home-main/gwbot', { kind: 'gateway', confidential: true }),
+  res('home-main/oldgw', { kind: 'corporate', confidential: true }), // legacy wire kind
   res('boris/claude-mac', { env: 'boris', host: '', own: false, slaveAllowed: true, callable: false }),
   res('anna/codex-mac', { host: '', source: 'device', builtin: false }),
 ];
 const owners = {
-  'home-main': owner({ claude: { models: [{ id: 'opus' }], defaultModel: 'opus' }, codex: {}, engie: {} }),
+  'home-main': owner({ claude: { models: [{ id: 'opus' }], defaultModel: 'opus' }, codex: {}, gwbot: {}, oldgw: {} }),
   site: owner({ claude: { displayName: 'Claude (site)' } }),
 };
 const lead = leadEntries({ hosts: ['home-main', 'site'], current: 'home-main', owners, agents, resources, health });
@@ -33,8 +34,8 @@ eq('lead ids', lead.map((l) => l.id), ['home-main/claude', 'home-main/codex', 's
 eq('lead carries the resource flag', lead[0].res?.slaveAllowed, true);
 eq('lead models from owner.json', [lead[0].models.length, lead[0].defaultModel], [1, 'opus']);
 eq('site display name', lead[2].name, 'Claude (site)');
-eq('helpers', helperResources(resources, lead).map((r) => r.id), ['home-main/engie', 'boris/claude-mac', 'anna/codex-mac']);
-eq('groups', helperResources(resources, lead).map(helperGroup), ['Corporate', 'Family: boris', 'Your devices']);
+eq('helpers', helperResources(resources, lead).map((r) => r.id), ['home-main/gwbot', 'home-main/oldgw', 'boris/claude-mac', 'anna/codex-mac']);
+eq('groups', helperResources(resources, lead).map(helperGroup), ['Confidential', 'Confidential', 'Family: boris', 'Your devices']);
 eq('current: pinned site', currentLead(lead, 'claude', 'site', 'home-main')?.id, 'site/claude');
 eq('current: no pin', currentLead(lead, 'claude', null, 'home-main')?.id, 'home-main/claude');
 eq('current: agent only at home while on site', currentLead(lead, 'codex', null, 'site')?.id, 'home-main/codex');

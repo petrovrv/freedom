@@ -1,0 +1,13 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* Voice input button of the composer (was .dict and the composer buttons of co-web/src/styles.css up to CO Web 0.102).
+   Colors come from CO Web through ext/1 (theme); the defaults below are the light theme. */
+:root { --bg: #fafaf7; --panel: #fff; --fg: #1c1c1a; --muted: #6c6c66; --line: #deded8; --accent: #1f5fbf; --bad: #b3261e; }
+html, body { margin: 0; padding: 0; background: transparent; color: var(--fg); font: 13px system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+* { box-sizing: border-box; }
+#dict { display: inline-flex; gap: 4px; align-items: center; height: 30px; padding: 1px; white-space: nowrap; }
+.btn { border: 1px solid var(--line); background: transparent; color: inherit; border-radius: 7px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.rec { border-color: var(--bad); color: var(--bad); }
+select { border: 1px solid var(--line); border-radius: 7px; padding: 4px 4px; background: var(--bg); color: inherit; font: inherit; font-size: 12px; }
+.err { color: var(--bad); font-size: 12px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }

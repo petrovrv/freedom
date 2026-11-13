@@ -10,13 +10,17 @@ namespace CO.Core.Connectors;
 // Freedom F1 (SPEC §3): connectors that are not part of the core (corporate ones live in connectors/corporate) come as
 // a module. The app registers a module only when the user turned it on; Register adds its connectors, tools, remote
 // folders and hooks, Start begins its background work (kept-alive sessions).
-public interface IConnectorModule
+// Freedom F10 (SPEC §3.6, §11.18): a compiled connector module is also the native part of the registry module with the
+// same id (Modules.IModuleNativePart: native device tools, device ops of its ui.settings page). New modules declare
+// their device tools in module.json and their settings as a ui.settings page; SettingsPanels stays only for the
+// connector modules compiled before that (shown under "Older connector settings").
+public interface IConnectorModule : Modules.IModuleNativePart
 {
-    string Id { get; }
     void Register(ConnectorModuleContext ctx);
     void Start(CancellationToken ct);
 
     // Extra settings panels for the Connectors tab (WPF elements on Windows); built anew on each call.
+    // Transitional (F10): a module with a ui.settings page does not need it.
     IEnumerable<object> SettingsPanels() => Array.Empty<object>();
 }
 

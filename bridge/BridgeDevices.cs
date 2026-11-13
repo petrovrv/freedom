@@ -48,7 +48,7 @@ namespace AiWorkbenchBridge
         public int scanSeconds { get; set; }
         public bool permissionPromptViaDevice { get; set; }
         public bool driveFallback { get; set; }
-        public string[] corporateDomains { get; set; }
+        public string[] corporateDomains { get; set; } // config.json key (legacy name): employer mail domains; default = the gateway module's
         // v1.9.2: environments whose CO Desktop devices auto-approve agent actions (signed "trusted" in bridge.json),
         // like the owner's own "I trust this environment" box. Submit/purchase/delete in the agent browser still ask.
         public string[] trustedEnvironments { get; set; }
@@ -76,7 +76,7 @@ namespace AiWorkbenchBridge
             scanSeconds = 15;
             permissionPromptViaDevice = true;
             driveFallback = true;
-            corporateDomains = Corporate.Domains; // Freedom F1 5b: employer domains from the connector manifest
+            corporateDomains = null; // F10: null = the domains of the gateway module (read when needed)
             trustedEnvironments = new string[0];
             relay = true;
             relayTools = new string[] { "browser-agent", "linkedin-web", "whatsapp-web", "2dehands", "doccle", "buildwise-norms",
@@ -221,8 +221,8 @@ namespace AiWorkbenchBridge
         public bool bridgeInfoWritten;
         public string trustWritten;           // v1.9.2: "1"/"0" last written to bridge.json, null = not yet
         public DateTime trustUntilUtc;        // v1.9.2: expiry of the written grant (renewed a day before)
-        // v1.4.1: corporate connector session from the device heartbeat (online|signin|offline|unknown|off, "" = old
-        // device); Freedom F1 5b: corp {id, state, num}, legacy wire engie / engieNum
+        // v1.4.1: gateway session from the device heartbeat (online|signin|offline|unknown|off, "" = old
+        // device); Freedom F1 5b: corp {id, state, num}, older devices: legacy state and number fields
         public string corpState = "";
         public string corpId = "";
         public DateTime corpChangedUtc = DateTime.MinValue;
@@ -252,7 +252,7 @@ namespace AiWorkbenchBridge
         public volatile bool tainted;
         public int calls;
         public HashSet<string> denyTools = new HashSet<string>(StringComparer.Ordinal); // v1.3.5
-        // v1.5.1: code of the last failed call of a corporate connector tool; null after a successful one
+        // v1.5.1: code of the last failed call of a gateway module tool; null after a successful one
         public volatile string corpFailure;
 
         // v1.3.5: valid tool names only, at most 32
@@ -987,7 +987,7 @@ namespace AiWorkbenchBridge
             catch (UnauthorizedAccessException) { }
         }
 
-        // TZ §9.7: CLI under a separate Windows account without the corporate Outlook profile.
+        // TZ §9.7: CLI under a separate Windows account without the employer's Outlook profile.
         private void ApplyRunAs(ProcessStartInfo psi)
         {
             RunAsSettings ra = _config.runAs;
@@ -1033,13 +1033,13 @@ namespace AiWorkbenchBridge
         {
             if (_config.runAs != null && !String.IsNullOrWhiteSpace(_config.runAs.user))
                 return null;
-            string found = FindCorporateOutlookAccount(D.corporateDomains ?? new string[0]);
+            string found = FindEmployerOutlookAccount(D.corporateDomains != null && D.corporateDomains.Length > 0 ? D.corporateDomains : Gateway.Domains);
             return found == null ? null
-                : "Outlook profile of this Windows user contains corporate account " + found +
+                : "Outlook profile of this Windows user contains the employer account " + found +
                   "; CLI agents run under the same user and can reach it through COM. Set runAs in config.json (TZ §9.7).";
         }
 
-        private static string FindCorporateOutlookAccount(string[] domains)
+        private static string FindEmployerOutlookAccount(string[] domains)
         {
             try
             {
@@ -1088,20 +1088,20 @@ namespace AiWorkbenchBridge
 
         // ---------------------------------------------------------------- calls
 
-        // v1.5.1: failures of corporate connector tools that mean the corporate model itself was unavailable
-        // (see CorporateBlockedReason)
-        private static readonly HashSet<string> CorporateBlockingCodes = new HashSet<string>(StringComparer.Ordinal)
+        // v1.5.1: failures of gateway module tools that mean the gateway model itself was unavailable
+        // (see GatewayBlockedReason)
+        private static readonly HashSet<string> GatewayBlockingCodes = new HashSet<string>(StringComparer.Ordinal)
         {
             "sign_in_needed", "tool_off", "device_unreachable", "device_timeout",
-            "not_paired", "not_allowed", "connector_off", "unknown_tool"
+            "not_paired", "not_allowed", "connector_off", "unknown_tool", "module_disabled"
         };
 
         // Returns the JSON reply for the proxy: {ok, content, error:{code,message}, untrusted}.
-        // v1.5.1: remembers the outcome of corporate connector tool calls for the job result (corporateBlocked).
+        // v1.5.1: remembers the outcome of gateway module tool calls for the job result (gatewayBlocked).
         internal Dictionary<string, object> ExecuteDeviceCall(string jobId, string deviceId, string tool, string argsJson)
         {
             Dictionary<string, object> reply = ExecuteDeviceCallCore(jobId, deviceId, tool, argsJson);
-            if (jobId == null || reply == null || !Corporate.IsTool(tool, null))
+            if (jobId == null || reply == null || !Gateway.IsTool(tool, null))
                 return reply;
             JobDeviceState js;
             if (!_deviceJobs.TryGetValue(jobId, out js) || js == null)
@@ -1113,28 +1113,28 @@ namespace AiWorkbenchBridge
             }
             Dictionary<string, object> error = reply.ContainsKey("error") ? reply["error"] as Dictionary<string, object> : null;
             string code = error != null ? DeviceWire.S(error, "code") : null;
-            if (code != null && CorporateBlockingCodes.Contains(code))
+            if (code != null && GatewayBlockingCodes.Contains(code))
                 js.corpFailure = code;
             return reply;
         }
 
         // v1.5.1: line the dispatcher agent appends when it stopped because the gateway tool was missing or failing:
-        // [[corporate-blocked]], legacy [[engie-blocked]] (Corporate.BlockedMarker / LegacyBlockedMarker).
+        // Gateway.BlockedMarker, the legacy markers and the module's own blockedMarkers.
         // Removes every occurrence (ordinal), trims trailing whitespace left behind, reports if found.
         internal static string StripBlockedMarker(string text, out bool found)
         {
             found = false;
             if (text == null)
                 return null;
-            if (!Corporate.HasMarker(text))
+            if (!Gateway.HasMarker(text))
                 return text;
             found = true;
-            return Corporate.StripMarkers(text).TrimEnd();
+            return Gateway.StripMarkers(text).TrimEnd();
         }
 
-        // v1.5.1: why the corporate model was unavailable to this job, or null. Call before EndDeviceJob.
+        // v1.5.1: why the gateway model was unavailable to this job, or null. Call before EndDeviceJob.
         // Completed jobs are only marked when the agent itself reported the block (marker).
-        private string CorporateBlockedReason(JobRequest request, string finalStatus, bool agentReported)
+        private string GatewayBlockedReason(JobRequest request, string finalStatus, bool agentReported)
         {
             if (finalStatus == "cancelled" || request == null)
                 return null;
@@ -1152,22 +1152,22 @@ namespace AiWorkbenchBridge
             {
                 if (request.devices == null || request.devices.Count == 0)
                     return "no_device";
-                string gw = Corporate.ToolOf(Corporate.LlmKind);
+                string gw = Gateway.ToolOf(Gateway.LlmKind);
                 if (gw != null && request.deviceToolsDeny != null && request.deviceToolsDeny.Contains(gw))
-                    return "engie_off"; // reason value kept: CO Web and the server show it as it is
+                    return "gateway_off"; // the chat turned the gateway tool off
             }
             return null;
         }
 
-        // The agent of a job runs on the corporate gateway (config kind "corporate"/"engie", or kind corporate-llm in the
-        // connector manifest).
+        // The agent of a job runs on the gateway (config runtime kind gateway or a legacy kind, or a model of kind llm of
+        // the gateway module).
         private bool IsGatewayAgent(string agentId)
         {
             AgentProfile a;
             if (agentId != null && _config.agents != null && _config.agents.TryGetValue(agentId, out a) && a != null
-                && Corporate.IsGatewayRuntime(a.kind))
+                && Gateway.IsGatewayRuntime(a.kind))
                 return true;
-            return Corporate.IsLlmAgent(agentId);
+            return Gateway.IsLlmAgent(agentId);
         }
 
         private Dictionary<string, object> ExecuteDeviceCallCore(string jobId, string deviceId, string tool, string argsJson)
@@ -1182,6 +1182,10 @@ namespace AiWorkbenchBridge
                 return Fail("invalid_tool", "Invalid tool name.");
             if (js.denyTools.Contains(tool))
                 return Fail("tool_off", "This tool is turned off for this chat (its connector button in the CO composer is off). Ask the user to turn it on.");
+            string modCode;
+            string modWhy = Modules.Refusal(tool, js.environmentId, js.tainted, out modCode); // F10: module off / risk class
+            if (modWhy != null)
+                return Fail(modCode, modWhy);
 
             // Web devices use neither Pub/Sub nor Drive: the normal limit applies to them.
             bool fastUp = _psState == "ok" || d.IsWeb;
@@ -1335,8 +1339,8 @@ namespace AiWorkbenchBridge
                 reply["untrusted"] = DeviceWire.B(r, "untrusted");
                 if (r.ContainsKey("error") && r["error"] != null)
                     reply["error"] = r["error"];
-                if (Corporate.IsTool(tool, Corporate.LlmKind) && DeviceWire.B(reply, "ok"))
-                    TakeCorporateUsage(js, reply);   // v1.1.6: token counts leave the text, enter the ledger
+                if (Gateway.IsTool(tool, Gateway.LlmKind) && DeviceWire.B(reply, "ok"))
+                    TakeGatewayUsage(js, reply);   // v1.1.6: token counts leave the text, enter the ledger
                 return reply;
             }
             finally
@@ -1631,18 +1635,18 @@ namespace AiWorkbenchBridge
 
             d.corpState = state;
             d.corpChangedUtc = DateTime.UtcNow;
-            Log("Device " + d.shortName + ": " + Corporate.Title + " " + (old.Length > 0 ? old : "(none)") + " -> " + state);
+            Log("Device " + d.shortName + ": " + Gateway.Title + " " + (old.Length > 0 ? old : "(none)") + " -> " + state);
 
             if (state == "signin" && (DateTime.UtcNow - d.corpNotifiedUtc).TotalHours > 3)
             {
                 d.corpNotifiedUtc = DateTime.UtcNow;
                 string label = !String.IsNullOrEmpty(d.name) ? d.name : d.shortName;
                 string[] t = SigninNeededText(label);
-                Notify(OwnerPushEnv(), t[0], t[1], "/", "corporate-signin");
+                Notify(OwnerPushEnv(), t[0], t[1], "/", "gateway-signin");
             }
         }
 
-        // Freedom F1 5b: corp {id, state, num} of the heartbeat; legacy wire engie / engieNum (CO Desktop before 5b).
+        // Freedom F1 5b: corp {id, state, num} of the heartbeat; older devices send the state and number in legacy fields.
         internal static void ReadCorpHeartbeat(Dictionary<string, object> r, out string id, out string state, out string num)
         {
             Dictionary<string, object> corp = r != null && r.ContainsKey("corp") ? r["corp"] as Dictionary<string, object> : null;
@@ -1655,22 +1659,22 @@ namespace AiWorkbenchBridge
                 num = DeviceWire.S(r, "engieNum").Trim();
         }
 
-        // Push texts from the connector manifest: [title, body].
+        // Push texts from the gateway module: [title, body].
         internal static string[] SigninNeededText(string label)
         {
-            string how = Corporate.SigninTitle.Length > 0 ? " (" + Corporate.SigninTitle + ")" : "";
+            string how = Gateway.SigninTitle.Length > 0 ? " (" + Gateway.SigninTitle + ")" : "";
             return new string[] {
-                Corporate.PortalTitle + ": sign-in needed",
-                Corporate.PortalTitle + " on " + label + " needs a sign-in" + how + ". " + Corporate.Title +
+                Gateway.PortalTitle + ": sign-in needed",
+                Gateway.PortalTitle + " on " + label + " needs a sign-in" + how + ". " + Gateway.Title +
                     " models are unavailable to agents until then." };
         }
 
         internal static string[] SigninNumberText(string label, string number)
         {
-            string app = Corporate.SigninTitle.Length > 0 ? Corporate.SigninTitle : "the authenticator app";
+            string app = Gateway.SigninTitle.Length > 0 ? Gateway.SigninTitle : "the authenticator app";
             return new string[] {
-                Corporate.PortalTitle + ": tap " + number + " in " + app,
-                "Signing in to " + Corporate.PortalTitle + " on " + label + ". Open " + app + " and choose the number " + number + "." };
+                Gateway.PortalTitle + ": tap " + number + " in " + app,
+                "Signing in to " + Gateway.PortalTitle + " on " + label + ". Open " + app + " and choose the number " + number + "." };
         }
 
         // v1.5.2: push the sign-in number to the owner's phone, each number id at most once.
@@ -1690,7 +1694,7 @@ namespace AiWorkbenchBridge
                 d.corpNumId = id;
                 string label = !String.IsNullOrEmpty(d.name) ? d.name : d.shortName;
                 string[] t = SigninNumberText(label, number);
-                Notify(OwnerPushEnv(), t[0], t[1], "/", "corporate-signin-number");
+                Notify(OwnerPushEnv(), t[0], t[1], "/", "gateway-signin-number");
             }
             catch (Exception ex)
             {
@@ -1704,7 +1708,7 @@ namespace AiWorkbenchBridge
             return OwnerEnvOf(_config);
         }
 
-        // v1.4.1: notify the owner once when a device that served the corporate models stops sending heartbeats
+        // v1.4.1: notify the owner once when a device that served the gateway models stops sending heartbeats
         private void CheckDeviceHeartbeats()
         {
             try
@@ -1724,7 +1728,7 @@ namespace AiWorkbenchBridge
                     Log("Device " + d.shortName + ": no heartbeat for 15 min, offline notification sent");
                     Notify(OwnerPushEnv(),
                         "CO Desktop offline",
-                        "No heartbeat from " + label + " for 15 min: CO Desktop is not running or offline, " + Corporate.Title + " models are unavailable.",
+                        "No heartbeat from " + label + " for 15 min: CO Desktop is not running or offline, " + Gateway.Title + " models are unavailable.",
                         "/",
                         "device-offline-" + d.deviceId);
                 }
@@ -1735,7 +1739,7 @@ namespace AiWorkbenchBridge
             }
         }
 
-        // v1.4.1: paired devices for owner.json (CO Web without CO Desktop reads online + corp / legacy engie)
+        // v1.4.1: paired devices for owner.json (CO Web without CO Desktop reads online + corp / the legacy state field)
         private List<OwnerDeviceInfo> BuildOwnerDevices()
         {
             List<OwnerDeviceInfo> list = new List<OwnerDeviceInfo>();
@@ -1993,16 +1997,18 @@ namespace AiWorkbenchBridge
             r["short"] = d.shortName;
             r["name"] = d.name;
             object tools = d.liveTools ?? d.tools ?? new object[0];
-            // v1.3.5: tools the job's request denies (corporate connector off) are not listed
+            // v1.3.5: tools the job's request denies (connector off) and tools of disabled modules (F10) are not listed
             System.Collections.IEnumerable all = tools as System.Collections.IEnumerable;
-            if (js.denyTools.Count > 0 && all != null)
+            if (all != null)
             {
                 List<object> kept = new List<object>();
                 foreach (object t in all)
                 {
                     Dictionary<string, object> td = t as Dictionary<string, object>;
                     object name;
-                    if (td != null && td.TryGetValue("name", out name) && name is string && js.denyTools.Contains((string)name))
+                    string ignored;
+                    if (td != null && td.TryGetValue("name", out name) && name is string && (js.denyTools.Contains((string)name)
+                        || Modules.Refusal((string)name, js.environmentId, false, out ignored) != null))
                         continue;
                     kept.Add(t);
                 }
@@ -2988,7 +2994,7 @@ namespace AiWorkbenchBridge
             }
             if (DeviceWire.B(call, "tainted"))
                 js.tainted = true;
-            // v1.3.5 parity: tools the chat turned off (corporate connector) are refused for site jobs too
+            // v1.3.5 parity: tools the chat turned off (a connector) are refused for site jobs too
             object deny;
             List<string> denyNames = new List<string>();
             if (call.TryGetValue("deny", out deny) && deny is System.Collections.IEnumerable && !(deny is string))

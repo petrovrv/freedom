@@ -58,6 +58,9 @@ public sealed class Services
     public required CO.Core.Browser.AgentWebSettingsStore AgentWeb { get; init; }
     // Freedom F1: connector modules turned on in desktop.json (corporate connectors); empty in the default install.
     public required IReadOnlyList<IConnectorModule> Modules { get; init; }
+    // Freedom F10 (SPEC §3.6): modules of the workbench (db.php modules_list) with a device part: their device tools in
+    // the catalog through the risk classes, their device ops for ui.settings pages, the per-device switch.
+    public required CO.Core.Modules.ModuleLoader ModuleLoader { get; init; }
     // S3: Bridge doctor, only on the computer where the Bridge launcher is installed.
     public required CO.Core.Doctor.BridgeDoctor? Doctor { get; init; }
     // S4: agent CLI subscriptions of this computer (Subscriptions tab, device tool cli_subs).
@@ -214,10 +217,27 @@ public sealed class Services
         }
         runtime.Catalog.Add(new CO.Core.Subscriptions.CliSubsTool(subs));
 
+        // Freedom F10: module loader (ext/1 device.tools). The list comes from the CO site with this computer's Google
+        // token; modules.json keeps the last one, so module tools are in the catalog before the first publish.
+        // Compiled connector modules are native parts of the registry modules with their id. Last: every core tool is
+        // in the catalog already, so a module can never take a core name.
+        var moduleSource = auth != null && settings.WebUrl.StartsWith("https://", StringComparison.Ordinal)
+            ? new CO.Core.Modules.ModuleRegistryClient(auth, settings.WebUrl) : null;
+        var moduleLoader = new CO.Core.Modules.ModuleLoader(runtime.Catalog, DesktopSettings.DataDir, moduleSource,
+            natives: modules, log: Log.Write);
+        moduleLoader.Managed = () => runtime.State.Managed;
+        // a module not signed by the maintainers runs its own script for a settings page only after a yes here
+        moduleLoader.ConfirmScriptOp = (m, op, ct) => System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            System.Windows.MessageBox.Show(
+                $"The module {m.Title} {m.Version} (not signed by the Freedom maintainers) wants to run its own code on this computer for '{op}'.\n\nAllow it until CO Desktop restarts?",
+                "CO Desktop", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning, System.Windows.MessageBoxResult.No)
+            == System.Windows.MessageBoxResult.Yes).Task;
+        moduleLoader.LoadCached();
+
         return new Services
         {
             Settings = settings, Http = http, Secrets = secrets, Keys = keys, Auth = auth,
-            Runtime = runtime, Approvals = approvals, Browser = browser, Connectors = connectors, AgentWeb = agentWeb, Modules = modules, Doctor = doctor, Subs = subs,
+            Runtime = runtime, Approvals = approvals, Browser = browser, Connectors = connectors, AgentWeb = agentWeb, Modules = modules, ModuleLoader = moduleLoader, Doctor = doctor, Subs = subs,
         };
     }
 }

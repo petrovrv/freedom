@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { OwnerInfo } from './types';
 import { hostAlive, hostHealth } from './routing';
-import { corpState, type CorpState } from './corporate';
+import { gatewayState, type GatewayState } from './gateway';
 
 // setInterval that always calls the latest callback, pauses when disabled or tab hidden.
 export function useInterval(fn: () => void, ms: number, enabled = true) {
@@ -22,9 +22,9 @@ export function useInterval(fn: () => void, ms: number, enabled = true) {
   }, [ms, enabled]);
 }
 
-// 0.37.0: session of the corporate connector as CO Desktop 0.7.11 reports it ('off' = the connector is disabled there).
-export interface CorpStatus {
-  state: CorpState;
+// 0.37.0: session of the gateway on a device as CO Desktop 0.7.11 reports it ('off' = disabled there).
+export interface GatewayStatus {
+  state: GatewayState;
   detail: string;
   checkedUtc: string | null;
 }
@@ -34,8 +34,7 @@ export interface LocalDevice {
   name: string;
   short: string;
   paired: boolean;
-  corp?: CorpStatus; // Freedom F1 5b
-  engie?: CorpStatus; // legacy wire of corp (CO Desktop before 5b); absent on older CO Desktop
+  gateway?: GatewayStatus; // remote devices (owner.json); CO Desktop's own status() is not read for it
   remote?: boolean; // 0.42.0: device reported by Bridge in owner.json, not this computer
 }
 
@@ -46,11 +45,11 @@ export function remoteDevice(owner: OwnerInfo | null | undefined, env: string): 
   if (!hostAlive(health)) return null;
   const candidates = (owner.devices || []).filter((d) => d && d.environmentId === env && d.online && d.deviceId);
   if (candidates.length === 0) return null;
-  // 0.42.0: prefer the device whose corporate session is online
-  const d = candidates.find((c) => corpState(c) === 'online') ?? candidates[0];
-  const state = corpState(d);
-  const corp: CorpStatus | undefined = state ? { state, detail: '', checkedUtc: d.lastHeartbeatUtc ?? null } : undefined;
-  return { deviceId: d.deviceId, name: d.name || d.shortName || d.deviceId, short: d.shortName || '', paired: true, corp, remote: true };
+  // 0.42.0: prefer the device whose gateway session is online
+  const d = candidates.find((c) => gatewayState(c) === 'online') ?? candidates[0];
+  const state = gatewayState(d);
+  const gw: GatewayStatus | undefined = state ? { state, detail: '', checkedUtc: d.lastHeartbeatUtc ?? null } : undefined;
+  return { deviceId: d.deviceId, name: d.name || d.shortName || d.deviceId, short: d.shortName || '', paired: true, gateway: gw, remote: true };
 }
 
 const DESKTOP_REFRESH = 'co-desktop-refresh';

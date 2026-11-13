@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // CO Web 0.29.0: capability routing and failover between the home PC (BridgeAgent) and the site agent.
-// The corporate agents (corporate.ts) run only at home (S8: device tools of a Claude job also reach the Site); when the selected executor is offline and the other one is
+// The gateway agents (gateway.ts) run only at home (S8: device tools of a Claude job also reach the Site); when the selected executor is offline and the other one is
 // online and has the agent, the job goes there. Pure module (no browser APIs) so routing.selftest.ts runs in node.
 import type { OwnerInfo } from './types';
-import { isCorporateAgent } from './corporate.ts';
+import { isGatewayAgent } from './gateway.ts';
 
 export const HOME = 'home-main';
 export const SITE = 'site';
@@ -60,7 +60,7 @@ export function label(hostId: string): string {
 }
 
 // S8: devices of the environment reach a Claude job on the Site through the server relay (S1, schema 22),
-// so device tools alone no longer pull a job to Home. Still Home: corporate agents, agents the Site lacks, device tools
+// so device tools alone no longer pull a job to Home. Still Home: gateway agents, agents the Site lacks, device tools
 // for another agent (the relay serves Claude only) and browser devices (w- ids are not relayed).
 export function routeHost(o: {
   selected: string;
@@ -74,7 +74,7 @@ export function routeHost(o: {
   const homeOwner = owners[HOME] ?? null;
 
   // 1. Needs home
-  const homeOnlyAgent = isCorporateAgent(agent);
+  const homeOnlyAgent = isGatewayAgent(agent);
   const missingOnSelected =
     selected !== HOME && !hasAgent(selectedOwner, agent) && hasAgent(homeOwner, agent);
   const devicesNeedHome = (wantsDevices && agent !== 'claude') || !!o.webDevices;

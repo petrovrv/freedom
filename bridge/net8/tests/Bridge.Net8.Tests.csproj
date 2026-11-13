@@ -20,7 +20,7 @@
     <Compile Include="..\..\tests\AgentRuntimeTests.Arguments.cs" />
     <Compile Include="..\..\tests\SupervisorTests.cs" />
     <Compile Include="..\..\tests\RelayTests.cs" />
-    <Compile Include="..\..\tests\CorporateTests.cs" />
+    <Compile Include="..\..\tests\ModulesTests.cs" />
     <Compile Include="..\..\tests\PcToolsTests.cs" />
     <Compile Include="JsonGolden.cs" />
     <Compile Include="Net8Tests.cs" />

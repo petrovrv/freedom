@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { archiveScope, buildChatTree, readTreeOpen, treeTitle, writeTreeOpen } from './chatTree';
 import { SORT_MODES, compareBy, readSortMode, ts as tsOf, writeSortMode, type SortMode } from './sidebarSort';
 import { Resizer, useColumnWidth } from './Resizer';
 import { ChatStatusIcon, ProjectRing, chatStatus, isUnread, useSeenVersion } from './status';
-import { dbActivity, type ChatActivity, type CorporateWaiting } from './dbapi';
+import { dbActivity, dbGatewayWaiting, type ChatActivity } from './dbapi';
 import { InboxView, useInbox } from './Inbox';
 import { configureFast, fastConfigFromOwner } from './pubsub';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -26,16 +26,15 @@ function chatActionsFor(p: { shareRole?: string }, c: { shareRole?: string }): C
   return [];
 }
 import { saveProjectMeta, updateChatMeta } from './workbench';
-import { studyOn, studyPatch } from './studyMode';
-import ImportView from './ImportView';
+import { projectModeDefault, type ModeDecl } from './moduleModes';
+import { modesOf } from './moduleStore';
+import { importCalls } from './importWriter';
 import { LimitsBar } from './Limits';
 import Inspector from './Inspector';
 import FamilyPanel from './FamilyPanel';
-import GeoStatus from './GeoStatus';
+import { ModuleFrame, ModulePage, ModuleSlots, modulePages, useModules, type PanelLink } from './ModuleSlot';
 import type { Chat, ChatEvent, LimitsFile, Mode, OwnerInfo, Project } from './types';
 
-// 0.80.0: the study viewer (pdf.js) loads only when a document is opened
-const StudyViewer = lazy(() => import('./StudyViewer'));
 import { SAFE_ID, formatLocal } from './util';
 import { autoHost, type HostPref } from './routing';
 import { HostLight } from './HostLight';
@@ -51,7 +50,7 @@ import MacOffer from './MacOffer';
 import { openInspectorTab, useChatPanel, type InspectorTab } from './chatPanel';
 import { dropShare, latestShare, type SharedItem } from './share';
 import { memberNames } from './members';
-import { corporate } from './corporate';
+import { gateway, projectConfidential } from './gateway';
 
 type Signed = Exclude<AuthState, { status: 'signed_out' }>;
 
@@ -62,7 +61,8 @@ export default function Shell({ auth }: { auth: Signed }) {
   const params = useParams();
   const navigate = useNavigate();
   const pathname = useLocation().pathname;
-  const importRoute = pathname.endsWith('/import');
+  // F10: a page (ui.page) of a module: /e/:env/m/:moduleId/:pageId
+  const modulePageRoute = params.moduleId && params.pageId ? { moduleId: params.moduleId, pageId: params.pageId } : null;
   const inboxRoute = pathname.endsWith('/inbox'); // 0.71.0: "Waiting for you"
   const env = params.env as EnvironmentId;
   const projectId = params.projectId;
@@ -137,8 +137,10 @@ export default function Shell({ auth }: { auth: Signed }) {
   const [chatAction, setChatAction] = useState<{ action: ChatAction; chat: Chat } | null>(null);
   const [projectAction, setProjectAction] = useState<{ action: ProjectAction; project: Project } | null>(null);
   // 0.31.0: activity of the env for the status icons (running/queued chats, chats waiting for an answer)
-  // 0.52.0: activity also carries chats stopped while the corporate model was unavailable
-  const [jobActivity, setJobActivity] = useState<{ running: ChatActivity[]; asking: string[]; corporateWaiting: CorporateWaiting[] } | null>(null);
+  // 0.52.0: chats stopped while the gateway model was unavailable (F10: the module's op ops.waiting, dbGatewayWaiting)
+  const [jobActivity, setJobActivity] = useState<{ running: ChatActivity[]; asking: string[]; gatewayWaiting: string[] } | null>(null);
+  // F10: modules (modules_list); their header pages render in ModuleSlots
+  const modules = useModules(authOk);
   useSeenVersion();
   useColumnWidth('--left-w', 'co.leftW', 270, 180, 560);
   useColumnWidth('--right-w', 'co.rightW', 300, 220, 640);
@@ -215,6 +217,16 @@ export default function Shell({ auth }: { auth: Signed }) {
   // S2: in auto mode the site agent is kept alive too, so that the light and the failover see it
   useInterval(pingSite, SITE_PING_MS, (hostId === 'site' || hostPref === 'auto') && authOk);
 
+  // F10: generic core calls a module page may use (each refused unless its manifest declares the point's permission)
+  const projectsRef = useRef<Project[] | null>(null);
+  projectsRef.current = projects;
+  const pageCalls = useMemo(() => (root ? importCalls({
+    root, env, projects: () => projectsRef.current,
+    onFinished: async (open) => {
+      await refreshProjectsRef.current();
+      if (open !== undefined) navigate(open ? `/e/${env}/p/${open}` : `/e/${env}`);
+    },
+  }) : undefined), [root, env, navigate, modulePageRoute?.moduleId, modulePageRoute?.pageId]); // eslint-disable-line react-hooks/exhaustive-deps
   const refreshProjects = useCallback(async () => {
     if (!root || !authOk || !envValid) return;
     try {
@@ -228,10 +240,12 @@ export default function Shell({ auth }: { auth: Signed }) {
     void refreshProjects();
   }, [refreshProjects]);
   useInterval(refreshProjects, POLL_LISTS_MS, !!root && authOk);
+  const refreshProjectsRef = useRef(refreshProjects);
+  refreshProjectsRef.current = refreshProjects;
   const refreshJobActivity = useCallback(async () => {
     if (!authOk) return;
-    const a = await dbActivity(env);
-    if (a) setJobActivity(a);
+    const [a, w] = await Promise.all([dbActivity(env), dbGatewayWaiting(env)]);
+    if (a) setJobActivity({ ...a, gatewayWaiting: w.map((x) => x.chatId) });
   }, [authOk, env]);
   useEffect(() => {
     void refreshJobActivity();
@@ -248,11 +262,13 @@ export default function Shell({ auth }: { auth: Signed }) {
   }, [chatId, inboxItems, inboxMark]);
   const runningByChat = new Map((jobActivity?.running || []).map((r) => [r.chatId, r.state] as const));
   const askingSet = new Set(jobActivity?.asking || []);
+  const gatewaySet = new Set(jobActivity?.gatewayWaiting || []);
   const workingByProject = new Map<string, number>();
   for (const r of jobActivity?.running || []) workingByProject.set(r.projectId, (workingByProject.get(r.projectId) || 0) + 1);
   const statusOf = (c: Chat) =>
     chatStatus({
       running: runningByChat.get(c.chatId),
+      gateway: gatewaySet.has(c.chatId),
       asking: askingSet.has(c.chatId) && c.chatId !== chatId,
       unread: c.chatId !== chatId && isUnread(c.chatId, c.updatedUtc),
       scheduled: c.title.startsWith('⏰'),
@@ -340,44 +356,57 @@ export default function Shell({ auth }: { auth: Signed }) {
 
   const chat = useMemo(() => chats?.find((c) => c.chatId === chatId) || null, [chats, chatId]);
 
-  // 0.80.0: study viewer - "?study=<path relative to AI-Workbench>" shows the document left of its chat. On a project
-  // URL the chat of that document (chat.studyDoc) opens if there is one; otherwise a new chat is made by the first question.
+  // F10 (ext/1 chat.mode viewer): "?<param>=<path relative to AI-Workbench>" of a mode with a viewer shows the module's
+  // viewer (ui.panel) left of the chat of that document. On a project URL the chat of the document (chat[<key>Doc])
+  // opens if there is one; otherwise a new chat with the mode on is made by the first question.
   const search = useLocation().search;
-  const studyPath = useMemo(() => new URLSearchParams(search).get('study'), [search]);
-  const studyChat = useMemo(
-    () => (studyPath && !chatId ? (chats || []).find((c) => c.studyDoc === studyPath && !c.archived) || null : null),
-    [studyPath, chatId, chats],
+  const modes = useMemo(() => modesOf(modules), [modules]);
+  const viewer = useMemo(() => {
+    const q = new URLSearchParams(search);
+    for (const m of modes) {
+      const doc = m.viewer ? q.get(m.viewer.param) : null;
+      const mod = doc ? modules.find((x) => x.enabled && (x.modes || []).some((y) => y.key === m.key)) : null;
+      const ui = mod?.ui.find((u) => u.slot === 'ui.panel' && u.id === m.viewer!.panel);
+      if (doc && mod && ui) return { mode: m, doc, mod, ui };
+    }
+    return null;
+  }, [search, modes, modules]);
+  const viewerPath = viewer?.doc ?? null;
+  const viewerChat = useMemo(
+    () => (viewer && !chatId ? (chats || []).find((c) => (c as unknown as Record<string, unknown>)[viewer.mode.key + 'Doc'] === viewer.doc && !c.archived) || null : null),
+    [viewer, chatId, chats],
   );
-  const [studyEvents, setStudyEvents] = useState<ChatEvent[] | null>(null);
-  const [studyAsk, setStudyAsk] = useState<{ text: string; files: File[]; nonce: number } | null>(null);
-  const [studyCanAsk, setStudyCanAsk] = useState(false);
+  const [viewerEvents, setViewerEvents] = useState<ChatEvent[] | null>(null);
+  const [viewerAsk, setViewerAsk] = useState<{ text: string; files: File[]; nonce: number } | null>(null);
+  const [viewerCanAsk, setViewerCanAsk] = useState(false);
   useEffect(() => {
-    setStudyEvents(null);
-    setStudyAsk(null);
-  }, [studyPath, chatId]);
-  const studyWrap = (node: ReactNode) => {
-    if (!studyPath || !root) return node;
+    setViewerEvents(null);
+    setViewerAsk(null);
+  }, [viewerPath, chatId]);
+  const viewerWrap = (node: ReactNode) => {
+    if (!viewer || !root) return node;
+    const link: PanelLink = {
+      chat: { id: chat?.chatId || null, title: chat?.title || '' },
+      events: viewerEvents,
+      canAsk: !!authOk && viewerCanAsk,
+      ask: (text, files) => setViewerAsk({ text, files, nonce: Date.now() }),
+      reveal: (id) => {
+        const el = document.getElementById(`ev-${id}`);
+        if (!el) return;
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.classList.add('flash');
+        setTimeout(() => el.classList.remove('flash'), 1600);
+      },
+      close: () => navigate(pathname, { replace: true }),
+    };
     return (
-      <div className="study-split">
-        <Suspense fallback={<div className="study"><div className="empty"><p className="muted">Loading the viewer…</p></div></div>}>
-          <StudyViewer
-            key={studyPath} // 0.80.1: another document starts with a clean viewer (outline, hits, selection)
-            root={root}
-            path={studyPath}
-            events={studyEvents}
-            canAsk={!!authOk && studyCanAsk}
-            onAsk={(text, files) => setStudyAsk({ text, files, nonce: Date.now() })}
-            onOpenAnswer={(id) => {
-              const el = document.getElementById(`ev-${id}`);
-              if (!el) return;
-              el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              el.classList.add('flash');
-              setTimeout(() => el.classList.remove('flash'), 1600);
-            }}
-            onClose={() => navigate(pathname, { replace: true })}
-          />
-        </Suspense>
-        <div className="study-chat">{node}</div>
+      <div className="viewer-split">
+        <div className="viewer-pane">
+          {/* another document starts with a clean viewer */}
+          <ModuleFrame key={`${viewer.mod.id}/${viewer.ui.id}/${viewer.mod.version}/${viewer.doc}`} m={viewer.mod} ui={viewer.ui} me={auth.homeEnv} owner={!!auth.owner}
+            mode="fill" extra={{ uiId: viewer.ui.id, params: { [viewer.mode.viewer!.param]: viewer.doc }, chat: link.chat }} rootId={root.id} panel={link} />
+        </div>
+        <div className="viewer-chat">{node}</div>
       </div>
     );
   };
@@ -433,10 +462,11 @@ export default function Shell({ auth }: { auth: Signed }) {
   const archivedProjects = visibleProjects.filter((p) => p.archived);
 
   async function pickProjectAction(action: ProjectAction, p: Project) {
-    // 0.78.0: study mode for new chats of the project
-    if (action === 'study') {
+    // F10: a chat mode of a module for new chats of the project (<key>Default)
+    if (action.startsWith('mode:')) {
+      const key = action.slice(5);
       try {
-        const updated = await saveProjectMeta(p, { studyDefault: !p.studyDefault });
+        const updated = await saveProjectMeta(p, { [key + 'Default']: !projectModeDefault(p, key) } as Partial<Project>);
         setProjects((prev) => (prev || []).map((x) => (x.folderId === updated.folderId ? updated : x)));
       } catch (e) {
         alert(categorize(e).message);
@@ -456,17 +486,6 @@ export default function Shell({ auth }: { auth: Signed }) {
   }
 
   async function pickChatAction(action: ChatAction, c: Chat) {
-    // 0.78.0: study mode of one chat (the switch is logged in the chat)
-    if (action === 'study') {
-      const p = (projects || []).find((x) => x.projectId === c.projectId) || { studyDefault: false };
-      try {
-        const updated = await updateChatMeta(c, studyPatch(c, p, auth.email));
-        setChats((prev) => (prev || []).map((x) => (x.folderId === updated.folderId ? updated : x)));
-      } catch (e) {
-        alert(categorize(e).message);
-      }
-      return;
-    }
     if (action !== 'archive') {
       setChatAction({ action, chat: c });
       return;
@@ -575,7 +594,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                 <button role="menuitem" className="only-mobile" onClick={() => { setRightOpen(false); setLeftOpen((v) => !v); }}>📂 Projects and chats</button>
                 {([
                   ['family', `👪 Family${familyUnread ? ` (${familyUnread} new)` : ''}`, `Family chat of ${memberNames()}`],
-                  ['chat', '⚙ Chat settings', 'Permissions, device, study mode, protocol, rename, move, delete'],
+                  ['chat', '⚙ Chat settings', 'Permissions, device, modes, protocol, rename, move, delete'],
                   ['artifacts', '📁 Files and folders', 'Files of this chat and the context folders of the project'],
                   ['project', '🗂 Project', 'Instructions, memory, schedules, sharing'],
                   ['session', '🧾 Session', 'What the agent of this chat gets and spends'],
@@ -598,7 +617,8 @@ export default function Shell({ auth }: { auth: Signed }) {
         </div>
         <HostLight owners={owners} env={env} pref={hostPref} effective={hostId} onAdvanced={() => openInspectorTab('host')} />
         <div className="spacer" />
-        <GeoStatus authOk={authOk} me={auth.homeEnv} />
+        {/* F10: pages of enabled modules for the header (family presence and others), SPEC §3.6 */}
+        <ModuleSlots slot="ui.header" modules={modules} me={auth.homeEnv} owner={!!auth.owner} />
         {familyUnread > 0 && (
           <button type="button" className="fam-top" title="New messages in the family chat" onClick={() => openInspectorTab('family')}>
             👪 <span className="fam-badge">{familyUnread > 99 ? '99+' : familyUnread}</span>
@@ -710,7 +730,12 @@ export default function Shell({ auth }: { auth: Signed }) {
                     <option key={m.id} value={m.id} title={m.title}>{m.label}</option>
                   ))}
                 </select>{' '}
-                <button className="btn tiny" onClick={() => navigate(`/e/${env}/import`)} disabled={!root} title="Import chats from claude.ai or ChatGPT">Import…</button>{' '}
+                {/* F10: pages of enabled modules (e.g. an import of chats from another service) */}
+                {modulePages(modules).map(({ m, ui }) => (
+                  <span key={`${m.id}/${ui.id}`}>
+                    <button className="btn tiny" onClick={() => navigate(`/e/${env}/m/${m.id}/${ui.id}`)} disabled={!root} title={ui.title || m.title}>{ui.label || ui.title || m.title}</button>{' '}
+                  </span>
+                ))}
                 <button className="btn tiny" onClick={() => setShowNewProject(true)} disabled={!root}>+ New</button>
               </span>
             </div>
@@ -777,15 +802,15 @@ export default function Shell({ auth }: { auth: Signed }) {
                     {p.legacy && <span className="tag">legacy</span>}
                     {p.archived && <span className="tag">archived</span>}
                     {p.kind && p.kind !== 'work' && <span className="tag">{p.kind}</span>}
-                    {p.corporate && <span className="tag" title={`Corporate (${corporate().title} data)`}>corp</span>}
+                    {projectConfidential(p) && <span className="tag" title={`Confidential (${gateway().employerTitle} data)`}>conf</span>}
                     {/* 0.45.0: projects shared with me */}
                     {p.shareRole && (() => { const o = ENVIRONMENTS.find(e => e.id === p.environmentId)?.displayName ?? p.environmentId; return <span className="tag" title={`Shared by ${o}: ${p.shareRole === 'editor' ? 'can edit' : 'can view'}${p.shareVia === 'chat' ? ', selected chats only' : ''}`}>{'\u{1F465} ' + o}</span>; })()}
                   </button>
                   {/* 0.58.0: project menu; "as a chat with subchats" only without chat trees (known for the open project) */}
                   <ProjectMenu
                     archived={p.archived}
-                    study={!!p.studyDefault}
-                    actions={projectActionsFor(p, p.projectId === projectId && !!chats?.some((c) => c.parent))}
+                    modes={modes.filter((m) => m.projectLabel).map((m) => ({ key: m.key, label: `${m.icon} ${m.projectLabel}`.trim(), on: projectModeDefault(p, m.key) }))}
+                    actions={projectActionsFor(p, p.projectId === projectId && !!chats?.some((c) => c.parent), modes.filter((m) => m.projectLabel).map((m) => m.key))}
                     onPick={(action) => void pickProjectAction(action, p)}
                   />
                   </div>
@@ -843,7 +868,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                               <span className="nav-title">{shownTitle(treeTitle(c.title || '', depth))}</span>
                               <span className="nav-date" title={sortMode === 'created' ? 'Created' : 'Last activity'}>{formatLocal(sortMode === 'created' ? c.createdUtc : c.updatedUtc)}</span>
                             </button>
-                            <ChatMenu study={studyOn(c, p)} actions={chatActionsFor(p, c)} onPick={(action) => void pickChatAction(action, c)} />
+                            <ChatMenu actions={chatActionsFor(p, c)} onPick={(action) => void pickChatAction(action, c)} />
                           </li>
                         ))}
                       </ul>
@@ -897,7 +922,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                                     <span className="nav-title">{shownTitle(treeTitle(c.title || '', depth))}</span>
                                     <span className="nav-date">{formatLocal(c.updatedUtc)}</span>
                                   </button>
-                                  <ChatMenu archived study={studyOn(c, p)} actions={chatActionsFor(p, c)} onPick={(action) => void pickChatAction(action, c)} />
+                                  <ChatMenu archived actions={chatActionsFor(p, c)} onPick={(action) => void pickChatAction(action, c)} />
                                 </li>
                               ))}
                             </ul>
@@ -921,7 +946,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                         <button onClick={() => navigate(`/e/${env}/p/${p.projectId}`)}>
                           <span className="nav-title">{p.title}</span>
                         </button>
-                        <ProjectMenu archived actions={projectActionsFor(p)} onPick={(action) => void pickProjectAction(action, p)} />
+                        <ProjectMenu archived modes={modes.filter((m) => m.projectLabel).map((m) => ({ key: m.key, label: `${m.icon} ${m.projectLabel}`.trim(), on: projectModeDefault(p, m.key) }))} actions={projectActionsFor(p, false, modes.filter((m) => m.projectLabel).map((m) => m.key))} onPick={(action) => void pickProjectAction(action, p)} />
                       </li>
                     ))}
                   </ul>
@@ -955,25 +980,18 @@ export default function Shell({ auth }: { auth: Signed }) {
               <div className="empty">Connecting to AI-Workbench…</div>
             ) : inboxRoute ? (
               <InboxView env={env} inbox={inbox} />
-            ) : importRoute ? (
-              <ImportView
-                root={root}
-                env={env}
-                projects={projects || []}
-                onFinished={async (pid) => {
-                  await refreshProjects();
-                  navigate(pid ? `/e/${env}/p/${pid}` : `/e/${env}`);
-                }}
-              />
-            ) : studyChat ? (
-              <Navigate to={`/e/${env}/p/${studyChat.projectId}/c/${studyChat.chatId}${search}`} replace />
-            ) : chat && project ? studyWrap(
+            ) : modulePageRoute ? (
+              <ModulePage modules={modules} moduleId={modulePageRoute.moduleId} pageId={modulePageRoute.pageId} me={auth.homeEnv}
+                owner={!!auth.owner} coreCalls={pageCalls} extra={{ env }} />
+            ) : viewerChat ? (
+              <Navigate to={`/e/${env}/p/${viewerChat.projectId}/c/${viewerChat.chatId}${search}`} replace />
+            ) : chat && project ? viewerWrap(
               <ChatView
                 key={chat.folderId}
-                studyDoc={studyPath || undefined}
-                studyAsk={studyPath ? studyAsk : null}
-                onEvents={studyPath ? setStudyEvents : undefined}
-                onCanAsk={studyPath ? setStudyCanAsk : undefined}
+                viewer={viewer ? { mode: viewer.mode, doc: viewer.doc } : undefined}
+                viewerAsk={viewer ? viewerAsk : null}
+                onEvents={viewer ? setViewerEvents : undefined}
+                onCanAsk={viewer ? setViewerCanAsk : undefined}
                 root={root}
                 host={host}
                 hosts={hosts!}
@@ -997,14 +1015,14 @@ export default function Shell({ auth }: { auth: Signed }) {
                 }}
                 onProjectChanged={(p) => setProjects((prev) => (prev || []).map((x) => (x.folderId === p.folderId ? p : x)))}
               />
-            ) : project && (!studyPath || chats) ? studyWrap(
+            ) : project && (!viewer || chats) ? viewerWrap(
               // 0.17.0: selecting a project opens a new chat at once; it is saved with the first message.
               <ChatView
-                key={`draft:${project.projectId}${studyPath ? ':study' : ''}`}
-                studyDoc={studyPath || undefined}
-                studyAsk={studyPath ? studyAsk : null}
-                onEvents={studyPath ? setStudyEvents : undefined}
-                onCanAsk={studyPath ? setStudyCanAsk : undefined}
+                key={`draft:${project.projectId}${viewer ? ':' + viewer.mode.key : ''}`}
+                viewer={viewer ? { mode: viewer.mode, doc: viewer.doc } : undefined}
+                viewerAsk={viewer ? viewerAsk : null}
+                onEvents={viewer ? setViewerEvents : undefined}
+                onCanAsk={viewer ? setViewerCanAsk : undefined}
                 onHostChange={(id) => { if (hostPref !== 'auto' && HOSTS.some((h) => h.id === id)) setHostId(id as HostId); }}
                 root={root}
                 host={host}
@@ -1016,7 +1034,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                 chat={{
                   chatId: '', projectId: project.projectId, title: 'New chat', rootBranchId: 'BR-root',
                   createdUtc: '', updatedUtc: '', folderId: '', defaultMode: projectModes[0], draft: true,
-                  ...(studyPath ? { study: true } : {}),
+                  ...(viewer ? { [viewer.mode.key]: true } : {}),
                 }}
                 authOk={authOk}
                 author={auth.email}
@@ -1029,8 +1047,8 @@ export default function Shell({ auth }: { auth: Signed }) {
                 onProjectChanged={(p) => setProjects((prev) => (prev || []).map((x) => (x.folderId === p.folderId ? p : x)))}
                 onChatCreated={(c) => {
                   setChats((prev) => [c, ...(prev || []).filter((x) => x.chatId !== c.chatId)]);
-                  setStudyAsk(null);
-                  navigate(`/e/${env}/p/${project.projectId}/c/${c.chatId}${studyPath ? search : ''}`);
+                  setViewerAsk(null);
+                  navigate(`/e/${env}/p/${project.projectId}/c/${c.chatId}${viewer ? search : ''}`);
                 }}
               />
             ) : (
@@ -1127,6 +1145,7 @@ export default function Shell({ auth }: { auth: Signed }) {
 
       {showNewProject && root && (
         <NewProjectDialog
+          modes={modes}
           env={env}
           onClose={() => setShowNewProject(false)}
           onCreate={async (input) => {
@@ -1142,17 +1161,18 @@ export default function Shell({ auth }: { auth: Signed }) {
 }
 
 function NewProjectDialog({
-  env, onClose, onCreate,
+  env, onClose, onCreate, modes,
 }: {
   env: EnvironmentId;
   onClose: () => void;
-  onCreate: (i: { projectId: string; title: string; description: string; defaultAgentId: AgentId; studyDefault?: boolean }) => Promise<void>;
+  onCreate: (i: { projectId: string; title: string; description: string; defaultAgentId: AgentId } & Record<string, unknown>) => Promise<void>;
+  modes: ModeDecl[];
 }) {
   const [projectId, setProjectId] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [agent, setAgent] = useState<AgentId>('claude');
-  const [study, setStudy] = useState(false);
+  const [modeDefaults, setModeDefaults] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const idOk = SAFE_ID.test(projectId);
@@ -1167,7 +1187,8 @@ function NewProjectDialog({
           setBusy(true);
           setErr(null);
           try {
-            await onCreate({ projectId, title: title.trim(), description, defaultAgentId: agent, ...(study ? { studyDefault: true } : {}) });
+            const defs = Object.fromEntries(Object.entries(modeDefaults).filter(([, on]) => on).map(([k]) => [k + 'Default', true]));
+            await onCreate({ projectId, title: title.trim(), description, defaultAgentId: agent, ...defs });
           } catch (x) {
             setErr((x as Error).message);
             setBusy(false);
@@ -1198,11 +1219,13 @@ function NewProjectDialog({
             {PICKABLE_AGENTS.map((a) => <option key={a.id} value={a.id}>{a.displayName}</option>)}
           </select>
         </label>
-        {/* 0.78.0: new chats of the project start in study mode (each chat can switch it) */}
-        <label className="check">
-          <input type="checkbox" checked={study} onChange={(e) => setStudy(e.target.checked)} />
-          🎓 Study mode for new chats: the agent leads to the answer with hints instead of giving it right away
-        </label>
+        {/* F10: new chats of the project start with a mode of a module on (each chat can switch it) */}
+        {modes.filter((m) => m.projectLabel).map((m) => (
+          <label key={m.key} className="check">
+            <input type="checkbox" checked={!!modeDefaults[m.key]} onChange={(e) => setModeDefaults((d) => ({ ...d, [m.key]: e.target.checked }))} />
+            {`${m.icon} ${m.newProjectHint || m.projectLabel}`.trim()}
+          </label>
+        ))}
         {err && <p className="error-text">{err}</p>}
         <div className="modal-actions">
           <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>

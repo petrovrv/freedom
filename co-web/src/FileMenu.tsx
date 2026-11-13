@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // CO Web 0.61.0: one "⋯" menu for a file (message artifacts, the Drive tree of the inspector) instead of a row of buttons.
-// Items: Download, Preview, Open in Drive, Open in Google Docs (Office files), Open in canvas, Save to Drive.
-// 0.63.0: Open in canvas works for Office files (ONLYOFFICE on the home PC).
-// 0.67.0 (M4): text files (md/txt) open as a notebook: canvas-bridge makes a docx next to them and opens that.
-// 0.80.0: Open in study viewer (pdf, Office, text, images): the document left of its study chat (StudyViewer.tsx).
+// Items: Download, Preview, Open in Drive, Open in Google Docs (Office files), Save to Drive, and the items of enabled
+// modules (manifest fileActions, F10).
 import { useEffect, useRef, useState } from 'react';
-import { studyKind } from './studyDoc';
+import { fileActionsFor, type ModuleInfo } from './extBridge';
+import { modulePageHref } from './ModulePage';
 
 export interface FileMenuItem {
   label: string;
@@ -61,40 +60,42 @@ export function googleDocsUrl(id: string, name: string): string | null {
 
 export const hasGoogleDocs = (name: string) => googleDocsUrl('x', name) !== null;
 
-// What the canvas (SPEC.md in chat CHAT-20261028152233-8P34) will open: Office files in ONLYOFFICE, text as a notebook.
-export function canvasKind(name: string): 'office' | 'notebook' | null {
-  const e = ext(name);
-  if (['docx', 'xlsx', 'pptx'].includes(e)) return 'office';
-  if (['md', 'markdown', 'txt'].includes(e)) return 'notebook';
-  return null;
-}
-
-// Canvas file path relative to AI-Workbench. A legacy artifact copy (artifacts/<job>/x) opens its live scratch file.
-export function canvasPath(driveRelativePath: string): string {
+// File path relative to AI-Workbench as modules get it. A legacy artifact copy (artifacts/<job>/x) means its live scratch file.
+export function livePath(driveRelativePath: string): string {
   const m = /^(projects\/[^/]+\/chats\/[^/]+)\/(?:branches\/[^/]+\/)?artifacts\/[^/]+\/(.+)$/.exec(driveRelativePath);
   return m ? `${m[1]}/scratch/${m[2]}` : driveRelativePath;
 }
 
-// Menu item "Open in canvas" (new tab): Office files as they are, text files as a notebook (a docx next to them).
-export function canvasItem(name: string, path: string | null): FileMenuItem | null {
-  const kind = canvasKind(name);
-  if (!kind) return null;
-  const title = kind === 'notebook' ? 'Edit as a Word notebook (headings, lists); Save as Markdown writes it back' : undefined;
-  if (!path) return { label: 'Open in canvas', onClick: () => {}, disabled: true, title: 'The file is not on Drive yet' };
-  return { label: 'Open in canvas', title, onClick: () => window.open(`/canvas?path=${encodeURIComponent(canvasPath(path))}`, '_blank') };
-}
-
-// 0.80.0: the study viewer of a file in the project open in this tab (the project of the file's path otherwise).
-export function studyHref(path: string): string | null {
+// F10 (ext/1 mode viewer): "?<param>=<path>" on the project open in this tab (the project of the file's path otherwise).
+export function viewerHref(param: string, path: string): string | null {
   const here = /^\/e\/([^/]+)(?:\/p\/([^/]+))?/.exec(window.location.pathname);
   const pid = here?.[2] || /^projects\/([^/]+)\//.exec(path)?.[1];
   if (!here || !pid) return null;
-  return `/e/${here[1]}/p/${encodeURIComponent(decodeURIComponent(pid))}?study=${encodeURIComponent(canvasPath(path))}`;
+  return `/e/${here[1]}/p/${encodeURIComponent(decodeURIComponent(pid))}?${param}=${encodeURIComponent(livePath(path))}`;
 }
 
-export function studyItem(name: string, path: string | null, go: (href: string) => void): FileMenuItem | null {
-  if (!studyKind(name)) return null;
-  const href = path ? studyHref(path) : null;
-  if (!href) return { label: 'Open in study viewer', onClick: () => {}, disabled: true, title: 'The file is not on Drive yet' };
-  return { label: 'Open in study viewer', title: 'Read it next to a study chat: select text or an area and ask, or press WTF', onClick: () => go(href) };
+// F10 (ext/1 fileActions): items modules add for this file - open a module page (new tab, or this one) or the viewer of
+// a chat mode next to its chat.
+export function moduleFileItems(modules: ModuleInfo[], name: string, path: string | null, go: (href: string) => void): FileMenuItem[] {
+  return fileActionsFor(modules, name).flatMap(({ m, a }): FileMenuItem[] => {
+    const title = a.title || undefined;
+    let open: (() => void) | null = null;
+    if ('page' in a.open) {
+      const o = a.open;
+      const ui = m.ui.find((u) => u.slot === 'ui.page' && u.id === o.page);
+      if (!ui) return [];
+      if (path) {
+        const href = modulePageHref(m, ui, { [o.param || 'path']: livePath(path) });
+        open = o.target === 'blank' ? () => window.open(href, '_blank') : () => go(href);
+      }
+    } else {
+      const key = a.open.mode;
+      const viewer = (m.modes || []).find((x) => x.key === key)?.viewer;
+      if (!viewer) return [];
+      const href = path ? viewerHref(viewer.param, path) : null;
+      if (href) open = () => go(href);
+    }
+    if (!open) return [{ label: a.label, onClick: () => {}, disabled: true, title: 'The file is not on Drive yet' }];
+    return [{ label: a.label, title, onClick: open }];
+  });
 }

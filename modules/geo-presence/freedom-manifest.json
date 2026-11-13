@@ -1,0 +1,55 @@
+{
+ "format": "freedom-release/1",
+ "version": "0.5.0",
+ "created": "2026-11-12T23:33:13Z",
+ "files": [
+  {
+   "path": "module.json",
+   "size": 1747,
+   "sha256": "2c2ec7ddac0470f1b841e839cd41429452da20722cda49895027dc4186e62d07"
+  },
+  {
+   "path": "README.md",
+   "size": 1822,
+   "sha256": "7cdb43b55e64a07a6a08a2eee97231129a65a75be2d7b8acdbcc61c008422a1a"
+  },
+  {
+   "path": "server/geo-lib.php",
+   "size": 16737,
+   "sha256": "46e60eb29053874459788ffaf7be64a7f6fc54d3fbcd855d524ef7607ec3599f"
+  },
+  {
+   "path": "server/ops.php",
+   "size": 2193,
+   "sha256": "9f7b6a97a9681bec4263b03b408e210c88584cb926b7bf753e56b24dc9b3242a"
+  },
+  {
+   "path": "server/tile.php",
+   "size": 2249,
+   "sha256": "2dd9caaca539d7027cc8f4370131d6a3cb28a7b07d73cddc091a2ec6fc820bca"
+  },
+  {
+   "path": "ui/header.css",
+   "size": 3859,
+   "sha256": "31e3cb7000c4ac9025703c85e17bec409d71964f2d0e689217df730179858c6d"
+  },
+  {
+   "path": "ui/header.html",
+   "size": 361,
+   "sha256": "181c194a5ce366d2e57936cc23f31aee06c7d3e414dc1f6975e58c15ea59aa93"
+  },
+  {
+   "path": "ui/header.js",
+   "size": 17136,
+   "sha256": "1674d0aae691574c3256925e4037d132bfa019a6aaf632ba1f5d09138bb518ee"
+  }
+ ],
+ "signatures": [
+  {
+   "name": "maintainer-1",
+   "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
+   "sig": "mMcujIdesd5cp/UqEHeohb5w32WD4SkEGDdMs27CCWiqBIwjfrKpc0Tu2Dt4ly4ukscplO+lT+z4qd/WvRodBA=="
+  }
+ ],
+ "module": "geo-presence"
+}

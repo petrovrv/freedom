@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "id": "dictation",
+  "version": "0.1.0",
+  "title": "Voice input",
+  "description": "A microphone button next to the message box. With a speech-to-text key on the server (OpenAI or Groq Whisper) the recording is transcribed there; otherwise the browser's own speech recognition types as you speak; in CO Desktop it starts Windows voice typing (Win+H).",
+  "ext": ">=1 <2",
+  "scope": "member",
+  "platforms": ["windows", "macos", "linux", "android", "ios"],
+  "requires": { "core": [], "modules": [] },
+  "permissions": ["composer.input", "media.audio", "media.speech", "upload", "net.outbound"],
+  "isolation": "none",
+  "provides": {
+    "ui": [{ "slot": "ui.composer", "id": "button", "entry": "ui/composer.html", "title": "Voice input" }],
+    "tools": [],
+    "services": [],
+    "data": { "server": "none (the key: ~/co-agent/secrets/transcribe.json)", "home": "none" },
+    "events": [], "context": [], "models": [], "deviceTools": []
+  },
+  "server": {
+    "entry": "server/ops.php",
+    "ops": { "user": ["dictation_status"], "push": [], "host": [] },
+    "uploads": ["transcribe"]
+  },
+  "dataPolicy": { "onDisable": "keep", "onRemove": "keep", "migrations": "additive" },
+  "defaults": { "enabled": false }
+}

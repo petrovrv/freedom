@@ -351,14 +351,14 @@ export async function replaceContent(fileId: string, data: Blob | ArrayBuffer, m
   return (await request(session, { method: 'PUT', body: blob })).json();
 }
 
-// ---------- 0.80.0: study viewer (studyConvert.ts) ----------
+// ---------- files of module pages (moduleServices.ts, ext/1 file.*) ----------
 
-export interface StudyCopyMeta extends DriveFile {
+export interface PropsMeta extends DriveFile {
   appProperties?: Record<string, string>;
 }
 
-// A file of a folder with its app properties (the study copy keeps the md5 of its original there).
-export async function findWithProps(parentId: string, name: string): Promise<StudyCopyMeta | null> {
+// A file of a folder with its app properties (e.g. a converted copy keeps the md5 of its original there).
+export async function findWithProps(parentId: string, name: string): Promise<PropsMeta | null> {
   const r = await request(
     `${API}/files?q=${encodeURIComponent(`${q(parentId)} in parents and name=${q(name)} and trashed=false`)}&fields=files(${FILE_FIELDS},appProperties)&supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=5`,
   );

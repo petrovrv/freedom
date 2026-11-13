@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // diagnose.ts — turns raw agent/Bridge failures into actionable diagnoses (0.53.0).
-import { corporate, corporateAgent, corporateBlocked, corporateErrorRe } from './corporate.ts';
+import { gateway, gatewayAgent, gatewayErrorRe } from './gateway.ts';
 
 export type DiagAction = 'continue_other' | 'retry' | 'retry_new';
 
@@ -17,8 +17,7 @@ export interface DiagnoseInput {
   text?: string | null;
   agent?: string;
   status?: string;
-  corporateBlocked?: string | null;
-  engieBlocked?: string | null; // legacy wire name of corporateBlocked
+  gatewayBlocked?: string | null; // read from results/events with gatewayBlocked() (gateway.ts: also the legacy wire names)
   jobId?: string;
 }
 
@@ -34,7 +33,7 @@ interface Ctx {
   isClaude: boolean;
   otherName: string;
   jobId: string;
-  corporateBlocked: string;
+  gatewayBlocked: string;
 }
 
 interface Rule {
@@ -112,6 +111,23 @@ function firstAgentLine(error: string): string | null {
 
 const RULES: Rule[] = [
   {
+    // Bridge 1.16.0: an update that waited too long paused the job; Bridge queued its continuation in this chat.
+    // First: the agent's own messages (Reconnecting, timed out, ...) are appended to this error.
+    kind: 'bridge_update_pause',
+    test: /Paused for the Bridge update/i,
+    build: (c) => /continues as job/i.test(c.error)
+      ? {
+        title: 'Paused for the home PC agent update; continues by itself',
+        todo: 'Nothing to do: the next message of this chat continues the job in the same session after the restart.',
+        actions: [],
+      }
+      : {
+        title: 'Stopped for the home PC agent update',
+        todo: 'Resend the message (send "continue" to pick up from where it stopped).',
+        actions: ['retry'],
+      },
+  },
+  {
     kind: 'codex_limit',
     agent: 'codex',
     scope: 'all',
@@ -177,11 +193,11 @@ const RULES: Rule[] = [
     }),
   },
   {
-    // Freedom F1 5b: was kind 'engie'; names and the connector's own messages come from its manifest
-    kind: 'corporate',
-    test: (c) => c.corporateBlocked.length > 0 || corporateErrorRe().test(c.error),
+    // Freedom F10: names and the module's own messages come from the gateway description (gateway.ts)
+    kind: 'gateway',
+    test: (c) => c.gatewayBlocked.length > 0 || gatewayErrorRe().test(c.error),
     build: () => {
-      const m = corporate();
+      const m = gateway();
       const signin = m.signinTitle ? ` (${m.signinTitle})` : '';
       // 0.66.0: a paused connector - no button and no Resume; the message goes to another agent
       return {
@@ -245,22 +261,6 @@ const RULES: Rule[] = [
       todo: `Resend in a few minutes, or continue with ${c.otherName}.`,
       actions: ['retry', 'continue_other'],
     }),
-  },
-  {
-    // Bridge 1.16.0: an update that waited too long paused the job; Bridge queued its continuation in this chat
-    kind: 'bridge_update_pause',
-    test: /Paused for the Bridge update/i,
-    build: (c) => /continues as job/i.test(c.error)
-      ? {
-        title: 'Paused for the home PC agent update; continues by itself',
-        todo: 'Nothing to do: the next message of this chat continues the job in the same session after the restart.',
-        actions: [],
-      }
-      : {
-        title: 'Stopped for the home PC agent update',
-        todo: 'Resend the message (send "continue" to pick up from where it stopped).',
-        actions: ['retry'],
-      },
   },
   {
     kind: 'bridge_restart',
@@ -410,7 +410,7 @@ const RULES: Rule[] = [
 function buildDetail(c: Ctx, failed: boolean): string {
   const parts: string[] = [];
   if (c.error) parts.push(c.error);
-  if (c.corporateBlocked) parts.push(`${corporate().title}: ${c.corporateBlocked}`);
+  if (c.gatewayBlocked) parts.push(`${gateway().title}: ${c.gatewayBlocked}`);
   if (failed && c.text) parts.push(`Reply text:\n${c.text}`);
   if (c.jobId) parts.push(`Job: ${c.jobId}`);
   return parts.length ? parts.join('\n\n') : '(no error text)';
@@ -419,7 +419,7 @@ function buildDetail(c: Ctx, failed: boolean): string {
 export function diagnose(input: DiagnoseInput): Diagnosis | null {
   const error = (input.error ?? '').trim();
   const text = (input.text ?? '').trim();
-  const blocked = corporateBlocked(input);
+  const blocked = (input.gatewayBlocked ?? '').trim();
   const failed = input.status === 'failed';
   if (!error && !failed && !blocked) return null;
 
@@ -431,10 +431,10 @@ export function diagnose(input: DiagnoseInput): Diagnosis | null {
     all: text ? `${error}\n${text}` : error,
     agent,
     isCodex,
-    isClaude: agent === 'claude' || corporateAgent(agent)?.family === 'claude',
+    isClaude: agent === 'claude' || gatewayAgent(agent)?.family === 'claude',
     otherName: isCodex ? 'Claude' : 'GPT',
     jobId: input.jobId ?? '',
-    corporateBlocked: blocked,
+    gatewayBlocked: blocked,
   };
 
   for (const rule of RULES) {

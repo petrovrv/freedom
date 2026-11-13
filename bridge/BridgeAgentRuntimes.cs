@@ -122,7 +122,7 @@ namespace AiWorkbenchBridge
             if (request.resolvedContexts != null && request.resolvedContexts.Count > 0)
                 args.AddRange(ContextFolderArguments(request.resolvedContexts));
             args.AddRange(PermissionArguments(request.permissions, cloudDenied));
-            // v1.2.1: a Claude-based agent with a defaultModel (dispatcher) gets its modelArguments also when the user left "Default": they carry the corporate delegation policy.
+            // v1.2.1: a Claude-based agent with a defaultModel (dispatcher) gets its modelArguments also when the user left "Default": they carry the gateway delegation policy.
             string model = request.model;
             if (String.IsNullOrEmpty(model) && DefaultModelFillsModelArguments) model = agent.defaultModel;
             if (!String.IsNullOrEmpty(model) && agent.modelArguments != null)

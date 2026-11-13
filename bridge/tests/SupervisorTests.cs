@@ -61,7 +61,11 @@ namespace AiWorkbenchBridge.Tests
                 BridgeApplicationContext.UpdatePauseMessage("1.16.0", "JOB-NEW"));
             Check(g, "pause message without continuation", "True",
                 BridgeApplicationContext.UpdatePauseMessage("", null).StartsWith(BridgeApplicationContext.UpdatePauseText + ": the job was stopped and could not") ? "True" : "False");
-            SupervisorConfig supc = new JavaScriptSerializer().Deserialize<SupervisorConfig>("{\"updateDrainMinutes\":-1}");
+            cont["agent"] = "claude";
+            Check(g, "continuation session key", "claude:sess-1", BridgeApplicationContext.ContinuationSessionKey(cont));
+            Check(g, "new session has no key", "True", (BridgeApplicationContext.ContinuationSessionKey(again) == null).ToString());
+            Check(g, "no conversation no key", "True", (BridgeApplicationContext.ContinuationSessionKey(new Dictionary<string, object>()) == null).ToString());
+            SupervisorConfig supc =new JavaScriptSerializer().Deserialize<SupervisorConfig>("{\"updateDrainMinutes\":-1}");
             Check(g, "config updateDrainMinutes", "-1", supc.updateDrainMinutes.ToString());
 
             // Freedom F1: site and owner come from the config, never from constants

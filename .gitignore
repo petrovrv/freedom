@@ -18,8 +18,8 @@ src.bak-*/
 *.pre-*
 
 # Host config and live state
-# browser-ext/site.js: CO site of this install (install/aiwb_install.py ext-config)
-browser-ext/site.js
+# modules/browser-ext/extension/site.js: CO site of this install (install/aiwb_install.py ext-config)
+modules/browser-ext/extension/site.js
 config.json
 config.php
 _secret_config.php
@@ -32,3 +32,5 @@ _job.json
 # Python bytecode
 __pycache__/
 *.pyc
+modules/browser-ext/dist/
+modules/*/tests/*.png

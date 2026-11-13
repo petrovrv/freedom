@@ -2,7 +2,7 @@
 // CO Web 0.62.0: link to the AI Workbench browser extension panel that frames CO (see extDevice.ts). No imports:
 // auth.ts uses it too.
 
-// Unpacked and store builds share this id: manifest "key" in source/browser-ext/manifest.json.
+// Unpacked and store builds share this id: manifest "key" in the extension's manifest.json.
 export const EXT_ORIGIN = 'chrome-extension://eobijkacekfneefkngaejdcdaehfijaf';
 
 // The panel loads /?ext=1; the flag survives CO's own navigation inside the frame.

@@ -138,7 +138,7 @@ export async function signIn(): Promise<void> {
   if (inExtension()) {
     // 0.62.0: Google sign-in refuses to run in a frame: sign in in a tab, the panel shares the cookie. The Strict
     // session cookie does reach /auth/token.php from the panel frame: Chrome treats a site framed in an extension page
-    // as same-site when the extension has host permission for it (browser-ext/tests/cookie-test.mjs).
+    // as same-site when the extension has host permission for it (cookie-test.mjs of the extension's tests).
     openInTab(`/auth/login.php${hint}`);
     for (let i = 0; i < 100; i++) {
       await new Promise((r) => setTimeout(r, 3000));

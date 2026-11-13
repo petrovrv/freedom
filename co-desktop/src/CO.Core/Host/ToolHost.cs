@@ -181,7 +181,9 @@ public sealed class ToolHost
 
         // 2. Tool and arguments
         if (!_catalog.TryGet(call.Tool, out IDeviceTool tool))
-            return Reject(call, "unknown_tool", $"Tool '{call.Tool}' is not in this device's catalog.", recordDecision);
+            return _catalog.TryGetRetired(call.Tool, out string rc, out string rm)
+                ? Reject(call, rc, rm, recordDecision)
+                : Reject(call, "unknown_tool", $"Tool '{call.Tool}' is not in this device's catalog.", recordDecision);
         JsonElement args;
         try { args = JsonDocument.Parse(call.ArgsJson).RootElement.Clone(); }
         catch (JsonException) { return Reject(call, "invalid_args", "argsJson is not valid JSON.", recordDecision); }

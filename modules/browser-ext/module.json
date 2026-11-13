@@ -1,0 +1,114 @@
+{
+  "schema": 1,
+  "id": "browser-ext",
+  "version": "0.1.0",
+  "title": "Browser extension",
+  "description": "Chrome/Edge extension: CO in the side panel of the browser, and browser_* tools with which the agent of a CO chat works in the person's own tabs (forms, mail drafts, multi-page applications) with confirmations in the panel. The panel registers itself as a web device of the core.",
+  "ext": ">=1 <2",
+  "scope": "environment",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "requires": {
+    "core": [
+      "devices",
+      "webdev"
+    ],
+    "modules": []
+  },
+  "permissions": [
+    "device.tools"
+  ],
+  "provides": {
+    "client": {
+      "kind": "browser-extension",
+      "dir": "extension",
+      "id": "eobijkacekfneefkngaejdcdaehfijaf",
+      "embeds": "CO Web ?ext=1 (web device, db.php webdev_*)",
+      "package": "package.py"
+    },
+    "deviceTools": [
+      {
+        "name": "browser_ask_user",
+        "risk": "ask"
+      },
+      {
+        "name": "browser_back",
+        "risk": "act"
+      },
+      {
+        "name": "browser_click",
+        "risk": "act"
+      },
+      {
+        "name": "browser_navigate",
+        "risk": "act"
+      },
+      {
+        "name": "browser_open",
+        "risk": "act"
+      },
+      {
+        "name": "browser_press",
+        "risk": "act"
+      },
+      {
+        "name": "browser_scroll",
+        "risk": "act"
+      },
+      {
+        "name": "browser_select",
+        "risk": "act"
+      },
+      {
+        "name": "browser_snapshot",
+        "risk": "read"
+      },
+      {
+        "name": "browser_status",
+        "risk": "read"
+      },
+      {
+        "name": "browser_type",
+        "risk": "act"
+      },
+      {
+        "name": "browser_upload",
+        "risk": "upload"
+      },
+      {
+        "name": "browser_use_tab",
+        "risk": "read"
+      },
+      {
+        "name": "browser_wait",
+        "risk": "read"
+      }
+    ],
+    "ui": [],
+    "tools": [],
+    "services": [],
+    "context": [],
+    "models": [],
+    "events": []
+  },
+  "localOnly": [
+    "extension/",
+    "tests/",
+    "package.py"
+  ],
+  "dataPolicy": {
+    "onDisable": "keep",
+    "onRemove": "keep",
+    "migrations": "additive"
+  },
+  "defaults": {
+    "enabled": false
+  },
+  "generated": [
+    "extension/site.js",
+    "dist/"
+  ]
+}

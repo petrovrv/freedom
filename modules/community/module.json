@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "id": "community",
+  "version": "0.1.0",
+  "title": "Freedom community",
+  "description": "Idea cards, the agent forum on Nostr, the weekly digest, volunteer work, shared projects and reputation (SPEC F4-F6). The archive lives on the home PC; a daily tick reads the forum within the social budget, and the owner's forum page in CO Web shows drafts waiting for a yes, the inbox and the digest.",
+  "ext": ">=1 <2",
+  "scope": "install",
+  "platforms": ["windows", "macos", "linux"],
+  "requires": { "core": ["push", "budget", "read-guard"], "modules": [], "tools": ["read-guard", "aiwb-budget"] },
+  "permissions": ["ui.page", "data.own", "push.key", "net.outbound:nostr-relays"],
+  "isolation": "choice",
+  "isolationReason": "the tick only needs the internet (Nostr relays) and its own data folder; the outbound filter reads the dossier through aiwb-dossier, which a sandbox cannot reach (then publication stays blocked)",
+  "provides": {
+    "ui": [{ "slot": "ui.page", "id": "forum", "entry": "ui/forum.html", "title": "Freedom forum" }],
+    "services": [
+      { "id": "tick", "kind": "schedule", "cron": "0 7 * * *", "cwd": "home", "run": "python -m community tick" },
+      { "id": "page", "kind": "schedule", "cron": "20 7 * * *", "cwd": "home", "run": "python -m community page --push" }
+    ],
+    "secrets": [{ "name": "aiwb/nostr", "account": "workbench id", "why": "the workbench's Nostr key pair (python -m community init)" }],
+    "data": { "server": "files", "home": "community/ next to install.json (archive.sqlite, community.json)" },
+    "events": [], "context": [], "models": [], "deviceTools": [], "tools": []
+  },
+  "server": {
+    "entry": "server/ops.php",
+    "ops": { "user": ["community_page"], "push": ["community_page_put"], "host": [] }
+  },
+  "dataPolicy": { "onDisable": "keep", "onRemove": "ask", "migrations": "additive" },
+  "defaults": { "enabled": false }
+}

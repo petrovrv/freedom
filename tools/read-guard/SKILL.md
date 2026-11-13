@@ -1,7 +1,7 @@
 ---
 name: read-guard
 description: Prompt-injection guard for what agents read from outside (web pages, mail, chats, downloads) — heuristic scan (EN/RU/NL/DE/FR, role tokens, hidden text, exfiltration links), Claude Code PostToolUse/PreToolUse hooks installed by Bridge 1.8+ (Codex handlers ready, not installed), built into browser-agent/whatsapp-web/linkedin-web/gmail-*; suspicious text is wrapped as data, the event goes to job_events, payments and live browser tests on the home PC (CO_LIVE_BROWSER=1) wait in every chat for the owner's "<code> да" (other risky actions only in a tainted chat) - a Yes/No card in CO Web Waiting for you (schema 18), secrets and uploads only in a tainted chat. Use to check a text or file for injection, or to grant a held action.
-version: 0.4.1
+version: 0.4.2
 entry: read-guard.py
 requires: []
 secrets: []
@@ -61,8 +61,9 @@ held = rg.guard_check_action("send mail to X", tool="my-tool")  # None или ow
 
 ## История
 
+- 0.4.2 — 2026-11-13 — тексты без имён членов семьи (экспорт Freedom); поведение не изменилось.
 - 0.4.1 — 2026-11-12 — Freedom: примеры и самопроверка без личных имён, путей и имени устройства (cases.json, `test`); правила проверки не изменились, `test` — 119/119.
-- 0.4.0 — 2026-11-10 — во всех чатах ждут «да» владельца и живые тесты браузера на домашнем ПК: команда Bash/PowerShell, ставящая `CO_LIVE_BROWSER=1` (`VAR=1 cmd`, `$env:`, `SetEnvironmentVariable`, внутри `bash -c`). Текст отказа объясняет агенту: сначала запустить их на устройстве, которому они нужны (Мак семьи — `mac_check action=start live=true`, co-resident 0.3.7). Упоминание переменной в grep/сообщении коммита не удерживается. `guard_check_action(any_kind=True, reason=…)`. Повод: 10.11 задания чата Софии гоняли живые тесты на ПК Романа, десятки Edge, мост висел. Тест: 119 проверок. Код: Claude.
+- 0.4.0 — 2026-11-10 — во всех чатах ждут «да» владельца и живые тесты браузера на домашнем ПК: команда Bash/PowerShell, ставящая `CO_LIVE_BROWSER=1` (`VAR=1 cmd`, `$env:`, `SetEnvironmentVariable`, внутри `bash -c`). Текст отказа объясняет агенту: сначала запустить их на устройстве, которому они нужны (Мак семьи — `mac_check action=start live=true`, co-resident 0.3.7). Упоминание переменной в grep/сообщении коммита не удерживается. `guard_check_action(any_kind=True, reason=…)`. Повод: 10.11 задания чата члена семьи гоняли живые тесты на ПК владельца, десятки Edge, мост висел. Тест: 119 проверок. Код: Claude.
 - 0.3.0 — 2026-11-04 — во всех чатах удерживаются только деньги (оплаты MCP, покупка в браузере через browser-agent 0.12.0); git push, почта, удаления, деплой, публикация, `--confirm` — только в заражённом чате, как в 0.1.0. `guard_check_action(always=True)` действует только для kind="purchase". Тест: 112 проверок. Код: Claude.
 - 0.2.0 — 2026-11-03 — рискованные действия удерживаются **во всех чатах** (А2): отправка, покупка, удаление вне tmp/worktree, публикация и деплой, `git push`, `browser-agent --confirm`, MCP send/share/delete; в заражённом чате, как раньше, ещё секреты и выгрузки. Событие с `kind`/`summary`/`command`/`expires` → карточка «Да / Нет» в CO Web (схема 18, CO Web 0.81.0), push владельцу. `grant` не засчитывает «да» редактора общего чата (`byOwner`). Цепочка `read-guard.py status; git push` больше не проходит мимо проверки. Проза в кавычках (сообщение коммита, запись памяти, prompt) не считается командой: «git push» в тексте не удерживается, код после `-c`/`-Command`/`eval`/`ssh host`, пути и строки, начинающиеся с команды, проверяются. browser-agent и linkedin-post засчитываются только при запуске (`*.py` или `tool_run`). Тест: 110 проверок. Код: Claude.
 

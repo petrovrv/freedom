@@ -24,7 +24,7 @@ function co_agent_home(): string {
     return $home;
 }
 
-// Server part of install.json (Freedom F1): ~/co-agent/config.php returns an array (canvas_url, site_name, ...).
+// Server part of install.json (Freedom F1): ~/co-agent/config.php returns an array (site_name, ...).
 // Missing file or key = default.
 function co_site_config(string $key, mixed $default = null): mixed {
     static $cfg = null;

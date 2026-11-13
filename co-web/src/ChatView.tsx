@@ -6,7 +6,9 @@ import { useDraft } from './drafts';
 import JobTimeline from './JobTimeline';
 import { markSeen } from './status';
 import { HOME, SITE, hostStateText, label as hostLabel, routeHost } from './routing';
-import { BENCH_DATE, CATEGORY_LABEL, recommendFor } from './taskHint';
+import { importLabel } from './importPoint';
+import { ModuleHints, useModuleList } from './ModuleSlot';
+import type { ModuleHint } from './extBridge';
 import { applyBridgeEvents, emptyActivity, type ActivityItem, type ActivityState } from './activity';
 import { AGENTS, ALLOWLIST, DEFAULT_BRANCH, PICKABLE_AGENTS, RETIRED_AGENTS, ENVIRONMENTS, HOST_ID, MAX_ATTACHMENT_BYTES, LONG_PASTE_CHARS, POLL_LISTS_MS, POLL_RUNNING_EVENTS_MS, type AgentId, type EnvironmentId } from './config';
 import { extractTitle, heuristicTitle, stripTitleMarker } from './chatTitle';
@@ -19,9 +21,8 @@ import { BrowserSettingsPanel } from './BrowserSettings';
 import { openInspectorTab, useChatPanel } from './chatPanel';
 import type { ChatAction } from './ChatActions';
 import { FolderPicker } from './FolderPicker';
-import { FileMenu, canvasItem, googleDocsUrl, hasGoogleDocs, studyHref, studyItem } from './FileMenu';
-import { DICTATION_LANGS, desktopVoiceTyping, useDictation } from './dictation';
-import { transcribeConfigured, useRecorder } from './voice';
+import { FileMenu, googleDocsUrl, hasGoogleDocs, moduleFileItems, viewerHref } from './FileMenu';
+import { COMPOSER_SENT, ModuleSlots, useLoadedModules, type ComposerInput } from './ModuleSlot';
 import { Markdown } from './Markdown';
 import { extractQuickReplies, formatAnswers, stripQuickReplies, type AskItem } from './quickReplies';
 import { decodeFastResult, publishJobReadyDb, watchJob, type FastMessage } from './pubsub';
@@ -42,22 +43,23 @@ import {
 import { dbDossierContext, dbFollowupAdd, dbFollowupCancel, dbFollowupDone, dbFollowupList, dbFollowupTake, dbGetTemplates, dbProtocol, dbPutTemplates, dbQueueOn, dbRelated, dbSharesGet, dbToolStarted, type Followup } from './dbapi';
 import { hintsBlock, storedHints, wantsHints, type Related } from './secretaryHints';
 import { buildLevels, CONTEXT_MODE_HINT, CONTEXT_MODE_LABEL, type ContextMode } from './contextLevels';
-import { askDisplay } from './studyDoc';
+import { sideJobOf, sideReplies, viewMessage, type SideJob } from './extBridge';
 import QuoteAsk from './QuoteAsk';
 import { quoteDisplay } from './chatQuote';
-import { studyHeuristic, studyLinesBetween, studyOn, studyPatch, studyWho } from './studyMode';
+import { inheritedModes, linesBetween, modeDoc, modeLines, modeOn, modePatch, modesText, switchWho, type ModeDecl, type ModeLine } from './moduleModes';
+import { contextOf, moduleList, modesOf, sideJobsOf, useModuleList as useModuleDecls, viewsOf } from './moduleStore';
 import { FamilyComposer, FamilyMessage, Lightbox, familyBlock, isSilent, reactionsOf, wantsCo } from './FamilyChat';
 
-// 0.78.0: names for the study mode lines (Google identity -> its environment's name)
+// names for the lines of mode switches (Google identity -> its environment's name)
 // Freedom F1: built on use - the member list arrives from the server after this module is loaded
-const studyNames = (): Record<string, string> => Object.fromEntries(
+const switchNames = (): Record<string, string> => Object.fromEntries(
   Object.entries(ALLOWLIST).map(([mail, a]) => [mail, ENVIRONMENTS.find((e) => e.id === a.env)?.displayName || a.env]),
 );
 import { brokenRun, PLAN_DIR, PLAN_FILE, planApplies, planHeuristic, planPath, resumeBlock, resumeUnreadBlock } from './workPlan';
 import { getText, resolveFile } from './drive';
 import { ProtocolCell, ProtocolHeader, protocolPaneOn, setProtocolPaneOn, useProtocol } from './Protocol';
 import { outboxAdd, outboxList, outboxPut, outboxRemove, outboxSubscribe, outboxTake, watchOnline, type OutboxItem } from './outbox';
-import { corporate, corporateBlocked, corporateTools } from './corporate';
+import { gateway, gatewayBlocked, gatewayTools, gatewayVersion } from './gateway';
 import { ModelPicker } from './ModelPicker';
 
 interface Props {
@@ -87,12 +89,12 @@ interface Props {
   onChatCreated?: (c: Chat) => void;
   // 0.37.0: a template switches the executor (home / site)
   onHostChange?: (hostId: string) => void;
-  // 0.80.0: study viewer next to the chat - its document (a new chat gets it as studyDoc), questions it sends, and the
-  // chat's events for its markers
-  studyDoc?: string;
-  studyAsk?: { text: string; files: File[]; nonce: number } | null;
+  // F10 (ext/1 chat.mode viewer): a module's viewer next to the chat - the mode and its document (a new chat gets it as
+  // <key>Doc and the mode on), questions it sends, and the chat's events for the viewer
+  viewer?: { mode: ModeDecl; doc: string };
+  viewerAsk?: { text: string; files: File[]; nonce: number } | null;
   onEvents?: (events: ChatEvent[] | null) => void;
-  // 0.80.1: whether the viewer may ask here (not read-only, the host takes attachments) (review)
+  // whether the viewer may ask here (not read-only, the host takes attachments)
   onCanAsk?: (ok: boolean) => void;
 }
 
@@ -116,7 +118,7 @@ interface Monitor {
 
 const TERMINAL: JobPhase[] = ['completed', 'failed', 'cancelled', 'rejected'];
 
-const handledStudyAsks = new Set<number>(); // 0.80.0: study viewer questions already put into a composer
+const handledViewerAsks = new Set<number>(); // questions of a mode viewer already put into a composer
 
 export const agentName = (a?: string) => AGENTS.find((x) => x.id === a)?.displayName || a || 'Agent';
 
@@ -139,14 +141,19 @@ export default function ChatView(props: Props) {
   const eventsRef = useRef(events);
   eventsRef.current = events;
   const [prefill, setPrefill] = useState<Prefill | null>(null);
-  const { onEvents, studyAsk } = props;
+  const { onEvents, viewerAsk } = props;
   useEffect(() => onEvents?.(events), [events, onEvents]);
   useEffect(() => {
     // once per question: the chat view of a new chat mounts again after its first message
-    if (!studyAsk || handledStudyAsks.has(studyAsk.nonce)) return;
-    handledStudyAsks.add(studyAsk.nonce);
-    setPrefill({ text: studyAsk.text, files: studyAsk.files, send: true, nonce: studyAsk.nonce });
-  }, [studyAsk]);
+    if (!viewerAsk || handledViewerAsks.has(viewerAsk.nonce)) return;
+    handledViewerAsks.add(viewerAsk.nonce);
+    setPrefill({ text: viewerAsk.text, files: viewerAsk.files, send: true, nonce: viewerAsk.nonce });
+  }, [viewerAsk]);
+  // F10: what enabled modules add to chats (modes, message views, side-job rows, context)
+  const mods = useModuleDecls();
+  const modes = useMemo(() => modesOf(mods), [mods]);
+  const sideJobs = useMemo(() => sideJobsOf(mods), [mods]);
+  const isSide = useCallback((e: ChatEvent) => sideJobOf(sideJobs, e) !== null, [sideJobs]);
   const pendingTool = useRef<number | null>(null); // 0.75.0: id of the tool library proposal whose task this draft sends
   const bottomRef = useRef<HTMLDivElement>(null);
   const msgBox = useRef<HTMLDivElement>(null); // 0.82.0: Ask / WTF about selected text of an answer
@@ -199,8 +206,8 @@ export default function ChatView(props: Props) {
     const done = new Set(events.filter((e) => e.type === 'assistant_message').map((e) => e.jobId));
     return events.filter((e) => e.type === 'user_message' && e.jobId && !done.has(e.jobId));
   }, [events]);
-  // 0.65.0: canvas jobs (comment threads, own agent session) never hold back the chat's own messages
-  const chatPending = useMemo(() => pending.filter((e) => !e.canvas), [pending]);
+  // side jobs of modules (own agent session) never hold back the chat's own messages
+  const chatPending = useMemo(() => pending.filter((e) => !isSide(e)), [pending, isSide]);
 
   const cancelled = useMemo(() => new Set((events || []).filter((e) => e.type === 'cancel_requested').map((e) => e.jobId)), [events]);
 
@@ -314,7 +321,8 @@ export default function ChatView(props: Props) {
     }
     try {
       let child = await createChildChat(project, chat, seq, kind, chat.defaultMode || 'cowork');
-      if (studyOn(chat, project)) child = await updateChatMeta(child, { study: true }); // 0.78.0: branches stay in study mode
+      const keep = inheritedModes(chat, project, modes); // modes that inherit stay on in branches
+      if (Object.keys(keep).length) child = await updateChatMeta(child, keep);
       if (draftText) {
         try {
           localStorage.setItem('co.draft.' + child.chatId, JSON.stringify({ t: draftText, u: Date.now() }));
@@ -369,9 +377,9 @@ export default function ChatView(props: Props) {
   const [famReply, setFamReply] = useState<ChatEvent | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
   useInterval(reload, 4000, authOk && family && !chat.draft);
-  const studyCanAsk = !readOnly && (capabilities.length === 0 || capabilities.includes('attachments'));
+  const viewerCanAsk = !readOnly && (capabilities.length === 0 || capabilities.includes('attachments'));
   const { onCanAsk } = props;
-  useEffect(() => onCanAsk?.(studyCanAsk), [studyCanAsk, onCanAsk]);
+  useEffect(() => onCanAsk?.(viewerCanAsk), [viewerCanAsk, onCanAsk]);
   // 0.37.0: environment templates (new-chat screen only)
   const [templates, setTemplates] = useState<EnvTemplate[] | null>(null);
   const [tplErr, setTplErr] = useState<string | null>(null);
@@ -453,19 +461,28 @@ export default function ChatView(props: Props) {
     let chat = chatState;
     if (chat.draft) {
       progress('Creating chat…');
-      const doc = props.studyDoc;
-      let created = await createChat(project, doc ? `📖 ${doc.split('/').pop()}` : 'New chat', input.sel.mode);
-      // 0.80.0: the chat of a study viewer document starts in study mode (Shell passes the draft with study on)
-      const study = studyOn(chatState, project);
-      if (chatState.permissions || chatState.autoSwitch === false || study || chatState.study !== undefined || doc || chatState.browser || chatState.family) {
+      const vw = props.viewer;
+      let created = await createChat(project, vw ? `${vw.mode.viewer?.titlePrefix || '📄'} ${vw.doc.split('/').pop()}` : 'New chat', input.sel.mode);
+      // the chat of a viewer document starts with its mode on (Shell passes the draft with the mode on)
+      const draftModes: Record<string, unknown> = {};
+      for (const m of modes) {
+        // the switch of the draft; without one the project's default applies
+        const own = (chatState as unknown as Record<string, unknown>)[m.key];
+        const on = modeOn(chatState, project, m.key);
+        if (on || own !== undefined) {
+          draftModes[m.key] = on;
+          const log = (chatState as unknown as Record<string, unknown>)[m.key + 'Log'];
+          if (log) draftModes[m.key + 'Log'] = log;
+        }
+      }
+      if (chatState.permissions || chatState.autoSwitch === false || Object.keys(draftModes).length || vw || chatState.browser || chatState.family) {
         created = await updateChatMeta(created, {
           ...(chatState.browser ? { browser: chatState.browser } : {}),
           ...(chatState.family ? { family: true } : {}),
-          ...(doc ? { studyDoc: doc, titleAuto: false } : {}),
+          ...(vw ? { [vw.mode.key + 'Doc']: vw.doc, titleAuto: false } : {}),
           ...(chatState.permissions ? { permissions: chatState.permissions } : {}),
           ...(chatState.autoSwitch === false ? { autoSwitch: false } : {}),
-          // 0.78.0: the study switch of the draft; without one the project's default applies
-          ...(study || chatState.study !== undefined ? { study, ...(chatState.studyLog ? { studyLog: chatState.studyLog } : {}) } : {}),
+          ...draftModes,
         });
       }
       chat = created;
@@ -478,10 +495,11 @@ export default function ChatView(props: Props) {
       if (input.files.length) throw new Error('Side questions (/btw) take text only.');
       progress('Opening a side question…');
       let side = await createChildChat(project, chatState, lastSequence(current), 'side', input.sel.mode);
-      if (chatState.permissions || studyOn(chatState, project)) {
+      const keep = inheritedModes(chatState, project, modes); // a side question keeps the modes that inherit
+      if (chatState.permissions || Object.keys(keep).length) {
         side = await updateChatMeta(side, {
           ...(chatState.permissions ? { permissions: chatState.permissions } : {}),
-          ...(studyOn(chatState, project) ? { study: true } : {}), // 0.78.0: a side question of a study chat stays in study mode
+          ...keep,
         });
       }
       try {
@@ -525,8 +543,8 @@ export default function ChatView(props: Props) {
       void dbToolStarted(toolId, chat.chatId).catch(() => undefined);
     }
     if (chatState.draft) {
-      // 0.80.0: a study document chat keeps its "📖 <file>" title
-      const titled = props.studyDoc ? chat : await updateChatMeta(chat, { title: heuristicTitle(input.text), titleAuto: true });
+      // the chat of a viewer document keeps its "<prefix> <file>" title
+      const titled = props.viewer ? chat : await updateChatMeta(chat, { title: heuristicTitle(input.text), titleAuto: true });
       props.onChatCreated?.(titled);
       return;
     }
@@ -562,12 +580,12 @@ export default function ChatView(props: Props) {
     // the transcript; a failed protocol read also falls back to it.
     const cmode: ContextMode = chat.contextMode || 'full';
     const proto = chat.draft || chat.parent ? null : await dbProtocol(chat.chatId);
-    // 0.29.0: device tools and the corporate agents only at home; failover when the selected executor is offline.
-    // 0.45.0: no devices in shared chats. 0.66.0: corporate connector paused - a message still addressed to one of its
+    // 0.29.0: device tools and the gateway agents only at home; failover when the selected executor is offline.
+    // 0.45.0: no devices in shared chats. 0.66.0: gateway module disabled (paused) - a message still addressed to one of its
     // agents (offline outbox, old template) goes to the first agent the project allows instead of failing on every resend.
     if (RETIRED_AGENTS.has(input.sel.agent)) {
       const to = allowedAgents[0];
-      if (!to) throw new Error(`This project allows only ${corporate().title} agents, which are paused. Allow Claude or GPT for it in the Bridge config.`);
+      if (!to) throw new Error(`This project allows only ${gateway().title} agents, which are paused. Allow Claude or GPT for it in the Bridge config.`);
       progress(`${agentName(input.sel.agent)} is paused; sent to ${agentName(to)}`);
       input = { ...input, sel: { ...input.sel, agent: to, model: null, effort: null } };
     }
@@ -587,7 +605,7 @@ export default function ChatView(props: Props) {
     // level 3 and, after a broken-off job, its unfinished plan as a hidden preamble of this message
     const planOk = target.hostId !== 'site' && !project.legacy;
     const pPath = planPath(project.projectId, chat.chatId);
-    const levels = buildLevels({ mode: cmode, envProfile, projectInstructions: instr.text, projectMemory: memory, workPlan: planOk ? planHeuristic(pPath) : '', study: studyHeuristic(chat, project), dossier });
+    const levels = buildLevels({ mode: cmode, envProfile, projectInstructions: instr.text, projectMemory: memory, workPlan: planOk ? planHeuristic(pPath) : '', modes: modesText(chat, project, modes), moduleContext: contextOf(mods), dossier });
     // 0.89.0: family chats - who called and why goes as a hidden preamble (FamilyChat.tsx familyBlock)
     const planResume = planOk ? await readResume(chat, current, pPath) : '';
     // an @co turn started later for a message posted while the agent was busy (coFor) or any other path keeps "called"
@@ -604,9 +622,9 @@ export default function ChatView(props: Props) {
     if (!shared && webPick.selected.length && !webOk) progress(`${target.hostId} does not support browser devices; sent without them`);
     const allIds = [...new Set([...desktopIds, ...webIds])].slice(0, 4); // 0.63.1: Bridge rejects a repeated device id
     const devices = allIds.length ? allIds : undefined;
-    // 0.66.0: a paused corporate connector has no button: Bridge 1.3.5+ hides its tools (manifest) from the agent.
-    const corpDeny = corporate().paused ? corporateTools() : [];
-    const deviceToolsDeny = desktopIds.length && corpDeny.length && tCaps.includes('device-tools-deny') ? corpDeny : undefined;
+    // 0.66.0: a paused (disabled) gateway has no button: Bridge 1.3.5+ hides its tools (module manifest) from the agent.
+    const gwDeny = gateway().paused ? gatewayTools() : [];
+    const deviceToolsDeny = desktopIds.length && gwDeny.length && tCaps.includes('device-tools-deny') ? gwDeny : undefined;
     // 0.55.0: uploads become chat files (a new version of a matched file) when the executor supports it and the job works
     // in the chat scratch (chat mode, the site, or a project without a configured workspace).
     const chatFilesOk = tCaps.includes('chat-files') && (input.sel.mode === 'chat' || target.hostId === 'site' || !tOwner?.projects?.[project.projectId]);
@@ -622,7 +640,7 @@ export default function ChatView(props: Props) {
       return t;
     });
     const ev = await sendTurn({
-      root, host: target, env: project.environmentId, project, chat, events: [...(cmode === 'full' ? inheritedNow : []), ...current.filter((e) => !e.canvas)], agent: input.sel.agent, text: input.text,
+      root, host: target, env: project.environmentId, project, chat, events: [...(cmode === 'full' ? inheritedNow : []), ...current.filter((e) => !isSide(e))], agent: input.sel.agent, text: input.text,
       files: input.files, fileTargets, returnFiles: input.returnFiles, projectInstructions: [envProfile, instr.text, memory, parentProto, snap?.protocol || ''].filter((x) => x.trim()).join('\n\n'), author: props.author,
       levels,
       live: { protocol: proto, contextMode: cmode, title: chat.title, chatId: chat.chatId, parentProtocol: cmode === 'full' ? snap?.protocol || '' : '' },
@@ -822,7 +840,7 @@ export default function ChatView(props: Props) {
 
   // Composer starts from the last selection used in this chat; a new chat starts from defaultSelection,
   // fixed once per chat so that a later limits refresh does not switch the agent under the user.
-  // 0.66.0: agents of a paused corporate connector are dropped even where the environment still allows them
+  // 0.66.0: agents of a paused gateway are dropped even where the environment still allows them
   const allowedAgents = ((projectReg?.allowedAgents as AgentId[] | undefined) || AGENTS.map((a) => a.id)).filter((a) => !RETIRED_AGENTS.has(a));
   const hasOwner = !!props.owner;
   const hasLimits = !!props.limits;
@@ -833,18 +851,18 @@ export default function ChatView(props: Props) {
     [hasOwner, hasLimits, props.env], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const lastSelection = useMemo<Selection>(() => {
-    const u = [...(events || [])].reverse().find((e) => e.type === 'user_message' && !e.canvas);
+    const u = [...(events || [])].reverse().find((e) => e.type === 'user_message' && !isSide(e));
     return {
       agent: (u?.agent as AgentId) || def.agent,
       mode: u?.mode || chat.defaultMode || 'cowork',
       model: u ? u.model ?? null : def.model,
       effort: u?.effort ?? null,
     };
-  }, [events, def.agent, def.model, chat.defaultMode]);
+  }, [events, def.agent, def.model, chat.defaultMode, isSide]);
 
   const visible = (events || []).filter((e) => e.type === 'user_message' || e.type === 'assistant_message');
   // 0.57.0: quick replies only under the newest message when it is an answer
-  const own = visible.filter((e) => !e.canvas);
+  const own = visible.filter((e) => !isSide(e));
   const lastVisible = own.length ? own[own.length - 1] : null;
   const quickFor = lastVisible?.type === 'assistant_message' && !readOnly ? lastVisible.eventId : null;
   // 0.71.0: a reply chosen in "Waiting for you" arrives as navigation state once the messages are loaded; it is sent
@@ -888,22 +906,23 @@ export default function ChatView(props: Props) {
   const fuEvents = (jobId?: string) => (jobId ? visible.filter((f) => f.followupOf === jobId) : []);
   const fuRows = (jobId?: string) => (jobId ? followups.filter((f) => f.jobId === jobId) : []);
   const orphanRows = followups.filter((f) => !turnJobs.has(f.jobId));
-  // 0.78.0: study mode switches as lines before the next message (the rest after the last one)
-  const studyBefore = new Map<string, ReturnType<typeof studyLinesBetween>>();
-  let studyAfter: string | null = null;
+  // mode switches as lines before the next message (the rest after the last one)
+  const allLines = modeLines(chat, modes);
+  const linesBefore = new Map<string, ModeLine[]>();
+  let linesAfter: string | null = null;
   for (const e of visible) {
     if (e.type !== 'user_message' || e.followupOf) continue;
-    studyBefore.set(e.eventId, studyLinesBetween(chat.studyLog, studyAfter, e.createdUtc));
-    studyAfter = e.createdUtc;
+    linesBefore.set(e.eventId, linesBetween(allLines, linesAfter, e.createdUtc));
+    linesAfter = e.createdUtc;
   }
-  const studyTail = studyLinesBetween(chat.studyLog, studyAfter, null);
-  const studyLine = (s: { on: boolean; by: string; utc: string }) => (
-    <div key={'study-' + s.utc} className="study-line small muted">
-      🎓 Study mode {s.on ? 'on' : 'off'} — {studyWho(s.by, studyNames())}, {formatLocal(s.utc)}
+  const linesTail = linesBetween(allLines, linesAfter, null);
+  const modeLine = (s: ModeLine) => (
+    <div key={`mode-${s.mode.key}-${s.utc}`} className="mode-line small muted">
+      {s.mode.icon} {s.mode.label} {s.on ? 'on' : 'off'} — {switchWho(s.by, switchNames())}, {formatLocal(s.utc)}
     </div>
   );
 
-  // 0.86.0: one status line under the title: device, folders, permissions, study, context mode
+  // 0.86.0: one status line under the title: device, folders, permissions, modes, context mode
   const headDevice = !shared && device && (capabilities.includes('device-tools') || (device.remote && props.owners[HOME]?.capabilities?.includes('device-tools')))
     ? { name: device.name, paired: device.paired, remote: device.remote } : null;
   const headStatus: { text: string; warn?: boolean }[] = [];
@@ -921,7 +940,7 @@ export default function ChatView(props: Props) {
     if (!perm.shell) headStatus.push({ text: 'no commands' });
     if (!perm.web) headStatus.push({ text: 'no web' });
   }
-  if (studyOn(chat, project)) headStatus.push({ text: '🎓 Study' });
+  for (const m of modes) if (modeOn(chat, project, m.key)) headStatus.push({ text: `${m.icon} ${m.short || m.label}`.trim() });
   if ((chat.contextMode || 'full') !== 'full') headStatus.push({ text: CONTEXT_MODE_LABEL[chat.contextMode || 'full'] });
 
   return (
@@ -980,29 +999,33 @@ export default function ChatView(props: Props) {
             </div>
           )}
           <h5>Mode</h5>
-          {/* 0.78.0: study mode - the agent leads to the answer instead of giving it (studyMode.ts) */}
+          {/* F10 (ext/1 chat.mode): modes of enabled modules - each a switch of this chat, logged as a line */}
           <div className="perm-bar">
-            <button type="button" className={`btn tiny ${studyOn(chat, project) ? 'study-on' : 'ghost'}`} disabled={readOnly}
-              aria-pressed={studyOn(chat, project)}
-              title={studyOn(chat, project)
-                ? 'Study mode is on: the agent asks what you tried and leads you with hints; the full solution comes after three hints and your own attempt. Click to turn off.'
-                : 'Turn on study mode: the agent becomes a tutor and leads you to the answer instead of giving it right away.'}
-              onClick={() => {
-                const patch = studyPatch(chat, project, props.author);
-                if (chat.draft) setChat({ ...chat, ...patch });
-                else void updateChatMeta(chat, patch).then(setChat).catch((e: unknown) => setBranchErr(categorize(e).message));
-              }}>
-              🎓 Study{studyOn(chat, project) ? ' on' : ''}
-            </button>
-            {/* 0.80.0: the chat of a study viewer document reopens it */}
-            {chat.studyDoc && !props.studyDoc && (() => {
-              const href = studyHref(chat.studyDoc);
-              return href && (
-                <button type="button" className="btn tiny ghost" title={`Open ${chat.studyDoc} in the study viewer`} onClick={() => navigate(href)}>
-                  📖 Document
+            {modes.map((m) => {
+              const on = modeOn(chat, project, m.key);
+              return (
+                <button key={m.key} type="button" className={`btn tiny ${on ? 'mode-on' : 'ghost'}`} disabled={readOnly}
+                  aria-pressed={on}
+                  title={(on ? m.hintOn : m.hintOff) || m.label}
+                  onClick={() => {
+                    const patch = modePatch(chat, project, m.key, props.author);
+                    if (chat.draft) setChat({ ...chat, ...patch });
+                    else void updateChatMeta(chat, patch).then(setChat).catch((e: unknown) => setBranchErr(categorize(e).message));
+                  }}>
+                  {`${m.icon} ${m.short || m.label}`.trim()}{on ? ' on' : ''}
                 </button>
               );
-            })()}
+            })}
+            {/* the chat of a viewer document reopens it */}
+            {modes.map((m) => {
+              const doc = modeDoc(chat, m.key);
+              const href = doc && m.viewer && !props.viewer ? viewerHref(m.viewer.param, doc) : null;
+              return href && (
+                <button key={'doc-' + m.key} type="button" className="btn tiny ghost" title={`Open ${doc} in the viewer (${m.label})`} onClick={() => navigate(href)}>
+                  {m.viewer?.titlePrefix || '📄'} Document
+                </button>
+              );
+            })}
             <select
               className="btn tiny ghost"
               value={chat.contextMode || 'full'}
@@ -1139,17 +1162,18 @@ export default function ChatView(props: Props) {
             );
           }
           if (e.type === 'user_message' && e.followupOf && turnJobs.has(e.followupOf)) return null;
-          // 0.65.0: a canvas turn (question from comments + answer) is one collapsed row
-          if (e.canvas) {
-            if (e.type !== 'user_message') return visible.some((u) => u.type === 'user_message' && u.jobId === e.jobId) ? null : mirror(<CanvasRow key={e.eventId} ev={e} me={props.author} />);
-            return mirror(<CanvasRow key={e.eventId} ev={e} answer={byJob.get(e.jobId)} running={!byJob.has(e.jobId)} me={props.author} />);
+          // a turn of a module's side job (question + answer) is one collapsed row
+          const side = sideJobOf(sideJobs, e);
+          if (side) {
+            if (e.type !== 'user_message') return visible.some((u) => u.type === 'user_message' && u.jobId === e.jobId) ? null : mirror(<SideJobRow key={e.eventId} ev={e} side={side} me={props.author} />);
+            return mirror(<SideJobRow key={e.eventId} ev={e} side={side} answer={byJob.get(e.jobId)} running={!byJob.has(e.jobId)} me={props.author} />);
           }
           if (e.type === 'user_message') {
             const done = byJob.get(e.jobId);
             const m = e.jobId ? monitors[e.jobId] : undefined;
             return mirror(
               <div key={e.eventId} className="turn" id={`ev-${e.eventId}`}>
-                {(studyBefore.get(e.eventId) || []).map(studyLine)}
+                {(linesBefore.get(e.eventId) || []).map(modeLine)}
                 <UserBubble root={root}
                   ev={e}
                   onEdit={() => setPrefill({ text: e.text || '', agent: e.agent, nonce: Date.now() })}
@@ -1212,7 +1236,7 @@ export default function ChatView(props: Props) {
           );
         })}
         {orphanRows.map((f) => <FollowupRow key={f.id} f={f} onCancel={readOnly ? undefined : () => void cancelFollowup(f.id)} />)}
-        {studyTail.map(studyLine)}
+        {linesTail.map(modeLine)}
         {outbox.map((o) => (
           <div key={o.id} className="turn">
             <div className="msg user">
@@ -1322,28 +1346,20 @@ function formatUsage(u: Usage, agent?: string): string {
   return parts.join(' · ');
 }
 
-// 0.65.0 (canvas M3): comment threads sent from canvas and the agent's replies, collapsed to one row.
-function canvasReplies(text: string): string[] {
-  const blocks = [...text.matchAll(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/g)];
-  try {
-    const data = JSON.parse(blocks.length ? blocks[blocks.length - 1][1] : text) as { threads?: { reply?: string; ops?: unknown[] }[] };
-    return (data.threads || []).map((t) => `${t.reply || ''}${t.ops?.length ? ` (${t.ops.length} tracked change${t.ops.length > 1 ? 's' : ''})` : ''}`);
-  } catch {
-    return text.trim() ? [text.trim()] : [];
-  }
-}
-
-function CanvasRow({ ev, answer, running, me }: { ev: ChatEvent; answer?: ChatEvent; running?: boolean; me: string }) {
+// F10 (ext/1 sideJobs): a job a module queued into the chat (e.g. comment threads of a document) and the agent's
+// answer, collapsed to one row.
+function SideJobRow({ ev, side, answer, running, me }: { ev: ChatEvent; side: { job: SideJob; path: string; file: string }; answer?: ChatEvent; running?: boolean; me: string }) {
   const q = ev.type === 'user_message' ? ev : null;
   const a = ev.type === 'assistant_message' ? ev : answer;
   const other = !!q?.author && q.author !== me;
   const who = other ? (ENVIRONMENTS.find((x) => x.id === ALLOWLIST[q!.author as string]?.env)?.displayName || (q!.author as string)) : 'You';
-  const state = running ? 'working…' : a?.status === 'completed' ? `${canvasReplies(a.text || '').length || 0} repl${canvasReplies(a.text || '').length === 1 ? 'y' : 'ies'}` : a?.status || '';
+  const replies = a?.status === 'completed' ? sideReplies(side.job, a.text || '') : [];
+  const state = running ? 'working…' : a?.status === 'completed' ? `${replies.length || 0} repl${replies.length === 1 ? 'y' : 'ies'}` : a?.status || '';
   return (
-    <details className="msg canvas-row">
+    <details className="msg side-row">
       <summary className="msg-meta">
-        <span className="who">✎ Canvas: {q ? `${who} → ${agentName(ev.agent)}` : agentName(ev.agent)}</span>
-        <span className="tag" title={ev.canvas?.path}>{ev.canvas?.file}</span>
+        <span className="who">{side.job.label}: {q ? `${who} → ${agentName(ev.agent)}` : agentName(ev.agent)}</span>
+        <span className="tag" title={side.path}>{side.file}</span>
         <span className="muted">{formatLocal(ev.createdUtc)}</span>
         {state && <span className={`tag${a?.status && a.status !== 'completed' ? ' danger' : ''}`}>{state}</span>}
       </summary>
@@ -1351,7 +1367,7 @@ function CanvasRow({ ev, answer, running, me }: { ev: ChatEvent; answer?: ChatEv
       {a && (
         <div className="msg-body small">
           {a.status === 'completed'
-            ? canvasReplies(a.text || '').map((r, i) => <div key={i} className="pre">↳ {r}</div>)
+            ? replies.map((r, i) => <div key={i} className="pre">↳ {r}</div>)
             : <div className="error-text">{a.error || a.status}</div>}
         </div>
       )}
@@ -1368,20 +1384,20 @@ function UserBubble({ ev, onEdit, onBranch, owner, me, root }: { ev: ChatEvent; 
     <div className="msg user">
       <div className="msg-meta">
         <span className="who">{ev.imported ? 'You' : `${who} → ${agentName(ev.agent)}`}</span>
-        {ev.imported ? <span className="tag">imported · {ev.imported.source === 'chatgpt' ? 'ChatGPT' : 'claude.ai'}</span> : selectionTags(ev, owner)}
+        {ev.imported ? <span className="tag">imported · {importLabel(ev.imported.source)}</span> : selectionTags(ev, owner)}
         <span className="muted">{formatLocal(ev.createdUtc)}</span>
         {ev.conversation?.operation === 'resume' && <span className="tag">resume</span>}
         {ev.followupOf && <span className="tag" title="Sent while the agent was working; it read the message after its current step">follow-up</span>}
         {ev.contextPack === 'protocol' && <span className="tag" title={ev.contextReason ? `new session: ${ev.contextReason}` : 'new session from the protocol'}>protocol</span>}
         {ev.contextMode && ev.contextMode !== 'full' && <span className="tag">{CONTEXT_MODE_LABEL[ev.contextMode]}</span>}
       </div>
-      {/* 0.80.0: a study viewer question shows as its page label and question; Copy keeps the full text */}
+      {/* F10 (ext/1 messageViews): a message a module page wrote shows as its label and text; Copy keeps the full text */}
       {(() => {
         // 0.82.0: a question about selected text of an answer shows as its label, the quote and the question
         const qd = quoteDisplay(ev.text);
         if (qd) return (
           <>
-            <button type="button" className="tag study-tag link" title={`Show answer #${qd.seq}`}
+            <button type="button" className="tag msg-view-tag link" title={`Show answer #${qd.seq}`}
               onClick={() => document.querySelector(`.msg.assistant[data-seq="${qd.seq}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
               {qd.label}{qd.wtf ? ' · WTF' : ''}
             </button>
@@ -1389,10 +1405,10 @@ function UserBubble({ ev, onEdit, onBranch, owner, me, root }: { ev: ChatEvent; 
             <div className="msg-body pre">{qd.text}</div>
           </>
         );
-        const sd = askDisplay(ev.text);
+        const sd = viewMessage(viewsOf(moduleList()), ev.text);
         return sd ? (
           <>
-            <div className="tag study-tag">{sd.label}</div>
+            <div className="tag msg-view-tag">{sd.label}</div>
             <div className="msg-body pre">{sd.text}</div>
           </>
         ) : <div className="msg-body pre">{ev.text}</div>;
@@ -1449,7 +1465,8 @@ function FollowupRow({ f, onCancel }: { f: Followup; onCancel?: () => void }) {
 
 // 0.76.0: the unfinished work plan of the chat's broken-off job (workPlan.ts), or ''.
 async function readResume(chat: Chat, events: ChatEvent[], path: string): Promise<string> {
-  const run = brokenRun(events, chat.chatId);
+  const jobs = sideJobsOf(moduleList());
+  const run = brokenRun(events, chat.chatId, (e) => sideJobOf(jobs, e) !== null);
   if (!run) return '';
   try {
     const f = await resolveFile(chat.folderId, ['scratch', PLAN_DIR], PLAN_FILE);
@@ -1563,12 +1580,12 @@ function AssistantBubble({
   const [trace, setTrace] = useState<ActivityState | null>(null);
   const [traceBusy, setTraceBusy] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false); // 0.74.0: the job timeline loads on first open
-  // No box for runs the user stopped, nor for dispatcher replies that already explain the corporate block.
+  // No box for runs the user stopped, nor for dispatcher replies that already explain the gateway block.
   // Bridge 1.16.0: a run paused for the Bridge update is "cancelled" too, but says that it continues by itself.
-  const blocked = corporateBlocked(ev);
+  const blocked = gatewayBlocked(ev);
   const explained = blocked === 'agent_reported' && !!ev.text;
   const stoppedByUser = ev.status === 'cancelled' && !/Paused for the Bridge update/i.test(ev.error || '');
-  const diag = stoppedByUser || explained ? null : diagnose({ error: ev.error, text: ev.text, agent: ev.agent, status: ev.status, corporateBlocked: blocked, jobId: ev.jobId });
+  const diag = stoppedByUser || explained ? null : diagnose({ error: ev.error, text: ev.text, agent: ev.agent, status: ev.status, gatewayBlocked: blocked, jobId: ev.jobId });
   const other: AgentId = ev.agent === 'claude' ? 'codex' : 'claude';
   const diagOther: AgentId = ev.agent === 'codex' ? 'claude' : 'codex'; // must match diagnose().otherName
 
@@ -1623,7 +1640,7 @@ function AssistantBubble({
                     if (switchedTo) return (<span key={a} className="muted small">↪ Sent automatically to {agentName(switchedTo)} (see below).</span>);
                     return (<button key={a} className="btn small" onClick={() => onRetry(diagOther)}>{'Send to ' + agentName(diagOther)}</button>);
                   case 'retry':
-                    // 0.66.0: corporate connector paused - no Continue / Send again for its runs, only "Send to ..."
+                    // 0.66.0: gateway paused - no Continue / Send again for its runs, only "Send to ..."
                     return RETIRED_AGENTS.has(ev.agent || '') ? null
                       : diag.kind === 'timeout'
                       ? (<button key={a} className="btn small" onClick={() => onRetry(ev.agent as AgentId, 'continue')}>Continue</button>)
@@ -1900,7 +1917,7 @@ function MessageArtifacts({ list, root }: { list: ArtifactRecord[]; root: Root }
 }
 
 export function ArtifactRow({ a, root }: { a: ArtifactRecord; root: Root }) {
-  const goStudy = useNavigate();
+  const goModule = useNavigate();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState<{ name: string; link?: string } | null>(null);
@@ -2005,8 +2022,7 @@ export function ArtifactRow({ a, root }: { a: ArtifactRecord; root: Root }) {
           previewable && { label: 'Preview', onClick: () => void preview() },
           { label: 'Open in Drive', onClick: openInDrive },
           hasGoogleDocs(name) && { label: 'Open in Google Docs', onClick: openInDocs },
-          canvasItem(name, a.driveRelativePath),
-          studyItem(name, a.driveRelativePath, (href) => goStudy(href)),
+          ...moduleFileItems(moduleList(), name, a.driveRelativePath, (href) => goModule(href)),
           { label: 'Save to Drive…', onClick: () => setPicking(true) },
         ]}
       />
@@ -2088,7 +2104,7 @@ function Composer({
   const [text, setText, clearDraft] = useDraft(draftKey); // 0.31.0: survives reloads and app upgrades
   const [sel, setSel] = useState<Selection>(initial);
   const [files, setFiles] = useState<File[]>([]);
-  // 0.67.0 (canvas M4): a long text pasted into the box can become a .md attachment, which opens in canvas as a notebook
+  // 0.67.0: a long text pasted into the box can become a .md attachment
   // 0.69.0: where the long paste landed in the message; the same text pasted twice is cut out at that place
   const [longPaste, setLongPaste] = useState<{ text: string; at: number } | null>(null);
   const [separate, setSeparate] = useState<boolean[]>([]);
@@ -2101,46 +2117,26 @@ function Composer({
   const [drag, setDrag] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
-  const dictBase = useRef('');
-  const dict = useDictation((final, interim) =>
-    setText(dictBase.current + final + (interim ? (final ? ' ' : '') + interim : '')),
-  );
-
-  // 0.30.0: Whisper voice input when the server has a speech-to-text key (else Web Speech dictation).
-  const [whisper, setWhisper] = useState(false);
-  useEffect(() => {
-    if (!desktopVoiceTyping()) void transcribeConfigured().then(setWhisper);
-  }, []);
-  const recorder = useRecorder(
-    (t) => setText((prev) => (prev && !/\s$/.test(prev) ? prev + ' ' : prev) + t),
-    dict.lang,
-  );
-  const useWhisper = whisper && recorder.supported;
-
-  function toggleDictation() {
-    // CO Desktop: Windows voice typing types into the focused textarea itself.
-    const voice = desktopVoiceTyping();
-    if (voice) {
+  // Freedom F10: input actions of modules (ui.composer slot, ext/1 composer.input), e.g. voice input. A session keeps
+  // the box text of its first input and puts the session's text (and an interim tail) after it; done ends it.
+  const composerModules = useLoadedModules();
+  const inputBase = useRef<string | null>(null);
+  const composerInput = useMemo<ComposerInput>(() => ({
+    set(t, interim, done) {
+      setText((prev) => {
+        const base = inputBase.current ?? (prev && !/\s$/.test(prev) ? prev + ' ' : prev);
+        inputBase.current = done ? null : base;
+        return base + t + (interim ? (t ? ' ' : '') + interim : '');
+      });
+    },
+    focus() {
       const el = ta.current;
       if (el) {
         el.focus();
         el.setSelectionRange(el.value.length, el.value.length);
       }
-      voice().catch((e: unknown) => setErr(String((e as Error)?.message || e)));
-      return;
-    }
-    if (useWhisper) {
-      if (recorder.recording) recorder.stop();
-      else void recorder.start();
-      return;
-    }
-    if (dict.active) {
-      dict.stop();
-      return;
-    }
-    dictBase.current = text && !/\s$/.test(text) ? text + ' ' : text;
-    dict.start();
-  }
+    },
+  }), [setText]);
 
   // S6: the catalog of the executor the model was picked on (ModelPicker), else of the chat's current one
   const catalog = (sel.host ? owners[sel.host] ?? owner : owner)?.agents?.[sel.agent];
@@ -2149,13 +2145,22 @@ function Composer({
   const efforts = currentModel?.efforts?.length ? currentModel.efforts : catalog?.efforts || [];
   const agentModes = (catalog?.modes as Mode[] | undefined) || ['cowork'];
   const modes = allowedModes.filter((m) => agentModes.includes(m));
-  // 0.18.1: only agents the selected host announces (the server agent has no corporate agents: "Unknown agent profile").
+  // 0.18.1: only agents the selected host announces (the server agent has no gateway agents: "Unknown agent profile").
   // S6: an agent of any executor (routeHost sends the job where it lives), e.g. GPT at home while the chat is on Site
-  const projAgents = useMemo(() => PICKABLE_AGENTS.filter((a) => allowedAgents.includes(a.id)), [allowedAgents.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  // F10: PICKABLE_AGENTS is refilled when the gateway description arrives or changes (gatewayVersion)
+  const gwVersion = gatewayVersion();
+  const projAgents = useMemo(() => PICKABLE_AGENTS.filter((a) => allowedAgents.includes(a.id)), [allowedAgents.join(','), gwVersion]); // eslint-disable-line react-hooks/exhaustive-deps
   const agents = projAgents.filter((a) => !owner?.agents || !!owner.agents[a.id] || Object.values(owners).some((o) => !!o?.agents?.[a.id]));
-  // 0.43.0: task-type hint from aiwb-modelbench results; a suggestion only, the user switches the agent
-  const hint = useMemo(() => recommendFor(text, (p) => agents.some((a) => a.id === p.agent) && (p.model === null || !!owner?.agents?.[p.agent]?.models?.some((m) => m.id === p.model))), [text, agents, owner]);
-  const hintShown = !!hint && !(sel.agent === hint.pick.agent && (sel.model || null) === hint.pick.model);
+  // F10: a hint of a module (ui.hint, e.g. which agent suits the task); a suggestion only, the user switches the agent.
+  // The first pick of the hint that this host offers is shown.
+  const modules = useModuleList();
+  const [moduleHint, setModuleHint] = useState<ModuleHint | null>(null);
+  const hint = useMemo(() => {
+    if (!moduleHint) return null;
+    const i = moduleHint.picks.findIndex((p) => agents.some((a) => a.id === p.agent) && (p.model === null || !!owner?.agents?.[p.agent]?.models?.some((m) => m.id === p.model)));
+    return i < 0 ? null : { text: moduleHint.text, title: moduleHint.title, pick: moduleHint.picks[i], isFallback: i > 0 };
+  }, [moduleHint, agents, owner]);
+  const hintShown = !!hint && !!text.trim() && !(sel.agent === hint.pick.agent && (sel.model || null) === hint.pick.model);
 
   // S6: the pinned executor is not in the chat's events; keep it when the selection follows the last sent message
   useEffect(() => setSel((s) => ({ ...initial, host: initial.host ?? s.host ?? null })), [initial.agent, initial.mode, initial.model, initial.effort]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2204,7 +2209,7 @@ function Composer({
   // 0.57.0: a quick reply goes out on its own; files, options and the typed draft stay for the next message.
   // While the composer is busy (or disabled) or the send fails, the reply is added to the input box after the draft.
   const keepInBox = (t: string) => setText(text.trim() ? `${text.trimEnd()}\n\n${t}` : t);
-  // 0.80.0: a study viewer question brings its files (area PNG, page text); they stay attached if it is not sent
+  // 0.80.0: a viewer question brings its files (e.g. a PNG of a page area, the page text); they stay attached if it is not sent
   async function sendQuick(t: string, withFiles?: File[]) {
     if (!t.trim()) return;
     if (busy || disabled) {
@@ -2230,7 +2235,8 @@ function Composer({
 
   async function submit() {
     if (!text.trim() || busy || disabled) return;
-    if (dict.active) dict.stop();
+    inputBase.current = null;
+    window.dispatchEvent(new Event(COMPOSER_SENT)); // input actions of modules stop listening
     setBusy(true);
     setErr(null);
     try {
@@ -2340,9 +2346,10 @@ function Composer({
           </select>
         )}
       </div>
+      <ModuleHints modules={modules} text={text} me={env} owner={false} onHint={setModuleHint} />
       {hintShown && hint && (
-        <div className="muted small task-hint" title={`By task type (keyword guess), from the model bench of ${BENCH_DATE}${hint.isFallback ? '; the best pick is not available here' : ''}`}>
-          Recommended for {CATEGORY_LABEL[hint.category].toLowerCase()}:{' '}
+        <div className="muted small task-hint" title={`${hint.title}${hint.isFallback ? '; the best pick is not available here' : ''}`}>
+          {hint.text}{' '}
           <button type="button" className="link" disabled={disabled || busy}
             onClick={() => setSel({ ...sel, agent: hint.pick.agent as AgentId, model: hint.pick.model, effort: null, host: null })}>
             {hint.pick.label}
@@ -2371,7 +2378,7 @@ function Composer({
       {longPaste && text.includes(longPaste.text) && (
         <div className="muted small long-paste">
           Long text pasted ({longPaste.text.length.toLocaleString()} characters).{' '}
-          <button type="button" className="link" disabled={busy} title="Moves the pasted text into a Markdown file attached to this message; in the chat, its file menu → Open in canvas edits it as a notebook"
+          <button type="button" className="link" disabled={busy} title="Moves the pasted text into a Markdown file attached to this message"
             onClick={() => {
               const name = `pasted-${new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-')}.md`;
               const file = new File([longPaste.text], name, { type: 'text/markdown' });
@@ -2421,24 +2428,7 @@ function Composer({
       <div className="composer-row">
         <button className="btn ghost small" onClick={() => fileInput.current?.click()} disabled={!canAttach || busy} title="Attach files">📎 Attach</button>
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => e.target.files && addFiles(e.target.files)} />
-        {(dict.supported || useWhisper || !!desktopVoiceTyping()) && (
-          <span className="dict">
-            <button
-              className={`btn small ${dict.active || recorder.recording ? 'rec' : 'ghost'}`}
-              onClick={toggleDictation}
-              aria-pressed={dict.active || recorder.recording}
-              disabled={recorder.busy}
-              title={useWhisper ? (recorder.recording ? 'Stop and transcribe' : 'Record voice (Whisper)') : dict.active ? 'Stop dictation' : 'Dictate'}
-            >
-              {recorder.recording ? `● Stop ${recorder.seconds}s` : recorder.busy ? '… Transcribing' : dict.active ? '● Stop' : '🎤 Dictate'}
-            </button>
-            {!desktopVoiceTyping() && (
-              <select value={dict.lang} onChange={(e) => dict.setLang(e.target.value)} aria-label="Dictation language" disabled={dict.active}>
-                {DICTATION_LANGS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-              </select>
-            )}
-          </span>
-        )}
+        <ModuleSlots slot="ui.composer" modules={composerModules} owner={false} input={composerInput} />
         <button className="btn ghost small" onClick={() => setShowOptions((v) => !v)} aria-expanded={showOptions}>Options</button>
         <div className="spacer" />
         {progress && <span className="muted small">{progress}</span>}
@@ -2460,7 +2450,7 @@ function Composer({
           </label>
         </div>
       )}
-      {(err || dict.error || recorder.error) && <div className="error-text small">{err || dict.error || recorder.error}</div>}
+      {err && <div className="error-text small">{err}</div>}
     </div>
   );
 }

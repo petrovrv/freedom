@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// CO Web 0.62.0: CO inside the side panel of the AI Workbench browser extension (source/browser-ext). The panel
+// CO Web 0.62.0: CO inside the side panel of the AI Workbench browser extension (a module of the repository). The panel
 // frames https://<CO site>/?ext=1; this module registers that panel as its own web device (schema 11, webdev_*
 // ops, no server or Bridge change) whose tools come from the extension (browser_*), long-polls its calls and relays
 // each one to the extension by postMessage. The extension runs the tools in the user's tabs and owns every

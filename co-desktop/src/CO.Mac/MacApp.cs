@@ -31,7 +31,7 @@ public static unsafe class MacApp
     private static int _refreshing;
 
     private sealed record Snapshot(bool SetUp, string Env, string DeviceId, string Name, string Short, bool Paired,
-        bool Revoked, bool Running, bool Shell, string Browser);
+        bool Revoked, bool Running, bool Shell, string Browser, bool ConfirmForms = true);
 
     private static string ShowFile => Path.Combine(Paths.DataDir, "app.show");
     private static string StartsFile => Path.Combine(Paths.DataDir, "app.starts");
@@ -95,7 +95,7 @@ public static unsafe class MacApp
         return new Snapshot(st != null && st.Account.Length > 0, st?.EnvironmentId ?? "", st?.DeviceId ?? "", st?.Name ?? "", st?.Short ?? "",
             st?.Paired == true, st?.Bridge?.State == "revoked", code == 0 && so.Contains("state = running"),
             new ShellSettings(Path.Combine(Paths.DataDir, "shell.json")).Enabled,
-            new BrowserSettings(Path.Combine(Paths.DataDir, "browser.json")).Mode);
+            new BrowserSettings(Path.Combine(Paths.DataDir, "browser.json")).Mode, MacBrowser.ConfirmForms);
     }
 
     private static string StatusText(Snapshot s) =>
@@ -112,7 +112,7 @@ public static unsafe class MacApp
         var s = _snap;
         Send(_statusLine, "setTitle:", Str(StatusText(s)));
         SendN(_shellItem, "setState:", s.Shell ? 1 : 0);
-        SendN(_formsItem, "setState:", MacBrowser.ConfirmForms ? 1 : 0);
+        SendN(_formsItem, "setState:", s.ConfirmForms ? 1 : 0);
         string[] modes = { "on", "read", "off" };
         for (int i = 0; i < 3; i++) SendN(_browserItems[i], "setState:", s.Browser == modes[i] ? 1 : 0);
         IntPtr button = Send(_statusItem, "button");
@@ -374,8 +374,10 @@ public static unsafe class MacApp
     [UnmanagedCallersOnly]
     private static void OnToggleForms(IntPtr self, IntPtr sel, IntPtr sender) => Guard("forms", () =>
     {
-        MacBrowser.ConfirmForms = !MacBrowser.ConfirmForms;
-        Log.Write("window app: agent browser form confirmations " + (MacBrowser.ConfirmForms ? "on" : "off"));
+        bool on = !_snap.ConfirmForms;
+        MacBrowser.ConfirmForms = on;
+        Log.Write("window app: agent browser form confirmations " + (on ? "on" : "off"));
+        _snap = _snap with { ConfirmForms = on };
         RefreshMenu();
     });
 

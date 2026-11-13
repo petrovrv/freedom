@@ -38,18 +38,17 @@ internal static class AgentPageScripts
             // Element that would submit its form natively
             const isFormSubmitter = (tag === 'BUTTON' && !!form && (!btn.hasAttribute('type') || type === 'submit')) ||
               (tag === 'INPUT' && (type === 'submit' || type === 'image'));
-            // co-resident 0.5.1: a link with a real address outside a form only opens a page ("Apply ->" on a job list,
-            // 13.11): no send/purchase/submit category; a delete link still asks (GET delete links exist).
+            // co-resident 0.5.1: a link with a real address outside a form opens a page ("Apply ->" on a job list, 13.11):
+            // it is never the generic 'submit'; send, purchase and delete words still count (an onclick may act).
             const NAV_NOLINK = 'java' + 'script:';
             const linkHref = tag === 'A' ? (btn.getAttribute('href') || '').trim().toLowerCase() : '';
             const realLink = tag === 'A' && linkHref !== '' && !linkHref.startsWith('#') && !linkHref.startsWith(NAV_NOLINK) && !form;
             // Specific categories take precedence over the generic 'submit'
             let category = null;
-            if (realLink) category = deleteRe.test(label) ? 'delete' : null;
-            else if (sendRe.test(label)) category = 'send';
+            if (sendRe.test(label)) category = 'send';
             else if (purchaseRe.test(label)) category = 'purchase';
             else if (deleteRe.test(label)) category = 'delete';
-            else if (isFormSubmitter || submitRe.test(label)) category = 'submit';
+            else if (!realLink && (isFormSubmitter || submitRe.test(label))) category = 'submit';
             else {
               // Any other button may still act (its handler can buy or send): only exact, known harmless UI labels pass.
               const harmlessPhrases = new Set([
@@ -412,6 +411,7 @@ internal static class AgentPageScripts
             if (m) v = m[1] + '-W' + p2(m[2]);
           }
           const expected = { date: '2026-12-01', time: '09:30', 'datetime-local': '2026-12-01T09:30', month: '2026-12', week: '2026-W49' }[type];
+          if (el.readOnly || el.disabled) return { handled: true, ok: false, expected, readOnly: true };
           if (!v) return { handled: true, ok: false, expected };
           el.focus();
           const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;

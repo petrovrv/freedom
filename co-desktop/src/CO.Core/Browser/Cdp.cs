@@ -628,9 +628,9 @@ public sealed class EdgeBrowser : IBrowser, IAsyncDisposable
     private CdpSession? _browserWs;
 
     // CO Desktop 0.8.0: new tabs opened by a guarded tab (target=_blank, window.open) are closed before they load.
-    // co-resident 0.5.1: OnOpened fires at once on the receive thread; OnBlocked gets the address the popup was going to load
+    // co-resident 0.5.1: OnOpened(opened by the main frame of the tab itself) fires at once on the receive thread; OnBlocked gets the address the popup was going to load
     // (read from its first document request when the target starts blank), so the agent tab can open it itself.
-    internal sealed record PopupGuard(Action<string> OnBlocked, Func<string, bool> OwnsFrame, Action? OnOpened = null);
+    internal sealed record PopupGuard(Action<string> OnBlocked, Func<string, bool> OwnsFrame, Action<bool>? OnOpened = null);
     private readonly ConcurrentDictionary<string, PopupGuard> _popupGuards = new();   // tab key -> guard
     private readonly ConcurrentDictionary<string, string> _guardTargetIds = new();    // tab key -> targetId
     private readonly ConcurrentDictionary<string, string> _closedTargets = new();     // closed popup targetId -> tab key
@@ -694,7 +694,7 @@ public sealed class EdgeBrowser : IBrowser, IAsyncDisposable
         return _browserWs;
     }
 
-    internal async Task GuardPopupsLocked(string key, Action<string> onBlocked, Func<string, bool> ownsFrame, CancellationToken ct, Action? onOpened = null)
+    internal async Task GuardPopupsLocked(string key, Action<string> onBlocked, Func<string, bool> ownsFrame, CancellationToken ct, Action<bool>? onOpened = null)
     {
         _popupGuards[key] = new PopupGuard(onBlocked, ownsFrame, onOpened);
         await EnsureBrowserWsLocked(ct);
@@ -718,6 +718,7 @@ public sealed class EdgeBrowser : IBrowser, IAsyncDisposable
         var url = info.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
 
         string? owner = null;
+        var fromMain = false;
         foreach (var id in new[] { openerId, openerFrameId })
             if (owner is null && id is not null && _closedTargets.TryGetValue(id, out var chained)) owner = chained;
         if (owner is null && (openerId is not null || openerFrameId is not null))
@@ -725,7 +726,7 @@ public sealed class EdgeBrowser : IBrowser, IAsyncDisposable
             foreach (var (key, guard) in _popupGuards)
             {
                 var tabExists = _guardTargetIds.TryGetValue(key, out var tid);
-                if (tabExists && openerId == tid) { owner = key; break; }
+                if (tabExists && openerId == tid) { owner = key; fromMain = openerFrameId is null || openerFrameId == tid; break; }
                 try
                 {
                     if ((openerId is not null && guard.OwnsFrame(openerId))
@@ -743,7 +744,7 @@ public sealed class EdgeBrowser : IBrowser, IAsyncDisposable
         if (owner is not null)
         {
             _closedTargets[targetId] = owner; // before closing, so popups of this popup are caught too
-            try { if (_popupGuards.TryGetValue(owner, out var g0)) g0.OnOpened?.Invoke(); }
+            try { if (_popupGuards.TryGetValue(owner, out var g0)) g0.OnOpened?.Invoke(fromMain); }
             catch { /* the callback must not affect blocking */ }
             _ = Task.Run(async () =>
             {
@@ -1245,7 +1246,7 @@ public sealed class EdgeBrowser : IBrowser, IAsyncDisposable
 
         // Closes new tabs this tab opens before they load. Call inside WithSessionAsync (0.9.0: takes _gate itself,
         // the tab's own semaphore is held by the caller).
-        public async Task GuardPopupsInSessionAsync(Action<string> onBlocked, Func<string, bool> ownsFrame, CancellationToken ct, Action? onOpened = null)
+        public async Task GuardPopupsInSessionAsync(Action<string> onBlocked, Func<string, bool> ownsFrame, CancellationToken ct, Action<bool>? onOpened = null)
         {
             await _owner._gate.WaitAsync(ct);
             try { await _owner.GuardPopupsLocked(_key, onBlocked, ownsFrame, ct, onOpened); }

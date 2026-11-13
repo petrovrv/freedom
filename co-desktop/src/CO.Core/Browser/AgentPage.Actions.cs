@@ -528,8 +528,7 @@ public sealed partial class AgentPage
             if (!visible)
             {
                 // Input.dispatchMouseEvent has no effect in a hidden tab; fall back to a synthetic DOM click.
-                _lastBlock = null;
-                Volatile.Write(ref _popup, null);
+                BeginInput();
                 var navHidden = Volatile.Read(ref _navSeq);
                 await CallAsync(s, node, "function() { this.click(); return true; }", ct);
                 Log("tab hidden: synthetic click used");
@@ -542,8 +541,7 @@ public sealed partial class AgentPage
             var (x, y, why) = await ClickPointAsync(s, node, ct);
             if (why != null)
             {
-                _lastBlock = null;
-                Volatile.Write(ref _popup, null);
+                BeginInput();
                 var navSynthetic = Volatile.Read(ref _navSeq);
                 await CallAsync(s, node, AgentPageScripts.OpenCombo, ct);
                 Log("synthetic click used: " + why);
@@ -551,8 +549,7 @@ public sealed partial class AgentPage
                 return await AfterNavigationAsync(s, null, ct);
             }
 
-            _lastBlock = null;
-            Volatile.Write(ref _popup, null);
+            BeginInput();
             var navBefore = Volatile.Read(ref _navSeq);
             await s.SendAsync("Input.dispatchMouseEvent", new { type = "mouseMoved", x, y }, ct);
             await s.SendAsync("Input.dispatchMouseEvent", new { type = "mousePressed", x, y, button = "left", clickCount = 1 }, ct);
@@ -630,6 +627,8 @@ public sealed partial class AgentPage
             var dated = await CallAsync(s, node, AgentPageScripts.SetDateLike, ct, text);
             if (dated.ValueKind == JsonValueKind.Object && dated.TryGetProperty("handled", out var h) && h.ValueKind == JsonValueKind.True)
             {
+                if (dated.TryGetProperty("readOnly", out var ro) && ro.ValueKind == JsonValueKind.True)
+                    throw new ToolException("read_only", "This date field is read-only or disabled; the page fills it itself (often through a calendar button next to it).");
                 if (!dated.TryGetProperty("ok", out var dok) || dok.ValueKind != JsonValueKind.True)
                     throw new ToolException("bad_date", "This is a date/time field; '" + text + "' is not a value it takes. Type it like "
                         + (Str(dated, "expected") ?? "2026-12-01") + " (day-first 01/12/2026 also works for dates).");
@@ -642,8 +641,7 @@ public sealed partial class AgentPage
             }
             if (submit)
             {
-                _lastBlock = null;
-                Volatile.Write(ref _popup, null);
+                BeginInput();
                 var navBefore = Volatile.Read(ref _navSeq);
                 // 0.9.8: a hidden or occluded tab gets synthetic key events instead of a tab_hidden error.
                 if (typeVisible) await KeyAsync(s, "Enter", ct);
@@ -733,8 +731,7 @@ public sealed partial class AgentPage
             await RequireActionAllowedAsync(s, ct);
             // Key events are not delivered to a hidden tab: 0.9.8 dispatches synthetic ones there instead of failing.
             var visible = await EnsureVisibleAsync(s, ct);
-            _lastBlock = null;
-            Volatile.Write(ref _popup, null);
+            BeginInput();
             var navBefore = Volatile.Read(ref _navSeq);
             if (visible) await KeyAsync(s, key, ct);
             else

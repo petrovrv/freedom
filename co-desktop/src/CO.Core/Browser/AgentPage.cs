@@ -102,6 +102,7 @@ public sealed partial class AgentPage
         var tree = await s.SendAsync("Page.getFrameTree", null, ct);
         var ids = new List<string>();
         CollectFrameIds(tree.GetProperty("frameTree"), ids);
+        _mainFrameId = tree.GetProperty("frameTree").GetProperty("frame").GetProperty("id").GetString();
         foreach (var id in ids) _frames.TryAdd(id, 0);
         await _tab.GuardPopupsInSessionAsync(OnPopupBlocked, id => _frames.ContainsKey(id), ct, OnPopupOpened);
 
@@ -238,6 +239,7 @@ public sealed partial class AgentPage
             isDocument = resourceType == "Document";
             // A paused Document request is a navigation attempt (allowed or blocked).
             if (isDocument) Interlocked.Increment(ref _navSeq);
+            if (isDocument && Str(p, "frameId") is { } docFrame && docFrame == _mainFrameId) Interlocked.Increment(ref _docSeq);
             // 0.9.0: blocked domains are refused for subresources too (fetch/XHR would bypass the list otherwise).
             var block = _settings.Current.Block;
             reason = isDocument
@@ -300,29 +302,38 @@ public sealed partial class AgentPage
     // co-resident 0.5.1: a new tab or window opened by this tab (target=_blank, window.open: "Apply on company website" buttons,
     // 13.11) is still closed before it loads, and its address is then opened in the agent tab itself
     // (AfterNavigationAsync), where the request guard and the blocked list apply as to any navigation.
+    // Only a popup of the tab's main frame, opened by the agent's own input while the tab itself did not navigate, is
+    // followed: popups of iframes (ads, sandboxed frames), of explicit navigations and late ones are only closed.
     private TaskCompletionSource<string>? _popup;
     private long _popupAtTicks;
     private volatile string? _note;
+    private volatile string? _mainFrameId;
+    // Main-frame document requests; compared with the value at the start of an input (_docSeqAtInput).
+    private int _docSeq, _docSeqAtInput;
+
+    // Called before each input (click, key, typing with Enter): drops an older popup, remembers the tab's navigations.
+    private void BeginInput()
+    {
+        _lastBlock = null;
+        Volatile.Write(ref _popup, null);
+        Volatile.Write(ref _docSeqAtInput, Volatile.Read(ref _docSeq));
+    }
 
     // Browser receive thread: this tab opened a new tab; its address follows in OnPopupBlocked.
-    private void OnPopupOpened()
+    private void OnPopupOpened(bool fromMainFrame)
     {
-        Volatile.Write(ref _popup, new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously));
+        Volatile.Write(ref _popup, fromMainFrame
+            ? new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously)
+            : null);
         Interlocked.Exchange(ref _popupAtTicks, DateTime.UtcNow.Ticks);
         Interlocked.Increment(ref _navSeq);
     }
 
     // A new tab opened by this tab was closed before it loaded; url = where it was going ("" when unknown).
+    // Without a waiting handle (an iframe's popup, a late one) it is only closed.
     private void OnPopupBlocked(string url)
     {
-        var t = Volatile.Read(ref _popup);
-        if (t is null)
-        {
-            t = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Volatile.Write(ref _popup, t);
-            Interlocked.Exchange(ref _popupAtTicks, DateTime.UtcNow.Ticks);
-        }
-        t.TrySetResult(url);
+        Volatile.Read(ref _popup)?.TrySetResult(url);
         Interlocked.Increment(ref _navSeq);
         Log("caught new tab " + (url.Length == 0 ? "about:blank" : url));
     }
@@ -344,7 +355,6 @@ public sealed partial class AgentPage
         Log("new tab opened in the agent tab: " + url);
         var r = await s.SendAsync("Page.navigate", new { url }, ct);
         await WaitSettledAsync(s, ct);
-        _note = "The page wanted to open this in a new window; it was opened in this tab instead (browser_back returns to the previous page).";
         return Str(r, "errorText");
     }
 
@@ -523,6 +533,7 @@ public sealed partial class AgentPage
             Volatile.Write(ref _popup, null);
             var r = await s.SendAsync("Page.navigate", new { url }, ct);
             await WaitSettledAsync(s, ct);
+            Volatile.Write(ref _popup, null);
             return await AfterNavigationAsync(s, Str(r, "errorText"), ct);
         }, ct);
     }
@@ -542,6 +553,7 @@ public sealed partial class AgentPage
             Volatile.Write(ref _popup, null);
             await s.SendAsync("Page.navigateToHistoryEntry", new { entryId }, ct);
             await WaitSettledAsync(s, ct);
+            Volatile.Write(ref _popup, null);
             return await AfterNavigationAsync(s, null, ct);
         }, ct);
     }
@@ -574,11 +586,15 @@ public sealed partial class AgentPage
     // Shared post-navigation checks: guard block, navigation error, challenge page.
     private async Task<PageInfo> AfterNavigationAsync(CdpSession s, string? errorText, CancellationToken ct)
     {
+        var followed = false;
         if (Interlocked.Exchange(ref _popup, null) is { } pop
             && DateTime.UtcNow - new DateTime(Interlocked.Read(ref _popupAtTicks), DateTimeKind.Utc) < TimeSpan.FromSeconds(20)
             && _lastBlock is null
-            && await FollowPopupAsync(s, pop, ct) is { Length: > 0 } popupError)
-            errorText ??= popupError;
+            && Volatile.Read(ref _docSeq) == Volatile.Read(ref _docSeqAtInput))
+        {
+            errorText ??= await FollowPopupAsync(s, pop, ct);
+            followed = true;
+        }
         if (_lastBlock is { } block) throw Blocked(block.Url, block.Reason);
         if (!string.IsNullOrEmpty(errorText))
             throw new ToolException("navigation_failed", "Navigation failed: " + errorText);
@@ -588,6 +604,8 @@ public sealed partial class AgentPage
             throw new ToolException("user_action_needed",
                 $"The page asks for {ch}. The agent tab is paused and in front; ask the user to complete it and press 'Return to agent'.");
 
+        if (followed)
+            _note = "The page wanted to open this in a new window; it was opened in this tab instead (browser_back returns to the previous page).";
         return await InfoAsync(s, ct);
     }
 

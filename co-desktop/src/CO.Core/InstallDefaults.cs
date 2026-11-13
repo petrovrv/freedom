@@ -53,12 +53,6 @@ public static class InstallDefaults
     public static string OwnerName =>
         MemberRows().Where(r => Str(r, "role") == "owner").Select(r => Str(r, "name")).FirstOrDefault(n => n.Length > 0) ?? "the owner";
 
-    /// <summary>Corporate connectors (connectors/corporate) on by default in this install: install.json
-    /// "connectors": {"corporate": true}. Off when absent (SPEC §3: employer data, the user decides).</summary>
-    public static bool CorporateConnectors =>
-        Doc.Value.ValueKind == JsonValueKind.Object && Doc.Value.TryGetProperty("connectors", out JsonElement c)
-        && c.ValueKind == JsonValueKind.Object && c.TryGetProperty("corporate", out JsonElement v) && v.ValueKind == JsonValueKind.True;
-
     /// <summary>Environments other than the owner's (their computers pair without the code, AutoPair).</summary>
     public static List<string> MemberEnvs => Members.Keys.Where(e => e != OwnerEnv).ToList();
 }

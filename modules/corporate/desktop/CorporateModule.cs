@@ -3,8 +3,8 @@ namespace CO.Corporate;
 
 // Freedom F1 (SPEC §3): corporate connectors of CO Desktop as one module — Outlook (COM), Teams, OneDrive and SharePoint
 // (folders by link, Okta fallback), Tractebel Portal, SAP Fiori and ENGIE AI Studio (the example of an external AI
-// reached through the CO browser: sign-in, keep-alive, prompt sanitizing). Off by default; CO Desktop registers it only
-// when desktop.json CorporateConnectors is true (default from install.json "connectors": {"corporate": ...}).
+// reached through the CO browser: sign-in, keep-alive, prompt sanitizing). Off by default: CO Desktop registers it only
+// while the module corporate is enabled in the workbench and on for the device (co-desktop/ModuleParts.props, App.cs).
 // Ids, tool names and settings files (outlook.json, sharepoint.json, connectors.json) are the ones of CO Desktop 0.9.x.
 public sealed class CorporateModule : IConnectorModule
 {
@@ -14,6 +14,9 @@ public sealed class CorporateModule : IConnectorModule
     private CancellationToken _ct;
 
     public string Id => "corporate";
+
+    // CO Desktop before 0.13.0 switched this part with desktop.json CorporateConnectors.
+    public string LegacySetting => "CorporateConnectors";
 
     public void Register(ConnectorModuleContext ctx)
     {
@@ -59,7 +62,7 @@ public sealed class CorporateModule : IConnectorModule
         // 0.7.13 / 0.8.2: engie.ai session and the Okta Verify number in the heartbeat (Bridge pushes it to the phone).
         ConnectorHooks.HeartbeatSession = EngieTools.HeartbeatState;
         ConnectorHooks.HeartbeatNumber = EngieTools.EngieOktaNumber;
-        ConnectorHooks.HeartbeatConnectorId = () => "engie"; // Freedom F1 5b: id of connectors/corporate/manifest.json
+        ConnectorHooks.HeartbeatConnectorId = () => "engie"; // Freedom F1 5b: id of the gateway (connector-manifest.json)
         // 0.7.9: engie.ai needs an interactive sign-in (its tab was brought to the front); 0.8.2: the Okta Verify number.
         EngieTools.SignInNeeded = msg => ConnectorHooks.Notice?.Invoke(new UserNotice("CO Desktop", msg, true, 8));
         EngieTools.OktaNumberNotice = number => ConnectorHooks.Notice?.Invoke(

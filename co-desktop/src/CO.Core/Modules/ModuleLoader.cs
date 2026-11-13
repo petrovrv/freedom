@@ -262,6 +262,16 @@ public sealed class ModuleLoader
         return Apply(Modules);
     }
 
+    /// <summary>Sets the per-device switch only when this device has none for the module yet (an older setting taken
+    /// over); true when it was set.</summary>
+    public bool SeedSwitch(string id, bool on)
+    {
+        LoadSwitches();
+        lock (_sync) if (_switches.ContainsKey(id)) return false;
+        Store(id, on);
+        return true;
+    }
+
     private void Store(string id, bool on)
     {
         lock (_sync)

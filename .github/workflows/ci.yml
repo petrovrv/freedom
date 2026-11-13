@@ -58,5 +58,32 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - run: dotnet test co-desktop/tests/CO.Core.Tests -c Release
-      - run: dotnet test connectors/corporate/tests/CO.Corporate.Tests -c Release
+      - name: dotnet test of module desktop parts (modules/<id>/tests/<Name>.Tests)
+        shell: bash
+        run: for t in modules/*/tests/*/*.Tests.csproj; do [ -e "$t" ] || continue; dotnet test "$t" -c Release || exit 1; done
       - run: dotnet build co-desktop/src/CO.Desktop -c Release
+
+  guard:
+    name: Freedom guard (personal data, secrets, module names; every new commit)
+    # public repositories only (a fork's pull request cannot switch it off: the flag is the base repository's)
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: guard
+        shell: bash
+        env:
+          BEFORE: ${{ github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          DEFAULT: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ -n "$BASE" ]; then range="$BASE..HEAD"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then range="$BEFORE..HEAD"
+          elif git rev-parse -q --verify "origin/$DEFAULT" >/dev/null && [ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/$DEFAULT")" ]; then range="origin/$DEFAULT..HEAD"
+          else range="HEAD"; fi
+          python release/export_freedom.py guard --range "$range"

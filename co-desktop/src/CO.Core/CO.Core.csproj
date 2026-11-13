@@ -18,9 +18,10 @@
     </ItemGroup>
   </Target>
 
+  <!-- Desktop parts of modules (ModuleParts.props) build on the core's tool helpers. -->
+  <Import Project="..\..\ModuleParts.props" />
   <ItemGroup>
-    <!-- Connector modules (connectors/*) build on the core's tool helpers. -->
-    <InternalsVisibleTo Include="CO.Corporate" />
+    <InternalsVisibleTo Include="@(CoModulePart->'%(Filename)')" />
   </ItemGroup>
 
   <ItemGroup>

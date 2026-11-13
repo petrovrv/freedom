@@ -184,7 +184,7 @@ public sealed class MainWindow : Window
         Content = grid;
 
         if (s.Runtime.State.Managed)
-            Title += "  —  MANAGED DEVICE: corporate data rules apply (TZ §9.6)";
+            Title += "  —  MANAGED DEVICE: company data rules apply (TZ §9.6)";
 
         _tray.Icon = AppIcon.Tray();
         Icon = AppIcon.Window();
@@ -343,14 +343,19 @@ public sealed class MainWindow : Window
             var origin = new Uri(_s.Settings.WebUrl).GetLeftPart(UriPartial.Authority);
             _webOrigin = origin;
             await _web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(DesktopShimScript(origin));
-            _web.CoreWebView2.WebMessageReceived += async (_, e) => await OnWebMessageAsync(_web.CoreWebView2, e, origin, canvas: false);
-            // 0.9.2 (canvas M6): CO Web opens /canvas?path=… in a new tab; here it gets its own window.
+            _web.CoreWebView2.WebMessageReceived += async (_, e) => await OnWebMessageAsync(_web.CoreWebView2, e, origin, pageWindow: false);
+            // Freedom F10 (ext/1 ui.window): a module page CO Web opens in a new tab gets its own window when the module
+            // declares it so (ui.page "window": true); other new tabs keep the default.
             _web.CoreWebView2.NewWindowRequested += (_, e) =>
             {
-                if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var u) || u.GetLeftPart(UriPartial.Authority) != origin
-                    || u.AbsolutePath != "/canvas") return;
-                e.Handled = true;
-                CanvasWindow.Open(this, env, u);
+                if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var u) || u.GetLeftPart(UriPartial.Authority) != origin) return;
+                foreach (var m in _s.ModuleLoader.Modules)
+                {
+                    if (m.WindowPage(u.AbsolutePath) is not { } page) continue;
+                    e.Handled = true;
+                    ModulePageWindow.Open(this, env, u, m, page);
+                    return;
+                }
             };
             _web.CoreWebView2.NavigationStarting += (_, e) =>
             {
@@ -378,7 +383,7 @@ public sealed class MainWindow : Window
     private string _webOrigin = "";
 
     // window.coDesktop: device identity (TZ §8.3) and the desktop Google token for CO Web (TZ-CO-WEB §5.1).
-    // 0.9.2: also injected into canvas windows (CanvasWindow), which answer only getAccessToken and status.
+    // 0.9.2: also injected into module page windows (ModulePageWindow), which answer only getAccessToken and status.
     internal string DesktopShimScript(string origin)
     {
         var info = new
@@ -403,10 +408,10 @@ public sealed class MainWindow : Window
 
     internal string WebOrigin => _webOrigin;
 
-    internal Task OnCanvasMessageAsync(CoreWebView2 target, CoreWebView2WebMessageReceivedEventArgs e) =>
-        OnWebMessageAsync(target, e, _webOrigin, canvas: true);
+    internal Task OnPageWindowMessageAsync(CoreWebView2 target, CoreWebView2WebMessageReceivedEventArgs e) =>
+        OnWebMessageAsync(target, e, _webOrigin, pageWindow: true);
 
-    private async Task OnWebMessageAsync(CoreWebView2 target, CoreWebView2WebMessageReceivedEventArgs e, string origin, bool canvas)
+    private async Task OnWebMessageAsync(CoreWebView2 target, CoreWebView2WebMessageReceivedEventArgs e, string origin, bool pageWindow)
     {
         if (!e.Source.StartsWith(origin + "/", StringComparison.Ordinal) && e.Source != origin) return;
         int id;
@@ -425,7 +430,7 @@ public sealed class MainWindow : Window
         object reply;
         try
         {
-            if (canvas && type != "getAccessToken" && type != "status") throw new InvalidOperationException("unknown_request");
+            if (pageWindow && type != "getAccessToken" && type != "status") throw new InvalidOperationException("unknown_request");
             switch (type)
             {
                 case "getAccessToken":
@@ -456,15 +461,15 @@ public sealed class MainWindow : Window
                     await SignInAsync();
                     reply = new { id, result = new { } };
                     break;
-                // Freedom F10: modules with a device part (ext/1 device.tools); not for canvas windows
-                case "moduleDevice" when !canvas:
+                // Freedom F10: modules with a device part (ext/1 device.tools); not for module page windows
+                case "moduleDevice" when !pageWindow:
                     reply = new { id, result = _s.ModuleLoader.States().Select(m => new { id = m.Id, on = m.On, active = m.Active, tools = m.Tools, problem = m.Problem, warning = m.Warning }) };
                     break;
-                case "moduleDeviceSet" when !canvas:
+                case "moduleDeviceSet" when !pageWindow:
                     await _s.ModuleLoader.SetOnAsync(ArgStr(margs, "module"), margs.ValueKind == JsonValueKind.Object && margs.TryGetProperty("on", out var onv) && onv.ValueKind == JsonValueKind.True, _cts.Token);
                     reply = new { id, result = new { } };
                     break;
-                case "moduleOp" when !canvas:
+                case "moduleOp" when !pageWindow:
                 {
                     var opArgs = margs.ValueKind == JsonValueKind.Object && margs.TryGetProperty("args", out var oa) ? oa : default;
                     if (opArgs.ValueKind == JsonValueKind.Undefined) opArgs = JsonDocument.Parse("{}").RootElement;
@@ -475,14 +480,14 @@ public sealed class MainWindow : Window
                 }
                 default:
                     // 0.7.11: methods of connector modules (e.g. open/reload an external AI in its CO-browser tab).
-                    if (canvas || !ConnectorHooks.WebMethods.TryGetValue(type, out var method)) throw new InvalidOperationException("unknown_request");
+                    if (pageWindow || !ConnectorHooks.WebMethods.TryGetValue(type, out var method)) throw new InvalidOperationException("unknown_request");
                     reply = new { id, result = await method(_cts.Token) };
                     break;
             }
         }
         catch (Exception ex) { reply = new { id, error = ex.Message }; }
         try { target.PostWebMessageAsJson(JsonSerializer.Serialize(reply)); }
-        catch (Exception ex) when (canvas) { Log.Write("canvas reply: " + ex.Message); /* the canvas window closed meanwhile */ }
+        catch (Exception ex) when (pageWindow) { Log.Write("page window reply: " + ex.Message); /* the window closed meanwhile */ }
     }
 
     private static string ArgStr(JsonElement a, string name) =>
@@ -865,7 +870,6 @@ public sealed class MainWindow : Window
             foreach (var panel in m.SettingsPanels().OfType<UIElement>()) p.Children.Add(panel);
 
         p.Children.Add(AgentSitesBox());
-        p.Children.Add(CorporateBox());
         p.Children.Add(ManagedProfileBox());
         _s.Connectors.Changed += _ => Dispatcher.BeginInvoke(RefreshConnectors);
         _s.Runtime.Folders.Changed += () => Dispatcher.BeginInvoke(RefreshConnectors);
@@ -1153,7 +1157,7 @@ public sealed class MainWindow : Window
             if (off == Settings.ManagedProfileOff && off != on) return Task.CompletedTask;
             if (off && MessageBox.Show(this,
                     "Switch the managed-device profile off on this computer?\n\n" +
-                    "Agents will drive the CO browser with your corporate sign-ins on the listed sites, and corporate data " +
+                    "Agents will drive the CO browser with your company sign-ins on the listed sites, and company data " +
                     "will reach the models without your confirmation. This may break your company's IT rules for managed devices.",
                     "CO Desktop", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
             {
@@ -1167,47 +1171,6 @@ public sealed class MainWindow : Window
             Settings.ManagedProfileOff = off;
             Settings.Save();
             Restart($"managed profile {(off ? "off" : "on")} by the owner");
-            return Task.CompletedTask;
-        }));
-        return box;
-    }
-
-    // Freedom F1 (SPEC §3): corporate connectors (mail, document sites, portals, an external AI of the employer) are a
-    // module, off unless install.json or the user turns them on. Read at start, so a change applies after a restart.
-    private UIElement CorporateBox()
-    {
-        var panel = new StackPanel();
-        var box = new GroupBox
-        {
-            Header = new TextBlock { Text = "Corporate connectors", FontWeight = FontWeights.SemiBold, FontSize = 14 },
-            Margin = new Thickness(0, 14, 0, 0),
-            Padding = new Thickness(6, 2, 6, 6),
-            Content = panel,
-        };
-        bool on = _s.Modules.Any(m => m.Id == "corporate");
-        panel.Children.Add(Label("Connectors to your employer's services (mail and calendar, document sites, team chats, portals, an " +
-            "external AI through the CO browser). They are now " + (on ? "ON" : "OFF") + " on this computer. " +
-            "Employer data — your responsibility: you decide whether agents may read it."));
-        var check = new CheckBox { Content = "Corporate connectors on this device", IsChecked = Settings.CorporateConnectors, Margin = new Thickness(0, 6, 0, 0) };
-        panel.Children.Add(check);
-        panel.Children.Add(Btn("Apply and restart", () =>
-        {
-            bool want = check.IsChecked == true;
-            if (want == Settings.CorporateConnectors && want == on) return Task.CompletedTask;
-            if (want && MessageBox.Show(this,
-                    "Turn corporate connectors on?\n\n" +
-                    "Employer data — your responsibility (данные работодателя, решаете вы). Agents will be able to read your " +
-                    "employer's mail, documents and portals within the boxes you tick on this tab. Your employer's rules may forbid it.",
-                    "CO Desktop", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
-            {
-                check.IsChecked = Settings.CorporateConnectors;
-                return Task.CompletedTask;
-            }
-            if (_s.Runtime.Host is { ActiveCalls: > 0 })
-                throw new InvalidOperationException("An agent call is running; try again when it finishes.");
-            Settings.CorporateConnectors = want;
-            Settings.Save();
-            Restart($"corporate connectors {(want ? "on" : "off")}");
             return Task.CompletedTask;
         }));
         return box;

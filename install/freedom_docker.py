@@ -606,8 +606,8 @@ def check_addr(s: dict) -> str:
     return '127.0.0.1' if b in ('', '0.0.0.0', '::', '[::]', 'localhost') else b.strip('[]')
 
 
-def http_req(s: dict, path: str, method='GET', body: bytes = None, headers=None, ca: str = None):
-    """(status, headers, body) through the published port of Caddy, as the site name."""
+def http_req(s: dict, path: str, method='GET', body: bytes = None, headers=None, ca: str = None, limit=200000):
+    """(status, headers, body) through the published port of Caddy, as the site name; limit=None reads it all."""
     headers = dict(headers or {})
     try:
         if s['variant'] == 'B':
@@ -618,7 +618,7 @@ def http_req(s: dict, path: str, method='GET', body: bytes = None, headers=None,
             headers.setdefault('Host', urllib.parse.urlsplit(s['url']).netloc or 'localhost')
         conn.request(method, path, body=body, headers=headers)
         r = conn.getresponse()
-        data = r.read(200000)
+        data = r.read(limit) if limit else r.read()
         conn.close()
         return r.status, {k.lower(): v for k, v in r.getheaders()}, data.decode('utf-8', 'replace')
     except (OSError, http.client.HTTPException, ssl.SSLError) as e:

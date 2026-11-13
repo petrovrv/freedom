@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# CO Desktop 0.9.2: icon of the canvas window (src/CO.Desktop/co-canvas.ico): a page with a pencil on the CO tile.
-# Run: python assets/make_canvas_icon.py (Pillow).
+# CO Desktop 0.9.2: icon of the window of a module page (src/CO.Desktop/co-page.ico, ext/1 ui.window): a page with a
+# pencil on the CO tile.
+# Run: python assets/make_page_icon.py (Pillow).
 from pathlib import Path
 from PIL import Image, ImageDraw
 
 S = 1024  # drawn at 2x, scaled down for smooth edges
 img = Image.new('RGBA', (S, S), (0, 0, 0, 0))
 d = ImageDraw.Draw(img)
-# tile: teal gradient (canvas) instead of the blue of co.ico
+# tile: teal gradient (page window) instead of the blue of co.ico
 for y in range(32, S - 32):
     t = (y - 32) / (S - 64)
     c = (int(22 + (8 - 22) * t), int(160 + (92 - 160) * t), int(150 + (96 - 150) * t), 255)
@@ -31,7 +32,7 @@ p.polygon([(510, 940), (550, 940), (530, 980)], fill=(60, 60, 60, 255))
 pencil = pencil.rotate(-40, center=(530, 640), resample=Image.BICUBIC)
 pencil = pencil.transform((S, S), Image.AFFINE, (1, 0, -150, 0, 1, -20), resample=Image.BICUBIC)
 img.alpha_composite(pencil)
-out = Path(__file__).resolve().parents[1] / 'src' / 'CO.Desktop' / 'co-canvas.ico'
+out = Path(__file__).resolve().parents[1] / 'src' / 'CO.Desktop' / 'co-page.ico'
 img.resize((256, 256), Image.LANCZOS).save(out, sizes=[(16, 16), (20, 20), (24, 24), (32, 32), (40, 40), (48, 48), (64, 64), (128, 128), (256, 256)])
-img.resize((256, 256), Image.LANCZOS).save(Path(__file__).with_name('canvas-icon-256.png'))
+img.resize((256, 256), Image.LANCZOS).save(Path(__file__).with_name('page-icon-256.png'))
 print(out)

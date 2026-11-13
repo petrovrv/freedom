@@ -83,6 +83,8 @@ foreach (['canvas_job', 'canvas_job_get', 'canvas_share_put'] as $op) {
 }
 $row = array_values(array_filter(co_modules_list($db, 'sam', false)['modules'], fn($x) => $x['id'] === 'canvas'))[0] ?? [];
 $ok('pages keep the old addresses', array_column($row['ui'] ?? [], 'path') === ['/canvas', '/canvas-share']);
+$ok('editor opens in its own desktop window, one per file (ui.window)', ($row['ui'][0]['window'] ?? null) === true
+    && ($row['ui'][0]['windowKey'] ?? '') === 'path' && !isset($row['ui'][1]['window']));
 $ok('uiOps are the user ops', ($row['uiOps'] ?? []) === ['canvas_ticket', 'canvas_share_draft']);
 $fa = $row['fileActions'] ?? [];
 $ok('file actions: office and notebook', count($fa) === 2 && $fa[0]['exts'] === ['docx', 'xlsx', 'pptx'] && $fa[0]['title'] === ''

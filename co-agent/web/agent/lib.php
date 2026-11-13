@@ -130,7 +130,9 @@ function co_agent_claude(string $prompt, string $model, int $timeoutSec): string
     if (!is_dir($work)) mkdir($work, 0700, true);
     $env = [
         'HOME' => $home,
-        'PATH' => '/opt/alt/alt-nodejs24/root/usr/bin:' . $home . '/co-agent/cli/node_modules/.bin:/usr/bin:/bin',
+        // co-agent/bin first, as in executor/run.sh: the installer links the node of the host there (Freedom B/C: the
+        // image's /usr/local/bin/node); the hosting's alt-nodejs stays as the fallback of variant A
+        'PATH' => $home . '/co-agent/bin:/opt/alt/alt-nodejs24/root/usr/bin:' . $home . '/co-agent/cli/node_modules/.bin:/usr/bin:/bin',
         // PHP-spawned processes have a 4 GB virtual memory limit (see run.sh).
         'NODE_OPTIONS' => '--disable-wasm-trap-handler',
         'CLAUDE_CODE_OAUTH_TOKEN' => trim((string)@file_get_contents($home . '/co-agent/secrets/claude_oauth_token')),

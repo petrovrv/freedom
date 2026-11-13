@@ -65,10 +65,12 @@ try {
         header('Cache-Control: no-cache');
         header('ETag: "' . $etag . '"');
         // the page of a module: own scripts and styles only, no network of its own (data comes over postMessage from
-        // CO Web), images from this site (routes such as map tiles), framed only by CO Web
+        // CO Web), images from this site (routes such as map tiles), framed only by CO Web (and the browser extensions
+        // of enabled modules, whose panel frames CO Web: ext/1 provides.client)
         // sandbox: opened as a normal page (a link, a new tab) it still runs with an opaque origin, never as CO Web
+        $framers = implode('', array_map(static fn(string $o): string => " $o", co_module_ext_origins($db)));
         header("Content-Security-Policy: sandbox allow-scripts allow-forms; default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-            . "img-src 'self' data:; connect-src 'none'; frame-ancestors 'self' chrome-extension://eobijkacekfneefkngaejdcdaehfijaf; base-uri 'none'; form-action 'none'");
+            . "img-src 'self' data:; connect-src 'none'; frame-ancestors 'self'$framers; base-uri 'none'; form-action 'none'");
         header('Referrer-Policy: no-referrer');
         if (trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''), '"') === $etag) {
             http_response_code(304);

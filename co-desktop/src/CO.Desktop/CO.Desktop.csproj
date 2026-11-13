@@ -10,7 +10,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>CO.Desktop</AssemblyName>
     <RootNamespace>CO.Desktop</RootNamespace>
-    <Version>0.12.0</Version>
+    <Version>0.13.0</Version>
     <Product>CO Desktop</Product>
     <Company>Freedom contributors</Company>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -31,14 +31,26 @@
   <ItemGroup>
     <EmbeddedResource Include="co.ico" LogicalName="CO.Desktop.co.ico" />
     <EmbeddedResource Include="co-browser.ico" LogicalName="CO.Desktop.co-browser.ico" />
-    <EmbeddedResource Include="co-canvas.ico" LogicalName="CO.Desktop.co-canvas.ico" />
+    <EmbeddedResource Include="co-page.ico" LogicalName="CO.Desktop.co-page.ico" />
   </ItemGroup>
+
+  <Import Project="..\..\ModuleParts.props" />
 
   <ItemGroup>
     <ProjectReference Include="..\CO.Core\CO.Core.csproj" />
-    <!-- Freedom F1: corporate connectors module, compiled in; registered only when desktop.json CorporateConnectors is on. -->
-    <ProjectReference Include="..\..\..\connectors\corporate\desktop\CO.Corporate.csproj" />
+    <!-- Freedom F10: desktop parts of modules (ModuleParts.props), compiled in; each one is registered only while its
+         module is enabled in the workbench and on for this device (App.cs, ModuleParts). -->
+    <ProjectReference Include="@(CoModulePart)" />
   </ItemGroup>
+
+  <Target Name="CoModulePartsMetadata" BeforeTargets="GetAssemblyAttributes">
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute" Condition="'%(CoModulePart.Filename)' != ''">
+        <_Parameter1>CO.ModulePart</_Parameter1>
+        <_Parameter2>%(CoModulePart.Filename)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />

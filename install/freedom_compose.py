@@ -11,6 +11,9 @@ presence only, no values). Then it checks an inventory (default release/freedom-
   - what principle 1 moves out of the core is gone from the core (coreMustNot);
   - the private layer is there.
 Modules that exist as folders but are not installed (or not enabled) on the server are listed as "to do", not as gaps.
+In a Freedom tree (no release/): the core tools are the tools/ of the tree that no module lists, private files must be
+absent from the tree (a private file is a gap only when it is neither excluded nor absent), and the default
+inventory is freedom-compose.json in a folder of install.json modules.dirs (or its owner/).
 
   python install/freedom_compose.py [--offline] [--inventory FILE] [--json]
 Exit codes: 0 no gaps, 1 error, 2 gaps (listed).
@@ -32,6 +35,20 @@ import freedom_modules as fm  # noqa: E402
 
 DEFAULT_INVENTORY = REPO / "release" / "freedom-compose.json"
 EXPORT_CONFIG = REPO / "release" / "freedom-export.json"
+
+
+def export_excluded() -> list:
+    """Files the export drops and the guard refuses: the public config plus the owner's part (release/export_freedom.py
+    finds it in release/owner/ of a maintainer tree, git config freedom.ownerConfig of the clone, or LOCALAPPDATA)."""
+    try:
+        sys.path.insert(0, str(REPO / "release"))
+        import export_freedom  # noqa: E402
+        return export_freedom.load_config().get("exclude", [])
+    except Exception:  # noqa: BLE001 - an old tree or a broken owner config: the public list only
+        try:
+            return json.loads(EXPORT_CONFIG.read_text(encoding="utf-8")).get("exclude", [])
+        except (OSError, ValueError):
+            return []
 
 
 def core_files() -> list:
@@ -138,7 +155,9 @@ def compose(inv: dict, offline: bool = False) -> dict:
     try:
         export_tools = set(json.loads(EXPORT_CONFIG.read_text(encoding="utf-8")).get("tools", []))
     except (OSError, ValueError):
-        export_tools = set()
+        # a Freedom tree (no release/): its tools/ holds the core tools and the tools the modules ship
+        module_tools = {t for x in mods.values() for t in x["tools"]}
+        export_tools = set(library_tools(REPO / "tools")) - module_tools
     core_tools = export_tools | set(inv.get("coreTools", []))
     for t in sorted(core_tools - set(tools)):
         notes.append(f"core tool {t} is not in this library")
@@ -162,10 +181,7 @@ def compose(inv: dict, offline: bool = False) -> dict:
 
     # the private layer (presence only)
     private = []
-    try:
-        excluded = json.loads(EXPORT_CONFIG.read_text(encoding="utf-8")).get("exclude", [])
-    except (OSError, ValueError):
-        excluded = []
+    excluded = export_excluded()
     for pv in inv.get("private", []):
         ok = True
         if pv.get("installJson"):
@@ -175,10 +191,11 @@ def compose(inv: dict, offline: bool = False) -> dict:
         if pv.get("keyring"):
             ok = keyring_has(*pv["keyring"])
         if pv.get("exportExcluded"):
-            missing = [p for p in pv["exportExcluded"] if p not in excluded]
-            ok = not missing
-            if missing:
-                gaps.append(f"private file(s) not excluded from the export: {', '.join(missing)}")
+            # a leak needs both: not excluded and present in this tree (a Freedom tree simply has no such files)
+            leaked = [p for p in pv["exportExcluded"] if p not in excluded and p in core_set]
+            ok = not leaked
+            if leaked:
+                gaps.append(f"private file(s) not excluded from the export: {', '.join(leaked)}")
         private.append({"what": pv["what"], "ok": ok, **({"note": pv["note"]} if pv.get("note") else {})})
         if not ok and not pv.get("exportExcluded"):
             gaps.append(f"private layer: {pv['what']} missing")
@@ -195,6 +212,12 @@ def main(argv=None) -> int:
     ap.add_argument("--offline", action="store_true", help="do not ask the server which modules it has")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.inventory == DEFAULT_INVENTORY and not a.inventory.is_file():
+        # a Freedom tree has no release/: the owner's inventory lives in the private layer (install.json modules.dirs)
+        # (<dir>/owner/ is where docs/DEVELOPMENT.md puts the owner's release files at the switch)
+        a.inventory = next((f for d in aiwb_install.get("modules.dirs") or []
+                            for f in (pathlib.Path(d) / "freedom-compose.json", pathlib.Path(d) / "owner" / "freedom-compose.json")
+                            if f.is_file()), a.inventory)
     try:
         inv = json.loads(a.inventory.read_text(encoding="utf-8")) if a.inventory.is_file() else {}
         r = compose(inv, a.offline)

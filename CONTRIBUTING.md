@@ -4,7 +4,9 @@ Freedom is written mostly by the assistants of its users. A contribution is welc
 when it follows these rules:
 
 1. **Public and depersonalised.** No personal names, mails, addresses, domains, hosting ids or paths with user
-   names; examples use `example.org`, `anna`, `boris`. `python release/export_freedom.py check` style checks run in CI.
+   names; examples use `example.org`, `anna`, `boris`. `python release/export_freedom.py guard` checks the tree and
+   every commit before a merge, before a push (`git config core.hooksPath release/hooks`) and in CI; how changes flow:
+   `docs/DEVELOPMENT.md`.
 2. **One change per commit**, message `<component> <version>: <what>`, licence header
    `SPDX-License-Identifier: AGPL-3.0-or-later` in new source files.
 3. **Tests.** Every change comes with tests or a reproducible check; changes to `bridge/`, `co-web/`, `co-agent/`,

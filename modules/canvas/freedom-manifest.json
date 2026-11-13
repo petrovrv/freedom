@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "1.0.0",
- "created": "2026-11-12T22:35:01Z",
+ "version": "1.0.1",
+ "created": "2026-11-13T09:58:47Z",
  "files": [
   {
    "path": "canvas-bridge/.gitignore",
@@ -60,13 +60,13 @@
   },
   {
    "path": "module.json",
-   "size": 2649,
-   "sha256": "8493728dd68bb06efdf1e5c4fb72e94fc5a51d2a8fd541069dd3520643563824"
+   "size": 2686,
+   "sha256": "234e68af6237035605d9af46b2885dfae23dbd2ba23d14b4a6f5782fc90e8b68"
   },
   {
    "path": "README.md",
-   "size": 4579,
-   "sha256": "9309c96e01b1d09d8764a5b1f5de14200842f38e4fc099f4ddddd1c19b8c2ed7"
+   "size": 4841,
+   "sha256": "662703483d7bc85815d067c1c93b793d2ebf5230337fb4b1cd4471304a5f1de5"
   },
   {
    "path": "server/canvas-lib.php",
@@ -108,7 +108,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "pMdfe8KKlUvwlK36AiyCk+9aA4x4c2K+ab5VxLTScsMX7nGwnQGTDOqMnSnTF8OTfX3LXRk3Wca1EMY+PV5ADQ=="
+   "sig": "d3gemyV9gtz6w6xAmERcQlquh5NwKeh1an7OB1dtBcGEYiUdgBnmcGG3UPDnSjXkr9stTOtMfWT1YGT4L8/CBg=="
   }
  ],
  "module": "canvas"

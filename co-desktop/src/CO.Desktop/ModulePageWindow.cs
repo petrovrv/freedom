@@ -7,45 +7,53 @@ using Microsoft.Web.WebView2.Wpf;
 
 namespace CO.Desktop;
 
-// 0.9.2 (canvas M6, SPEC.md of chat CHAT-20261028152233-8P34 §3.6): "Open in canvas" in CO Web opens
-// /canvas?path=… in its own window instead of a tab. The page is the same as in a browser: it gets a ticket from the
-// site (window.coDesktop.getAccessToken, or the cookie session) and moves on to the editor of canvas-bridge on the
-// home PC (<ts.net>/cb/edit). One window per file; position and size are remembered in desktop.json (CanvasWindow).
-// Links and Share ▾ (a Gmail draft needs the site's cookie session with gmail.compose) open in the system browser.
-public sealed class CanvasWindow : Window
+// Freedom F10 (ext/1 ui.window, modules/EXT1.md): a ui.page that a module declares with "window": true opens in its own
+// window when CO Web opens it in a new tab (the generic form of the 0.9.2 window of one module's editor). The page is
+// the same as in a browser; window.coDesktop answers only getAccessToken and status there. The page may move the window
+// to the https origins of the module's navigate list (e.g. an editor on the home PC) and to Google sign-in; other links
+// and new tabs open in the system browser. One window per value of windowKey (else per address); position and size
+// are remembered per page in desktop.json (PageWindows).
+public sealed class ModulePageWindow : Window
 {
-    private static readonly Dictionary<string, CanvasWindow> Windows = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, ModulePageWindow> Windows = new(StringComparer.Ordinal);
 
     private readonly MainWindow _main;
     private readonly CoreWebView2Environment _env;
     private readonly Uri _start;
     private readonly string _key;
+    private readonly string _page;                // "<module>/<page>": key of the remembered bounds
+    private readonly HashSet<string> _origins;    // https origins of the module's navigate list
     private readonly WebView2 _web = new();
-    private bool _closing;   // close asked: the page is being unloaded first (the plugin sends unsent threads)
+    private bool _closing;   // close asked: the page is being unloaded first (it may still send what it holds)
     private bool _unloaded;  // the page is gone, the window may close
 
-    public static void Open(MainWindow main, CoreWebView2Environment env, Uri url)
+    public static void Open(MainWindow main, CoreWebView2Environment env, Uri url, CO.Core.Modules.ModuleEntry m, CO.Core.Modules.ModuleUiEntry ui)
     {
-        string path = System.Web.HttpUtility.ParseQueryString(url.Query).Get("path") ?? "";
-        if (Windows.TryGetValue(path, out var open))
+        string value = ui.WindowKey.Length > 0 ? System.Web.HttpUtility.ParseQueryString(url.Query).Get(ui.WindowKey) ?? "" : url.PathAndQuery;
+        string key = m.Id + "/" + ui.Id + " " + value;
+        if (Windows.TryGetValue(key, out var open))
         {
             if (open.WindowState == WindowState.Minimized) open.WindowState = WindowState.Normal;
             open.Activate();
             return;
         }
-        var w = new CanvasWindow(main, env, url, path);
-        Windows[path] = w;
+        var w = new ModulePageWindow(main, env, url, key, m, ui, value);
+        Windows[key] = w;
         w.Show();
     }
 
-    private CanvasWindow(MainWindow main, CoreWebView2Environment env, Uri url, string path)
+    private ModulePageWindow(MainWindow main, CoreWebView2Environment env, Uri url, string key, CO.Core.Modules.ModuleEntry m,
+        CO.Core.Modules.ModuleUiEntry ui, string value)
     {
         _main = main;
         _env = env;
         _start = url;
-        _key = path;
-        string name = path.Split('/').LastOrDefault(p => p.Length > 0) ?? "Canvas";
-        Title = name + " · CO canvas";
+        _key = key;
+        _page = m.Id + "/" + ui.Id;
+        _origins = m.Navigate.Where(n => n.StartsWith("https://", StringComparison.Ordinal)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // a file-like window key names the window by its last part until the page sets its own title
+        string name = ui.WindowKey.Length > 0 ? value.Split('/').LastOrDefault(p => p.Length > 0) ?? "" : "";
+        Title = (name.Length > 0 ? name + " · " : "") + (ui.Title.Length > 0 ? ui.Title : m.Title) + " · CO";
         Icon = LoadIcon();
         Content = _web;
         PlaceFromSettings();
@@ -60,8 +68,8 @@ public sealed class CanvasWindow : Window
 
     private static BitmapFrame LoadIcon()
     {
-        using var s = typeof(CanvasWindow).Assembly.GetManifestResourceStream("CO.Desktop.co-canvas.ico")
-                      ?? throw new InvalidOperationException("Embedded canvas icon missing.");
+        using var s = typeof(ModulePageWindow).Assembly.GetManifestResourceStream("CO.Desktop.co-page.ico")
+                      ?? throw new InvalidOperationException("Embedded page window icon missing.");
         var decoder = new IconBitmapDecoder(s, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
         return decoder.Frames.OrderByDescending(f => f.PixelWidth).First();
     }
@@ -70,7 +78,7 @@ public sealed class CanvasWindow : Window
 
     private void PlaceFromSettings()
     {
-        var b = _main.Settings.CanvasWindow;
+        var b = _main.Settings.PageWindows.GetValueOrDefault(_page);
         double vl = SystemParameters.VirtualScreenLeft, vt = SystemParameters.VirtualScreenTop;
         double vw = SystemParameters.VirtualScreenWidth, vh = SystemParameters.VirtualScreenHeight;
         bool fits = b != null && b.Width >= 400 && b.Height >= 300
@@ -97,7 +105,7 @@ public sealed class CanvasWindow : Window
     {
         var r = WindowState == WindowState.Normal ? new Rect(Left, Top, Width, Height) : RestoreBounds;
         if (r.IsEmpty || r.Width < 1) return;
-        _main.Settings.CanvasWindow = new DesktopSettings.WindowBounds
+        _main.Settings.PageWindows[_page] = new DesktopSettings.WindowBounds
         {
             Left = Math.Round(r.Left), Top = Math.Round(r.Top), Width = Math.Round(r.Width), Height = Math.Round(r.Height),
             Maximized = WindowState == WindowState.Maximized,
@@ -115,23 +123,22 @@ public sealed class CanvasWindow : Window
             var core = _web.CoreWebView2;
             string origin = _main.WebOrigin;
             await core.AddScriptToExecuteOnDocumentCreatedAsync(_main.DesktopShimScript(origin));
-            core.WebMessageReceived += async (_, e) => await _main.OnCanvasMessageAsync(core, e);
+            core.WebMessageReceived += async (_, e) => await _main.OnPageWindowMessageAsync(core, e);
             core.DocumentTitleChanged += (_, _) =>
             {
                 string t = core.DocumentTitle;
                 if (string.IsNullOrWhiteSpace(t) || t == "about:blank" || t.Contains("://", StringComparison.Ordinal)) return;
-                Title = t.Contains("CO", StringComparison.Ordinal) ? t : t + " · CO canvas";
+                Title = t.Contains("CO", StringComparison.Ordinal) ? t : t + " · CO";
             };
             core.NavigationStarting += (_, e) =>
             {
                 if (_closing && e.Uri == "about:blank") return;
                 if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var u)) { e.Cancel = true; return; }
-                // the CO site, Google sign-in, the editor page of canvas-bridge (<ts.net>/cb/edit: CO Web moves there
-                // itself, "Try anyway" by a click) and redirects stay here; a link the user clicks elsewhere opens in
-                // the system browser
+                // the CO site, Google sign-in, the origins of the module's navigate list (where its page moves the
+                // window, e.g. an editor on the home PC) and redirects stay here; a link the user clicks elsewhere opens
+                // in the system browser
                 bool allowed = u.GetLeftPart(UriPartial.Authority) == origin || MainWindow.GoogleSignInHost.IsMatch(u.Host)
-                               || (u.Scheme == "https" && u.Host.EndsWith(".ts.net", StringComparison.OrdinalIgnoreCase)
-                                   && u.AbsolutePath == "/cb/edit")
+                               || (u.Scheme == "https" && _origins.Contains(u.GetLeftPart(UriPartial.Authority)))
                                || (!e.IsUserInitiated && u.Scheme == "https");
                 if (!allowed)
                 {
@@ -146,22 +153,22 @@ public sealed class CanvasWindow : Window
                 else _closing = false;   // the page asked to stay (beforeunload): the window stays too
             };
             core.NewWindowRequested += OnNewWindowRequested;
-            core.WindowCloseRequested += (_, _) => Close();   // Close button of the editor page (window.close)
+            core.WindowCloseRequested += (_, _) => Close();   // a Close button of the page (window.close)
             _web.Source = _start;
         }
         catch (Exception ex)
         {
-            Log.Write("canvas window: " + ex);
+            Log.Write("page window " + _page + ": " + ex);
             Content = new System.Windows.Controls.TextBlock
             {
-                Text = "The canvas could not start: " + ex.Message, Margin = new Thickness(20), TextWrapping = TextWrapping.Wrap,
+                Text = "The page could not start: " + ex.Message, Margin = new Thickness(20), TextWrapping = TextWrapping.Wrap,
             };
         }
     }
 
-    // Share ▾ opens an empty tab inside the click and points it at the draft page later (edit.js); here that tab is a
-    // hidden web view whose first real address goes to the system browser. Other new windows (links in the document)
-    // open in the system browser at once.
+    // A page may open an empty tab inside a click and point it at an address later (popup blockers allow only that);
+    // here that tab is a hidden web view whose first real address goes to the system browser. Other new windows (links
+    // in the page) open in the system browser at once.
     private async void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
     {
         if (e.Uri.Length > 0 && e.Uri != "about:blank")
@@ -192,15 +199,15 @@ public sealed class CanvasWindow : Window
                 Finish();
             };
             pc.NewWindowRequested += (_, n) => { n.Handled = true; OpenExternal(n.Uri); };
-            pc.WindowCloseRequested += (_, _) => Finish();   // the share failed: edit.js closes its tab
+            pc.WindowCloseRequested += (_, _) => Finish();   // the page gave up and closed its tab
             e.NewWindow = pc;
             e.Handled = true;
             _ = Task.Delay(TimeSpan.FromMinutes(3)).ContinueWith(_ => Dispatcher.BeginInvoke(Finish));   // never left behind
         }
         catch (Exception ex)
         {
-            Log.Write("canvas popup: " + ex.Message);
-            e.Handled = true;   // no tab: edit.js then opens the draft address with window.open, which goes out above
+            Log.Write("page window popup: " + ex.Message);
+            e.Handled = true;   // no tab: the page then opens the address with window.open, which goes out above
             try { popup?.Close(); } catch (Exception) { /* ignore */ }
         }
         finally { deferral.Complete(); }
@@ -214,8 +221,8 @@ public sealed class CanvasWindow : Window
 
     // ------------------------------------------------------------------ closing
 
-    // The page is unloaded before the window goes, so the CO Agent plugin sends unsent threads (sendBeacon on pagehide)
-    // and ONLYOFFICE saves on its own close; a second click of × closes at once.
+    // The page is unloaded before the window goes, so it can finish its work (sendBeacon on pagehide, an editor that
+    // saves on its own close); a second click of × closes at once.
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         var core = _web.CoreWebView2;

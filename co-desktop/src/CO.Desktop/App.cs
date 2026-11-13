@@ -56,7 +56,7 @@ public sealed class Services
     public required CO.Core.Browser.EdgeBrowser Browser { get; init; }
     public required ConnectorRegistry Connectors { get; init; }
     public required CO.Core.Browser.AgentWebSettingsStore AgentWeb { get; init; }
-    // Freedom F1: connector modules turned on in desktop.json (corporate connectors); empty in the default install.
+    // Freedom F10: compiled module parts registered at start (their module enabled and on for this device).
     public required IReadOnlyList<IConnectorModule> Modules { get; init; }
     // Freedom F10 (SPEC §3.6): modules of the workbench (db.php modules_list) with a device part: their device tools in
     // the catalog through the risk classes, their device ops for ui.settings pages, the per-device switch.
@@ -128,21 +128,14 @@ public sealed class Services
         var jobTab = CO.Core.Tools.BrowserTools.JobTabs(agentTabs);
         foreach (var t in CO.Core.Tools.BrowserTools.All(jobTab)) runtime.Catalog.Add(t);
 
-        // Freedom F1 (SPEC §3): corporate connectors (mail, document sites by link, portals, an external AI; connectors/corporate)
-        // come as a module, only when turned on (desktop.json CorporateConnectors, default from install.json).
-        var modules = new List<IConnectorModule>();
-        if (settings.CorporateConnectors) modules.Add(new CO.Corporate.CorporateModule());
+        // Freedom F10 (SPEC §3.6): desktop parts of modules compiled into the app (co-desktop/ModuleParts.props: connectors
+        // to outside services, tools that drive the CO browser). Registered below, after the module list.
+        var parts = ModuleParts.Create(Log.Write);
         var moduleCtx = new ConnectorModuleContext
         {
             Catalog = runtime.Catalog, Connectors = connectors, Folders = runtime.Folders, Tab = browser.Tab, JobTab = jobTab,
             Browser = browser, Secrets = secrets, DataDir = DesktopSettings.DataDir, Log = Log.Write,
         };
-        foreach (var m in modules)
-        {
-            m.Register(moduleCtx);
-            m.Start(CancellationToken.None);
-            Log.Write($"connector module '{m.Id}' on");
-        }
         // 0.8.0 agent browser: own tab "agent-web" (the "agent" tab keeps browser_open/read and connector tools by link),
         // confirmations, journal with screenshots. 0.9.0: blocked sites instead of an allowlist; one tab
         // "agent-web:<RunId>" per job, closed after 30 min idle unless the user took it over (or must finish a check).
@@ -150,7 +143,7 @@ public sealed class Services
         var agentBrowser = connectors.Add(new CO.Core.Connectors.AgentBrowserConnector(agentWeb, runtime.State.Managed));
         if (!runtime.State.Managed)
         {
-            // Company policy: no agent driving of a browser with corporate sessions on managed devices.
+            // Company policy: no agent driving of a browser with company sign-ins on managed devices.
             string journalDir = Path.Combine(DesktopSettings.DataDir, "agent-browser");
             var agentPages = new CO.Core.Browser.RunTabs<CO.Core.Browser.AgentPage>("agent-web",
                 key => new CO.Core.Browser.AgentPage(browser.Tab(key), agentWeb, journalDir, Log.Write),
@@ -224,7 +217,7 @@ public sealed class Services
         var moduleSource = auth != null && settings.WebUrl.StartsWith("https://", StringComparison.Ordinal)
             ? new CO.Core.Modules.ModuleRegistryClient(auth, settings.WebUrl) : null;
         var moduleLoader = new CO.Core.Modules.ModuleLoader(runtime.Catalog, DesktopSettings.DataDir, moduleSource,
-            natives: modules, log: Log.Write);
+            natives: parts, log: Log.Write);
         moduleLoader.Managed = () => runtime.State.Managed;
         // a module not signed by the maintainers runs its own script for a settings page only after a yes here
         moduleLoader.ConfirmScriptOp = (m, op, ct) => System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
@@ -232,7 +225,17 @@ public sealed class Services
                 $"The module {m.Title} {m.Version} (not signed by the Freedom maintainers) wants to run its own code on this computer for '{op}'.\n\nAllow it until CO Desktop restarts?",
                 "CO Desktop", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning, System.Windows.MessageBoxResult.No)
             == System.Windows.MessageBoxResult.Yes).Task;
+        // an explicit choice of an older version (a desktop.json switch of a part) becomes the part's device switch once
+        foreach (var p in parts)
+            if (p.LegacySetting.Length > 0 && settings.Legacy != null && settings.Legacy.TryGetValue(p.LegacySetting, out var old)
+                && old.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False
+                && moduleLoader.SeedSwitch(p.Id, old.ValueKind == System.Text.Json.JsonValueKind.True))
+                Log.Write($"module part '{p.Id}': device switch {(old.ValueKind == System.Text.Json.JsonValueKind.True ? "on" : "off")} from desktop.json {p.LegacySetting}");
         moduleLoader.LoadCached();
+        // A compiled part is registered (its connectors, tools, hooks, background work) only while its module is enabled in
+        // the workbench and on for this device, as the last module list says; a later change applies after a restart.
+        var modules = ModuleParts.RegisterActive(parts, moduleLoader, moduleCtx, Log.Write);
+        if (modules.Count > 0) moduleLoader.Apply(moduleLoader.Modules);
 
         return new Services
         {

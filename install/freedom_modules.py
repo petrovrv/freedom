@@ -17,6 +17,10 @@ each file (db.php op modules_host, host key aiwb/co-push); the server then inclu
   python install/freedom_modules.py enable|disable ID [--no-service]
   python install/freedom_modules.py person ID ENV MODE              default of a member's switch (auto|ask|off); never over their own choice
   python install/freedom_modules.py remove ID --data keep|erase [--yes]
+  install/enable/disable/remove --server-only: only the server (no tools, services or Bridge copy on this computer)
+Server: variant A over SSH (install.json site.ssh; the owner's hz.py for the default install.json) and db.php with the
+host key of keyring aiwb/co-push; variant B/C (freedom_docker.py) into the app container with docker exec and db.php
+through the published port with the stack's own host key (<stack>/secrets/push_key).
 Trust: standard modules are signed by the maintainers (install/maintainers.json, threshold); a module of another author
 installs only when its key is in install.json modules.trustedKeys [{name, key}] or with --allow-untrusted, and it never
 runs PHP on the server (no server/ part is uploaded for it). Services of a module (provides.services windowsTask) are
@@ -132,6 +136,9 @@ def check(root: pathlib.Path) -> list:
             p.append(f"ui entry {e!r} missing or outside ui/")
         if "path" in u and (u.get("slot") != "ui.page" or not PATH_RE.match(str(u["path"]))):
             p.append(f"ui path {u['path']!r}: only for ui.page, /[a-z0-9-]")
+        if ("window" in u or "windowKey" in u) and (u.get("slot") != "ui.page" or u.get("window") not in (True, False)
+                                                   or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,30}", str(u.get("windowKey", "x")))):
+            p.append(f"ui window of {u.get('id')!r}: only for ui.page, window true/false, windowKey a query parameter name")
         need = SLOT_PERMISSION.get(u.get("slot"))
         if need and need not in (m.get("permissions") or []):
             p.append(f"ui slot {u.get('slot')} needs the permission {need}")
@@ -546,7 +553,50 @@ def verify(root: pathlib.Path, trust_file: pathlib.Path = fr.DEFAULT_TRUST) -> d
 
 # ---------- server ----------
 
+def docker_variant() -> bool:
+    """install.json variant B or C: the server is the Docker stack of freedom_docker.py (no SSH, its own host key)."""
+    return str(aiwb_install.get("variant") or "A").upper() in ("B", "C")
+
+
+_DOCKER = {}
+
+
+def docker():
+    """(freedom_docker, settings, Host) of the stack; prepare_install points site.home at /home/co in memory."""
+    if not _DOCKER:
+        import freedom_docker as fd
+        s = fd.prepare_install()
+        h = fd.Host(s)
+        ca = None
+        if s.get("variant") == "B" and s.get("tls") == "internal":   # Caddy's own CA, as freedom_docker verify reads it
+            rc, ca = h.text(["docker", "exec", h.cid("caddy"), "cat", "/data/caddy/pki/authorities/local/root.crt"])
+            ca = ca if rc == 0 and "BEGIN CERTIFICATE" in ca else None
+        _DOCKER.update(fd=fd, s=s, h=h, ca=ca)
+    return _DOCKER["fd"], _DOCKER["s"], _DOCKER["h"]
+
+
+def host_call_docker(body: bytes) -> dict:
+    """db.php of the stack through its published port, with the host key of the stack secrets (never the keyring
+    key of another install)."""
+    fd, s, h = docker()
+    key = h.secret("push_key")
+    if not key:
+        raise Fail("no push_key in the secrets of the Docker stack (freedom_docker.py up)")
+    code, _, text = fd.http_req(s, "/agent/db.php", "POST", body, {"Content-Type": "application/json", "X-CO-Push-Key": key,
+                                                                    "User-Agent": USER_AGENT}, ca=_DOCKER.get("ca"), limit=None)
+    try:
+        j = json.loads(text)
+    except ValueError:
+        j = {}
+    if code != 200:
+        raise Fail(f"db.php modules_host: HTTP {code} {j.get('error', '') or text[:200]}")
+    return j
+
+
 def host_call(params: dict) -> dict:
+    if docker_variant():
+        raw = json.dumps({"op": "modules_host", **params}, ensure_ascii=False).encode("utf-8")
+        return host_call_docker(json.dumps({"gz": base64.b64encode(gzip.compress(raw)).decode("ascii")}).encode("utf-8"))
     import keyring
     key = keyring.get_password("aiwb/co-push", "default")
     if not key:
@@ -570,8 +620,14 @@ def host_call(params: dict) -> dict:
 
 
 def ssh_client():
-    """SSH to the hosting: the owner's hz.py (AIWB_HZ_DIR or ~/.ssh) where it exists, else install.json site.ssh."""
+    """SSH to the hosting: the owner's hz.py (AIWB_HZ_DIR or ~/.ssh) where it exists, else install.json site.ssh.
+    With AIWB_INSTALL (another install, e.g. a rehearsal) only its own site.ssh: hz.py knows one fixed hosting."""
     import os
+    if os.environ.get("AIWB_INSTALL") and not os.environ.get("AIWB_HZ_DIR"):
+        default = pathlib.Path(os.environ.get("LOCALAPPDATA") or pathlib.Path.home() / ".config") / (
+            "AIWorkbench" if os.environ.get("LOCALAPPDATA") else "aiwb") / "install.json"
+        if os.path.normcase(str(pathlib.Path(os.environ["AIWB_INSTALL"]).resolve())) != os.path.normcase(str(default.resolve())):
+            return aiwb_install.ssh_connect()
     sys.path.insert(0, os.environ.get("AIWB_HZ_DIR") or os.path.join(os.path.expanduser("~"), ".ssh"))
     try:
         import hz  # only its connect(); importing it runs no job
@@ -640,6 +696,40 @@ def upload(root: pathlib.Path, mid: str, files: dict, sftp):
         rmtree(live)
         if had_old:
             sftp.rename(bak, live)
+    return rollback
+
+
+def upload_docker(root: pathlib.Path, mid: str, files: dict):
+    """upload() for variant B/C: one tar into the app container as the site user, then the same .new/.bak swap."""
+    import io
+    import tarfile
+    import time
+    fd, s, h = docker()
+    cid = h.cid("app")
+    if not cid:
+        raise Fail("the app container of the Docker stack is not running (freedom_docker.py up)")
+    t = fd.DockerTarget(h, cid)
+    base = posixpath.join(fd.HOME, "co-agent", "modules")
+    new, live, bak = (fd.fs._q(x) for x in (f"{base}/{mid}.new", f"{base}/{mid}", f"{base}/{mid}.bak"))
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        for rel in ["module.json", *files]:
+            data = (root / rel).read_bytes()
+            ti = tarfile.TarInfo(rel)
+            ti.size, ti.mode, ti.mtime = len(data), 0o600, time.time()
+            tar.addfile(ti, io.BytesIO(data))
+    rc, o = t.run(f"umask 077; rm -rf {new} && mkdir -p {new} && tar -x -m -C {new} -f - || exit 7; "
+                  f"rm -rf {bak}; had=0; if [ -e {live} ]; then mv {live} {bak} || exit 8; had=1; fi; "
+                  f"mv {new} {live} || {{ [ $had = 1 ] && mv {bak} {live}; exit 9; }}; echo had=$had",
+                  stdin=buf.getvalue())
+    if rc != 0:
+        raise Fail(f"upload into the app container failed (rc {rc}): {o[-300:]}")
+    had_old = "had=1" in o
+
+    def rollback():
+        rc2, o2 = t.run(f"rm -rf {live}" + (f" && mv {bak} {live}" if had_old else ""))
+        if rc2 != 0:
+            raise Fail(f"the old module files could not be put back (rc {rc2}): {o2[-200:]}; run install again")
     return rollback
 
 
@@ -989,6 +1079,8 @@ def main(argv=None) -> int:
     p.add_argument("--default-person", choices=PERSON_MODES, help="default switch of every member who has not chosen")
     p.add_argument("--person", action="append", help="ENV=MODE default of one member")
     p.add_argument("--allow-untrusted", action="store_true")
+    p.add_argument("--server-only", action="store_true", help="only the server: no tools, services or Bridge copy "
+                   "on this computer (the home PC is another one, or a rehearsal stack)")
     sp.add_parser("list")
     p = sp.add_parser("sync", help="tool states and services of the home PC follow the switches on the server")
     p.add_argument("--dry-run", action="store_true")
@@ -996,6 +1088,8 @@ def main(argv=None) -> int:
         p = sp.add_parser(name)
         p.add_argument("id")
         p.add_argument("--no-service", action="store_true")
+        p.add_argument("--server-only", action="store_true", help="only the server: no tools, services or Bridge copy "
+                       "on this computer (the home PC is another one, or a rehearsal stack)")
     p = sp.add_parser("person")
     p.add_argument("id")
     p.add_argument("env")
@@ -1004,6 +1098,8 @@ def main(argv=None) -> int:
     p.add_argument("id")
     p.add_argument("--data", choices=("keep", "erase"), required=True)
     p.add_argument("--yes", action="store_true", help="needed with --data erase (cannot be undone)")
+    p.add_argument("--server-only", action="store_true", help="only the server: no tools, services or Bridge copy "
+                   "on this computer (the home PC is another one, or a rehearsal stack)")
     a = ap.parse_args(argv)
     try:
         return run(a)
@@ -1048,7 +1144,7 @@ def run(a) -> int:
         r = host_call({"action": "set", "id": a.id, "enabled": a.cmd == "enable"})
         local = local_modules().get(a.id)   # tools and services are described by the module's own manifest
         ok = bool(r.get("ok"))
-        if ok and local:
+        if ok and local and not a.server_only:
             r["home"] = apply_home(local[1], "enabled" if a.cmd == "enable" else "disabled", services=not a.no_service, root=local[0])
             ok = r["home"]["ok"]
         out(r)
@@ -1063,10 +1159,10 @@ def run(a) -> int:
         r = host_call({"action": "remove", "id": a.id, "data": a.data})
         local = local_modules().get(a.id)
         ok = bool(r.get("ok"))
-        if ok and local:
+        if ok and local and not a.server_only:
             r["home"] = apply_home(local[1], "removed")   # the tool files stay in the library
             ok = r["home"]["ok"]
-        if ok:
+        if ok and not a.server_only:
             r["local"] = "removed" if remove_local(a.id) else "none"   # Bridge's copy
         out(r)
         return 0 if ok else 1
@@ -1100,12 +1196,12 @@ def run(a) -> int:
             env = mem.get("env") if isinstance(mem, dict) else None
             if env and env not in people:
                 people[env] = a.default_person
-    if tool_entries(m):
+    if tool_entries(m) and not a.server_only:
         plan["tools"] = tools_install(a.dir, m)  # before the server: a missing tool stops the install here
-    c = ssh_client()
+    c = None if docker_variant() else ssh_client()
     try:
-        sftp = c.open_sftp()
-        rollback = upload(a.dir, m["id"], files, sftp)
+        sftp = c.open_sftp() if c else None
+        rollback = upload(a.dir, m["id"], files, sftp) if c else upload_docker(a.dir, m["id"], files)
         try:
             r = host_call({"action": "install", "manifest": m, "files": files, "standard": v["standard"],
                            "publisher": v["publisher"], "people": people, "config": install_config(m)})
@@ -1123,18 +1219,23 @@ def run(a) -> int:
             # the server keeps (or put back) the old registration, so the old files must come back too
             rollback()
             raise Fail(f"server refused, old files restored: {r}")
-        sftp.close()
+        if sftp:
+            sftp.close()
     finally:
-        c.close()
+        if c:
+            c.close()
     if a.enable and not r.get("enabled"):
         if r.get("grew"):
             print(f"note: permissions grew ({', '.join(r['grew'])}); the module stays off until the owner turns it on", file=sys.stderr)
         else:
             r["enable"] = host_call({"action": "set", "id": m["id"], "enabled": True})
-    r["local"] = str(install_local(a.dir, m["id"]))   # Bridge's module loader reads this copy
     on = bool(r.get("enabled") or (r.get("enable") or {}).get("ok"))
     if m.get("warning") and not on:
         print(f"note: {m['warning']}", file=sys.stderr)
+    if a.server_only:
+        out({"plan": plan, "server": r})
+        return 0
+    r["local"] = str(install_local(a.dir, m["id"]))   # Bridge's module loader reads this copy
     # a module that is on gets its services started; one that was on before and stays off now (an update whose
     # permissions grew waits for the owner) gets them stopped; a fresh install that stays off does not touch them
     r["home"] = apply_home(m, "enabled" if on else "disabled", services=on or bool(live and live.get("enabled")), root=a.dir)

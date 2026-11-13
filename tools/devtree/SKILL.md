@@ -1,7 +1,7 @@
 ---
 name: devtree
-description: Separate git worktree per agent for the AI Workbench source (main tree C:\AIWorkbench\source, its GitHub origin); start/finish with rebase + fast-forward under a lock, push to GitHub, update the Drive mirror; atomic release locks (release-co-desktop, release-bridge). Use before editing source or releasing.
-version: 0.7.1
+description: Separate git worktree per agent for the AI Workbench source (main tree from devtree.json, default C:\AIWorkbench\source, its GitHub origin); start/finish with rebase + fast-forward under a lock, the repository's own guard before merge and push (.devtree.json, e.g. no personal data in a public repository), push to GitHub, update the Drive mirror; atomic release locks (release-co-desktop, release-bridge). Use before editing source or releasing.
+version: 0.8.0
 entry: devtree.py
 requires: [git]
 platform: windows
@@ -98,6 +98,13 @@ python "G:\My Drive\AI-Workbench\tools\devtree\devtree.py" lock status [RES]
 - Результат: поле `e2e` в `--json`.
 - Прогон идёт вне блокировки source-merge, каждый в своём тестовом чате: параллельные `finish` не ждут друг друга. Типично 60–90 с (со сборкой `co-web`).
 
+## Основная копия из конфига и guard репозитория (с 0.8.0)
+
+- **Какое дерево основное.** Порядок: ключ `--repo`/`--mirror`/`--work-root`/`--locks` > переменные `AIWB_SOURCE`, `AIWB_MIRROR` > файл `%LOCALAPPDATA%\AIWorkbench\devtree.json` (другой путь — `AIWB_DEVTREE_CONFIG`) с полями `repo`, `mirror`, `workRoot`, `locks` > встроенные значения (`C:\AIWorkbench\source`, зеркало `G:\My Drive\AI-Workbench\source`). Без файла всё как в 0.7. Переключение основной копии (например, на клон публичного репозитория) — правка одного файла, командные строки агентов не меняются.
+- **`.devtree.json` в корне репозитория** (необязателен): `{"guard": ["python", "release/freedom_guard.py", "range", "{range}"], "hooksPath": "release/hooks"}`.
+  - `guard` — команда проверки (подстановки `{range}` = `base..head`, `{base}`, `{head}`; `python` заменяется на текущий интерпретатор). `finish` запускает её в worktree после rebase на диапазоне `main..HEAD` ветки; `finish`/`sync` — перед `git push` на `origin/main..main`. Ненулевой код — **код 7**, слияния (или отправки) нет; `--force` её **не** обходит: опубликованное в истории публичного репозитория не забрать. Исправлять — переписать коммиты ветки (amend/rebase), они ещё не опубликованы. Поле `guard` в `--json`.
+  - `hooksPath` — `start`, `finish` и `sync` ставят `git config core.hooksPath` (например, хук pre-push с той же проверкой на любой ручной `git push`).
+
 ## Коды выхода
 
 | Код | Значение |
@@ -109,6 +116,7 @@ python "G:\My Drive\AI-Workbench\tools\devtree\devtree.py" lock status [RES]
 | 4 | кросс-ревью Codex: BLOCK (или сбой при `--review on`) |
 | 5 | e2e красный или (при `--e2e on`) не запустился; слияние не выполнено |
 | 6 | задет защищённый путь (`protected-paths.txt`) без `--owner-approved`; слияние не выполнено |
+| 7 | guard репозитория (`.devtree.json`) отказал; слияние или отправка не выполнены (с 0.8.0) |
 
 ## Ограничения
 
@@ -118,6 +126,8 @@ python "G:\My Drive\AI-Workbench\tools\devtree\devtree.py" lock status [RES]
 - Агент, правящий прямо в основной копии, блокирует `finish` остальных агентов (код 3), пока не закоммитит свои изменения.
 
 ## История
+
+- 0.8.0 — 2026-11-13 — основная копия, зеркало, корень worktree и блокировки из `%LOCALAPPDATA%\AIWorkbench\devtree.json` (`AIWB_DEVTREE_CONFIG`), обратная совместимость; `.devtree.json` репозитория: `guard` перед слиянием и перед `git push` (код 7, `--force` не обходит), `hooksPath`. Подготовка разворота разработки Freedom (ядро правится в клоне публичного репозитория). Тесты `test_guard.py` (временные репозитории): конфиг выбирает дерево, guard блокирует слияние и отправку, без `.devtree.json` поведение прежнее.
 
 - 0.7.1 — 2026-11-12 — Freedom: документация без личных путей, имени репозитория владельца и корпоративных имён; код и CLI не изменились.
 - 0.6.0 — 2026-11-01 — защищённые пути (идея razzant/claudexor): `protected-paths.txt` в репозитории, `finish` без `--owner-approved` отказывает кодом 6 (и с `--force`), подтверждение пишется в журнал. Проверено в одноразовом клоне: правка `co-desktop/installer/` с `--force` — код 6, с `--owner-approved` — слияние и запись в оба журнала; правка самого списка и `.htaccess` — код 6; обычная правка — слияние.

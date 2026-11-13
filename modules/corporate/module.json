@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "corporate",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "title": "Corporate assistants",
   "description": "Models and tools of an employer (here ENGIE / Tractebel): the corporate LLM gateway reached through CO Desktop on the work laptop, a Claude dispatcher that delegates writing to it, Outlook, Teams, SharePoint, the employer portal and SAP HR. Everything it touches is confidential and stays in its own environment.",
   "ext": ">=1 <2",
@@ -17,6 +17,7 @@
     ],
     "modules": []
   },
+  "localOnly": ["desktop/", "tests/", "connector-manifest.json"],
   "permissions": [
     "models.register",
     "device.tools",
@@ -247,9 +248,12 @@
   "defaults": {
     "enabled": false
   },
+  "device": {
+    "default": "off",
+    "warning": "Employer data - your responsibility: agents will be able to read your employer's mail, documents and portals on this computer within the boxes you tick under Connectors. Your employer's rules may forbid it."
+  },
   "desktop": {
-    "connector": "connectors/corporate/desktop/CO.Corporate.csproj",
-    "settingsKey": "CorporateConnectors",
-    "note": "CO Desktop loads the connector itself today (agent B / IConnectorModule); see README"
+    "part": "desktop/CO.Corporate.csproj",
+    "note": "compiled into CO Desktop by co-desktop/ModuleParts.props; registered while the module is enabled and on for the device (modules/EXT1.md)"
   }
 }

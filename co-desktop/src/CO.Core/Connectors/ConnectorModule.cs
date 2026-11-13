@@ -7,9 +7,10 @@ using CO.Core.Tools;
 
 namespace CO.Core.Connectors;
 
-// Freedom F1 (SPEC §3): connectors that are not part of the core (corporate ones live in connectors/corporate) come as
-// a module. The app registers a module only when the user turned it on; Register adds its connectors, tools, remote
-// folders and hooks, Start begins its background work (kept-alive sessions).
+// Freedom F1 (SPEC §3): connectors that are not part of the core come as the desktop part of a module
+// (modules/<id>/desktop, compiled in through co-desktop/ModuleParts.props). The app registers one only while its module
+// is enabled and on for the device; Register adds its connectors, tools, remote folders and hooks, Start begins its
+// background work (kept-alive sessions).
 // Freedom F10 (SPEC §3.6, §11.18): a compiled connector module is also the native part of the registry module with the
 // same id (Modules.IModuleNativePart: native device tools, device ops of its ui.settings page). New modules declare
 // their device tools in module.json and their settings as a ui.settings page; SettingsPanels stays only for the
@@ -17,6 +18,10 @@ namespace CO.Core.Connectors;
 public interface IConnectorModule : Modules.IModuleNativePart
 {
     void Register(ConnectorModuleContext ctx);
+
+    // Freedom F10: the desktop.json key (a bool) that switched this part on or off before it was a module part; the app
+    // takes an explicit old choice over as the device switch of the module once (never over a switch already set).
+    string LegacySetting => "";
     void Start(CancellationToken ct);
 
     // Extra settings panels for the Connectors tab (WPF elements on Windows); built anew on each call.
@@ -45,7 +50,7 @@ public static class ConnectorHooks
     // "" = no such connector. Number: a sign-in number challenge "<id>:<NN>" waiting for the user's phone, else "".
     public static Func<string> HeartbeatSession { get; set; } = () => "";
     public static Func<string> HeartbeatNumber { get; set; } = () => "";
-    // Freedom F1 5b: id of that connector (manifest id of the corporate connector) for heartbeat corp.id.
+    // Freedom F1 5b: id of that connector (gateway id of its module) for the heartbeat field corp.id.
     public static Func<string> HeartbeatConnectorId { get; set; } = () => "";
 
     // Extra fields of the CO Web "status" answer and extra methods of window.coDesktop (name -> call).

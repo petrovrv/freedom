@@ -16,7 +16,6 @@ public class InstallDefaultsTests
             // CI and other machines without install.json: empty values, nothing invented
             Assert.Equal("", InstallDefaults.SiteUrl);
             Assert.Empty(InstallDefaults.Members);
-            Assert.False(InstallDefaults.CorporateConnectors);   // corporate connectors are off unless install.json says so
             return;
         }
         Assert.StartsWith("https://", InstallDefaults.SiteUrl);

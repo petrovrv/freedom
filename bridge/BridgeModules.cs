@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Freedom F10 (SPEC §3.6): the module loader of Bridge and the generic model gateway. The file keeps its old name only
-// because bridge/build.cmd (a protected path) lists it; it becomes BridgeModules.cs with the owner's yes.
+// Freedom F10 (SPEC §3.6): the module loader of Bridge and the generic model gateway.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;

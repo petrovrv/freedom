@@ -4,7 +4,9 @@ rem Output goes outside Drive: %LOCALAPPDATA%\AIWorkbenchBuild\co-desktop\publis
 cd /d "%~dp0"
 set "PUB=%LOCALAPPDATA%\AIWorkbenchBuild\co-desktop\publish"
 dotnet test tests\CO.Core.Tests || exit /b 1
-dotnet test ..\connectors\corporate\tests\CO.Corporate.Tests || exit /b 1
+rem Tests of the desktop parts of modules (modules\<id>\tests\<Name>.Tests, see ModuleParts.props).
+rem (cmd expands a wildcard only in the last part of a path: one loop per level)
+for /d %%m in (..\modules\*) do for /d %%t in ("%%m\tests\*") do if exist "%%t\%%~nxt.csproj" (dotnet test "%%t" || exit /b 1)
 dotnet publish src\CO.Desktop -c Release -o "%PUB%" -p:EnableCompressionInSingleFile=true -p:DebugType=none || exit /b 1
 echo.
 echo BUILD OK: %PUB%\CO.Desktop.exe

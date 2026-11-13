@@ -71,6 +71,7 @@ POLL_SECONDS = 4
 BASE = {"host": "home-main", "env": _owner_env(), "project": "bridge-test", "agent": "claude",
         "mode": "chat", "model": None, "effort": None, "devices": [], "permissions": {},
         "prompt": "", "title": "", "timeout": 300}
+TRANSIENT = re.compile(r"ERROR (2002|2013|1040)\b")
 UNESC = {"n": "\n", "t": "\t", "\\": "\\", "0": "\0", "r": "\r"}
 
 
@@ -79,8 +80,11 @@ def sql(conn, query, _tries=3):
     for attempt in range(_tries):
         try:
             return _sql(conn, query)
-        except RuntimeError:
-            raise
+        except RuntimeError as e:
+            # the hosting MySQL sometimes refuses a connection for a moment (2002 socket, 2013 lost, 1040 too many)
+            if attempt == _tries - 1 or not TRANSIENT.search(str(e)):
+                raise
+            time.sleep(2 + attempt * 3)
         except Exception:
             if attempt == _tries - 1:
                 raise
@@ -232,7 +236,7 @@ def run_case(c, device):
         status = answer = ""
         while True:
             rows = sql(conn, "SELECT state, IFNULL(status,''), "
-                             "IFNULL(JSON_VALUE(result,'$.agentFinalResponse'),'') "
+                             "COALESCE(JSON_VALUE(result,'$.agentFinalResponse'),JSON_VALUE(result,'$.error'),'') "
                              f"FROM jobs WHERE job_id={q(jid)};")
             if not rows:
                 raise RuntimeError("job row disappeared")

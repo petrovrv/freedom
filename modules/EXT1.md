@@ -11,7 +11,7 @@ Base fields (`id`, `version`, `ext`, `scope`, `permissions`, `personal`, `server
 
 | Key | Shape | What the core does |
 |---|---|---|
-| `ui[]` | `{slot, id, entry, title, path?}`; slot `ui.header` \| `ui.page` \| `ui.panel` \| `ui.settings` | shows `entry` (an html file of `ui/`) in a sandboxed iframe. `ui.page` opens full-window at `/x/<module>/<id>`; `path` (e.g. `/canvas`) adds an old top-level address of CO Web (never one of CO Web's own routes). The query of the address goes to the page as `ctx.params`. `ui.panel` is a pane next to a chat (mode viewers). |
+| `ui[]` | `{slot, id, entry, title, path?, window?, windowKey?}`; slot `ui.header` \| `ui.page` \| `ui.panel` \| `ui.settings` | shows `entry` (an html file of `ui/`) in a sandboxed iframe. `ui.page` opens full-window at `/x/<module>/<id>`; `path` (e.g. `/canvas`) adds an old top-level address of CO Web (never one of CO Web's own routes). The query of the address goes to the page as `ctx.params`. **ui.window**: `window: true` on a `ui.page` = a desktop app (CO Desktop; CO Resident opens every CO page a page opens in a new tab in its own window anyway) shows the page in its own window when CO Web opens it in a new tab (`fileActions` `target: blank`, `navigate(url, 'blank')`), see *Desktop windows*. `ui.panel` is a pane next to a chat (mode viewers). |
 | `modes[]` | `{key, label, short, icon, rules, offNote?, hintOn?, hintOff?, projectLabel?, newProjectHint?, inherit?, viewer?}` | **chat.mode**: a switch of the chat (header button, chat and project menus, a line in the timeline at every switch). While on, every job of the chat gets the text of `rules` (a registered `context/*.md` file of the module) as instructions; after it was switched off once, the text of `offNote`. State lives in the chat document: `<key>` (bool), `<key>Log` (switches: `{on, by, utc}`), project default `<key>Default` (new chats only), `<key>Doc` (the document of a viewer chat). `inherit`: branches and side questions of a chat keep the mode. `viewer {panel, param, titlePrefix}`: `?<param>=<path>` on a project or chat address shows the module's `ui.panel` `panel` left of the chat (see *Viewer pages*). |
 | `context[]` | `"context/x.md"` | **context**: the text goes into every job of the person while the module is enabled. |
 | `fileActions[]` | `{id, label, title?, exts[], exclude?, open}` | items of the file menu of chat files and project files for files with these extensions (`exclude`: a regex of names left out). `open {page, param?, target?}` opens the module's `ui.page` `page` with `?<param>=<path relative to AI-Workbench>` (`target: blank` = new tab/window); `open {mode}` opens the viewer of mode `mode`. |
@@ -33,6 +33,34 @@ Files the core reads itself (`context/*.md|txt`) must be registered files of the
 | `chat.read` | a viewer panel gets the events of its chat (`chat` messages) |
 | `chat.post` | `chat.ask` |
 | `ui.navigate` | `navigate` (only to targets of `provides.navigate`) |
+
+### Desktop windows (`ui.window`)
+
+A `ui.page` with `"window": true` opens in CO Desktop in its own window instead of a tab, the same page as in a browser
+(no module code in the app). `windowKey` names the query parameter that identifies one window (`"path"`: one window per
+file; without it, one per address); opening the same value again brings that window to the front. Position and size
+are remembered per page (`desktop.json` `PageWindows["<module>/<page>"]`). In that window:
+
+- `window.coDesktop` answers only `getAccessToken` and `status` (no device ops, no module switches);
+- the page may move the window to this site, Google sign-in and the https origins of the module's `navigate` list (e.g.
+  an editor on the home PC at an install-config address); a link the user clicks elsewhere opens in the system browser;
+- a new tab the page opens goes to the system browser (an empty tab opened inside a click and pointed somewhere later
+  works too: its first real address goes out);
+- × unloads the page first (its `pagehide`/`beforeunload` run, e.g. to send what it holds), a second × closes at once.
+
+Only pages of enabled modules (the device's `modules_list`) get a window; in a browser the page simply opens in a tab.
+
+## Device parts compiled into CO Desktop
+
+Most device work of a module is `provides.deviceTools` with a `run` script (`device/`, sha256-checked before each run).
+A module that needs the app itself (COM, WPF, the CO browser's sessions) may carry a .NET project
+`modules/<id>/desktop/<Name>.csproj` with a public `CO.Core.Connectors.IConnectorModule` (its `Id` = the module id) and
+tests in `modules/<id>/tests/<Name>.Tests/`. `co-desktop/ModuleParts.props` compiles every such project into CO Desktop
+(the core names none of them; CI, `publish.cmd` and `release/ci_export.sh` run every `modules/*/tests/*.Tests`). The app
+binds a part only to a module signed by the maintainers and registers it (connectors, tools, hooks, background work)
+only while the module is enabled in the workbench and on for the device, as the last module list says; turning it on or
+off later applies after a restart of CO Desktop (the app says so). Its tools must be the `deviceTools` of the manifest
+without `run` (names and risk class).
 
 ## Page protocol (`/ext/ext1.js`)
 

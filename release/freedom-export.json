@@ -1,0 +1,22 @@
+{
+ "comment": "Freedom public export and guard config (release/export_freedom.py; docs/DEVELOPMENT.md). Ships with the public tree: guard runs these checks on every commit before it is merged or pushed (devtree finish, the pre-push hook release/hooks/pre-push, CI). The owner's part (private files of a maintainer tree, build identity rewrites) and the private words (names, own domains, account ids, machine names) live outside the public tree. exclude: never in the public tree. patterns: generic personal-data and secret checks. moduleIdAllow: {module id or \"*\": [globs]} - core files that may name a module (SPEC §3.6 principle 1; tests are always allowed); every entry needs a reason: corporate in co-agent/web/agent/gateway-lib.php and co-web/src/gateway.ts = legacy wire tokens (model kind, project flag, failure kind, Bridge event and error text) that deployed Bridges and old rows still send, not the module; install/freedom_setup.py, aiwb_install.py and install.example.json still deploy/configure the old connector; bridge/BridgeModules.cs and bridge/BridgeAgent.cs = the legacy wire tokens Bridge still reads and sends (corp heartbeat, corporate model kind). canvas: the HTML <canvas> element (ChatView, FamilyChat draw images); the install.json key canvas.publicUrl the canvas module reads (installConfig); the sign-in page adds gmail.compose for the canvas share. termsAllow/emailAllow modules/study/ui/viewer.js: the minified third-party bundle (pdf.js) holds font names of the standard PDF fonts and e-mail-like strings. tools: core tools of the tool library shipped in tools/ (plus the tools the modules list in provides.tools). toolsExclude: module tools that do not ship because they are written for one employer (sap-hr, docx-ops: internal hosts, brand, document conventions) or one household (geo-presence: rules and example zones of one family); the modules ship without them and a user adds their own.",
+ "exclude": ["release/public/", "release/owner/"],
+ "toolsExclude": ["sap-hr", "docx-ops", "geo-presence"],
+ "tools": ["toolbox", "read-guard", "devtree", "aiwb-e2e", "aiwb-smoke", "aiwb-subtask", "aiwb-budget", "aiwb-memory", "aiwb-chat", "aiwb-dossier", "browser-agent", "docx-diff", "docx-template", "md2docx", "pdf-extract", "units", "xlsx-tool", "secret-prompt", "wsl-family-sandbox"],
+ "allowedEmails": [".*@example\\.(org|com|net)", ".*@[a-z.]*\\.example", "noreply@anthropic\\.com", "git@github\\.com"],
+ "emailAllow": ["*/tests/*", "*.selftest.ts", "*/test_*.py", "modules/study/ui/viewer.js"],
+ "termsAllow": ["modules/study/ui/viewer.js"],
+ "moduleIdAllow": {"*": [], "canvas": ["co-web/src/ChatView.tsx", "co-web/src/FamilyChat.tsx", "install/install.example.json", "co-web-auth/auth/login.php", "co-web-auth/auth/callback.php"], "corporate": ["co-agent/web/agent/gateway-lib.php", "install/freedom_setup.py", "install/aiwb_install.py", "install/install.example.json", "bridge/BridgeModules.cs", "bridge/BridgeAgent.cs", "co-web/src/gateway.ts"]},
+ "patterns": [
+  {"name": "hosting account path", "regex": "/home/u\\d{6,}", "allow": ["*/tests/*", "*/test_*.py"]},
+  {"name": "Windows user profile path", "regex": "C:[\\\\/]+Users[\\\\/]+(?!me\\b|you\\b|user\\b|x\\b|<|%|\\$|\\{|Public\\b|Default\\b|\\*)[A-Za-z0-9._-]+", "allow": ["*/tests/*", "*/test_*.py"]},
+  {"name": "tailnet name", "regex": "tail[0-9a-f]{6}\\.ts\\.net"},
+  {"name": "IBAN", "regex": "\\b[A-Z]{2}\\d{2}(?: ?[A-Z0-9]{4}){3,7}\\b", "ignoreCase": false, "allow": ["*/tests/*", "*/test_*.py"]},
+  {"name": "private key", "regex": "-----BEGIN [A-Z ]*PRIVATE KEY-----"},
+  {"name": "Google OAuth client secret", "regex": "GOCSPX-[A-Za-z0-9_-]{10,}"},
+  {"name": "Google API key", "regex": "AIza[0-9A-Za-z_-]{35}"},
+  {"name": "Anthropic/OpenAI key", "regex": "\\bsk-(?:ant-)?[A-Za-z0-9_-]{20,}", "allow": ["*/tests/*", "*/test_*.py"]},
+  {"name": "GitHub token", "regex": "\\bgh[pousr]_[A-Za-z0-9]{30,}"},
+  {"name": "corporate brand outside the connector (lowercase engie* stays as a legacy wire name)", "regex": "\\b(ENGIE|Engie|[Tt]ractebel|TRACTEBEL)\\b", "ignoreCase": false, "allow": ["modules/corporate/", "co-agent/tests/failures-test.php", "co-agent/tests/core-words-test.php", "release/core-names.json", "release/tests/", "release/freedom-export.json"]}
+ ]
+}

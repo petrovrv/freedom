@@ -51,5 +51,7 @@ rows of chats stay out of the inbox (their key stays known while the module is i
 
 ## CO Desktop
 
-`CanvasWindow` of CO Desktop still opens addresses starting with `/canvas` in its own window; the `ui.page` path `/canvas`
-keeps that working (the page then sends that window to the editor on the PC).
+The editor page is declared with `"window": true, "windowKey": "path"` (ext/1 `ui.window`, `modules/EXT1.md`): CO Desktop
+opens it in its own window (one per file, position and size remembered per page), lets that window go to the origins of
+`navigate` (the editor on the PC at `canvas.publicUrl`, Google sign-in) and sends other links to the system browser.
+CO Desktop knows no canvas: before 1.0.1 the core had its own `CanvasWindow` for the address `/canvas`.

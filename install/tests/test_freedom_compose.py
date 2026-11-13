@@ -80,6 +80,22 @@ class ComposeTest(unittest.TestCase):
         f.write_text(json.dumps(self.inv), encoding="utf-8")
         self.assertEqual(fc.main(["--offline", "--inventory", str(f), "--json"]), 0)
 
+    def test_freedom_tree_without_release_folder(self):
+        # an exported tree: core tools are its tools/ minus module tools; private files must be absent from it
+        tree = self.tmp / "tree"
+        tool(tree / "tools", "orphan-tool")
+        tool(tree / "tools", "mail-tool")
+        self.inv["features"] = [{"feature": "Geo", "modules": ["geo"]}]
+        self.inv["coreMustNot"], self.inv["coreTools"] = [], ["core-tool"]
+        self.inv["private"] = [{"what": "release scripts", "exportExcluded": ["sync.ps1"]}]
+        with mock.patch.object(fc, "REPO", tree), mock.patch.object(fc, "export_excluded", return_value=[]):
+            r = fc.compose(self.inv, offline=True)
+            self.assertEqual(r["gaps"], [])
+            self.assertIn("orphan-tool", r["core"]["tools"])
+            self.assertNotIn("mail-tool", r["core"]["tools"])
+            with mock.patch.object(fc, "core_files", return_value=["sync.ps1"]):
+                self.assertIn("private file(s) not excluded from the export: sync.ps1", "\n".join(fc.compose(self.inv, offline=True)["gaps"]))
+
 
 if __name__ == "__main__":
     unittest.main()

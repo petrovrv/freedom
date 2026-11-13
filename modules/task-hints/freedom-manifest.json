@@ -1,12 +1,12 @@
 {
  "format": "freedom-release/1",
- "version": "0.1.0",
- "created": "2026-11-12T22:07:18Z",
+ "version": "0.1.1",
+ "created": "2026-11-13T09:49:52Z",
  "files": [
   {
    "path": "module.json",
    "size": 1271,
-   "sha256": "9ea50be58b7450f203dc9e9c0254532e06e01dd50d66e5f24d11dcbd02784099"
+   "sha256": "bd253cd7de358c04402b3feb5c316dc168aa6454e5e2e147b4bf4b4cc4932762"
   },
   {
    "path": "README.md",
@@ -25,8 +25,8 @@
   },
   {
    "path": "ui/hint-data.js",
-   "size": 2486,
-   "sha256": "d166863c44b4e447792f11be266fe96f8646912c1d105cdf672c67ca4b7d588b"
+   "size": 2510,
+   "sha256": "6f7ee69c2d58c29ff3827176279b2942f2459b7fb860262de5d049116f4f2604"
   },
   {
    "path": "ui/hint.html",
@@ -43,7 +43,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "+5xwTQaeJQKwOTC0/XHChnOoqF0cAm53NTgwWKdHAX7SAr8C5BV57MRgJW49sJ8ITCme8WWbUC7OTxVigRiZCQ=="
+   "sig": "+1rA/GrwKY9Qvw7C8hPrnlXvwVSpYMWq+a4mAqZsgybDYHflmdlMF/5IjYePDNrmzRk02nolnspiGA9W7ta2Bw=="
   }
  ],
  "module": "task-hints"

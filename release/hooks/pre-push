@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Freedom guard before every push (docs/DEVELOPMENT.md). Enable once per clone:
+#   git config core.hooksPath release/hooks
+top=$(git rev-parse --show-toplevel) || exit 1
+for py in python python3; do
+  if "$py" -c "import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)" >/dev/null 2>&1; then
+    exec "$py" "$top/release/freedom_guard.py" pre-push "$@"
+  fi
+done
+echo "freedom guard: no Python 3.9+ found; push refused" >&2
+exit 1

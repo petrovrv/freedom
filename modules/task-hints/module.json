@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "task-hints",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "title": "Task hints",
   "description": "Suggests next to the model picker which agent and model did best on this kind of task (code, Word, Excel, translation, editing, summary, reasoning, web) in the model bench. A suggestion only: the person switches the agent.",
   "ext": ">=1 <2",

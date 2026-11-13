@@ -1,0 +1,9 @@
+<Project>
+  <!-- Freedom F10 (SPEC §3.6): desktop parts of modules compiled into CO Desktop. Any modules/<id>/desktop/<Name>.csproj
+       of the tree is one (assembly name = project file name); the core names none of them. CO.Core lets them use its
+       internal tool helpers, CO.Desktop references them and lists them in its assembly metadata (key CO.ModulePart),
+       from which the app creates their IConnectorModule types. A tree without such a folder builds the core alone. -->
+  <ItemGroup>
+    <CoModulePart Include="$(MSBuildThisFileDirectory)..\modules\*\desktop\*.csproj" />
+  </ItemGroup>
+</Project>

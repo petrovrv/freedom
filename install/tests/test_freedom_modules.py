@@ -204,6 +204,42 @@ class ModulesTest(unittest.TestCase):
         self.assertEqual(inst["config"], {"publicUrl": "https://pc.example.ts.net"})
 
 
+class DockerVariantTest(unittest.TestCase):
+    """Variant B/C (rehearsal 13.11): the server is the Docker stack - db.php with the stack's key, no SSH, no keyring."""
+
+    def setUp(self):
+        fm._DOCKER.clear()
+        self.calls = []
+
+        class Host:
+            def secret(_, name):
+                return "stack-key" if name == "push_key" else None
+
+        fake_fd = mock.Mock()
+        fake_fd.http_req = lambda s, path, method, body, headers, ca=None, limit=200000: (
+            self.calls.append((path, headers, limit)) or (200, {}, '{"ok": true, "modules": []}'))
+        fm._DOCKER.update(fd=fake_fd, s={}, h=Host())
+        self.p = mock.patch.object(fm.aiwb_install, "get", side_effect=lambda k, d=None: "C" if k == "variant" else d)
+        self.p.start()
+
+    def tearDown(self):
+        self.p.stop()
+        fm._DOCKER.clear()
+
+    def test_host_call_uses_the_stack_key_and_reads_all(self):
+        with mock.patch("keyring.get_password", side_effect=AssertionError("keyring of another install")):
+            self.assertEqual(fm.host_call({"action": "list"}), {"ok": True, "modules": []})
+        path, headers, limit = self.calls[0]
+        self.assertEqual((path, headers["X-CO-Push-Key"], limit), ("/agent/db.php", "stack-key", None))
+
+    def test_ssh_client_honours_another_install_json(self):
+        with mock.patch.dict(fm.os.environ, {"AIWB_INSTALL": "x.json"}, clear=False), \
+                mock.patch.object(fm.aiwb_install, "ssh_connect", return_value="own-ssh") as sc:
+            fm.os.environ.pop("AIWB_HZ_DIR", None)
+            self.assertEqual(fm.ssh_client(), "own-ssh")
+            sc.assert_called_once()
+
+
 class Ext1ManifestTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

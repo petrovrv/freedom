@@ -59,3 +59,11 @@ db.json
 oauth-client*.json
 codesign.json
 config.php
+
+# Freedom guard: the checks that keep personal data out of the public history (a change could weaken them)
+release/export_freedom.py
+release/freedom_guard.py
+release/freedom-export.json
+release/hooks/
+.devtree.json
+release/public/.devtree.json

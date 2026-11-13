@@ -54,7 +54,8 @@ namespace AiWorkbenchBridge.Tests
             Check(g, "linux user with space refused", "False", PcTools.ValidLinuxUser("so fia").ToString());
             Check(g, "owner path relative refused", "null", PcTools.OwnerPath("src\\a.cs", out why) ?? "null");
             Check(g, "owner path device refused", "null", PcTools.OwnerPath("\\\\.\\PhysicalDrive0", out why) ?? "null");
-            Check(g, "owner path git-bash form", @"C:\AIWorkbench\x.txt", PcTools.OwnerPath("/c/AIWorkbench/x.txt", out why) ?? "null");
+            if (Path.DirectorySeparatorChar == '\\')   // owner paths are Windows paths (pc_* runs on the Windows host only)
+                Check(g, "owner path git-bash form", @"C:\AIWorkbench\x.txt", PcTools.OwnerPath("/c/AIWorkbench/x.txt", out why) ?? "null");
             Check(g, "sh quote", "'a'\\''b'", PcTools.ShQuote("a'b"));
 
             // realpath check of the sandbox prelude, run by Git Bash (same realpath -m as in the distro)
@@ -111,6 +112,10 @@ namespace AiWorkbenchBridge.Tests
             Check(g, "edit not found", "null", PcTools.Replace("abc", "q", "Y", false, out count, out why) ?? "null");
 
             // ---- real processes: output cut, timeout, kill
+#if NET8_0_OR_GREATER
+            if (!OperatingSystem.IsWindows())   // .NET 8 on macOS/Linux: pc_* runs on the Windows host only (powershell, Git Bash, ping.exe)
+                return;
+#endif
             string dir = Path.Combine(Path.GetTempPath(), "aiwb-pc-tests");
             Directory.CreateDirectory(dir);
             PcRun r = NewRun(dir, "big", 60);

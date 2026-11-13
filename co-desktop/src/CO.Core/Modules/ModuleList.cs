@@ -11,7 +11,12 @@ namespace CO.Core.Modules;
 // settings page may call on the device it is shown on, the sha256 of its device/ files and the per-device default.
 // The core knows no module by name: everything here comes from that list.
 
-public sealed record ModuleUiEntry(string Slot, string Id, string Entry, string Title);
+public sealed record ModuleUiEntry(string Slot, string Id, string Entry, string Title)
+{
+    public string Path { get; init; } = "";        // ui.page: an extra top-level address of CO Web ("" = only /x/<module>/<id>)
+    public bool Window { get; init; }              // ext/1 ui.window: a desktop app opens this page in its own window
+    public string WindowKey { get; init; } = "";   // query parameter naming one window ("" = the whole address)
+}
 
 public sealed record ModuleToolSpec(string Name, RiskClass Class, string Description, JsonObject? Input, string Run,
     IReadOnlyList<string> Platforms, bool Untrusted)
@@ -37,6 +42,12 @@ public sealed class ModuleEntry
     public IReadOnlyDictionary<string, string> Files { get; init; } = new Dictionary<string, string>();  // device/<rel> -> sha256
     public bool DefaultOn { get; init; } = true;              // per-device default (manifest device.default)
     public string Warning { get; init; } = "";                // shown before the module is switched on on a device
+    public IReadOnlyList<string> Navigate { get; init; } = Array.Empty<string>();   // ext/1 navigate: https origins, site paths
+
+    /// <summary>The ui.page of an enabled module that a desktop app opens in its own window for this address path
+    /// (/x/&lt;module&gt;/&lt;page&gt; or the page's own path); null when none.</summary>
+    public ModuleUiEntry? WindowPage(string path) => !Enabled ? null : Ui.FirstOrDefault(u => u.Slot == "ui.page" && u.Window
+        && (path == $"/x/{Id}/{u.Id}" || (u.Path.Length > 0 && path == u.Path)));
 
     public bool HasDevicePart => Tools.Count > 0 || DeviceOps.Count > 0;
     public ModuleToolSpec? Tool(string name) => Tools.FirstOrDefault(t => t.Name == name);
@@ -50,6 +61,9 @@ public static class ModuleList
     static readonly System.Text.RegularExpressions.Regex OpRe = new("^[a-z][a-z0-9_]{2,40}$");
     static readonly System.Text.RegularExpressions.Regex DeviceFileRe = new("^device/[A-Za-z0-9._/-]+$");
     static readonly System.Text.RegularExpressions.Regex EntryRe = new(@"^ui/[A-Za-z0-9._/-]+\.html$");
+    static readonly System.Text.RegularExpressions.Regex PagePathRe = new("^/[a-z0-9][a-z0-9-]{1,40}$");
+    static readonly System.Text.RegularExpressions.Regex WindowKeyRe = new("^[A-Za-z][A-Za-z0-9_-]{0,30}$");
+    static readonly System.Text.RegularExpressions.Regex NavRe = new(@"^(https://[a-z0-9.-]+(:\d{1,5})?|/[A-Za-z0-9._/-]{1,80})$");
     static readonly string[] Slots = { "ui.header", "ui.page", "ui.panel", "ui.settings" };
 
     public static bool ValidId(string id) => IdRe.IsMatch(id);
@@ -87,6 +101,7 @@ public static class ModuleList
                     : new Dictionary<string, string>(),
                 DefaultOn = dev == null || Str(dev, "default") != "off",
                 Warning = dev == null ? "" : Str(dev, "warning"),
+                Navigate = Strings(m["navigate"]).Where(n => NavRe.IsMatch(n) && !n.Contains("..")).Distinct().ToList(),
             });
         }
         return list;
@@ -100,7 +115,13 @@ public static class ModuleList
         {
             string slot = Str(u, "slot"), entry = Str(u, "entry");
             if (!Slots.Contains(slot) || !EntryRe.IsMatch(entry) || entry.Contains("..")) continue;
-            list.Add(new ModuleUiEntry(slot, Str(u, "id") is { Length: > 0 } id ? id : slot, entry, Str(u, "title")));
+            bool page = slot == "ui.page";
+            list.Add(new ModuleUiEntry(slot, Str(u, "id") is { Length: > 0 } id ? id : slot, entry, Str(u, "title"))
+            {
+                Path = page && PagePathRe.IsMatch(Str(u, "path")) ? Str(u, "path") : "",
+                Window = page && Bool(u, "window"),
+                WindowKey = page && WindowKeyRe.IsMatch(Str(u, "windowKey")) ? Str(u, "windowKey") : "",
+            });
         }
         return list;
     }

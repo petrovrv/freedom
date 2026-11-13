@@ -75,8 +75,11 @@ namespace AiWorkbenchBridge.Tests
             Check(g, "hooks by event", "1/1/0", Modules.Hooks("job.after", "owner").Count + "/" + Modules.Hooks("job.before", "owner").Count + "/" + Modules.Hooks("job.after", "member2").Count);
             Check(g, "library tools", "acme-hr", String.Join(",", Modules.LibraryTools(Modules.Get("acme")).ToArray()));
             Check(g, "registered resources: core agents only", "fast", String.Join(",", Modules.Resources(Modules.Get("acme")).ConvertAll(delegate(Dictionary<string, object> r) { return DeviceWire.S(r, "id"); }).ToArray()));
-            ProcessStartInfo psi = BridgeApplicationContext.ModuleServiceStartInfo(home, svcs[0], @"C:\py\python.exe", @"C:\tools\home-tool\home-tool.py");
-            Check(g, "service command line", "C:\\tools\\home-tool\\home-tool.py serve --port 8093|C:\\tools\\home-tool|home", psi.Arguments + "|" + psi.WorkingDirectory + "|" + psi.EnvironmentVariables["AIWB_MODULE"]);
+            // the tool path in the form of the host OS (.NET 8 on macOS/Linux: '\' is not a separator)
+            string toolDir = Path.DirectorySeparatorChar == '\\' ? @"C:\tools\home-tool" : "/opt/tools/home-tool";
+            string toolPy = Path.Combine(toolDir, "home-tool.py");
+            ProcessStartInfo psi = BridgeApplicationContext.ModuleServiceStartInfo(home, svcs[0], @"C:\py\python.exe", toolPy);
+            Check(g, "service command line", toolPy + " serve --port 8093|" + toolDir + "|home", psi.Arguments + "|" + psi.WorkingDirectory + "|" + psi.EnvironmentVariables["AIWB_MODULE"]);
 
             // schedules: kind schedule with cron or every, tool or home/ code; a schedule with a windowsTask stays with Windows
             ModuleSpec sched = Modules.Parse("{\"id\":\"sched\",\"version\":\"1\",\"provides\":{\"services\":["

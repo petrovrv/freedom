@@ -11,11 +11,32 @@ import sys
 import time
 
 LOCAL = os.environ.get("LOCALAPPDATA") or str(pathlib.Path.home() / "AppData" / "Local")
-DEF_REPO = os.environ.get("AIWB_SOURCE") or r"C:\AIWorkbench\source"
+# 0.8.0: the main tree can be chosen by a config file (the switch of the core to the public repository changes one
+# file, not every agent's command line). Order: command line > environment > config file > built-in default.
+CONFIG_PATH = os.environ.get("AIWB_DEVTREE_CONFIG") or os.path.join(LOCAL, "AIWorkbench", "devtree.json")
+
+
+def _load_config(path):
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as e:
+        print(f"warning: devtree config ignored ({path}): {e}", file=sys.stderr)
+        return {}
+
+
+CONFIG = _load_config(CONFIG_PATH)
+DEF_REPO = os.environ.get("AIWB_SOURCE") or CONFIG.get("repo") or r"C:\AIWorkbench\source"
 # Read-only mirror clone on Drive (same origin); empty string disables mirror updates
-DEF_MIRROR = os.environ.get("AIWB_MIRROR", r"G:\My Drive\AI-Workbench\source")
-DEF_WORK = os.path.join(LOCAL, "AIWorkbenchWork")
-DEF_LOCKS = r"G:\My Drive\AI-Workbench\transport\locks"
+DEF_MIRROR = os.environ["AIWB_MIRROR"] if "AIWB_MIRROR" in os.environ else CONFIG.get("mirror", r"G:\My Drive\AI-Workbench\source")
+DEF_WORK = CONFIG.get("workRoot") or os.path.join(LOCAL, "AIWorkbenchWork")
+DEF_LOCKS = CONFIG.get("locks") or r"G:\My Drive\AI-Workbench\transport\locks"
+# 0.8.0: a repository may ask for checks of its own in .devtree.json at its root (e.g. a public repository: nothing
+# personal may be merged or pushed): {"guard": [argv with {range} {base} {head}], "hooksPath": "dir"}
+REPO_FILE = ".devtree.json"
 ALLOWED = set("abcdefghijklmnopqrstuvwxyz0123456789-")
 POLL = 2
 MERGE_LOCK = "source-merge"
@@ -344,8 +365,62 @@ def unlink_node_modules(worktree) -> list[str]:
     return removed
 
 
+def repo_settings(tree):
+    """.devtree.json of a working tree ({} when absent or broken; a broken file is reported, not fatal)."""
+    p = pathlib.Path(tree) / REPO_FILE
+    if not p.is_file():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8-sig"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError) as e:
+        raise Exit(1, f"{p}: {e}")
+
+
+def ensure_hooks(repo, out):
+    """Set core.hooksPath asked by .devtree.json (e.g. the pre-push guard of a public repository)."""
+    want = repo_settings(repo).get("hooksPath")
+    if not want:
+        return
+    have = run(["config", "--get", "core.hooksPath"], repo, check=False).stdout.strip()
+    if have != want:
+        run(["config", "core.hooksPath", want], repo)
+        out.say(f"core.hooksPath set to {want} (.devtree.json)")
+
+
+def guard_gate(tree, repo, base, head, out, when):
+    """Run the repository's own guard (.devtree.json "guard") on base..head; exit 7 when it finds something.
+    --force does not bypass it: what it protects (personal data in a public history) cannot be taken back."""
+    cmd = repo_settings(tree).get("guard")
+    if not cmd:
+        return
+    if not isinstance(cmd, list) or not all(isinstance(x, str) for x in cmd):
+        raise Exit(1, f"{REPO_FILE}: guard must be a list of strings")
+    base_sha = run(["rev-parse", base], tree).stdout.strip()
+    head_sha = run(["rev-parse", head], tree).stdout.strip()
+    rng = f"{base_sha}..{head_sha}"
+    argv = [x.replace("{range}", rng).replace("{base}", base_sha).replace("{head}", head_sha) for x in cmd]
+    if argv and argv[0] in ("python", "python3", "py"):
+        argv[0] = sys.executable
+    out.say(f"guard ({when}): {' '.join(cmd)}")
+    try:
+        p = subprocess.run(argv, cwd=str(tree), capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=900, env=ENV)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise Exit(7, f"guard could not run: {e}", guard={"ok": False, "when": when, "error": str(e)})
+    tail = [l for l in (p.stdout + p.stderr).splitlines() if l.strip()][-40:]
+    out.data["guard"] = {"ok": p.returncode == 0, "when": when, "exitCode": p.returncode, "range": rng}
+    if p.returncode:
+        for l in tail:
+            out.say("  " + l)
+        raise Exit(7, f"guard refused {rng} (exit {p.returncode}): fix the branch (amend/rebase it, nothing is "
+                      "published yet) and repeat", guard=out.data["guard"])
+    out.say("guard clean" + (f": {tail[-1]}" if tail else ""))
+
+
 def cmd_start(a, out):
     check_name(a.name)
+    ensure_hooks(a.repo, out)
     br, path = f"agent/{a.name}", pathlib.Path(a.work_root) / a.name
     if branch_exists(a.repo, br):
         raise Exit(1, f"branch {br} already exists")
@@ -683,6 +758,7 @@ def cmd_finish(a, out):
     if not wt:
         raise Exit(1, f"no worktree for {br}")
     W = lambda *args, check=True: run(["-C", str(wt), *args], repo, check)
+    ensure_hooks(repo, out)
     if porcelain(wt, repo):
         W("add", "-A")
         W("commit", "-m", a.message)
@@ -699,6 +775,7 @@ def cmd_finish(a, out):
                 out.say(f"conflict: {f}")
             raise Exit(2, f"rebase onto main failed and was aborted: {clean_err(r.stderr)}", conflicts=files)
         protected_gate(wt, repo, br, a, out, "final")  # after the rebase: main's list and diff as they are merged
+        guard_gate(wt, repo, "main", "HEAD", out, "final")  # 0.8.0: the repository's own check of what is merged
         info, st = acquire(a.locks, MERGE_LOCK, owner, 10, 120, out)
         if st == "busy":
             raise Exit(3, f"lock {MERGE_LOCK} busy: {describe(info)}", holder=info)
@@ -737,7 +814,7 @@ def cmd_finish(a, out):
     head = run(["log", "-1", "--format=%h %s"], repo).stdout.strip()
     out.data.update(name=a.name, head=head, kept=a.keep)
     out.say(f"main HEAD: {head}")
-    publish(a, out)
+    publish_or_exit(a, out)
 
 
 def _norm(path):
@@ -767,7 +844,17 @@ def publish(a, out) -> dict:
     if not a.no_push:
         try:
             remote = run(["remote", "get-url", "origin"], a.repo, check=False)
-            if remote.returncode == 0:
+            if remote.returncode == 0 and repo_settings(a.repo).get("guard"):
+                # 0.8.0: what has not reached origin yet passes the repository's guard before it is pushed
+                upstream = "origin/main" if run(["rev-parse", "-q", "--verify", "origin/main"], a.repo,
+                                               check=False).returncode == 0 else "main~0"
+                try:
+                    guard_gate(a.repo, a.repo, upstream, "main", out, "push")
+                except Exit as e:
+                    result["guard"] = False
+                    out.say(f"push refused: {e}")
+                    remote = None
+            if remote is not None and remote.returncode == 0:
                 r = run(["push", "origin", "main"], a.repo, check=False)
                 if r.returncode == 0:
                     result["pushed"] = True
@@ -804,9 +891,19 @@ def publish(a, out) -> dict:
     return result
 
 
+def publish_or_exit(a, out):
+    """publish(); a push refused by the guard ends the command with exit 7 (main stays merged locally, unpushed)."""
+    result = publish(a, out)
+    if result.get("guard") is False:
+        raise Exit(7, "main was not pushed: the guard found something in origin/main..main; fix it with a new "
+                      "commit that removes it AND rewrite the unpushed commits (they are not public yet)")
+    return result
+
+
 def cmd_sync(a, out):
     """Push main to origin and update the mirror."""
-    publish(a, out)
+    ensure_hooks(a.repo, out)
+    publish_or_exit(a, out)
 
 
 def cmd_drop(a, out):

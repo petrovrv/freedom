@@ -1,5 +1,20 @@
 # Changelog
 
+Changes of all components (Bridge, CO Web, server, CO Desktop / CO Resident, installer, modules, core tools); each
+line names the component and its version. How releases are made: `docs/DEVELOPMENT.md`.
+
+## Unreleased
+
+- **This repository is now the upstream of the core** (`docs/DEVELOPMENT.md`): maintainers develop in a clone of it;
+  their own installations are this tree plus a private layer that never enters it.
+- **Guard** (`release/export_freedom.py guard`, `release/freedom_guard.py`, `release/hooks/pre-push`, CI job
+  `guard`, devtree `.devtree.json`): the tree and every new commit (added lines, file names, message, author) are
+  checked for personal data, secrets and module names in the core before a merge or a push.
+- devtree 0.8.0: main tree from `devtree.json`, the repository's guard before merge and push.
+- task-hints 0.1.1: neutral labels of the corporate models; the module of 0.2.0 failed signature verification
+  because the export changed its hint data after signing.
+- Bridge: `BridgeCorporate.cs` renamed `BridgeModules.cs` (the generic module gateway).
+
 ## 0.2.0 (2026-11-13)
 
 Everything that is not the core is now a module.

@@ -13,12 +13,12 @@ CLI:      python aiwb_install.py check                      validate the file
           python aiwb_install.py members-commands           members.php lines that put the members into the database
           python aiwb_install.py bridge-patch [CONFIG]      what Bridge config.json lacks (siteUrl, push.ownerEnv, environments)
           python aiwb_install.py ext-config OUT              site.js of the browser extension (the CO site; OUT = <extension folder>/site.js)
-          python aiwb_install.py client-json OUT            the part apps embed at build time (site, members, Google project,
-                                                            connectors.corporate: default of CO Desktop's corporate connectors);
+          python aiwb_install.py client-json OUT            the part apps embed at build time (site, members, Google project);
                                                             no file -> OUT is removed (the build gets empty defaults)
-          python aiwb_install.py corporate-manifest [DEST]  copy connectors/corporate/manifest.json of this tree where Bridge
-                                                            and CO Desktop read it (%LOCALAPPDATA%/AIWorkbench/connectors/
-                                                            corporate/manifest.json); no module in the tree -> DEST removed
+          python aiwb_install.py corporate-manifest [DEST]  legacy: copy modules/corporate/connector-manifest.json of this tree
+                                                            where Bridge reads a gateway before its module is installed
+                                                            (%LOCALAPPDATA%/AIWorkbench/connectors/corporate/manifest.json);
+                                                            no such file in the tree -> DEST removed
 """
 import json
 import os
@@ -212,8 +212,7 @@ def client_json() -> dict:
     """What CO Desktop and CO Resident embed: no ssh, paths or server layout. No install.json: FileNotFoundError."""
     load()
     return {'schema': 1, 'site': {'url': get('site.url', '')}, 'google': {'projectNumber': get('google.projectNumber', '')},
-            'members': [{k: m[k] for k in ('env', 'email', 'name', 'role') if k in m} for m in get('members', [])],
-            'connectors': {'corporate': get('connectors.corporate', False) is True}}
+            'members': [{k: m[k] for k in ('env', 'email', 'name', 'role') if k in m} for m in get('members', [])]}
 
 
 def main(argv):
@@ -251,7 +250,7 @@ def main(argv):
         return 0
     if cmd == 'corporate-manifest':
         # Freedom F1 5b: the corporate connector's manifest next to install.json (Bridge 1.13+ reads it there)
-        src = Path(__file__).resolve().parents[1] / 'connectors' / 'corporate' / 'manifest.json'
+        src = Path(__file__).resolve().parents[1] / 'modules' / 'corporate' / 'connector-manifest.json'
         dest = Path(argv[2]) if len(argv) > 2 else path().parent / 'connectors' / 'corporate' / 'manifest.json'
         if not src.is_file():
             dest.unlink(missing_ok=True)

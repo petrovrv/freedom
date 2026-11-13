@@ -7,7 +7,7 @@ using CO.Core.Tools;
 namespace CO.Core.Connectors;
 
 // External services the agent reaches from this device (CO Desktop → Connectors): the agent browser, the Claude
-// account's cloud connectors, and those of connector modules (connectors/corporate: mail, document sites, portals).
+// account's cloud connectors, and those of the desktop parts of modules (e.g. mail, document sites, portals).
 // Each one has its own sign-in and session; the user ticks the same boxes as for folders (Read, Create, Edit, Delete)
 // and a ticked box is the permission.
 

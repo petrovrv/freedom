@@ -66,8 +66,8 @@
    "timeout": 420
   },
   {
-   "id": "codex-chat-site-pong",
-   "title": "Codex chat on site host replies pong",
+   "id": "codex-chat-site-refused",
+   "title": "Codex on site host is refused (hosting thread limit) and points to Home",
    "host": "site",
    "agent": "codex",
    "mode": "chat",
@@ -79,11 +79,12 @@
    },
    "prompt": "Reply with exactly one word: pong. No punctuation, no other text.",
    "expect": {
+    "status": "failed",
     "contains": [
-     "pong"
+     "send the message to Home"
     ]
    },
-   "timeout": 420
+   "timeout": 180
   },
   {
    "id": "claude-cowork-home-write-file",
@@ -377,8 +378,7 @@
     "contains": [
      "CODEX-OK-7"
     ]
-   },
-   "xfail": "Codex sandbox on Windows cannot write to G: (Google Drive); writes need the auto-reviewer approval"
+   }
   },
   {
    "id": "claude-chat-home-no-delete-outside-workdir",

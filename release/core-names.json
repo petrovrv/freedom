@@ -1,0 +1,48 @@
+{
+  "comment": "Freedom F10: release/check_core_names.py. terms = names that must not be in the core besides the names the modules declare (module id, ops, device tools, library tools, gateway models). legacyWire = exact tokens deployed Bridges, devices and old rows still send or read (masked before the scan; drop one when nothing uses it any more). outside = paths that are not core code (documents, release scripts). genericWords = module names that are ordinary words (not counted). ratchet = modules still being moved out of the core: release/tests/test_core_free_of_modules.py leaves them to the baseline of check_core_names.py (only fewer hits allowed) instead of requiring zero.",
+  "terms": [
+    "engie",
+    "tractebel",
+    "corporate"
+  ],
+  "genericWords": [
+    "dispatcher"
+  ],
+  "legacyWire": [
+    "corporateBlocked",
+    "engieBlocked",
+    "corporateWaiting",
+    "engieWaiting",
+    "corporateDomains",
+    "engieTokens",
+    "engieNum",
+    "\"engie\"",
+    "info.engie",
+    "[[corporate-blocked]]",
+    "[[engie-blocked]]",
+    "\"corporate\"",
+    "info.corporate",
+    "public bool? corporate",
+    "corporate_resume",
+    "engie_resume",
+    "engie_off",
+    "public string engie",
+    "AIWB_CORPORATE_MANIFEST"
+  ],
+  "outside": [
+    "docs/",
+    "tools/",
+    "release/",
+    ".github/",
+    "*/CHANGELOG.md",
+    "*.md",
+    "*/tests/samples/*",
+    "*/tests/*",
+    "*.selftest.ts",
+    "*/test_*.py",
+    "*.example.json"
+  ],
+  "ratchet": [
+    "corporate"
+  ]
+}

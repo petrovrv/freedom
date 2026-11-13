@@ -1,7 +1,7 @@
 ---
 name: aiwb-evals
 description: Golden-task suite of AI Workbench — 18 real jobs through the database queue (Claude/Codex/Dispatcher, home and site, permissions, device tools, corporate-model delegation, no-send, secrets, tool library) with PASS/FAIL checks. Run after every Bridge release (and after big CO Web/site changes).
-version: 0.1.3
+version: 0.1.4
 entry: aiwb-evals.py
 requires: [paramiko]
 platform: windows
@@ -43,6 +43,7 @@ python aiwb-evals.py run [--only id1,id2] [--skip id] [--parallel 3] [--host sit
 
 ## История
 
+- 0.1.4 — 2026-11-13 — Codex на хосте site: сценарий `codex-chat-site-refused` ждёт отказа «send the message to Home» (с агента сайта 1.2.1 GPT там не предлагается — лимит потоков хостинга); ответом считается `agentFinalResponse`, иначе `error` результата; у `codex-cowork-home-write-file` снята пометка известной проблемы (запись на G: проходит: 2 из 2 прогонов против Bridge 1.17.0); короткие сбои MySQL хостинга (ERROR 2002/2013/1040) повторяются, а не валят сценарий.
 - 0.1.3 — 2026-11-13 — проверки без ложных FAIL: запись файла через Write, PowerShell или Bash; секрет — `tool_input_not_used` (ответ может показать пользователю команду), удаление — «didn't exist», краткое изложение — pump или P-101.
 - 0.1.2 — 2026-11-12 — Freedom export: personal values from install.json, neutral docs (SSH — `site.ssh`, база — `site.db.name`, окружение — владелец из `members`, устройство — `evals.device`; сценарии корпоративной модели названы нейтрально).
 - 0.1.1 — 2026-10-17 — сценарий connectors_status без живой проверки (check=false): живые проверки открывали сайты в браузере CO пользователя. Прогон против Bridge 1.3.4: 18/18 (1 известная проблема).

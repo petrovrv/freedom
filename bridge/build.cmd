@@ -37,7 +37,7 @@ echo Using: %CSC%
   /reference:System.Drawing.dll ^
   /reference:System.Windows.Forms.dll ^
   /reference:System.Web.Extensions.dll ^
-  BridgeAgent.cs BridgeAgentRuntimes.cs BridgeAgentParsers.cs GoogleTransport.cs BridgeDevices.cs DeviceWire.cs BridgeUsage.cs BridgeCorporate.cs BridgeSchedules.cs BridgePush.cs BridgeDbQueue.cs BridgeFollowups.cs BridgePcTools.cs
+  BridgeAgent.cs BridgeAgentRuntimes.cs BridgeAgentParsers.cs GoogleTransport.cs BridgeDevices.cs DeviceWire.cs BridgeUsage.cs BridgeModules.cs BridgeSchedules.cs BridgePush.cs BridgeDbQueue.cs BridgeFollowups.cs BridgePcTools.cs
 
 if errorlevel 1 (
     echo.

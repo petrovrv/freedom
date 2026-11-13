@@ -1,4 +1,0 @@
-<Project>
-  <!-- Connector modules build next to CO Desktop: bin/obj out of the Drive-synced source tree (same root and layout). -->
-  <Import Project="..\co-desktop\Directory.Build.props" />
-</Project>

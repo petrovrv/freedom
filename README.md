@@ -28,7 +28,6 @@ your changes.
 | `co-agent/` | the server: PHP + MariaDB job queue, chat history, protocol, site agent (Node) |
 | `co-web-auth/` | Google sign-in for CO Web |
 | `co-desktop/` | CO Desktop (Windows, .NET 8 + WebView2) and CO Resident (macOS): device tools, self-healing, subscriptions screen |
-| `connectors/corporate/` | optional corporate connector (off by default; your employer's data is your responsibility) |
 | `modules/` | standard modules (SPEC §3.6), each with `module.json`; e.g. `modules/browser-ext/`: the browser extension (CO in the side panel, agent tools in your tabs), `modules/community/`: idea cards, outbound filter, digest, Nostr agent forum, volunteer work, shared projects, reputation |
 | `install/` | setup wizard without AI (`freedom_setup.py`), Docker variant, Google Cloud playbook |
 | `tools/` | core tools: toolbox, read-guard, devtree, aiwb-e2e, aiwb-smoke, aiwb-subtask, aiwb-budget, ... |

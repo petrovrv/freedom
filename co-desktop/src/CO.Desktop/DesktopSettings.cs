@@ -10,8 +10,8 @@ public sealed class DesktopSettings
     public string WebUrl { get; set; } = InstallDefaults.SiteUrl.Length > 0 ? InstallDefaults.SiteUrl + "/" : "";
     // 0.7.5: width (DIP) of the device panel; changed by dragging the splitter, double-click resets to 380.
     public double PanelWidth { get; set; } = 380;
-    // 0.9.2 (canvas M6): last position and size of a canvas window (DIP); null until one is closed.
-    public WindowBounds? CanvasWindow { get; set; }
+    // Freedom F10 (ext/1 ui.window): last position and size (DIP) of the window of a module page, by "<module>/<page>".
+    public Dictionary<string, WindowBounds> PageWindows { get; set; } = new(StringComparer.Ordinal);
     public string HostId { get; set; } = "home-main";
     public string WorkbenchRootName { get; set; } = "AI-Workbench";
     public string OwnerEmail { get; set; } = InstallDefaults.OwnerEmail;
@@ -25,10 +25,9 @@ public sealed class DesktopSettings
     // 0.8.3: owner's choice to switch the managed-device profile (TZ §9.6) off on a domain/Entra-joined computer;
     // read at start (Connectors -> Managed-device profile -> Apply and restart).
     public bool ManagedProfileOff { get; set; }
-    // Freedom F1: corporate connectors (connectors/corporate: mail and calendar, document sites by link, team chats, portals,
-    // external AI through the CO browser). Off unless install.json turns them on; read at start (Connectors tab ->
-    // Corporate connectors -> Apply and restart). A desktop.json without the key gets the install default.
-    public bool CorporateConnectors { get; set; } = InstallDefaults.CorporateConnectors;
+    // Keys this version does not know (settings of older versions, e.g. the switch of a module part before Freedom F10),
+    // kept on save so a module part can take its old choice over (App.cs, IConnectorModule.LegacySetting).
+    [System.Text.Json.Serialization.JsonExtensionData] public Dictionary<string, JsonElement>? Legacy { get; set; }
     // Environment -> Google account of its user (TZ-CO-WEB §5).
     public Dictionary<string, string> Members { get; set; } = InstallDefaults.Members;
 

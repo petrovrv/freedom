@@ -1,7 +1,7 @@
 # Module corporate (employer assistants)
 
 Second probe of the Freedom module format (SPEC §3.6, §3.7, stage F10). Before F10 the core knew a "corporate
-connector" from `connectors/corporate/manifest.json` (server `corporate-lib.php`, CO Web `corporate.ts` embedded at
+connector" from `connectors/corporate/manifest.json` (now `connector-manifest.json` here; server `corporate-lib.php`, CO Web `corporate.ts` embedded at
 build, Bridge `BridgeCorporate.cs`). Now the description comes from this module and the core only knows a generic
 **model gateway** (ext/1 `models` + `device.tools`): a confidential model reached through a device tool of kind `llm`,
 optionally with a dispatcher agent that delegates writing to it.
@@ -30,16 +30,19 @@ No `--enable`: the module stays off (paused). The installer uploads the server p
 `%LOCALAPPDATA%\AIWorkbench\modules\corporate` for Bridge and switches `sap-hr` off in toolbox. Turning it on later:
 CO Web → Host → Modules, or `freedom_modules.py enable corporate` — never call the employer's services while it is off.
 
-## What CO Desktop must load (agent B, branch `desktop-modules`)
+## Desktop part (CO Desktop)
 
-The desktop part stays in `connectors/corporate/desktop` (project `CO.Corporate`, tests in `connectors/corporate/tests`)
-until the protected files that build it allow the move to `modules/corporate/desktop/` (`.github/workflows/ci.yml`,
-`co-desktop/publish.cmd`, `install/freedom_setup.py`, `CO.Desktop.sln`):
+`desktop/` (project `CO.Corporate`, tests in `tests/CO.Corporate.Tests`) is compiled into CO Desktop by the generic
+`co-desktop/ModuleParts.props` (modules/EXT1.md, *Device parts compiled into CO Desktop*); the core names neither the
+project nor the module.
 
-- `IConnectorModule` `CO.Corporate.CorporateModule` (today created in `App.cs` when `DesktopSettings.CorporateConnectors`
-  is on). With the module loader of CO Desktop it should be loaded when the module `corporate` is installed and enabled
-  for the device's environment (the server's `modules_list` answer: `enabled`, `gateways[]`), not by a desktop setting.
-- Its tools must be exactly `provides.deviceTools` of `module.json` (names and risk class; the device's own approval
-  rules apply: R runs, W/D ask unless the environment is trusted).
-- Heartbeat: keep sending `corp {id, state, num}` (wire name; Bridge reads the sign-in state and number from it).
+- `IConnectorModule` `CO.Corporate.CorporateModule` (id `corporate`) is registered when the module is installed, signed
+  by the maintainers, enabled and on for the device (CO Desktop → Connectors → Modules); turning it on or off applies
+  after a restart of CO Desktop. Per device it is off by default (`device.default: "off"`, with the warning of
+  `device.warning`); the explicit choice of the older desktop setting `CorporateConnectors` (CO Desktop before 0.13.0)
+  becomes the device switch once (`LegacySetting`).
+- Its tools are the `provides.deviceTools` of `module.json` (names and risk class; the device's own approval rules apply).
+- Heartbeat: keeps sending `corp {id, state, num}` (wire name; Bridge reads the sign-in state and number from it).
 - Settings panels (`SettingsPanels`, WPF) become `ui.settings` pages of this module later (SPEC §3.6, decision 0.9.1).
+- `connector-manifest.json` is the Freedom F1 connector manifest (`install/aiwb_install.py corporate-manifest`), read by
+  Bridge only while the module is not installed on that PC.

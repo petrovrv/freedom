@@ -1,0 +1,5 @@
+{
+  "comment": "devtree (tools/devtree): every merge into main and every push passes the Freedom guard (docs/DEVELOPMENT.md); hooksPath enables release/hooks/pre-push for manual pushes too",
+  "guard": ["python", "release/freedom_guard.py", "range", "{range}"],
+  "hooksPath": "release/hooks"
+}

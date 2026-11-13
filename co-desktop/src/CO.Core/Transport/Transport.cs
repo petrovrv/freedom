@@ -31,7 +31,7 @@ public sealed class Heartbeat
     // 0.8.2: current sign-in number challenge of that connector, as "<id>:<NN>" so Bridge pushes each number once to the
     // owner's phone; "" when no sign-in is waiting for a number.
     [JsonPropertyName("engieNum")] public string ConnectorNumber { get; set; } = "";
-    // Freedom F1 5b: the same as {id, state, num} under the new name (Bridge 1.13 reads it first); engie / engieNum stay
+    // Freedom F1 5b: the same as {id, state, num} under the new name (Bridge 1.13 reads it first); the two fields above stay
     // the legacy wire for older Bridge. Null (not written) without a connector session.
     [JsonPropertyName("corp")] public CorpHeartbeat? Corp { get; set; }
 

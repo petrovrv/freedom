@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Freedom F1 (SPEC §3): corporate connectors of CO Desktop (ENGIE AI Studio, Tractebel Portal, Teams, SAP Fiori,
-       Outlook, SharePoint/OneDrive by link, Okta sign-in), off by default (desktop.json CorporateConnectors). Windows only:
-       Outlook goes through COM and the settings panels are WPF; CO.Desktop compiles it into its single-file exe. -->
+       Outlook, SharePoint/OneDrive by link, Okta sign-in), off by default (module corporate, registered while enabled). Windows only:
+       Outlook goes through COM and the settings panels are WPF; CO.Desktop compiles it into its single-file exe (co-desktop/ModuleParts.props). -->
   <PropertyGroup>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <UseWPF>true</UseWPF>

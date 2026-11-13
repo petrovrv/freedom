@@ -36,7 +36,7 @@ public sealed class AgentBrowserConnector : Connector
         get
         {
             if (_managed)
-                return "Disabled on managed devices by company policy: the agent does not drive a browser with corporate sessions.";
+                return "Disabled on managed devices by company policy: the agent does not drive a browser with company sign-ins.";
             // 0.9.0: blocklist instead of allowlist.
             var block = _store.Current.Block;
             return "The agent drives its own tab of the CO browser (with your sign-ins), one tab per job, on any public site "

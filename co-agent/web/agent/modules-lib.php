@@ -289,9 +289,32 @@ function co_module_ui(array $m): array
         // CO Web never lets it shadow one of its own routes
         $path = (string)($u['path'] ?? '');
         if ($slot === 'ui.page' && preg_match(CO_MODULE_PATH_RE, $path) && !in_array(explode('/', $path)[1], CO_MODULE_CORE_PATHS, true)) $row['path'] = $path;
+        // ext/1 ui.window: a desktop app (CO Desktop, CO Resident) opens this page in its own window when CO Web opens it
+        // in a new tab; windowKey = the query parameter that names one window (one window per value, e.g. per file)
+        if ($slot === 'ui.page' && ($u['window'] ?? false) === true) {
+            $row['window'] = true;
+            if (is_string($u['windowKey'] ?? null) && preg_match('#^[A-Za-z][A-Za-z0-9_-]{0,30}$#', $u['windowKey'])) $row['windowKey'] = $u['windowKey'];
+        }
         $out[] = $row;
     }
     return $out;
+}
+
+/**
+ * ext/1 provides.client {kind: "browser-extension", id}: origins of the browser extensions of enabled modules. Their
+ * panel frames CO Web, so module pages (agent/module.php) allow them as frame ancestors; CO Web's own page gets the same
+ * list at build time from the modules of its tree (co-web/vite.config.ts, .htaccess).
+ */
+function co_module_ext_origins(mysqli $db): array
+{
+    $out = [];
+    foreach (co_modules($db) as $m) {
+        $c = $m['manifest']['provides']['client'] ?? null;
+        if ($m['enabled'] && is_array($c) && ($c['kind'] ?? '') === 'browser-extension' && preg_match('#^[a-p]{32}$#', (string)($c['id'] ?? ''))) {
+            $out[] = 'chrome-extension://' . $c['id'];
+        }
+    }
+    return array_values(array_unique($out));
 }
 
 /** Outside services a module imports from (manifest provides.import): CO Web labels imported chats with them. */

@@ -121,6 +121,39 @@ public class ModuleTests
     }
 
     [Fact]
+    public void WindowPagesComeFromTheList()
+    {
+        // ext/1 ui.window: a ui.page with "window": true of an enabled module, by /x/<module>/<page> or its own path
+        var list = ModuleList.Parse("""
+            {"ext":1,"modules":[
+              {"id":"ed","enabled":true,"navigate":["https://pc.example.net","/auth/login.php","http://plain.example","javascript:x"],
+               "ui":[{"slot":"ui.page","id":"editor","entry":"ui/editor.html","title":"Editor","path":"/ed","window":true,"windowKey":"path"},
+                     {"slot":"ui.page","id":"share","entry":"ui/share.html","path":"/ed-share"},
+                     {"slot":"ui.panel","id":"p","entry":"ui/p.html","window":true}]},
+              {"id":"off","enabled":false,"ui":[{"slot":"ui.page","id":"x","entry":"ui/x.html","window":true}]}]}
+            """)!;
+        var ed = list[0];
+        Assert.Equal(new[] { "https://pc.example.net", "/auth/login.php" }, ed.Navigate);
+        Assert.Equal("editor", ed.WindowPage("/ed")?.Id);
+        Assert.Equal("path", ed.WindowPage("/x/ed/editor")!.WindowKey);
+        Assert.Null(ed.WindowPage("/ed-share"));     // a page without window opens as before
+        Assert.Null(ed.WindowPage("/x/ed/p"));       // only ui.page
+        Assert.False(ed.Ui.Single(u => u.Id == "p").Window);
+        Assert.Null(list[1].WindowPage("/x/off/x")); // a disabled module gets no window
+    }
+
+    [Fact]
+    public void SeedSwitchNeverOverridesAChoice()
+    {
+        using var f = new Fixture();
+        var l = new ModuleLoader(new ToolCatalog(), Path.Combine(f.Root, "data"), null);
+        Assert.True(l.SeedSwitch("m", false));    // an older setting taken over once
+        Assert.False(l.SeedSwitch("m", true));    // never over a switch already set
+        var again = new ModuleLoader(new ToolCatalog(), Path.Combine(f.Root, "data"), null);
+        Assert.False(again.SeedSwitch("m", true));
+    }
+
+    [Fact]
     public void ParseKeepsOnlyValidEntries()
     {
         var list = ModuleList.Parse(ListJson())!;

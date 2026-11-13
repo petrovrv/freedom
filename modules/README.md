@@ -9,7 +9,7 @@ uploads the server part (standard modules only), registers the module on the ser
 copies the folder to the home PC's local modules folder for Bridge (`AIWB_MODULES_DIR`, else
 `%LOCALAPPDATA%\AIWorkbench\modules\<id>`; `~/.local/share/AIWorkbench/modules` on macOS/Linux).
 
-## Bridge's module loader (bridge/BridgeCorporate.cs, to be renamed BridgeModules.cs)
+## Bridge's module loader (bridge/BridgeModules.cs)
 
 Every minute the host owner's Bridge rescans the local folders and asks the server for the switches
 (`modules_host` `list`: `enabled`, `people` = each member's personal switch). A module the server does not list is off;

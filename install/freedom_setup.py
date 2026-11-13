@@ -653,7 +653,7 @@ def layout():
     for sub in ('cron', 'db', 'executor'):
         for f in _files(REPO / 'co-agent' / sub, skip=('logs/*', '*.py')):
             parts['home'].append((f, f'{home}/co-agent/{sub}/{f.relative_to(REPO / "co-agent" / sub).as_posix()}'))
-    man = REPO / 'connectors' / 'corporate' / 'manifest.json'
+    man = REPO / 'modules' / 'corporate' / 'connector-manifest.json'
     if install_get('connectors.corporate') is True and man.is_file():
         parts['corporate'].append((man, f'{home}/co-agent/connectors/corporate/manifest.json'))
     return home, web, parts

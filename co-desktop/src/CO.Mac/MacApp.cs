@@ -418,7 +418,7 @@ public static unsafe class MacApp
         {
             if (RespondsTo(action, "shouldPerformDownload") && SendRetBool(action, "shouldPerformDownload")) { policy = 2; return; }
             IntPtr frame = Send(action, "targetFrame");
-            if (frame != IntPtr.Zero && !SendRetBool(frame, "isMainFrame")) return;   // frames inside a CO page (canvas, previews)
+            if (frame != IntPtr.Zero && !SendRetBool(frame, "isMainFrame")) return;   // frames inside a CO page (module pages, previews)
             string? url = UrlOf(Send(Send(action, "request"), "URL"));
             if (url == null || !Uri.TryCreate(url, UriKind.Absolute, out var u)) return;
             if (u.Scheme is "about" or "blob" or "data") return;
@@ -502,7 +502,7 @@ public static unsafe class MacApp
         Log.Write($"window app: download {path} failed: {FromStr(Send(error, "localizedDescription"))}");
     });
 
-    // window.open / target=_blank: CO pages (canvas) get their own window, anything else opens in the default browser.
+    // window.open / target=_blank: CO pages (module pages too) get their own window, anything else opens in the browser.
     [UnmanagedCallersOnly]
     private static IntPtr OnCreateWebView(IntPtr self, IntPtr sel, IntPtr web, IntPtr cfg, IntPtr action, IntPtr features)
     {

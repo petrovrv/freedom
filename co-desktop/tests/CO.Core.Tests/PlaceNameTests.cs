@@ -10,11 +10,24 @@ public class PlaceNameTests
     [Fact]
     public void SyncedFoldersSayWhatTheyBelongTo()
     {
-        var roots = new[] { @"C:\Users\X\OneDrive - Contoso", @"C:\Users\X\Amentum (CMS)\EEX - Documents", @"G:\" };
-        Assert.Equal("OneDrive", PlaceNames.SyncedKind(@"C:\Users\X\OneDrive - Contoso\Actuators", roots));
-        Assert.Equal("Library", PlaceNames.SyncedKind(@"C:\Users\X\Amentum (CMS)\EEX - Documents", roots));
-        Assert.Equal("Google Drive", PlaceNames.SyncedKind(@"G:\My Drive\AI-Workbench", roots));
-        Assert.Null(PlaceNames.SyncedKind(@"C:\Boring", roots));
+        if (OperatingSystem.IsWindows())
+        {
+            var roots = new[] { @"C:\Users\X\OneDrive - Contoso", @"C:\Users\X\Amentum (CMS)\EEX - Documents", @"G:\" };
+            Assert.Equal("OneDrive", PlaceNames.SyncedKind(@"C:\Users\X\OneDrive - Contoso\Actuators", roots));
+            Assert.Equal("Library", PlaceNames.SyncedKind(@"C:\Users\X\Amentum (CMS)\EEX - Documents", roots));
+            Assert.Equal("Google Drive", PlaceNames.SyncedKind(@"G:\My Drive\AI-Workbench", roots));
+            Assert.Null(PlaceNames.SyncedKind(@"C:\Boring", roots));
+        }
+        else
+        {
+            // macOS File Provider folders (the Mac check runs these tests on the Mac; Linux runs them as its proxy)
+            const string cs = "/Users/x/Library/CloudStorage/";
+            var roots = new[] { cs + "OneDrive-Contoso", cs + "SharePoint-EEX - Documents", cs + "GoogleDrive-x@example.org/My Drive" };
+            Assert.Equal("OneDrive", PlaceNames.SyncedKind(cs + "OneDrive-Contoso/Actuators", roots));
+            Assert.Equal("Library", PlaceNames.SyncedKind(cs + "SharePoint-EEX - Documents", roots));
+            Assert.Equal("Google Drive", PlaceNames.SyncedKind(cs + "GoogleDrive-x@example.org/My Drive/AI-Workbench", roots));
+            Assert.Null(PlaceNames.SyncedKind("/Users/x/Boring", roots));
+        }
         Assert.Equal("Amentum (CMS) › EEX - Documents", PlaceNames.Tail(@"C:\Users\X\Amentum (CMS)\EEX - Documents"));
     }
 

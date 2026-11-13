@@ -171,6 +171,14 @@ class FakeHost:
         self.files[name] = value
 
 
+class ApacheConfTest(unittest.TestCase):
+    def test_authorization_reaches_php(self):
+        # rehearsal 13.11: without these lines mod_php never saw "Authorization: Bearer", every bearer call got 403
+        conf = (fd.DOCKER_DIR / 'apache-site.conf').read_text(encoding='utf-8')
+        self.assertIn('CGIPassAuth On', conf)
+        self.assertIn('SetEnvIf Authorization "(.+)" HTTP_AUTHORIZATION=$1', conf)
+
+
 class DockerTargetTest(Base):
     def test_put_many_sends_one_tar_with_new_files_and_a_list(self):
         h = FakeHost()

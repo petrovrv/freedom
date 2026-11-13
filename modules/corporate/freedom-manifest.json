@@ -1,22 +1,137 @@
 {
  "format": "freedom-release/1",
- "version": "0.1.1",
- "created": "2026-11-12T23:36:05Z",
+ "version": "0.1.2",
+ "created": "2026-11-13T10:28:45Z",
  "files": [
+  {
+   "path": "connector-manifest.json",
+   "size": 1871,
+   "sha256": "14326a9165c9d26147827f27e2820c075e23a0fde2c6c92c1deb737f4f71e269"
+  },
   {
    "path": "context/rules.md",
    "size": 667,
    "sha256": "6c33452488be7821adffc5c5cfc1f2f40207cbd7395f492260b99296af840873"
   },
   {
+   "path": "desktop/CO.Corporate.csproj",
+   "size": 1023,
+   "sha256": "d5048982f7d8d2e7c845403de98dbfc89d1c8219d54a0c7655faf712dc69b121"
+  },
+  {
+   "path": "desktop/CorporateConnectors.cs",
+   "size": 13394,
+   "sha256": "b0c54cba215fb58bcaac7aa36e6c106ee061dcefc0d6c18521355b697ef426c0"
+  },
+  {
+   "path": "desktop/CorporateModule.cs",
+   "size": 7434,
+   "sha256": "0d994188e582340ebefa13ceddf31fcbade9b5eddf9d355ffcf88f9273c93c3f"
+  },
+  {
+   "path": "desktop/CorporatePanels.cs",
+   "size": 5422,
+   "sha256": "cc528a682fc27f8f108ad37193096ea392d19b86de23a8f894c1276777ae896a"
+  },
+  {
+   "path": "desktop/GlobalUsings.cs",
+   "size": 453,
+   "sha256": "7f98b10c1d5fbf182dec19839223fc2d5f780a953d176cb5bcc6434830ad8bfa"
+  },
+  {
+   "path": "desktop/Outlook/Outlook.cs",
+   "size": 6434,
+   "sha256": "a430b310fc07e26cb36cfdafb44bc4fbf5abcbc64617971b67518263336fe1c7"
+  },
+  {
+   "path": "desktop/Outlook/OutlookCom.cs",
+   "size": 24605,
+   "sha256": "eb19cef9f3ee670a81432749e13ce34c3b8616ab4aa97f72b2614c20ffe12c75"
+  },
+  {
+   "path": "desktop/SharePoint/EngieOktaIdx.cs",
+   "size": 17124,
+   "sha256": "c2b87a8f3fb3faf1be39676a91447c9a3097257ed0fdfdab988119430b52e9bd"
+  },
+  {
+   "path": "desktop/SharePoint/SharePointNames.cs",
+   "size": 2004,
+   "sha256": "015d1260b20e704ed67cdf9a7dbfaf96e2c15969672948b300032ce2f51bdf85"
+  },
+  {
+   "path": "desktop/SharePoint/SharePointService.cs",
+   "size": 29985,
+   "sha256": "9c40a42086525129412591e65f6d77b9bea9329d70e36d05c77f02eb6c2a5ad8"
+  },
+  {
+   "path": "desktop/SharePoint/SharePointTools.cs",
+   "size": 18676,
+   "sha256": "ac889e92167d5b03c85e0f3dacc01f1f78cf17789bf7586cf98b2d71789a32e7"
+  },
+  {
+   "path": "desktop/Tools/EngieHeartbeat.cs",
+   "size": 9463,
+   "sha256": "82c5c6d03ba54673bcff720a0906a7115c0a1766a50ac6d451699485aace4bb4"
+  },
+  {
+   "path": "desktop/Tools/EngieKeepAlive.cs",
+   "size": 9343,
+   "sha256": "bdc2051a05ea4fa8a28bf736689a43dee7e8981ab3edbc150b229b438e4b9342"
+  },
+  {
+   "path": "desktop/Tools/EngiePromptSanitizer.cs",
+   "size": 4141,
+   "sha256": "e8704fbfc0bd65e6d903435f1740d8ad9ff520b48979fbfb97f983048ba78abf"
+  },
+  {
+   "path": "desktop/Tools/EngieState.cs",
+   "size": 6742,
+   "sha256": "aeddb82b6a79f5bd9dfb3e32c32cf81bc68eb2a5073d953612205ba1195ae328"
+  },
+  {
+   "path": "desktop/Tools/EngieTools.cs",
+   "size": 25434,
+   "sha256": "101363e623e0a0c86b93c1957239d47cd02ede58fd5b306cfc8d88c81e2e032a"
+  },
+  {
+   "path": "desktop/Tools/OutlookTools.cs",
+   "size": 34624,
+   "sha256": "9634646a37c48bd3945d1b0183ae15de43566c2540a463430822fb4e325f9a83"
+  },
+  {
+   "path": "desktop/Tools/SapSession.cs",
+   "size": 3216,
+   "sha256": "816200be55547f21d822301b1b3177094c73bcb8ff72df9d174102aa8052fa5b"
+  },
+  {
+   "path": "desktop/Tools/SapTools.cs",
+   "size": 22408,
+   "sha256": "0cd3ebb8e337d7848c470a421b18e885946534fe3f6c3e866b5df693c631e157"
+  },
+  {
+   "path": "desktop/Tools/SharePointFs.cs",
+   "size": 7323,
+   "sha256": "e392a980cd2d852bda5620339ebe4647f419b4d8529e7f18ad7c578c7989a463"
+  },
+  {
+   "path": "desktop/Tools/TeamsTools.cs",
+   "size": 21463,
+   "sha256": "7afdd2231989e0595b7d3930061ab0c41450772e9875f4270dd54d8c891e73b8"
+  },
+  {
+   "path": "desktop/Tools/TractebelTools.cs",
+   "size": 23072,
+   "sha256": "4cd80b0b34f125c027400da8d6e869ba9de6ed182878f8ab73b981fc93e06627"
+  },
+  {
    "path": "module.json",
-   "size": 6025,
-   "sha256": "3566ddda3be20940740155e4c25b767056e30a7c7b322667f5d78d435ac8cbb5"
+   "size": 6340,
+   "sha256": "bc0f3d61f8e6275a9c33540ee4279af54ad01c0c1c198835eb792c328519ca3c"
   },
   {
    "path": "README.md",
-   "size": 4103,
-   "sha256": "c115548b3bbf0ee3032d59be604079a4a63efcf74fc03afde8124b21f685a19a"
+   "size": 4334,
+   "sha256": "a5348193d1ac272dd9fd98f943f9079eef2aee73130285fadda53c5f4cfe369b"
   },
   {
    "path": "server/ops.php",
@@ -27,13 +142,73 @@
    "path": "server/resume-lib.php",
    "size": 16987,
    "sha256": "92af251420ca72686926da977328fc8bd7472e440fe7790f49b480b7f4d5af95"
+  },
+  {
+   "path": "tests/CO.Corporate.Tests/CO.Corporate.Tests.csproj",
+   "size": 1146,
+   "sha256": "023aa00dc8ee02938d11bda6be79ac78dec810931f7db3fdd7904ce72e71b25d"
+  },
+  {
+   "path": "tests/CO.Corporate.Tests/CorporateConnectorTests.cs",
+   "size": 5514,
+   "sha256": "d753da67326435f39c061a4b53011e282b50a90ae71fa0a695b6de359de219a8"
+  },
+  {
+   "path": "tests/CO.Corporate.Tests/CorporateModuleTests.cs",
+   "size": 3367,
+   "sha256": "069e1e861ade098bbc3b5dd6f86181fc4103b034a750b99f59e348ec029a98ac"
+  },
+  {
+   "path": "tests/CO.Corporate.Tests/EngieOktaIdxTests.cs",
+   "size": 7350,
+   "sha256": "bb32f11dd9187d9287c107710dd1c5e218443611bd0d5a9d0f97e84cc1f18ce8"
+  },
+  {
+   "path": "tests/CO.Corporate.Tests/EngiePromptSanitizerTests.cs",
+   "size": 4443,
+   "sha256": "4e77250c33a3016274480570a50a5b8e73e0dde44f61fc1f6091530d69e8db66"
+  },
+  {
+   "path": "tests/CO.Corporate.Tests/GlobalUsings.cs",
+   "size": 366,
+   "sha256": "4ce99b53a7a4c93dd8502da7a0eaf55c780265dacbd8eb42efb96eb504457b94"
+  },
+  {
+   "path": "tests/CO.Corporate.Tests/OutlookToolTests.cs",
+   "size": 14043,
+   "sha256": "22fde1fe7025fdcf3a8de5e6b3aa8a8a4e05914b11031c015cc6e339717bbb4e"
+  },
+  {
+   "path": "tests/CO.Corporate.Tests/PortalTeamsTests.cs",
+   "size": 4120,
+   "sha256": "388d4c5df60748d711f7a57c4e690009572939ac15044a284da41ddc1bbecf7e"
+  },
+  {
+   "path": "tests/CO.Corporate.Tests/SapToolsTests.cs",
+   "size": 12864,
+   "sha256": "ed9e158f6a772c30e24c537b11d7e46748e82b3523466cac31e54321ff1cfa90"
+  },
+  {
+   "path": "tests/CO.Corporate.Tests/SharePointFolderTests.cs",
+   "size": 15854,
+   "sha256": "41696531cc04b3e8ed226b89196db859f04b03f932a68488f0748ad73548d221"
+  },
+  {
+   "path": "tests/CO.Corporate.Tests/SharePointNameTests.cs",
+   "size": 909,
+   "sha256": "c1b0fc40da9a6f6c6287595b683a5e7d0d3177785b0354f6a172a74b2af8a021"
+  },
+  {
+   "path": "tests/CO.Corporate.Tests/SharePointToolTests.cs",
+   "size": 6391,
+   "sha256": "5b0923b2c6d9b75e42f946c15d0422c23bb3d2068e893bacc74f46b1b3531dff"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "XIZo0ss3qIqmt4Iv1oA7bsI9UZTavdpp/x0nCJ+hHmRxy3oXlEiyVNj2k1cSfyv6xdpk90iYU9X4doOUzK0rBw=="
+   "sig": "flFI1MRfQ7SZtpqUsjacrPIZj11TR0Ix50yJuanhmbscgoFfGGyoMvISoVzqssCuIXDNvTrXCPrbquYLgESaAg=="
   }
  ],
  "module": "corporate"

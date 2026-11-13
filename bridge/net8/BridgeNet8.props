@@ -42,7 +42,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)..\BridgeDevices.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\DeviceWire.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\BridgeUsage.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)..\BridgeCorporate.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\BridgeModules.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\BridgeSchedules.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\BridgePush.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\BridgeDbQueue.cs" />

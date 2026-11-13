@@ -42,6 +42,12 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
     the .NET SDK); Bridge config path on Linux fixed (`~/.local/share`). `aiwb_install.py bridge-config --posix`.
   - `release/build_installers.py`: `BridgeAgent-<bridge>-linux-x64` and `-linux-arm64` into the release (own build
     root, private-word check of the own assembly; `--skip-bridge`). Guide: `install/PILOT-FRIEND.md`, section "Linux".
+  - Bridge 1.19.0, devices on Linux: the device-call key outside Windows is kept in the keyring (was CNG only, so the
+    whole device hub and the relay were off on Linux); config `devices.relayHomeShort` (short name of `h-<host>`,
+    default `home`; a second computer of the owner needs its own). `install.sh --system-user NAME` (as root: system
+    account, sources/build/install.json into its home, linger, run as the account; `--uninstall` also removes the
+    account it made), `--put-secret NAME` (stdin into the account's keyring), `--relay-short`, `--relay-tools`, the
+    tool library of the source tree for `h-<host>` (`AIWB_TOOLS`), apt with needrestart suspended.
 
 ## 0.4.0 (2026-11-13)
 

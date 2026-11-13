@@ -126,14 +126,23 @@ What `bridge/install.sh` does (`bash bridge/install.sh --help`):
   key and channel instead.
 - **Service:** `aiworkbench-bridge.service` of the user's systemd (`Restart=always`) and `loginctl enable-linger`, so
   it starts at boot without a login and survives logouts. A user service, not a system one: Bridge runs the agent CLIs
-  with their sign-in in this account's home, as the logon task on Windows does, and no part runs as root. Dedicated
-  account: `sudo useradd -m aiwb && sudo -iu aiwb`, then the steps above as that user.
+  with their sign-in in this account's home, as the logon task on Windows does, and no part runs as root.
+- **Dedicated account (a server):** `sudo bash bridge/install.sh --system-user aiwb --deps [options]` creates the
+  system account `aiwb` (home `/var/lib/aiwb`, no password), copies the sources, the release build and install.json
+  into its home, switches linger on and runs the steps as `aiwb`. The host key goes in through stdin:
+  `printf %s "$KEY" | sudo bash bridge/install.sh --system-user aiwb --put-secret aiwb/co-push`. Service commands of the
+  admin: `sudo systemctl --user -M aiwb@ status|restart aiworkbench-bridge`; CLI sign-in: `sudo -iu aiwb`. Removal:
+  `sudo bash bridge/install.sh --system-user aiwb --uninstall` (services, linger, the account and its home; only an
+  account the script made). Packages are installed with needrestart suspended: no service of the machine restarts.
 - `config.json` (`~/.local/share/AIWorkbenchBridge/config.json`) comes from `install.json`: agent CLIs without `.exe`,
   `chatFolderWaitSeconds: 0` (no chat folder comes through Drive for desktop), `--host-id ID` for the host name.
   `bash bridge/install.sh --uninstall` removes the services (config, logs, keyring and channel stay).
+- **Devices:** the device-call key lives in the keyring; the computer is device `h-<hostId>` of the owner's site jobs
+  (the tool library of the source tree, `--relay-tools a,b` = the tools the site may run) — give it its own
+  `--relay-short NAME` (the site agent's server `dev_<NAME>`; `home` is the Windows PC's).
 
-Limits (13.11.2026): the server's queue knows the executors `home-main` and `site` only (`db.php` `DB_QUEUE_HOSTS`), so
-until executors can be registered a Linux Bridge takes the role `home-main` — instead of the Windows PC's Bridge, not
-next to it (two Bridges with one host id share its jobs). Not on Linux: tray, CO Desktop / devices (device tools need
-the Windows key store), `runAs`, Google sign-in from the tray (`BridgeAgent --google-connect <client.json>` needs a
-browser on that computer; Bridge works through the database queue without it).
+Limits (14.11.2026): the server's queue knows the executors `home-main` and `site` only (`db.php` `DB_QUEUE_HOSTS`), so
+until executors can be registered a Linux Bridge with its own host id serves only as a device (relay), or takes the
+role `home-main` instead of the Windows PC's Bridge (two Bridges with one host id share its jobs). Not on Linux: tray,
+CO Desktop (a Windows app; pairing a device to a Linux Bridge is not tested), `pc_*` tools, `runAs`, Google sign-in from the tray (`BridgeAgent
+--google-connect <client.json>` needs a browser on that computer; Bridge works through the database queue without it).

@@ -125,7 +125,15 @@ class InstallShTest(unittest.TestCase):
         text = self.SH.read_text(encoding='utf-8')
         # secrets go only through secret-tool / the keyring; the keyring's own unlock password is the one file (0600)
         self.assertIn('umask 077', text)
-        self.assertNotIn('co-push', text)
+        # --put-secret: the value comes on stdin into secret-tool, never as an argument or a file
+        self.assertRegex(text, r'as_account secret-tool store --label="\$PUT_SECRET" service "\$PUT_SECRET" username default')
+
+    def test_root_mode_guards(self):
+        text = self.SH.read_text(encoding='utf-8')
+        self.assertIn('NEEDRESTART_SUSPEND=1', text)          # apt must not restart the machine's services
+        self.assertIn('MARK=".aiworkbench-bridge-account"', text)
+        self.assertIn('if [ ! -f "$SYSHOME/$MARK" ]', text)   # only an account this script made is deleted
+        self.assertIn('useradd --system', text)
 
 
 if __name__ == '__main__':

@@ -1,7 +1,7 @@
 ---
 name: aiwb-modelbench
 description: Quality matrix of agents and models by task type (code, docx, xlsx, translate, edit, summary, reasoning, web) — runs golden tasks on Claude/Codex subscriptions and corporate models (engie_chat), regex checks + corporate-model judge, writes report.md, recommendations.json and the hint data of the Freedom module task-hints. Use to choose an agent/model per task type or to refresh the recommendations.
-version: 0.2.1
+version: 0.2.2
 entry: aiwb-modelbench.py
 requires: []
 platform: windows
@@ -20,7 +20,7 @@ aiwb-modelbench строит матрицу качества агентов и �
 python aiwb-modelbench.py list
 python aiwb-modelbench.py run [--targets ids] [--tasks ids] [--categories cats] [--job JOB-ID | --mcp-config PATH] [--min-left 30] [--parallel-cli 2] [--rerun] [--dry-run] [--out DIR]
 python aiwb-modelbench.py judge [--judge-model claude-opus-5.5] [--job JOB-ID] [--rejudge]
-python aiwb-modelbench.py report
+python aiwb-modelbench.py report [--corporate auto|on|off] [--module DIR]
 ```
 
 - `list` выводит цели и задачи из `tasks.json`.
@@ -88,6 +88,10 @@ python aiwb-modelbench.py report
 3. Среди кандидатов выбирается тариф в порядке: engie, лёгкая подписка, тяжёлая подписка. При равном тарифе выбирается цель с меньшим временем ответа.
 4. Резервная цель — цель с наибольшей оценкой среди агентов, отличных от агента рекомендованной цели.
 
+## Корпоративные модели и модуль corporate (с 0.2.2)
+
+Корпоративные цели (`tier: engie`, агенты `engie` и `dispatcher`) участвуют, только пока включён модуль Freedom `corporate`: `--corporate auto` (по умолчанию) смотрит его в `tool-modules.json` (toolbox, `modstate.py`), без записи — `connectors.corporate` в install.json, без него — выключено. Выключен — `run` их пропускает (кроме явно названных в `--targets`), `report` не рекомендует их и не пишет в `recommendations.json`, `hint-data.js` и `taskHintData.ts`; в матрице `report.md` старые оценки остаются, строка «Corporate models» говорит, учтены ли они. `--corporate on|off` — вручную. Подписи корпоративных целей в отчёте и подсказках не называют работодателя: скобка в конце подписи заменяется на «(corporate)».
+
 ## Ограничения и известные проблемы
 
 - **Контроль лимитов.** Перед каждым вызовом Claude или Codex скрипт читает `transport/hosts/home-main/limits.json`. Если в любом окне этого агента использовано более `100 − min-left` процентов, пара записывается как `skipped` и не получает оценку.
@@ -99,5 +103,6 @@ python aiwb-modelbench.py report
 
 ## История
 
+- **0.2.2** — 2026-11-13 — корпоративные цели только при включённом модуле `corporate` (`--corporate auto|on|off` у `run` и `report`): иначе их нет в рекомендациях и данных подсказки task-hints; имя работодателя в подписях больше не вписывается (у корпоративных целей всегда «(corporate)»). Проверено на results.jsonl 18.10 без новых прогонов: выключено — 0 корпоративных записей в hint-data.js, включено — подписи только «(corporate)».
 - **0.2.1** — 2026-11-13 — нейтральные названия для экспорта Freedom: подписи корпоративных моделей «(corporate)» вместо бренда работодателя в tasks.json, SKILL.md и комментариях; поведение не изменилось.
 - **0.1.0** — 2026-10-18 — первая версия, код написан корпоративной моделью claude-opus-5.5.

@@ -113,11 +113,14 @@ def apply_check(task, answer):
 
 def build_pairs(cfg, args):
     t_ids, k_ids, cats = split_ids(args.targets), split_ids(args.tasks), split_ids(args.categories)
+    corp = corporate_on(getattr(args, "corporate", "auto"))
     pairs = []
     for t in cfg["targets"]:
         if t_ids and t["id"] not in t_ids:
             continue
         if t.get("disabled"):  # target known to be unavailable (reason in tasks.json)
+            continue
+        if not corp and is_corporate(t) and not (t_ids and t["id"] in t_ids):  # 0.2.2: module corporate off
             continue
         for k in cfg["tasks"]:
             cat = k.get("category")
@@ -452,6 +455,37 @@ def _md(s):
     return str(s).replace("|", "\\|")
 
 
+def corporate_on(mode="auto"):
+    """0.2.2: are corporate models (agent engie, Dispatcher) available here? on/off, or auto: the Freedom module
+    corporate in tool-modules.json (toolbox/modstate.py), else install.json connectors.corporate, else off."""
+    if mode in ("on", "off"):
+        return mode == "on"
+    try:
+        sys.path.insert(0, str(SCRIPT_DIR.parent / "toolbox"))
+        import modstate
+        m = modstate.load()["modules"].get("corporate")
+        if isinstance(m, dict):
+            return bool(m.get("enabled"))
+    except Exception:  # noqa: BLE001 - no toolbox next to this tool: fall back to install.json
+        pass
+    path = os.environ.get("AIWB_INSTALL") or str(LOCAL / "AIWorkbench" / "install.json")
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            return bool(((json.load(f) or {}).get("connectors") or {}).get("corporate"))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def is_corporate(meta):
+    return meta.get("tier") == "engie" or meta.get("agent") in ("engie", "dispatcher")
+
+
+def neutral_label(label, corporate=False):
+    """A corporate target's label names no employer: its '(...)' suffix becomes '(corporate)'."""
+    label = str(label or "")
+    return re.sub(r"\s*\([^)]*\)\s*$", "", label) + " (corporate)" if corporate else label
+
+
 def cmd_report(args):
     data = load_tasks(args.tasks_file)
     tasks = {t["id"]: t for t in data.get("tasks", [])}
@@ -493,7 +527,8 @@ def cmd_report(args):
         meta.setdefault(tg, {
             "agent": d.get("agent") or r.get("agent"),
             "model": d.get("model") or r.get("model"),
-            "label": d.get("label") or tg,
+            "label": neutral_label(d.get("label") or tg, is_corporate({"tier": d.get("tier") or r.get("tier"),
+                                                                      "agent": d.get("agent") or r.get("agent")})),
             "tier": d.get("tier") or "heavy",
         })
         for key in (cat, "_overall"):
@@ -541,11 +576,14 @@ def cmd_report(args):
         base = f"{m['score']:.1f}{sec}, tier {meta[tg]['tier']}, n={m['n']}"
         return base + (f"; cheapest/fastest of {k} within 0.5 of best {best:.1f}" if k > 1 else "; top score")
 
+    # 0.2.2: corporate targets are recommended (and reach the hint data) only while the module corporate is on
+    corp = corporate_on(getattr(args, "corporate", "auto"))
+    rec_order = [t for t in order if corp or not is_corporate(meta[t])]
     recs, rec_rows = {}, []
     for cat in cats:
         # Only targets that ran every task of the category (cowork file tasks exclude chat-only corporate models)
-        full = max((matrix[t].get(cat, {}).get("n", 0) for t in order), default=0)
-        cands = [t for t in order if full and matrix[t].get(cat, {}).get("n", 0) >= full]
+        full = max((matrix[t].get(cat, {}).get("n", 0) for t in rec_order), default=0)
+        cands = [t for t in rec_order if full and matrix[t].get(cat, {}).get("n", 0) >= full]
         prim, best, k = pick(cands, cat)
         if not prim:
             continue
@@ -567,6 +605,7 @@ def cmd_report(args):
         f"Generated: {now}  ",
         f"Judge: {judge_txt or 'rule-only'}  ",
         f"Scored results: {len(rows)}",
+        f"Corporate models: {'recommended' if corp else 'not recommended (module corporate is off)'}",
         "",
         "## Score matrix (mean score · mean seconds)",
         "",
@@ -642,6 +681,8 @@ def main(argv=None):
     sp.add_argument("--parallel-cli", type=int, default=2)
     sp.add_argument("--rerun", action="store_true")
     sp.add_argument("--dry-run", action="store_true")
+    sp.add_argument("--corporate", choices=("auto", "on", "off"), default="auto",
+                    help="include corporate targets (auto: only while the Freedom module corporate is on)")
     sp.set_defaults(func=cmd_run)
 
     sp = sub.add_parser("judge", parents=[common], help="Score results")
@@ -654,6 +695,8 @@ def main(argv=None):
     sp = sub.add_parser("report", parents=[common], help="Build report.md and recommendations.json")
     sp.add_argument("--provisional", action="store_true", help="score unjudged results by the regex check alone")
     sp.add_argument("--module", help="folder of the Freedom module task-hints: also write its ui/hint-data.js")
+    sp.add_argument("--corporate", choices=("auto", "on", "off"), default="auto",
+                    help="recommend corporate models (auto: the Freedom module corporate is on)")
     sp.set_defaults(func=cmd_report)
 
     args = p.parse_args(argv)

@@ -29,9 +29,11 @@ def _load_config(path):
 
 
 CONFIG = _load_config(CONFIG_PATH)
-DEF_REPO = os.environ.get("AIWB_SOURCE") or CONFIG.get("repo") or r"C:\AIWorkbench\source"
+# 0.8.1: the core is Freedom (C:\AIWorkbench\freedom); AIWB_SOURCE is still read as an older name of AIWB_FREEDOM
+DEF_REPO = (os.environ.get("AIWB_FREEDOM") or os.environ.get("AIWB_SOURCE") or CONFIG.get("repo")
+            or r"C:\AIWorkbench\freedom")
 # Read-only mirror clone on Drive (same origin); empty string disables mirror updates
-DEF_MIRROR = os.environ["AIWB_MIRROR"] if "AIWB_MIRROR" in os.environ else CONFIG.get("mirror", r"G:\My Drive\AI-Workbench\source")
+DEF_MIRROR = os.environ["AIWB_MIRROR"] if "AIWB_MIRROR" in os.environ else CONFIG.get("mirror", r"G:\My Drive\AI-Workbench\freedom")
 DEF_WORK = CONFIG.get("workRoot") or os.path.join(LOCAL, "AIWorkbenchWork")
 DEF_LOCKS = CONFIG.get("locks") or r"G:\My Drive\AI-Workbench\transport\locks"
 # 0.8.0: a repository may ask for checks of its own in .devtree.json at its root (e.g. a public repository: nothing

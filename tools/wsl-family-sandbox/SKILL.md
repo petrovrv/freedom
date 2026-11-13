@@ -1,7 +1,7 @@
 ---
 name: wsl-family-sandbox
 description: Children's WSL2 sandbox aiwb-family on the home PC (Ubuntu 24.04) — household members (install.json members) compile and run code (C/C++, Python, Node LTS, .NET 8, Java 21, Rust) without seeing the owner's files, Windows drives, other distros, LAN or tailnet; cgroup limits on CPU/memory/processes, disk image per user, own netns with internet only, auto-clean of /tmp. Commands create / status / add-user / reset-user / del-user / check / run / destroy. Use to (re)build the sandbox or to run a child's command (the Bridge pc_* interface).
-version: 0.1.3
+version: 0.1.4
 entry: wsl-family-sandbox.py
 requires: [WSL 2.6+ (wsl --install --name/--location/--vhd-size), internet for apt/nodejs.org on create]
 secrets: []
@@ -63,6 +63,7 @@ uid детей — с 3001: правило `meta skuid` действует на 
 
 ## История
 
+- 0.1.4 — 2026-11-13 — члены домохозяйства по умолчанию — через `install/aiwb_install.py` ядра Freedom: `AIWB_FREEDOM` (старое имя `AIWB_SOURCE`), затем `repo` из `%LOCALAPPDATA%\AIWorkbench\devtree.json`, затем `C:\AIWorkbench\freedom`; архив `C:\AIWorkbench\source` больше не нужен.
 - 0.1.3 — 2026-11-13 — тексты без имён членов семьи (экспорт Freedom); поведение не изменилось.
 - 0.1.2 — 2026-11-12 — `add-user`/`create` отказываются от существующей учётки дистрибутива вне uid 3001–3998 (root, daemon …): раньше она переводилась в песочницу (ревью шага 6a мастера Freedom).
 

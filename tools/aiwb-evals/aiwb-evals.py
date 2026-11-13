@@ -26,9 +26,22 @@ from datetime import datetime, timezone
 sys.stdout.reconfigure(encoding='utf-8')
 
 
+def _core_dirs():
+    """Core tree with install/aiwb_install.py: AIWB_FREEDOM / AIWB_SOURCE, devtree.json "repo", C:/AIWorkbench/freedom."""
+    dirs = [os.environ.get("AIWB_FREEDOM"), os.environ.get("AIWB_SOURCE")]
+    local = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
+    try:
+        with open(os.environ.get("AIWB_DEVTREE_CONFIG") or os.path.join(local, "AIWorkbench", "devtree.json"),
+                  encoding="utf-8-sig") as f:
+            dirs.append((json.load(f) or {}).get("repo"))
+    except (OSError, ValueError, AttributeError):
+        pass
+    return dirs + [r"C:\AIWorkbench\freedom", os.path.expanduser("~/AIWorkbench/freedom")]
+
+
 def _install():
     """install.json of this install (Freedom) through install/aiwb_install.py of the source tree, or None."""
-    for d in (os.environ.get("AIWB_SOURCE"), r"C:\AIWorkbench\source", os.path.expanduser("~/AIWorkbench/source")):
+    for d in _core_dirs():
         if d and os.path.isfile(os.path.join(d, "install", "aiwb_install.py")):
             if os.path.join(d, "install") not in sys.path:
                 sys.path.insert(0, os.path.join(d, "install"))
@@ -53,7 +66,7 @@ def _ssh():
     except ImportError:
         ai = _install()
         if ai is None:
-            raise SystemExit("no hz.py and no install/aiwb_install.py (set AIWB_SOURCE to the source tree)")
+            raise SystemExit("no hz.py and no install/aiwb_install.py (set AIWB_FREEDOM to the Freedom tree)")
         return ai.ssh_connect()
 
 

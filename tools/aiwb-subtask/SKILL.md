@@ -1,7 +1,7 @@
 ---
 name: aiwb-subtask
 description: Nested sessions for AI Workbench agents — start subtasks that run in parallel as child chats (own agent/model/host, visible in CO Web with status icons), then wait and collect their answers into your reply; list the model resources (own subscriptions, the site, family models allowed as slaves, corporate) with their capability cards and call any of them by --resource, on the home PC and on the site. Use when a task splits into independent parts (research several sources, per-file work, compare options) or another model suits a part better.
-version: 0.6.2
+version: 0.6.3
 entry: aiwb-subtask.py
 requires: [keyring (home PC), requests (home PC), paramiko (home PC)]
 secrets: [aiwb/co-push]
@@ -54,6 +54,7 @@ python aiwb-subtask.py post --chat CHAT-ID --prompt "<текст>" [--author "ag
 
 ## История
 
+- 0.6.3 — 2026-11-13 — ядро — Freedom: `install/aiwb_install.py` ищется в `AIWB_FREEDOM` (старое имя `AIWB_SOURCE`), затем `repo` из `%LOCALAPPDATA%\AIWorkbench\devtree.json`, затем `C:\AIWorkbench\freedom`; архив `C:\AIWorkbench\source` больше не нужен.
 - 0.6.2 — 2026-11-12 — Freedom: SSH — hz.py из `~/.ssh` (`AIWB_HZ_DIR`), без него install.json `site.ssh`; база — `AIWB_DB_NAME` или install.json `site.db.name`; адрес db.php — `AIWB_DB_URL` или install.json `site.url`; личных имён в коде нет, поведение у владельца прежнее.
 - 0.6.1 — 2026-11-11 — R2 (ревью Codex S5-02): `spawn --resource` идемпотентен — `requestKey` (sha256 от задания, родителя, ресурса и промпта), повтор при сбое/таймауте/5xx/`in_progress` с тем же ключом, `--again` для нарочного повтора; сервер (db.php `subtask_spawn`) отдаёт тот же чат и задание. Наследование запретов общего чата по цепочке подзадач (S5-01) — на сервере.
 - 0.6.0 — 2026-11-11 — S5: `models` (ресурсы-модели с карточками и флагом slave allowed), `spawn --resource` через сервер (db.php `subtask_spawn`, схема 23), `wait`/`status` через `subtask_poll`; работает и на Site (ключ из `AIWB_DB_KEY_FILE`, адрес `AIWB_DB_URL`, чат `AIWB_CHAT_ID`); keyring/requests/hz импортируются только там, где нужны.

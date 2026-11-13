@@ -1,7 +1,7 @@
 ---
 name: devtree
-description: Separate git worktree per agent for the AI Workbench source (main tree from devtree.json, default C:\AIWorkbench\source, its GitHub origin); start/finish with rebase + fast-forward under a lock, the repository's own guard before merge and push (.devtree.json, e.g. no personal data in a public repository), push to GitHub, update the Drive mirror; atomic release locks (release-co-desktop, release-bridge). Use before editing source or releasing.
-version: 0.8.0
+description: Separate git worktree per agent for the core repository (Freedom; main tree from devtree.json, default C:\AIWorkbench\freedom, its GitHub origin); start/finish with rebase + fast-forward under a lock, the repository's own guard before merge and push (.devtree.json, e.g. no personal data in a public repository), push to GitHub, update the Drive mirror; atomic release locks (release-co-desktop, release-bridge). Use before editing source or releasing.
+version: 0.8.1
 entry: devtree.py
 requires: [git]
 platform: windows
@@ -10,12 +10,12 @@ secrets: []
 
 # devtree
 
-Разводит работу нескольких агентов над репозиторием `G:\My Drive\AI-Workbench\source`: каждый агент правит свою ветку в отдельном worktree и вливает её в `main` под блокировкой. Блокировки выпуска закрывают сценарий 14.10, когда два агента правили одно дерево и выпустили две разные сборки CO Desktop 0.5.1.
+Разводит работу нескольких агентов над репозиторием ядра (с 13.11.2026 — Freedom, `C:\AIWorkbench\freedom`): каждый агент правит свою ветку в отдельном worktree и вливает её в `main` под блокировкой. Блокировки выпуска закрывают сценарий 14.10, когда два агента правили одно дерево и выпустили две разные сборки CO Desktop 0.5.1.
 
 ## Где лежит репозиторий (с 0.2.0)
 
-- Основная рабочая копия — `C:\AIWorkbench\source` (локальный диск), `origin` — репозиторий исходников на GitHub (у владельца приватный). Переопределяется переменной `AIWB_SOURCE` или ключом `--repo`.
-- `G:\My Drive\AI-Workbench\source` — зеркало для просмотра (`--mirror`, переменная `AIWB_MIRROR`; `""` — не обновлять). В зеркале не править и не коммитить.
+- Основная рабочая копия — `repo` из `devtree.json`, без него `C:\AIWorkbench\freedom` (локальный диск), `origin` — репозиторий на GitHub. Переопределяется переменной `AIWB_FREEDOM` (старое имя `AIWB_SOURCE`) или ключом `--repo`.
+- `G:\My Drive\AI-Workbench\freedom` — зеркало для просмотра (`--mirror`, переменная `AIWB_MIRROR`; `""` — не обновлять). В зеркале не править и не коммитить.
 - `finish` после слияния выполняет `git push origin main` и обновляет зеркало (`fetch` + `merge --ff-only`, перед этим удаляет `desktop.ini`, которые Google Drive кладёт в `.git/refs`). Ошибки отправки и зеркала — предупреждения, код выхода 0. `--no-push` — без отправки. `sync` — только отправка и зеркало.
 
 ## Когда применять
@@ -37,7 +37,7 @@ python "G:\My Drive\AI-Workbench\tools\devtree\devtree.py" lock status [RES]
 
 # Глобальные ключи (для любой команды):
 #   --json        вывод одним JSON-объектом
-#   --repo PATH   репозиторий (по умолчанию G:\My Drive\AI-Workbench\source)
+#   --repo PATH   репозиторий (по умолчанию из devtree.json, иначе C:\AIWorkbench\freedom)
 #   --work-root   корень worktree (по умолчанию %LOCALAPPDATA%\AIWorkbenchWork)
 #   --locks PATH  каталог блокировок (по умолчанию G:\My Drive\AI-Workbench\transport\locks)
 ```
@@ -47,7 +47,7 @@ python "G:\My Drive\AI-Workbench\tools\devtree\devtree.py" lock status [RES]
 ## Порядок работы агента
 
 1. Выполнить `start NAME`, около 10 с. Создаётся ветка `agent/NAME` и worktree `%LOCALAPPDATA%\AIWorkbenchWork\NAME`. Запомнить напечатанный путь.
-2. Все правки, сборки и тесты вести только в этом пути. Основную копию в `G:\My Drive\...\source` не трогать.
+2. Все правки, сборки и тесты вести только в этом пути. Основную копию и зеркало на Drive не трогать.
 3. Если задание включает выпуск, захватить блокировку до выбора номера версии: `lock acquire release-co-desktop --owner JOB-... --wait-sec 120`. Код 3 означает, что выпуск ведёт другой агент; ждать его завершения и после этого заново проверить номер версии.
 4. Выполнить `finish NAME -m "MSG"`. Перед слиянием идут кросс-ревью Codex и (для co-web, co-web-auth, co-agent, bridge, co-desktop) сквозная проверка aiwb-e2e.
    - Код 2: rebase отменён, напечатаны конфликтные файлы. Выполнить в worktree `git rebase main`, разрешить конфликты и повторить `finish`.
@@ -100,7 +100,7 @@ python "G:\My Drive\AI-Workbench\tools\devtree\devtree.py" lock status [RES]
 
 ## Основная копия из конфига и guard репозитория (с 0.8.0)
 
-- **Какое дерево основное.** Порядок: ключ `--repo`/`--mirror`/`--work-root`/`--locks` > переменные `AIWB_SOURCE`, `AIWB_MIRROR` > файл `%LOCALAPPDATA%\AIWorkbench\devtree.json` (другой путь — `AIWB_DEVTREE_CONFIG`) с полями `repo`, `mirror`, `workRoot`, `locks` > встроенные значения (`C:\AIWorkbench\source`, зеркало `G:\My Drive\AI-Workbench\source`). Без файла всё как в 0.7. Переключение основной копии (например, на клон публичного репозитория) — правка одного файла, командные строки агентов не меняются.
+- **Какое дерево основное.** Порядок: ключ `--repo`/`--mirror`/`--work-root`/`--locks` > переменные `AIWB_FREEDOM` (или `AIWB_SOURCE`), `AIWB_MIRROR` > файл `%LOCALAPPDATA%\AIWorkbench\devtree.json` (другой путь — `AIWB_DEVTREE_CONFIG`) с полями `repo`, `mirror`, `workRoot`, `locks` > встроенные значения (`C:\AIWorkbench\freedom`, зеркало `G:\My Drive\AI-Workbench\freedom`; до 0.8.1 — `source`). Переключение основной копии (например, на клон публичного репозитория) — правка одного файла, командные строки агентов не меняются.
 - **`.devtree.json` в корне репозитория** (необязателен): `{"guard": ["python", "release/freedom_guard.py", "range", "{range}"], "hooksPath": "release/hooks"}`.
   - `guard` — команда проверки (подстановки `{range}` = `base..head`, `{base}`, `{head}`; `python` заменяется на текущий интерпретатор). `finish` запускает её в worktree после rebase на диапазоне `main..HEAD` ветки; `finish`/`sync` — перед `git push` на `origin/main..main`. Ненулевой код — **код 7**, слияния (или отправки) нет; `--force` её **не** обходит: опубликованное в истории публичного репозитория не забрать. Исправлять — переписать коммиты ветки (amend/rebase), они ещё не опубликованы. Поле `guard` в `--json`.
   - `hooksPath` — `start`, `finish` и `sync` ставят `git config core.hooksPath` (например, хук pre-push с той же проверкой на любой ручной `git push`).
@@ -127,6 +127,7 @@ python "G:\My Drive\AI-Workbench\tools\devtree\devtree.py" lock status [RES]
 
 ## История
 
+- 0.8.1 — 2026-11-13 — по умолчанию ядро Freedom: основная копия `C:\AIWorkbench\freedom`, зеркало `G:\My Drive\AI-Workbench\freedom` (если нет `devtree.json`); переменная `AIWB_FREEDOM`, `AIWB_SOURCE` читается как старое имя. Архив `C:\AIWorkbench\source` больше не нужен.
 - 0.8.0 — 2026-11-13 — основная копия, зеркало, корень worktree и блокировки из `%LOCALAPPDATA%\AIWorkbench\devtree.json` (`AIWB_DEVTREE_CONFIG`), обратная совместимость; `.devtree.json` репозитория: `guard` перед слиянием и перед `git push` (код 7, `--force` не обходит), `hooksPath`. Подготовка разворота разработки Freedom (ядро правится в клоне публичного репозитория). Тесты `test_guard.py` (временные репозитории): конфиг выбирает дерево, guard блокирует слияние и отправку, без `.devtree.json` поведение прежнее.
 
 - 0.7.1 — 2026-11-12 — Freedom: документация без личных путей, имени репозитория владельца и корпоративных имён; код и CLI не изменились.

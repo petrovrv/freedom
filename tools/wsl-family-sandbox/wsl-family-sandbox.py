@@ -15,13 +15,26 @@ FILES = HERE / "files"
 NOWIN = 0x08000000  # CREATE_NO_WINDOW
 DISTRO = "aiwb-family"
 LOCATION = r"C:\AIWorkbench\wsl\aiwb-family"
+def _core_dirs():
+    r"""Core tree with install/aiwb_install.py: AIWB_FREEDOM / AIWB_SOURCE, devtree.json "repo", C:/AIWorkbench/freedom."""
+    dirs = [os.environ.get("AIWB_FREEDOM"), os.environ.get("AIWB_SOURCE")]
+    local = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
+    try:
+        with open(os.environ.get("AIWB_DEVTREE_CONFIG") or os.path.join(local, "AIWorkbench", "devtree.json"),
+                  encoding="utf-8-sig") as f:
+            dirs.append((json.load(f) or {}).get("repo"))
+    except (OSError, ValueError, AttributeError):
+        pass
+    return dirs + [r"C:\AIWorkbench\freedom", os.path.expanduser("~/AIWorkbench/freedom")]
+
+
 def default_users():
     """Household members of this install (install.json members without role owner) as name:uid, uid 3001.. in order.
     AIWB_SANDBOX_USERS="name:uid ..." overrides; [] when neither is known (then pass --users)."""
     env = os.environ.get("AIWB_SANDBOX_USERS", "").split()
     if env:
         return env
-    for d in (os.environ.get("AIWB_SOURCE"), r"C:\AIWorkbench\source", os.path.expanduser("~/AIWorkbench/source")):
+    for d in _core_dirs():
         if d and os.path.isfile(os.path.join(d, "install", "aiwb_install.py")):
             sys.path.insert(0, os.path.join(d, "install"))
             try:

@@ -1,7 +1,7 @@
 ---
 name: aiwb-smoke
 description: Live check of the AI Workbench database job queue — puts one real job (claude, chat, "reply pong") into the queue of a Bridge host and waits for its result; or prints a 24 h queue summary with failure causes (24 h / 7 d) and Bridge supervisor events. Use after a Bridge release or when jobs seem stuck.
-version: 0.3.2
+version: 0.3.3
 entry: aiwb-smoke.py
 requires: [paramiko]
 platform: windows
@@ -41,6 +41,7 @@ python aiwb-smoke.py queue --host test-dbq --project dbq-test # тестовый
 
 ## История
 
+- 0.3.3 — 2026-11-13 — ядро — Freedom: `install/aiwb_install.py` ищется в `AIWB_FREEDOM` (старое имя `AIWB_SOURCE`), затем `repo` из `%LOCALAPPDATA%\AIWorkbench\devtree.json`, затем `C:\AIWorkbench\freedom`; архив `C:\AIWorkbench\source` больше не нужен.
 - 0.3.2 — 2026-11-12 — Freedom: без личных значений по умолчанию — база (`AIWB_DB_NAME` → install.json `site.db.name`), окружение владельца (`AIWB_OWNER_ENV` → install.json), папка hz.py (`AIWB_HZ_DIR` → `~/.ssh`); у владельца результат прежний.
 - 0.3.0 — 2026-11-11 — `queue --prompt/--expect/--tool-like/--mode`: живая проверка своим заданием (вызов домашнего устройства из задания Site).
 - 0.2.0 — 2026-11-03 — `status`: причины упавших заданий 24 ч / 7 д (`job_failures`) и события надзора Bridge (`host_events`), схема 17.
@@ -49,4 +50,4 @@ python aiwb-smoke.py queue --host test-dbq --project dbq-test # тестовый
 
 ## Другая установка (Freedom F2, 0.3.1)
 
-Без `~/.ssh/hz.py` инструмент подключается к сайту по `site.ssh` из install.json (`install/aiwb_install.py` дерева исходников: `AIWB_SOURCE`, иначе `C:\AIWorkbench\source`); имя базы — `site.db.name`, окружение по умолчанию — владелец из `members`. Без install.json — прежние значения.
+Без `~/.ssh/hz.py` инструмент подключается к сайту по `site.ssh` из install.json (`install/aiwb_install.py` ядра: `AIWB_FREEDOM` (старое имя `AIWB_SOURCE`), затем `repo` из `%LOCALAPPDATA%\AIWorkbench\devtree.json`, затем `C:\AIWorkbench\freedom`); имя базы — `site.db.name`, окружение по умолчанию — владелец из `members`. Без install.json — прежние значения.

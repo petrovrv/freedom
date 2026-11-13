@@ -2668,11 +2668,12 @@ namespace AiWorkbenchBridge
         // So a missing chat folder, or a missing scratch of a chat folder younger than 2 min, is waited for first.
         private void WaitForCloudChatFolder(JobRequest request, string scratch)
         {
-            if (Directory.Exists(scratch))
+            int chatWait = _config.chatFolderWaitSeconds ?? 90;
+            if (Directory.Exists(scratch) || chatWait <= 0)
                 return;
             string chatDir = Path.GetDirectoryName(scratch);
             DateTime started = DateTime.UtcNow;
-            DateTime chatDeadline = started.AddSeconds(90);
+            DateTime chatDeadline = started.AddSeconds(chatWait);
             while (!Directory.Exists(chatDir) && DateTime.UtcNow < chatDeadline)
                 Thread.Sleep(2000);
             if (Directory.Exists(chatDir) && DateTime.UtcNow - Directory.GetCreationTimeUtc(chatDir) < TimeSpan.FromMinutes(2))
@@ -6752,6 +6753,9 @@ namespace AiWorkbenchBridge
         public string driveReadyPath { get; set; }
         public string localStateRoot { get; set; }
         public int startupDriveWaitSeconds { get; set; }
+        // v1.19.0: how long a job waits for its chat folder to arrive through Drive for desktop (null: 90 s); 0 on a
+        // computer whose workbench root is a local folder (a Linux server, bridge/install.sh), the folder is made at once.
+        public int? chatFolderWaitSeconds { get; set; }
         public int scanIntervalSeconds { get; set; }
         public int eventFlushSeconds { get; set; }
         public int eventFlushBytes { get; set; }

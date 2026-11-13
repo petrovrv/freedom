@@ -12,9 +12,10 @@ CLI:      python aiwb_install.py check                      validate the file
           python aiwb_install.py server-config              text of ~/co-agent/config.php on the server
           python aiwb_install.py members-commands           members.php lines that put the members into the database
           python aiwb_install.py bridge-patch [CONFIG]      what Bridge config.json lacks (siteUrl, push.ownerEnv, environments)
-          python aiwb_install.py bridge-config OUT [--force] a new Bridge config.json from bridge/config.json.example and
+          python aiwb_install.py bridge-config OUT [--force] [--posix|--windows]
+                                                            a new Bridge config.json from bridge/config.json.example and
                                                             install.json (Freedom 0.4.0 installer; an existing OUT is kept
-                                                            unless --force)
+                                                            unless --force; Linux/macOS form by default off Windows)
           python aiwb_install.py ext-config OUT              site.js of the browser extension (the CO site; OUT = <extension folder>/site.js)
           python aiwb_install.py client-json OUT            the part apps embed at build time (site, members, Google project);
                                                             no file -> OUT is removed (the build gets empty defaults)
@@ -211,9 +212,25 @@ def bridge_patch(cfg: dict) -> dict:
     return patch
 
 
-def bridge_config() -> dict:
+def posix_root() -> str:
+    """Workbench root of a Linux/macOS Bridge (bridge/install.sh): AIWB_ROOT or drive.root/drive.workbench when they are
+    absolute POSIX paths, else ~/AIWorkbench (a server without Google Drive; install.json copied from Windows)."""
+    for cand in (os.environ.get('AIWB_ROOT') or '',
+                 (get('drive.root') or '').rstrip('/') + '/' + (get('drive.workbench') or 'AI-Workbench') if get('drive.root') else ''):
+        if cand.startswith('/'):
+            return cand
+    return Path.home().as_posix() + '/AIWorkbench'
+
+
+def bridge_config(posix: bool = None) -> dict:
     """A Bridge config.json of this install: bridge/config.json.example with the names of install.json (site, drive,
-    members, Google project); the one test project of the template for the owner, no extra company mail domains. No install.json: FileNotFoundError."""
+    members, Google project); the one test project of the template for the owner, no extra company mail domains. No install.json: FileNotFoundError.
+    posix (default: not Windows): the .NET 8 Bridge of Linux/macOS - agent executables without .exe, the workbench root
+    from posix_root() as driveRoot and driveReadyPath, the Drive context root only when drive.root is a POSIX path."""
+    if posix is None:
+        posix = os.name != 'nt'
+    if posix:
+        return _posix_bridge_config(bridge_config(False))
     d = load()
     tpl = Path(__file__).resolve().parents[1] / 'bridge' / 'config.json.example'
     cfg = json.loads(tpl.read_text(encoding='utf-8-sig'))
@@ -237,6 +254,28 @@ def bridge_config() -> dict:
     cfg['projects'] = {pid: {**prof, 'environmentId': own, 'workspace': str(workbench_root() / 'projects' / pid / 'workspace')}
                        for pid, prof in list((cfg.get('projects') or {}).items())[:1]}
     cfg['google'] = {**cfg.get('google', {}), 'projectId': str(get('google.projectNumber') or '')}
+    return cfg
+
+
+def _posix_bridge_config(cfg: dict) -> dict:
+    root = posix_root()
+    drive = get('drive.root') or ''
+    cfg['driveRoot'] = root
+    cfg['driveReadyPath'] = root
+    for agent in (cfg.get('agents') or {}).values():
+        exe = agent.get('executable') or ''
+        if exe.lower().endswith('.exe') and '\\' not in exe and '/' not in exe:
+            agent['executable'] = exe[:-4]
+    roots = cfg.get('contextRoots') or {}
+    if 'gdrive' in roots:
+        if drive.startswith('/'):
+            roots['gdrive']['path'] = drive
+        else:
+            del roots['gdrive']
+    if not drive.startswith('/'):
+        cfg['chatFolderWaitSeconds'] = 0   # a local root: no chat folder comes through Drive for desktop (Bridge 1.19.0)
+    cfg['projects'] = {pid: {**prof, 'workspace': f'{root}/projects/{pid}/workspace'}
+                       for pid, prof in (cfg.get('projects') or {}).items()}
     return cfg
 
 
@@ -300,7 +339,7 @@ def main(argv):
         if out.is_file() and '--force' not in argv:
             print(f'kept: {out} exists (bridge-patch shows what it lacks; --force writes a new one)')
             return 0
-        cfg = bridge_config()
+        cfg = bridge_config(True if '--posix' in argv else False if '--windows' in argv else None)
         out.parent.mkdir(parents=True, exist_ok=True)
         if out.is_file():
             out.with_suffix('.json.bak').write_bytes(out.read_bytes())

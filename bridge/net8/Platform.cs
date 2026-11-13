@@ -311,6 +311,32 @@ namespace AiWorkbenchBridge
     {
         public static bool TryRun(string[] argv)
         {
+            // Linux/macOS updates (net8/UnixLauncher.cs): the launcher mode and the release signing of this computer.
+            if (!OperatingSystem.IsWindows() && Has(argv, "--launcher"))
+            {
+                Environment.ExitCode = UnixLauncher.Main(argv);
+                return true;
+            }
+            if (!OperatingSystem.IsWindows() && Has(argv, "--release-publish"))
+            {
+                return Done(delegate
+                {
+                    Console.WriteLine(ReleaseCrypto.Publish(BridgePlatform.Current.Secrets, Path.GetFullPath(Value(argv, "--channel")),
+                        Path.GetFullPath(Value(argv, "--file")), Value(argv, "--version"), Value(argv, "--commit", "src"),
+                        Value(argv, "--rid", ReleaseCrypto.CurrentRid()), Has(argv, "--create-key")));
+                });
+            }
+            if (!OperatingSystem.IsWindows() && Has(argv, "--release-key"))
+            {
+                return Done(delegate
+                {
+                    using (System.Security.Cryptography.ECDsa key = ReleaseCrypto.LoadKey(BridgePlatform.Current.Secrets, Has(argv, "--create")))
+                        Console.WriteLine(ReleaseCrypto.PublicBlob(key));
+                });
+            }
+            if (Has(argv, "--version"))
+                return Done(delegate { Console.WriteLine(BridgeApplicationContext.VersionText); });
+
             if (Has(argv, "--platform-info"))
                 return Done(delegate { Console.WriteLine(BridgePlatform.Describe(BridgePlatform.Current)); });
 
@@ -351,6 +377,16 @@ namespace AiWorkbenchBridge
             return Array.IndexOf(argv, flag) >= 0;
         }
 
+        private static string Value(string[] argv, string flag, string fallback = null)
+        {
+            int i = Array.IndexOf(argv, flag);
+            if (i >= 0 && i + 1 < argv.Length)
+                return argv[i + 1];
+            if (fallback != null)
+                return fallback;
+            throw new ArgumentException(flag + " is needed.");
+        }
+
         private static bool Done(Action action)
         {
             try
@@ -369,6 +405,8 @@ namespace AiWorkbenchBridge
 
     internal sealed partial class BridgeApplicationContext
     {
+        internal static string VersionText { get { return BridgeVersion; } }
+
         internal static void ConnectGoogleFromCommandLine(string clientFile)
         {
             GoogleAuth.RunInstalledAppFlow(clientFile, GoogleCredentialTarget, GoogleScopes);

@@ -51,6 +51,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)JavaScriptSerializerCompat.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Platform.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)PlatformUnix.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)UnixLauncher.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)HeadlessUi.cs" Condition="'$(TargetFramework)' == 'net8.0'" />
     <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\BridgeAgent.ico" LogicalName="AiWorkbenchBridge.BridgeAgent.ico" />
   </ItemGroup>

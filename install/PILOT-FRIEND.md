@@ -76,7 +76,8 @@ switches when no job runs).
 - Pub/Sub, Drive and sign-in need the Google project of step 6; there is no variant without Google in v1 (SPEC §4).
 - `co_queue_handover` and CO Web know the two executors as `home-main` and `site`: role names of the protocol, the
   same in every install. A second Bridge PC per install is not in v1.
-- macOS: CO Resident and Bridge .NET 8 (`bridge/net8`) have no neutral installer yet; this guide is for Windows.
+- macOS: CO Resident and Bridge .NET 8 (`bridge/net8`) have no neutral installer yet. Linux: Bridge only, see the
+  section "Linux" below.
 - Variant A on cPanel uses `~/public_html`; the server finds its home there (`co_agent_home`, `cron/boot.php`,
   `co-web-auth/auth/lib.php` look at several depths).
 
@@ -88,3 +89,51 @@ hosting folders), `python install/freedom_docker.py up`, `deploy --build --oauth
 no cron lines for a panel (the cron sidecar runs them). C from the phone needs Tailscale (`tailscale serve`), and the
 Google web client needs `<site.url>/auth/callback.php` as a redirect URI. Budget on top of the table: Docker install
 15 min (VPS: `get.docker.com`; Windows: Docker Engine in WSL 2), first `up` 5–10 min (image build).
+
+## Linux: Bridge on a computer or server without Windows (F3a)
+
+Who: an install that already has its site (any variant) and adds a Linux machine as the computer that runs the jobs:
+a home server, a VPS, a NAS with a Linux shell. Debian 12+, Ubuntu 22.04+, Fedora 40+; x86_64 or aarch64; systemd.
+Bridge there is the .NET 8 build (`bridge/net8`, headless: no tray, no CO Desktop), installed by `bridge/install.sh`
+for one Linux account (not root).
+
+| # | Step | Command | Who | Budget |
+|---|---|---|---|---|
+| L0 | Into one folder of the server: `freedom-<v>-src.tar.gz`, `freedom-manifest.json`, `BridgeAgent-<bridge>-linux-x64` (aarch64: `-linux-arm64`) of the release page; `tar -xzf freedom-<v>-src.tar.gz` | ssh | user | 5 min |
+| L1 | `install.json` of the install → `~/.config/aiwb/install.json` (copy from the Windows PC, or `python3 freedom-<v>/install/freedom_setup.py init`); a computer without Google Drive works in `~/AIWorkbench` | | user | 2 min |
+| L2 | `python3 freedom-<v>/install/freedom_setup.py bridge --deps` (sudo asks for the password once: packages, linger) | | wizard | 5-10 min |
+| L3 | The key of this host for the site's `db.php` into the keyring: `secret-tool store --label=aiwb/co-push service aiwb/co-push username default`, paste, Enter, Ctrl+D | ssh | user | 1 min |
+| L4 | Agent CLIs: `freedom_setup.py subs --install all`, then `claude` / `codex login` in the ssh session (the sign-in is the user's) | ssh | user | 10 min |
+| L5 | `systemctl --user status aiworkbench-bridge`, `tail ~/.local/share/AIWorkbenchBridge/logs/$(date -u +%F).log`: "Database queue started", no "claim failed" | ssh | user | 1 min |
+
+What `bridge/install.sh` does (`bash bridge/install.sh --help`):
+
+- **Secrets stay in the keyring.** A desktop session's Secret Service (GNOME Keyring, KWallet) is used as it is. A
+  server without a desktop gets gnome-keyring as a systemd user service (`aiwb-keyring.service`; D-Bus activation of
+  `org.freedesktop.secrets` points at it, the distribution's own desktop keyring units are masked for this account);
+  its login keyring is unlocked at start with a random password in `~/.config/aiwb-keyring/unlock` (0600). That file is
+  the one secret outside the keyring, as the logon password is on a desktop: whoever reads files of this account reads
+  its secrets, so the account is the boundary (a dedicated account for Bridge, disk encryption on the server). Bridge,
+  `secret-tool` and Python `keyring` (tools, the wizard) see the same entries `aiwb/<name>`, account `default`.
+- **Build:** the release's `BridgeAgent-<bridge>-linux-<arch>` next to the unpacked folder, checked against
+  `freedom-manifest.json` (as the CO Desktop installer); else `--build` from the sources with the .NET 8 SDK
+  (`sudo apt install dotnet-sdk-8.0` / `sudo dnf install dotnet-sdk-8.0`). Self-contained: no .NET runtime needed.
+- **Updates — the channel of Windows:** the build is signed with this computer's own release key (ECDSA P-256, private
+  part in the keyring as `aiwb/bridge-release`) into `~/.local/share/AIWorkbenchBridge/updates`; the launcher
+  (`~/.local/lib/aiworkbench-bridge/BridgeAgent --launcher`) starts the newest signed version, asks Bridge to drain when
+  a newer one arrives, and goes back to the previous version if the new one dies within 2 min. A later release: unpack
+  it and run `freedom_setup.py bridge` again. `--release-key <public key> --channel <dir>` trusts another computer's
+  key and channel instead.
+- **Service:** `aiworkbench-bridge.service` of the user's systemd (`Restart=always`) and `loginctl enable-linger`, so
+  it starts at boot without a login and survives logouts. A user service, not a system one: Bridge runs the agent CLIs
+  with their sign-in in this account's home, as the logon task on Windows does, and no part runs as root. Dedicated
+  account: `sudo useradd -m aiwb && sudo -iu aiwb`, then the steps above as that user.
+- `config.json` (`~/.local/share/AIWorkbenchBridge/config.json`) comes from `install.json`: agent CLIs without `.exe`,
+  `chatFolderWaitSeconds: 0` (no chat folder comes through Drive for desktop), `--host-id ID` for the host name.
+  `bash bridge/install.sh --uninstall` removes the services (config, logs, keyring and channel stay).
+
+Limits (13.11.2026): the server's queue knows the executors `home-main` and `site` only (`db.php` `DB_QUEUE_HOSTS`), so
+until executors can be registered a Linux Bridge takes the role `home-main` — instead of the Windows PC's Bridge, not
+next to it (two Bridges with one host id share its jobs). Not on Linux: tray, CO Desktop / devices (device tools need
+the Windows key store), `runAs`, Google sign-in from the tray (`BridgeAgent --google-connect <client.json>` needs a
+browser on that computer; Bridge works through the database queue without it).

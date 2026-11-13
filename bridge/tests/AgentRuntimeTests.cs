@@ -151,7 +151,7 @@ namespace AiWorkbenchBridge.Tests
                 Check("job-role", "member: AIWB_JOB_ENV", "kid", member.EnvironmentVariables["AIWB_JOB_ENV"]);
                 Check("job-role", "member: refusing keyring backend", JobRole.RefusingBackend, member.EnvironmentVariables["PYTHON_KEYRING_BACKEND"]);
                 Check("job-role", "member: aiwb_secret and member_site first on PYTHONPATH",
-                    @"C:\lib\secret-prompt" + Path.PathSeparator + @"C:\lib\secret-prompt\member_site" + Path.PathSeparator + @"C:\old",
+                    @"C:\lib\secret-prompt" + Path.PathSeparator + Path.Combine(@"C:\lib\secret-prompt", "member_site") + Path.PathSeparator + @"C:\old",
                     member.EnvironmentVariables["PYTHONPATH"]);
                 Environment.SetEnvironmentVariable("AIWB_READ_GUARD", Path.Combine(Path.GetTempPath(), "aiwb-test-read-guard-role.py"));
                 File.WriteAllText(Path.Combine(Path.GetTempPath(), "aiwb-test-read-guard-role.py"), "# test stub");

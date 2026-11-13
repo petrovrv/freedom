@@ -26,6 +26,22 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
     auto = this computer's own Bridge, else the environment's order from the server (Home first, then Site, then the
     others); every Bridge executor uses the database queue; the environment note names the executor.
   - aiwb-subtask 0.7.0 (`--host` any executor id, `hosts`), aiwb-e2e 0.6.5 (`--host` any executor id).
+- **Bridge for Linux** (F3a; Debian/Ubuntu, Fedora; x86_64, aarch64):
+  - Bridge 1.19.0: `bridge/install.sh` for one Linux account (not root): packages (`--deps`), the session's Secret
+    Service or, on a server without a desktop, gnome-keyring as a systemd user service unlocked at start (secrets stay
+    in the keyring; Bridge, secret-tool and Python keyring share `aiwb/<name>`), `config.json` from install.json, a
+    release build checked against the signed manifest or a build from the sources, the computer's own release key
+    (`aiwb/bridge-release` in the keyring), systemd user service `aiworkbench-bridge.service` + linger.
+    `net8/UnixLauncher.cs`: the update launcher of Linux/macOS (`--launcher`) on the Windows channel format
+    (`BridgeAgent-<v>-<rid>` + `.sig.json`, same ECDSA key format, drain, probation, roll-back; SIGTERM stops without a
+    restart), `--release-key`, `--release-publish`, `--version`. Config `chatFolderWaitSeconds` (default 90; 0 where
+    the workbench root is a local folder). Tests: release channel (incl. a CNG key of `release.ps1` verified by the
+    new code), json-golden refreshed (was stale since 1.18.1), the job-role test runs on Linux.
+  - Setup wizard: `bridge` on Linux runs `install.sh` (`--deps`, `--binary`, `--host-id`), says how to put the host key
+    into the keyring; `preflight` on Linux (systemd user manager, linger, secret-tool, gnome-keyring, a Bridge build or
+    the .NET SDK); Bridge config path on Linux fixed (`~/.local/share`). `aiwb_install.py bridge-config --posix`.
+  - `release/build_installers.py`: `BridgeAgent-<bridge>-linux-x64` and `-linux-arm64` into the release (own build
+    root, private-word check of the own assembly; `--skip-bridge`). Guide: `install/PILOT-FRIEND.md`, section "Linux".
 
 ## 0.4.0 (2026-11-13)
 

@@ -21,8 +21,11 @@ or the forum (SPEC 4.3). The state of the steps is kept next to install.json (se
                                                               plan (default) / read-only diff / apply with .bak copies
   python install/freedom_setup.py google [--import-web-client FILE] [--desktop-client FILE]
                                                               check the Google Cloud results (the steps: GOOGLE-CLOUD.md)
-  python install/freedom_setup.py bridge [--no-start]           Bridge on this PC: config.json from install.json, own release
-                                                              key, build from this source, logon task (bridge/install.ps1)
+  python install/freedom_setup.py bridge [--no-start] [--deps] [--binary FILE] [--host-id ID]
+                                                              Bridge on this PC: config.json from install.json, own release
+                                                              key, build from this source, logon task (bridge/install.ps1);
+                                                              Linux: bridge/install.sh (packages with --deps, keyring service
+                                                              on a server without a desktop, systemd user service + linger)
   python install/freedom_setup.py desktop [--installer FILE]     CO Desktop on this PC: checks the installer against the signed
                                                               release manifest next to it, runs it, finds what it needs
   python install/freedom_setup.py desktop-update --installer FILE
@@ -203,9 +206,19 @@ def cmd_preflight(a) -> int:
                                        + ('' if good else ' does not keep secrets'))
         bad += not good
     except Exception as e:
-        out('FAIL', f'keyring does not work: {e}'); bad += 1
+        if sys.platform.startswith('linux'):
+            # a server without a desktop has no Secret Service yet: bridge/install.sh sets up gnome-keyring as a service
+            out('warn', f'keyring does not work yet ({type(e).__name__}): `python3 install/freedom_setup.py bridge --deps` '
+                        'sets up the keyring service of this account (or a desktop session unlocks GNOME Keyring / KWallet)')
+        else:
+            out('FAIL', f'keyring does not work: {e}'); bad += 1
+    if sys.platform.startswith('linux'):
+        bad += preflight_linux()
     root = Path(install_get('drive.root') or ('G:\\My Drive' if os.name == 'nt' else str(Path.home() / 'Google Drive')))
-    if root.is_dir():
+    if sys.platform.startswith('linux') and not root.is_dir():
+        out('info', 'no Google Drive folder: on Linux Bridge works in a local folder (install.json drive.root, '
+                    'else ~/AIWorkbench)')
+    elif root.is_dir():
         out('ok', 'Google Drive for desktop: the drive root is mounted')
     else:
         out('warn', 'Google Drive for desktop is not mounted yet (install it and sign in with your Google account; '
@@ -215,6 +228,36 @@ def cmd_preflight(a) -> int:
         out('ok' if rc == 0 else 'warn', 'winget' if rc == 0 else 'winget is missing (App Installer from Microsoft Store)')
     save_step('preflight', bad == 0, f'{bad} problem(s)')
     return 1 if bad else 0
+
+
+def preflight_linux() -> int:
+    """Linux (Freedom F3a): what bridge/install.sh needs - systemd user manager, linger, secret-tool, a Bridge build."""
+    bad = 0
+    machine = platform.machine().lower()
+    rid = {'x86_64': 'linux-x64', 'amd64': 'linux-x64', 'aarch64': 'linux-arm64', 'arm64': 'linux-arm64'}.get(machine)
+    out('ok' if rid else 'FAIL', f'CPU {machine}' + ('' if rid else ': Bridge is built for x86_64 and aarch64 only'))
+    bad += rid is None
+    rc, _ = sh(['systemctl', '--user', 'show-environment'], timeout=20)
+    out('ok' if rc == 0 else 'warn', 'systemd user manager' if rc == 0 else
+        'no systemd user manager in this shell (log in over ssh or a console; bridge/install.sh switches linger on)')
+    rc, v = sh(['loginctl', 'show-user', getpass.getuser(), '-p', 'Linger', '--value'], timeout=20)
+    out('ok' if v.strip() == 'yes' else 'info', 'linger on: user services run without a login' if v.strip() == 'yes'
+        else 'linger off: bridge/install.sh switches it on (loginctl enable-linger, sudo when needed)')
+    for tool, pkg in (('secret-tool', 'libsecret-tools / libsecret'), ('gnome-keyring-daemon', 'gnome-keyring')):
+        out('ok' if shutil.which(tool) else 'info', f'{tool}' if shutil.which(tool) else
+            f'{tool} missing ({pkg}): python3 install/freedom_setup.py bridge --deps installs it')
+    rc, v = sh(['dotnet', '--list-sdks'], timeout=30)
+    sdk = rc == 0 and re.search(r'^([89]|[1-9]\d)\.', v, re.M)
+    builds = sorted(REPO.parent.glob(f'BridgeAgent-*-{rid}')) if rid else []
+    if builds:
+        out('ok', f'Bridge build of the release next to this folder: {builds[-1].name}')
+    elif sdk:
+        out('ok', '.NET SDK 8+: Bridge is built here from the sources')
+    else:
+        out('warn', f'no Bridge build: download BridgeAgent-<version>-{rid} and freedom-manifest.json from the release page '
+                    'next to this folder, or install the .NET 8 SDK (Ubuntu: sudo apt install dotnet-sdk-8.0, '
+                    'Fedora: sudo dnf install dotnet-sdk-8.0)')
+    return bad
 
 
 # ---------------------------------------------------------------- init (install.json)
@@ -989,32 +1032,63 @@ def bridge_config() -> dict:
         return {}
 
 
+def bridge_args(a, linux: bool) -> list:
+    """The installer of this system with the wizard's own Python: bridge/install.sh (Linux) or bridge/install.ps1."""
+    if linux:
+        args = ['bash', str(REPO / 'bridge' / 'install.sh'), '--python', sys.executable]
+        for flag, on in (('--no-start', a.no_start), ('--deps', getattr(a, 'deps', False))):
+            if on:
+                args.append(flag)
+        if getattr(a, 'binary', None):
+            args += ['--binary', str(Path(a.binary).resolve())]
+        if getattr(a, 'host_id', None):
+            args += ['--host-id', a.host_id]
+        return args
+    args = ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(REPO / 'bridge' / 'install.ps1'),
+            '-Python', sys.executable]
+    if a.no_start:
+        args.append('-NoStart')
+    return args
+
+
 def cmd_bridge(a) -> int:
-    if os.name != 'nt':
-        out('info', 'Bridge for macOS/Linux: bridge/net8 (README there); this step is for Windows')
-        save_step('bridge', False, 'not Windows')
+    linux = sys.platform.startswith('linux')
+    if os.name != 'nt' and not linux:
+        out('info', 'Bridge for macOS: bridge/net8 (--install-autostart); this step is for Windows and Linux')
+        save_step('bridge', False, 'macOS')
         return 1
     errs = aiwb_install.check(aiwb_install.load(fresh=True))
     if errs:
         out('FAIL', 'install.json: ' + '; '.join(errs) + ' (init)')
         return 1
-    args = ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(REPO / 'bridge' / 'install.ps1'),
-            '-Python', sys.executable]
-    if a.no_start:
-        args.append('-NoStart')
-    rc, o = sh(args, timeout=900)
-    for line in o.splitlines()[-12:]:
-        out('info', line)
+    script = 'install.sh' if linux else 'install.ps1'
+    if linux:   # live output: sudo may ask for the password of this account (--deps, linger)
+        try:
+            rc = subprocess.run(bridge_args(a, True), timeout=1800).returncode
+        except subprocess.TimeoutExpired:
+            rc = 124
+    else:
+        rc, o = sh(bridge_args(a, False), timeout=900)
+        for line in o.splitlines()[-12:]:
+            out('info', line)
     if rc != 0:
-        out('FAIL', f'bridge/install.ps1 exit {rc}')
-        save_step('bridge', False, f'install.ps1 exit {rc}')
+        out('FAIL', f'bridge/{script} exit {rc}')
+        save_step('bridge', False, f'{script} exit {rc}')
         return 1
     cfg = bridge_config()
     patch = aiwb_install.bridge_patch(cfg) if cfg else {'config.json': 'missing'}
     out('ok' if not patch else 'FAIL', 'Bridge config.json' + ('' if not patch else f' lacks {sorted(patch)}'))
-    desk = aiwb_install.path().parent / 'oauth-client-desktop.json'
-    out('next', 'Bridge tray icon -> Connect Google with your Google account (desktop client: '
-                + ('oauth-client-desktop.json next to install.json' if desk.is_file() else 'GOOGLE-CLOUD.md step 5 first') + ')')
+    if linux:
+        target = ((cfg.get('push') or {}).get('credentialTarget') or 'aiwb/co-push') if cfg else 'aiwb/co-push'
+        if not keyring_get(target):
+            out('next', f'the key of this host for db.php is not in the keyring yet: secret-tool store --label={target} '
+                        f'service {target} username default (paste the key, Enter, Ctrl+D; Bridge takes it within a minute)')
+        out('next', 'agent CLIs: python3 install/freedom_setup.py subs --install all, then sign in yourself (claude, '
+                    'codex login); Bridge finds them in ~/.local/bin and ~/.npm-global/bin')
+    else:
+        desk = aiwb_install.path().parent / 'oauth-client-desktop.json'
+        out('next', 'Bridge tray icon -> Connect Google with your Google account (desktop client: '
+                    + ('oauth-client-desktop.json next to install.json' if desk.is_file() else 'GOOGLE-CLOUD.md step 5 first') + ')')
     save_step('bridge', not patch, 'installed' if not patch else 'config incomplete')
     return 0 if not patch else 1
 
@@ -1160,7 +1234,7 @@ def bridge_config_path() -> Path:
         return Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local') / 'AIWorkbenchBridge' / 'config.json'
     if sys.platform == 'darwin':
         return Path.home() / 'Library' / 'Application Support' / 'AIWorkbenchBridge' / 'config.json'
-    return Path(os.environ.get('XDG_STATE_HOME') or Path.home() / '.local' / 'state') / 'AIWorkbenchBridge' / 'config.json'
+    return Path(os.environ.get('XDG_DATA_HOME') or Path.home() / '.local' / 'share') / 'AIWorkbenchBridge' / 'config.json'
 
 
 def household_users(known_envs=None):
@@ -1447,6 +1521,9 @@ def main(argv=None) -> int:
     p.add_argument('--desktop-client')
     p = sp.add_parser('bridge')
     p.add_argument('--no-start', action='store_true')
+    p.add_argument('--deps', action='store_true', help='Linux: install the packages (apt-get / dnf, sudo)')
+    p.add_argument('--binary', help='Linux: a release build BridgeAgent-<version>-linux-<arch> (manifest next to it)')
+    p.add_argument('--host-id', help='Linux: hostId of this computer in config.json')
     p = sp.add_parser('desktop')
     p.add_argument('--installer')
     p = sp.add_parser('desktop-update')

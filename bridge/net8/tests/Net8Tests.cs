@@ -104,6 +104,7 @@ namespace AiWorkbenchBridge.Tests
             TestCredentialManager();
             TestHeadlessUi();
             TestPlatformInfo();
+            TestReleaseChannel();
 
             foreach (KeyValuePair<string, int[]> g in Groups)
                 Console.WriteLine("net8 " + g.Key + ": checked " + g.Value[0] + ", failed " + g.Value[1]);
@@ -821,6 +822,91 @@ namespace AiWorkbenchBridge.Tests
                 public string LogRoot { get { return _state; } }
                 public string Normalize(string path) { return path; }
                 public void EnsurePrivateDirectory(string path) { Directory.CreateDirectory(path); }
+            }
+        }
+
+        // ------------------------------------------------------------------ release channel of Linux/macOS (UnixLauncher.cs)
+
+        private sealed class MemorySecrets : ISecretStore
+        {
+            public readonly Dictionary<string, string> Items = new Dictionary<string, string>();
+            public string Name { get { return "memory"; } }
+            public string Read(string target) { string v; return Items.TryGetValue(target, out v) ? v : null; }
+            public void Write(string target, string secret, string comment) { Items[target] = secret; }
+            public void Delete(string target) { Items.Remove(target); }
+        }
+
+        private static void TestReleaseChannel()
+        {
+            MemorySecrets store = new MemorySecrets();
+            Throws<InvalidOperationException>("release", "no key without --create", delegate { ReleaseCrypto.LoadKey(store, false); });
+            string pub;
+            using (System.Security.Cryptography.ECDsa k = ReleaseCrypto.LoadKey(store, true))
+                pub = ReleaseCrypto.PublicBlob(k);
+            Check("release", "private key kept in the secret store", store.Items.ContainsKey(ReleaseCrypto.KeyTarget));
+            using (System.Security.Cryptography.ECDsa k = ReleaseCrypto.LoadKey(store, false))
+            {
+                Eq("release", "same key on the next run", pub, ReleaseCrypto.PublicBlob(k));
+                string sha = new string('a', 64);
+                string sig = ReleaseCrypto.Sign(k, "1.19.0", sha);
+                Check("release", "signature verifies", ReleaseCrypto.Verify(pub, "1.19.0", sha, sig));
+                Check("release", "other hash refused", !ReleaseCrypto.Verify(pub, "1.19.0", new string('b', 64), sig));
+                Check("release", "other version refused", !ReleaseCrypto.Verify(pub, "1.19.1", sha, sig));
+                Check("release", "hash case ignored (signed lower case)", ReleaseCrypto.Verify(pub, "1.19.0", sha.ToUpperInvariant(), sig));
+                Check("release", "bad key blob refused", !ReleaseCrypto.Verify("AAAA", "1.19.0", sha, sig));
+                Check("release", "bad signature text refused", !ReleaseCrypto.Verify(pub, "1.19.0", sha, "not base64!"));
+            }
+            Check("release", "public blob is a P-256 EccPublicBlob (72 bytes)", Convert.FromBase64String(pub).Length == 72);
+            Eq("release", "signed text as Launcher.cs", "AIWB-BRIDGE-RELEASE\n1.2.3\nab\n", ReleaseCrypto.SignedText("1.2.3", "AB"));
+
+#if !BRIDGE_HEADLESS
+            // The key of release.ps1 (CNG, EccPublicBlob, ECDsaCng over the same text) verifies here, and back.
+            using (System.Security.Cryptography.ECDsaCng cng = new System.Security.Cryptography.ECDsaCng(256))
+            {
+                cng.HashAlgorithm = System.Security.Cryptography.CngAlgorithm.Sha256;
+                string cngPub = Convert.ToBase64String(cng.Key.Export(System.Security.Cryptography.CngKeyBlobFormat.EccPublicBlob));
+                string sha = new string('c', 64);
+                string sig = Convert.ToBase64String(cng.SignData(Encoding.UTF8.GetBytes(ReleaseCrypto.SignedText("2.0.0", sha))));
+                Check("release", "release.ps1 signature verifies (CNG key)", ReleaseCrypto.Verify(cngPub, "2.0.0", sha, sig));
+                Eq("release", "same blob as CNG export", cngPub, ReleaseCrypto.PublicBlob(cng));
+            }
+#endif
+
+            string[] files =
+            {
+                "/c/BridgeAgent-1.19.0-linux-x64.sig.json", "/c/BridgeAgent-1.20.0-linux-x64.sig.json",
+                "/c/BridgeAgent-1.21.0-linux-arm64.sig.json", "/c/BridgeAgent-1.22.0.sig.json",
+                "/c/BridgeAgent-1.23.0-linux-x64.sig.json", "/c/BridgeAgent-x.y-linux-x64.sig.json",
+            };
+            Eq("release", "newest of this runtime id, bad skipped", "1.20.0", UnixLauncher.Newest(files, "linux-x64", new List<string> { "1.23.0" }));
+            Eq("release", "arm64 sees its own", "1.21.0", UnixLauncher.Newest(files, "linux-arm64", new List<string>()));
+            Check("release", "nothing for another runtime id", UnixLauncher.Newest(files, "osx-arm64", new List<string>()) == null);
+
+            if (OperatingSystem.IsWindows())
+            {
+                Skipped.Add("release publish + launcher check-once (Unix file modes)");
+                return;
+            }
+            string dir = Path.Combine(Path.GetTempPath(), "aiwb-release-test-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                string channel = Path.Combine(dir, "updates");
+                string bin = Path.Combine(dir, "BridgeAgent");
+                Directory.CreateDirectory(dir);
+                File.WriteAllText(bin, "#!/bin/sh\nexit 0\n");
+                ReleaseCrypto.Publish(store, channel, bin, "1.2.3", "abc", "linux-x64", false);
+                string sigFile = Path.Combine(channel, "BridgeAgent-1.2.3-linux-x64.sig.json");
+                Check("release", "publish writes the build and .sig.json", File.Exists(sigFile) && File.Exists(Path.Combine(channel, "BridgeAgent-1.2.3-linux-x64")));
+                UnixReleaseSig s = new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<UnixReleaseSig>(File.ReadAllText(sigFile));
+                Check("release", "published signature verifies", ReleaseCrypto.Verify(pub, s.version, s.sha256, s.signature));
+                Check("release", "same build again is fine", ReleaseCrypto.Publish(store, channel, bin, "1.2.3", "abc", "linux-x64", false).Contains("already published"));
+                File.AppendAllText(bin, "#");
+                Throws<InvalidOperationException>("release", "other build of a published version refused", delegate { ReleaseCrypto.Publish(store, channel, bin, "1.2.3", "abc", "linux-x64", false); });
+                Throws<ArgumentException>("release", "version must be x.y.z", delegate { ReleaseCrypto.Publish(store, channel, bin, "1.2", "abc", "linux-x64", false); });
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch { }
             }
         }
 

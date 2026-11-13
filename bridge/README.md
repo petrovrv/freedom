@@ -42,6 +42,10 @@ build.cmd
 
 The release still targets the inbox .NET Framework compiler and needs no IDE/SDK when the framework `csc.exe` is present.
 
+Linux (Bridge 1.19.0+): `bash install.sh --help` — the .NET 8 headless build (`net8/`), a gnome-keyring service on a
+server without a desktop, the update launcher and channel of Windows in `net8/UnixLauncher.cs`, a systemd user service
+with linger. Guide: `install/PILOT-FRIEND.md`, section "Linux".
+
 ## Upgrade
 
 A v0.5 `config.json` runs unchanged: projects without `allowedModes` accept only `cowork`, agents without `modes` use their base `arguments`, requests without `model`/`effort` use the CLI defaults, and auto-export is off unless `project.autoExport` or `request.output.autoExport` enables it.

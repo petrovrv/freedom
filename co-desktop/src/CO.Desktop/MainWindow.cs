@@ -1250,6 +1250,14 @@ public sealed class MainWindow : Window
             Margin = new Thickness(0, 6, 0, 0),
         };
         panel.Children.Add(confirmFormsCheck);
+        // co-resident 0.5.3 (CO.Core): off by default on Windows.
+        var otpCheck = new CheckBox
+        {
+            Content = "Agent may type one-time codes from chat (a login or verification code you send in chat; passwords, card and bank fields never)",
+            IsChecked = _s.AgentWeb.Current.AllowOtpFromChat == true,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        panel.Children.Add(otpCheck);
 
         var status = Label("");
         panel.Children.Add(status);
@@ -1258,7 +1266,7 @@ public sealed class MainWindow : Window
         buttons.Children.Add(Btn("Save sites", () =>
         {
             var list = CO.Core.Browser.AgentWebSettingsStore.Normalize(text.Text.Split(new[] { '\n', '\r', ',' }));
-            _s.AgentWeb.Save(new CO.Core.Browser.AgentWebSettings { Block = list, Journal = check.IsChecked == true, ConfirmClicks = confirmClicksCheck.IsChecked == true, ConfirmForms = confirmFormsCheck.IsChecked == true });
+            _s.AgentWeb.Save(new CO.Core.Browser.AgentWebSettings { Block = list, Journal = check.IsChecked == true, ConfirmClicks = confirmClicksCheck.IsChecked == true, ConfirmForms = confirmFormsCheck.IsChecked == true, AllowOtpFromChat = otpCheck.IsChecked == true });
             text.Text = string.Join("\n", list);
             status.Text = list.Count == 0 ? "Saved: no blocked sites." : $"Saved: {list.Count} blocked sites.";
             return Task.CompletedTask;

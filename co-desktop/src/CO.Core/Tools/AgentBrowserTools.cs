@@ -28,7 +28,12 @@ public static class AgentBrowserText
 public static class AgentBrowserTools
 {
     private const string ErrorHint =
-        " Errors: paused_by_user = the user took over the tab; user_action_needed = a one-time code or payment step the user must complete in the tab.";
+        " Errors: paused_by_user = the user took over the tab; user_action_needed = a one-time code or payment step the user must complete in the tab." +
+        " Where the device allows one-time codes from chat, a code page does not pause: the result says 'one-time code needed'; " +
+        "ask the user in chat for the code and browser_type it into that field. Passwords, card, bank and PIN fields are never typed.";
+
+    // co-resident 0.5.3: hint of a tab waiting for a one-time code the agent may type (AllowOtpFromChat on).
+    private static string? OtpHint(AgentPage page) => page.OtpPending ? AgentOtpRules.Hint(page.OtpRef) : null;
 
     // 0.9.9: a captcha no longer stops the agent (contract 09.11.2026, rule 3): the call succeeds with this note.
     public const string CaptchaHint =
@@ -135,6 +140,7 @@ public static class AgentBrowserTools
                 if (snap.Truncated)
                     sb.AppendLine($"[Truncated at {max} characters. Raise maxChars or use browser_scroll to see more.]");
                 if (page.CaptchaPending) sb.AppendLine().AppendLine(CaptchaHint);
+                if (OtpHint(page) is { } otpHint) sb.AppendLine().AppendLine(otpHint);
                 return Output(sb.ToString().TrimEnd());
             }));
 
@@ -203,6 +209,7 @@ public static class AgentBrowserTools
                 sb.AppendLine($"Address: {info.Url}");
                 sb.Append($"Title: {info.Title}");
                 if (page.CaptchaPending) sb.AppendLine().Append(CaptchaHint);
+                if (OtpHint(page) is { } otpHint) sb.AppendLine().Append(otpHint);
                 return Output(sb.ToString());
             });
 
@@ -221,13 +228,17 @@ public static class AgentBrowserTools
                 if (info.Category is { } clickCategory && Needs(clickCategory, info.Fields, env))
                     await ConfirmAsync(env, page, "browser_click", info.Category, info.Description, info.Fields, null, ct);
 
+                // co-resident 0.5.3: a one-time code page soon after a purchase is a payment confirmation (pauses).
+                if (info.Category == "purchase") page.MarkPurchase();
                 var result = await page.ClickAsync(reference, ct);
                 await page.JournalAsync(env.RunId, "browser_click", new { reference, category = info.Category }, ct);
                 return ActionOutput(page, "Click", result);
             }));
 
         yield return Make("browser_type", RiskClass.W,
-            "Type text into a field by ref; submit=true also presses Enter (needs user confirmation)." + ErrorHint,
+            "Type text into a field by ref; submit=true also presses Enter (needs user confirmation). Password, card, CVC, IBAN, " +
+            "PIN and other secret fields are refused (sensitive_field). One-time code fields (login or verification code from " +
+            "mail/SMS) take only the code the user sent in chat, and only where the device allows it; never invent or reuse a code." + ErrorHint,
             Schema.Obj(
                 ("ref", "string", "Field ref from browser_snapshot.", true),
                 ("text", "string", "Text to type (replaces the field content).", true),
@@ -239,6 +250,7 @@ public static class AgentBrowserTools
                 var text = Args.Str(a, "text");
                 var submit = Args.OptBool(a, "submit", false);
                 EnsureNotPaused(page);
+                string? submitCategory = null;
 
                 if (submit)
                 {
@@ -246,6 +258,7 @@ public static class AgentBrowserTools
                     // Enter in a field inside a form acts like the form's submit button (classified);
                     // outside a form, Enter usually sends a chat message (forbidden).
                     var category = info.Category ?? await page.EnterCategoryAsync(reference, ct) ?? "send";
+                    submitCategory = category;
                     if (category == "send")
                         throw SendForbidden(info.Description);
                     // Always asks: the text being typed is not in the inspected fields yet. To submit without
@@ -253,12 +266,15 @@ public static class AgentBrowserTools
                     // 0.9.8: except Enter in the search field of a dropdown list ("choose").
                     if (category is not null && (category != "choose" || Needs("choose", null, env)))
                     {
-                        var shown = text.Length > 200 ? text[..200] + "..." : text;
+                        // co-resident 0.5.3: a one-time code is never shown (the summary reaches approvals and audit).
+                        var shown = await page.FieldKindAsync(reference, ct) != FieldKind.Plain ? "(hidden: one-time code or secret field)"
+                            : text.Length > 200 ? text[..200] + "..." : text;
                         await ConfirmAsync(env, page, "browser_type", category, info.Description, info.Fields,
                             "Typed text: " + shown, ct);
                     }
                 }
 
+                if (submit && submitCategory == "purchase") page.MarkPurchase();
                 var result = await page.TypeAsync(reference, text, submit, ct);
                 page.MarkInput();
                 // Journal never stores the typed text itself.
@@ -306,6 +322,7 @@ public static class AgentBrowserTools
                 var key = AllowedKeys.FirstOrDefault(k => string.Equals(k, raw, StringComparison.OrdinalIgnoreCase))
                     ?? throw new ToolException("invalid_key", $"Unsupported key '{raw}'. Allowed: {string.Join(", ", AllowedKeys)}.");
                 EnsureNotPaused(page);
+                string? pressCategory = null;
 
                 if (key == "Enter" || key == "Space")
                 {
@@ -325,12 +342,14 @@ public static class AgentBrowserTools
                         if (category is not null && fields is not { Count: > 0 })
                             fields = (await page.ActiveFormAsync(ct)).Fields;
                     }
+                    pressCategory = category;
                     if (category == "send")
                         throw SendForbidden(description);
                     if (category is not null && NeedsKey(category, fields, env))
                         await ConfirmAsync(env, page, "browser_press", category, "key " + key + " on " + description, fields, null, ct);
                 }
 
+                if (pressCategory == "purchase") page.MarkPurchase();
                 var result = await page.PressAsync(key, ct);
                 await page.JournalAsync(env.RunId, "browser_press", new { key }, ct);
                 return ActionOutput(page, "Key " + key, result);
@@ -446,6 +465,7 @@ public static class AgentBrowserTools
         return $"  {n}. {url}{(t.Current ? " [current]" : "")}; idle {(int)idle.TotalMinutes} min"
             + (limit is { } l ? $" (closes after {(int)l.TotalMinutes})" : " (kept)")
             + $"; typed data: {(page.HasInput ? "yes" : "no")}; captcha pending: {(page.CaptchaPending ? "yes" : "no")}"
+            + (page.OtpPending ? "; one-time code pending" : "")
             + (page.Paused != null ? "; paused" : "") + (t.Pinned ? "; pinned by the user" : "");
     }
 
@@ -471,6 +491,8 @@ public static class AgentBrowserTools
             sb.AppendLine().Append("Dialogs dismissed: " + string.Join(" | ", dialogs));
         if (page.CaptchaPending)
             sb.AppendLine().Append(CaptchaHint);
+        if (OtpHint(page) is { } otpHint)
+            sb.AppendLine().Append(otpHint);
         return Output(sb.ToString());
     }
 

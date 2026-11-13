@@ -51,12 +51,25 @@ public sealed partial class AgentPage
     private static int _shotSeq;
     private static readonly object _journalLock = new();
 
-    public AgentPage(EdgeBrowser.EdgeTab tab, AgentWebSettingsStore settings, string journalDir, Action<string>? log = null)
+    // co-resident 0.5.3: whether the agent may type a one-time code the user sent in chat (AgentOtpRules); read on
+    // every check, so a switch in another process (the Mac menu) applies at once. Default: the store's explicit value.
+    private readonly Func<bool> _allowOtp;
+
+    public AgentPage(EdgeBrowser.EdgeTab tab, AgentWebSettingsStore settings, string journalDir, Action<string>? log = null,
+        Func<bool>? allowOtpFromChat = null)
     {
         _tab = tab ?? throw new ArgumentNullException(nameof(tab));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _journalDir = journalDir ?? throw new ArgumentNullException(nameof(journalDir));
         _log = log;
+        _allowOtp = allowOtpFromChat ?? (() => _settings.Current.AllowOtpFromChat == true);
+    }
+
+    /// <summary>co-resident 0.5.3: the current value of the one-time-codes-from-chat setting (false when unreadable).</summary>
+    public bool AllowOtp()
+    {
+        try { return _allowOtp(); }
+        catch (Exception ex) { Log("one-time code setting unreadable: " + ex.Message); return false; }
     }
 
     public PauseInfo? Paused => _paused;
@@ -488,30 +501,110 @@ public sealed partial class AgentPage
     // 0.9.9: a captcha no longer pauses the tab: the tab is marked captcha-pending (CaptchaPending) and the call
     // goes on, so the agent fills the rest of the form and asks the user at the end. One-time code and payment pages
     // still pause the tab (user_action_needed).
+    // co-resident 0.5.3: with AllowOtpFromChat on, a one-time code page marks the tab otp-pending instead (OtpPending,
+    // OtpRef); the agent asks the user in chat for the code and types it. Payment pages still pause.
     private long _captchaTicks;
     public bool CaptchaPending => Interlocked.Read(ref _captchaTicks) != 0;
+    private long _otpTicks;
+    public bool OtpPending => Interlocked.Read(ref _otpTicks) != 0;
+    private volatile string? _otpRef;
+    /// <summary>co-resident 0.5.3: ref (n123) of the one-time code field while the tab is otp-pending, if found.</summary>
+    public string? OtpRef => OtpPending ? _otpRef : null;
 
+    // Returns the reason the tab was paused for, or null (no pause; captcha / one-time code marks set or cleared).
     private async Task<string?> ChallengeAsync(CdpSession s, CancellationToken ct)
     {
         try
         {
             var v = await EvalInWorldAsync(s, OpsWorld, AgentPageScripts.Challenge, ct);
-            var ch = v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-            if (ch == "captcha")
-            {
-                if (Interlocked.CompareExchange(ref _captchaTicks, DateTime.UtcNow.Ticks, 0) == 0) Log("captcha pending");
-                return ch;
-            }
-            if (Interlocked.Exchange(ref _captchaTicks, 0) != 0) Log("captcha gone");
-            if (string.IsNullOrWhiteSpace(ch)) return null;
-            await PauseAsync(s, ch + " - complete it in the CO browser, then press 'Return to agent'", ct);
-            return ch;
+            var d = AgentOtpRules.Decide(v.ValueKind == JsonValueKind.String ? v.GetString() : null, AllowOtp(), AfterPurchase);
+            await ApplyMarksAsync(s, d, ct);
+            if (d.Pause is null) return null;
+            await PauseAsync(s, d.Pause + " - complete it in the CO browser, then press 'Return to agent'", ct);
+            return d.Pause;
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             Log("challenge check failed: " + ex.Message);
             return null;
+        }
+    }
+
+    // Sets or clears the captcha and one-time code marks of the tab (never pauses).
+    private async Task ApplyMarksAsync(CdpSession s, ChallengeDecision d, CancellationToken ct)
+    {
+        if (d.Captcha)
+        {
+            if (Interlocked.CompareExchange(ref _captchaTicks, DateTime.UtcNow.Ticks, 0) == 0) Log("captcha pending");
+        }
+        else if (Interlocked.Exchange(ref _captchaTicks, 0) != 0) Log("captcha gone");
+
+        if (d.Otp)
+        {
+            _otpRef = await OtpFieldRefAsync(s, ct);
+            if (Interlocked.CompareExchange(ref _otpTicks, DateTime.UtcNow.Ticks, 0) == 0) Log("one-time code pending");
+        }
+        else ClearOtpMark();
+    }
+
+    // Time of the last purchase/payment click, key or submit of the agent in this tab (0 = none): a one-time code page
+    // within AgentOtpRules.PurchaseWindow after it is a payment confirmation (3-D Secure) and pauses the tab.
+    private long _purchaseTicks;
+    public void MarkPurchase() => Interlocked.Exchange(ref _purchaseTicks, DateTime.UtcNow.Ticks);
+    private bool AfterPurchase
+    {
+        get
+        {
+            var t = Interlocked.Read(ref _purchaseTicks);
+            return t != 0 && DateTime.UtcNow - new DateTime(t, DateTimeKind.Utc) < AgentOtpRules.PurchaseWindow;
+        }
+    }
+
+    // Time the agent last typed a one-time code (0 = never): journal screenshots are skipped for a while after it and
+    // while the tab is otp-pending, so the code never lands in a journal picture.
+    private long _codeTypedTicks;
+    public void MarkCodeTyped() => Interlocked.Exchange(ref _codeTypedTicks, DateTime.UtcNow.Ticks);
+    private bool NoShots
+    {
+        get
+        {
+            if (OtpPending) return true;
+            var t = Interlocked.Read(ref _codeTypedTicks);
+            return t != 0 && DateTime.UtcNow - new DateTime(t, DateTimeKind.Utc) < TimeSpan.FromMinutes(10);
+        }
+    }
+
+    private void ClearOtpMark()
+    {
+        _otpRef = null;
+        if (Interlocked.Exchange(ref _otpTicks, 0) != 0) Log("one-time code gone");
+    }
+
+    // Ref of the first visible one-time code field of the page (same detection as AgentPageScripts.Challenge), or null.
+    private static async Task<string?> OtpFieldRefAsync(CdpSession s, CancellationToken ct)
+    {
+        string? objectId = null;
+        try
+        {
+            var contextId = await WorldAsync(s, OpsWorld, ct);
+            var r = await s.SendAsync("Runtime.evaluate", new { expression = AgentPageScripts.OtpField, contextId, returnByValue = false }, ct);
+            ThrowOnException(r);
+            if (!r.TryGetProperty("result", out var res) || Str(res, "objectId") is not { Length: > 0 } id) return null;
+            objectId = id;
+            var desc = await s.SendAsync("DOM.describeNode", new { objectId }, ct);
+            return desc.TryGetProperty("node", out var node) && node.TryGetProperty("backendNodeId", out var b) && b.TryGetInt64(out var bid)
+                ? "n" + bid : null;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception) { return null; }
+        finally
+        {
+            if (objectId != null)
+            {
+                try { await s.SendAsync("Runtime.releaseObject", new { objectId }, CancellationToken.None); }
+                catch { /* dies with the page */ }
+            }
         }
     }
 
@@ -567,15 +660,18 @@ public sealed partial class AgentPage
     /// </summary>
     public async Task RecheckCaptchaAsync(CancellationToken ct)
     {
-        if (!CaptchaPending || _paused != null) return;
+        // co-resident 0.5.3: also clears the one-time code mark when the code field is gone or the setting was turned off.
+        if (!(CaptchaPending || OtpPending) || _paused != null) return;
         try
         {
             await RunAsync(async s =>
             {
                 var v = await EvalInWorldAsync(s, OpsWorld, AgentPageScripts.Challenge, ct);
-                if (!(v.ValueKind == JsonValueKind.String && v.GetString() == "captcha")
-                    && Interlocked.Exchange(ref _captchaTicks, 0) != 0)
+                var raw = v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+                // Same captcha rule as ChallengeAsync (setting off: a one-time code or payment page clears it, as before).
+                if (!AgentOtpRules.Decide(raw, AllowOtp(), AfterPurchase).Captcha && Interlocked.Exchange(ref _captchaTicks, 0) != 0)
                     Log("captcha gone");
+                if (!AgentOtpRules.Has(raw, "one-time code") || !AllowOtp()) ClearOtpMark();
                 return true;
             }, ct);
         }
@@ -600,7 +696,7 @@ public sealed partial class AgentPage
             throw new ToolException("navigation_failed", "Navigation failed: " + errorText);
 
         var ch = await ChallengeAsync(s, ct);
-        if (ch != null && ch != "captcha")
+        if (ch != null)
             throw new ToolException("user_action_needed",
                 $"The page asks for {ch}. The agent tab is paused and in front; ask the user to complete it and press 'Return to agent'.");
 
@@ -646,7 +742,9 @@ public sealed partial class AgentPage
                 // 0.9.0: a screenshot taken while the tab commits a navigation (e.g. to about:blank after a block)
                 // fails with "Not attached to an active page": retry once, then write the line without a shot.
                 byte[]? bytes = null;
-                for (int attempt = 0; attempt < 2 && bytes == null; attempt++)
+                // co-resident 0.5.3: no picture while a typed one-time code may be on the page.
+                var noShots = NoShots;
+                for (int attempt = 0; attempt < 2 && bytes == null && !noShots; attempt++)
                 {
                     try
                     {

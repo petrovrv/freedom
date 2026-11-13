@@ -15,7 +15,7 @@ namespace CO.Mac;
 //   setup --env <environment>           sign in with Google, write the pairing request, install and start the LaunchAgent
 //   run                                   the LaunchAgent: wait for pairing, then serve agent tool calls
 //   app                                   the CO window (R4): menu-bar icon + CO Web, from ~/Applications/CO.app (MacApp.cs)
-//   status | folders [list|add <path> [id] [--read-only]|rm <id>] | shell on|off | browser on|read|off | browser forms ask|auto | window on|off | signin | uninstall [--purge] | version
+//   status | folders [list|add <path> [id] [--read-only]|rm <id>] | shell on|off | browser on|read|off | browser forms ask|auto | browser otp on|off|default | window on|off | signin | uninstall [--purge] | version
 //   subs [status|install <cli>|connect <claude|codex> [--email <e-mail>]|check <cli>|register]   own CLI subscriptions (S4)
 public static class Program
 {
@@ -50,7 +50,9 @@ public static class Program
                 "status" => Status(),
                 "folders" => Folders(argv.Skip(1).ToArray()),
                 "shell" => Shell(argv.Length > 1 ? argv[1] : ""),
-                "browser" => argv.Length > 1 && argv[1] == "forms" ? BrowserForms(argv.Length > 2 ? argv[2] : "") : Browser(argv.Length > 1 ? argv[1] : ""),
+                "browser" => argv.Length > 1 && argv[1] == "forms" ? BrowserForms(argv.Length > 2 ? argv[2] : "")
+                    : argv.Length > 1 && argv[1] == "otp" ? BrowserOtp(argv.Length > 2 ? argv[2] : "")
+                    : Browser(argv.Length > 1 ? argv[1] : ""),
                 "subs" => await SubsAsync(argv.Skip(1).ToArray()),
                 "uninstall" => Uninstall(argv.Contains("--purge")),
                 _ => throw new ArgumentException("Unknown command " + cmd + ". Commands: setup, run, status, folders, shell, browser, subs, window, signin, uninstall, version."),
@@ -125,7 +127,8 @@ public static class Program
         var shell = new ShellSettings(Path.Combine(Paths.DataDir, "shell.json"));
         foreach (var t in MacTools.All(shell, http, auth)) runtime.Catalog.Add(t);
         // R3: the agent browser (Chrome for Testing in its own profile); the Mac's user switches it with 'browser on|read|off'.
-        foreach (var t in MacBrowser.All(new BrowserSettings(Path.Combine(Paths.DataDir, "browser.json")), http)) runtime.Catalog.Add(t);
+        // 0.5.3: the device role decides the default of one-time codes from chat (on for a household member's Mac).
+        foreach (var t in MacBrowser.All(new BrowserSettings(Path.Combine(Paths.DataDir, "browser.json")), http, () => runtime.State.Role)) runtime.Catalog.Add(t);
         // S4: own CLI subscriptions (claude, codex): sign-in page in the agent browser, registration on the CO server.
         var subs = new CO.Core.Subscriptions.SubscriptionManager(http) { Log = Log.Write };
         // only while the agent browser is fully on ('co-resident browser on'); otherwise the person opens the link
@@ -707,6 +710,26 @@ public static class Program
         Console.WriteLine(mode == "ask"
             ? "Agent browser: form submits, choices and uploads ask you first."
             : "Agent browser: form submits, choices and uploads run without asking; purchases and deletions still ask, sending stays refused.");
+        return 0;
+    }
+
+    // 0.5.3: one-time codes the user sends in chat: the agent may type them (on), never (off), or the device default
+    // (default: on for a household member's Mac, off for the owner's). Passwords, card and bank fields are never typed.
+    private static int BrowserOtp(string mode)
+    {
+        if (mode is not ("on" or "off" or "default")) throw new ArgumentException("browser otp on | off | default");
+        MacBrowser.OtpSetting = mode switch { "on" => true, "off" => false, _ => null };
+        string role = "";
+        try
+        {
+            if (File.Exists(DeviceFile)) role = System.Text.Json.JsonSerializer.Deserialize<DeviceState>(File.ReadAllText(DeviceFile))?.Role ?? "";
+        }
+        catch (Exception) { }
+        bool on = MacBrowser.AllowOtpFromChat(role);
+        Console.WriteLine((on
+            ? "Agent browser: the agent may type a one-time code you send in chat into the code field of its tab; passwords, card and bank fields never."
+            : "Agent browser: one-time code pages pause the agent tab; you type the code yourself.")
+            + (mode == "default" ? " (device default)" : ""));
         return 0;
     }
 

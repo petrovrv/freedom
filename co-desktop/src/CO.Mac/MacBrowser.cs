@@ -44,12 +44,41 @@ public static class MacBrowser
         }
     }
 
-    public static IEnumerable<IDeviceTool> All(BrowserSettings settings, HttpClient http)
+    // 0.5.3: whether the agent may type one-time codes the user sends in chat (AgentOtpRules). Not set = the device
+    // default: on for a household member's Mac (device role "member", owner's yes of 13.11.2026), off for the owner's.
+    // Read from the file every time: the menu and 'co-resident browser otp' switch it from other processes.
+    public static bool? OtpSetting
+    {
+        // An unreadable or broken file (or a non-boolean value) is "off", never the device default: the store would read
+        // it as "not set" and a member's explicit "off" could turn into the default "on".
+        get
+        {
+            try
+            {
+                if (!File.Exists(SettingsFile)) return null;
+                if (JsonNode.Parse(File.ReadAllText(SettingsFile)) is not JsonObject root) return false;
+                if (!root.TryGetPropertyValue("AllowOtpFromChat", out var v) || v is null) return null;
+                return v is JsonValue jv && jv.TryGetValue<bool>(out var b) ? b : false;
+            }
+            catch (Exception) { return false; }
+        }
+        set
+        {
+            var st = new AgentWebSettingsStore(SettingsFile);
+            var c = st.Current;
+            c.AllowOtpFromChat = value;
+            st.Save(c);
+        }
+    }
+
+    public static bool AllowOtpFromChat(string? deviceRole) => AgentOtpRules.Effective(OtpSetting, deviceRole);
+
+    public static IEnumerable<IDeviceTool> All(BrowserSettings settings, HttpClient http, Func<string?>? deviceRole = null)
     {
         var browser = Browser(http);
         var store = new AgentWebSettingsStore(SettingsFile);
         var pages = new RunTabs<AgentPage>("agent-web",
-            key => new AgentPage(browser.Tab(key), store, JournalDir, Log.Write),
+            key => new AgentPage(browser.Tab(key), store, JournalDir, Log.Write, () => AllowOtpFromChat(deviceRole?.Invoke())),
             (_, page, ct) => page.CloseAsync(ct), keep: page => page.Paused != null,
             sweepEvery: TimeSpan.FromMinutes(1), log: Log.Write,
             // CO Desktop 0.9.9: tab chamberlain and per-chat lifetimes (pinned: only when the tabs extension runs).

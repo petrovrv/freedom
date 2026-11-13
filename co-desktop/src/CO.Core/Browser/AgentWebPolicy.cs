@@ -23,6 +23,12 @@ public sealed class AgentWebSettings
     // Default true: form submits (button or Enter), select changes and file uploads ask the user first.
     // When false (CO Desktop 0.8.9) they run without asking; "purchase"/"delete" still ask and "send" stays refused.
     public bool ConfirmForms { get; set; } = true;
+    // co-resident 0.5.3: the agent may type a one-time code (login/verification code from mail or SMS) that the user sent
+    // in chat into the code field of its tab, and a code page does not pause the tab (AgentOtpRules). Passwords, payment
+    // and bank fields stay refused, payment pages still pause. null = not set: the device default applies
+    // (AgentOtpRules.Effective: on for a household member's Mac, off elsewhere; CO Desktop on Windows: off).
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? AllowOtpFromChat { get; set; }
     // 0.9.0: the former allowlist, kept unused; null = none (not written).
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? AllowLegacy { get; set; }
@@ -63,6 +69,7 @@ public sealed class AgentWebSettingsStore
                 Journal = s.Journal,
                 ConfirmClicks = s.ConfirmClicks,
                 ConfirmForms = s.ConfirmForms,
+                AllowOtpFromChat = s.AllowOtpFromChat,
                 Block = Normalize(s.Block),
                 AllowLegacy = legacy is null ? null : new List<string>(legacy),
             };
@@ -94,6 +101,7 @@ public sealed class AgentWebSettingsStore
                 Journal = Bool(root, "Journal") ?? true,
                 ConfirmClicks = Bool(root, "ConfirmClicks") ?? false,
                 ConfirmForms = Bool(root, "ConfirmForms") ?? true,
+                AllowOtpFromChat = Bool(root, "AllowOtpFromChat"),
                 Block = Normalize(Strings(root, "Block")),
             };
             var legacy = Strings(root, "AllowLegacy");
@@ -126,6 +134,7 @@ public sealed class AgentWebSettingsStore
         Journal = c.Journal,
         ConfirmClicks = c.ConfirmClicks,
         ConfirmForms = c.ConfirmForms,
+        AllowOtpFromChat = c.AllowOtpFromChat,
         Block = new List<string>(c.Block),
         AllowLegacy = c.AllowLegacy is null ? null : new List<string>(c.AllowLegacy),
     };

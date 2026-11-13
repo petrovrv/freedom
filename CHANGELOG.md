@@ -5,6 +5,18 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- CO Resident 0.5.3 (CO.Core, also in the next CO Desktop): one-time codes from chat in the agent browser - setting
+  `AllowOtpFromChat` (`agent-browser.json`; Mac menu Agent browser -> "Agent may type one-time codes from chat",
+  `co-resident browser otp on|off|default`, CO Desktop checkbox in Connectors -> agent browser). On: a one-time-code page
+  does not pause the tab, it is marked otp-pending and the tool result tells the agent to ask the user in chat for the
+  code and `browser_type` it into the code field's ref; `browser_type` types a code-like text (3-12 letters/digits)
+  only into fields protected solely as one-time-code fields, never into password, card, CVC, IBAN, PIN, secret or token
+  fields; payment pages still pause (also a code page within 30 min of a purchase click in the tab or with card/bank
+  confirmation text, 3-D Secure), captcha unchanged; the code is masked in snapshots and confirmations and journal
+  screenshots are skipped while it may be on the page; an unreadable setting file counts as off on the Mac.
+  Default: on for a household member's Mac (device role `member`), off for the owner's Mac and on Windows. Off:
+  behaviour as before (snapshots and confirmations now also mask values of one-time-code fields named in more ways).
+
 ## 0.3.0 (2026-11-13)
 
 The development direction is reversed: this repository is the upstream of the core.

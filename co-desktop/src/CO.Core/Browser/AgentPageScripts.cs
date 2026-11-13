@@ -16,7 +16,11 @@ internal static class AgentPageScripts
                 if (out.length >= 30) break;
                 const label = (f.labels && f.labels[0] && f.labels[0].innerText) || f.getAttribute('aria-label') ||
                   f.name || f.placeholder || f.id || '';
-                const value = type === 'password' ? '***'
+                // co-resident 0.5.3: one-time codes are never shown in confirmations either.
+                const otpField = (f.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/).includes('one-time-code') ||
+                  /one.?time|otp|verification.?code|verify.?code|2fa|two.?factor|totp|mfa|sms.?code|auth(?:entication)?.?code|login.?code|sign.?in.?code|confirmation.?code|verificatiecode|bevestigingscode|code.?de.?v[ée]rification|best[äa]tigungscode|код.?подтверждения|код.?из.?смс|одноразов/i.test(
+                    [f.name, f.id, f.getAttribute('aria-label'), f.getAttribute('placeholder'), f.labels && f.labels[0] ? f.labels[0].innerText : ''].join(' '));
+                const value = (type === 'password' || otpField) ? '***'
                   : (type === 'checkbox' || type === 'radio') ? f.checked
                   : String(f.value ?? '').slice(0, 200);
                 out.push({ label: String(label).trim(), type, value });
@@ -92,23 +96,29 @@ internal static class AgentPageScripts
         })(this); }
         """;
 
-    // Runtime.callFunctionOn with this = target element: { sensitive, reason }.
+    // Runtime.callFunctionOn with this = target element: { sensitive, reason, attrs }.
+    // co-resident 0.5.3: attrs (type, autocomplete, name, id, ariaLabel, placeholder, label) for AgentOtpRules.Classify;
+    // 'sensitive' keeps the pre-0.5.3 rule, applied unchanged while one-time codes from chat are off.
     public const string Field = """
         function() { return ((el) => {
             const type = String(el.type || el.getAttribute('type') || '').toLowerCase();
             const ac = String(el.getAttribute('autocomplete') || '').toLowerCase();
-            if (type === 'password') return { sensitive: true, reason: 'password field' };
-            if (ac.split(/\s+/).some((t) => t.startsWith('cc-'))) return { sensitive: true, reason: 'payment autocomplete' };
-            if (ac.split(/\s+/).includes('one-time-code')) return { sensitive: true, reason: 'one-time-code autocomplete' };
-            const re = /card.?(?:num|no\b|nr\b|holder)|(?:credit|debit).?card|kaartnummer|cvc|cvv|csc|security.?code|iban|password|passcode|wachtwoord|пароль|one.?time|otp|verification.?code|\bpin\b/i;
             const fieldLabel = el.labels && el.labels[0] ? el.labels[0].innerText : '';
+            const attrs = { type, autocomplete: ac, name: String(el.getAttribute('name') || ''), id: String(el.id || ''),
+              ariaLabel: String(el.getAttribute('aria-label') || ''), placeholder: String(el.getAttribute('placeholder') || ''),
+              label: String(fieldLabel || '').slice(0, 4000) };
+            const out = (sensitive, reason) => ({ sensitive, reason, attrs });
+            if (type === 'password') return out(true, 'password field');
+            if (ac.split(/\s+/).some((t) => t.startsWith('cc-'))) return out(true, 'payment autocomplete');
+            if (ac.split(/\s+/).includes('one-time-code')) return out(true, 'one-time-code autocomplete');
+            const re = /card.?(?:num|no\b|nr\b|holder)|(?:credit|debit).?card|kaartnummer|cvc|cvv|csc|security.?code|iban|password|passcode|wachtwoord|пароль|one.?time|otp|verification.?code|\bpin\b/i;
             for (const [k, v] of [
               ['name', el.getAttribute('name')], ['id', el.id], ['autocomplete', ac],
               ['aria-label', el.getAttribute('aria-label')], ['placeholder', el.getAttribute('placeholder')], ['label', fieldLabel],
             ]) {
-              if (v && re.test(v)) return { sensitive: true, reason: `${k} matches sensitive pattern` };
+              if (v && re.test(v)) return out(true, `${k} matches sensitive pattern`);
             }
-            return { sensitive: false, reason: '' };
+            return out(false, '');
         })(this); }
         """;
 
@@ -123,7 +133,11 @@ internal static class AgentPageScripts
                 if (out.length >= 30) break;
                 const label = (f.labels && f.labels[0] && f.labels[0].innerText) || f.getAttribute('aria-label') ||
                   f.name || f.placeholder || f.id || '';
-                const value = type === 'password' ? '***'
+                // co-resident 0.5.3: one-time codes are never shown in confirmations either.
+                const otpField = (f.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/).includes('one-time-code') ||
+                  /one.?time|otp|verification.?code|verify.?code|2fa|two.?factor|totp|mfa|sms.?code|auth(?:entication)?.?code|login.?code|sign.?in.?code|confirmation.?code|verificatiecode|bevestigingscode|code.?de.?v[ée]rification|best[äa]tigungscode|код.?подтверждения|код.?из.?смс|одноразов/i.test(
+                    [f.name, f.id, f.getAttribute('aria-label'), f.getAttribute('placeholder'), f.labels && f.labels[0] ? f.labels[0].innerText : ''].join(' '));
+                const value = (type === 'password' || otpField) ? '***'
                   : (type === 'checkbox' || type === 'radio') ? f.checked
                   : String(f.value ?? '').slice(0, 200);
                 out.push({ label: String(label).trim(), type, value });
@@ -136,21 +150,29 @@ internal static class AgentPageScripts
         })()
         """;
 
-    // Runtime.evaluate: 'captcha' | 'one-time code' | 'payment' | null.
-    // 0.9.9: one-time code and payment first (they still pause the tab); a captcha only marks it captcha-pending.
+    // Runtime.evaluate: comma-separated set of 'one-time code', 'payment', 'captcha', or null (AgentOtpRules.Decide).
+    // 0.9.9: one-time code and payment pause the tab; a captcha only marks it captcha-pending.
+    // co-resident 0.5.3: every kind found is returned, so with one-time codes from chat on a payment page still pauses.
     public const string Challenge = """
         (() => { try { return (() => {
               const visible = (el) => el.offsetParent !== null || el.getClientRects().length > 0;
               const inputs = [...document.querySelectorAll('input')].filter(visible);
+              const found = [];
               const otp = /otp|one.?time|2fa|totp|verification.?code/i;
               if (inputs.some((i) =>
                 (i.getAttribute('autocomplete') || '').toLowerCase() === 'one-time-code' ||
-                otp.test(i.name || '') || otp.test(i.id || ''))) return 'one-time code';
+                otp.test(i.name || '') || otp.test(i.id || ''))) found.push('one-time code');
 
               const card = /card.?number|cvc|cvv/i;
               if (inputs.some((i) =>
                 (i.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/).some((t) => t.startsWith('cc-')) ||
-                card.test(i.name || '') || card.test(i.id || ''))) return 'payment';
+                card.test(i.name || '') || card.test(i.id || ''))) found.push('payment');
+              // co-resident 0.5.3: a code page of a card or bank payment confirmation (3-D Secure) is a payment page.
+              if (found.length === 1 && found[0] === 'one-time code') {
+                const payText = /3-?d.?secure|3ds|verified by visa|visa secure|identity.?check|securecode|safekey|card.?holder auth|cardinal|arcot|authori[sz]e (?:the |this |your )?(?:payment|purchase|transaction)|confirm (?:the |this |your )?(?:payment|purchase|transaction)|approve (?:the |this |your )?(?:payment|purchase|transaction)|betaling (?:bevestigen|goedkeuren)|bevestig (?:de |uw |je )?betaling|confirmer (?:le |votre )?paiement|paiement s[ée]curis|zahlung (?:best[äa]tigen|freigeben)|подтвер\S* (?:оплат|плат)/i;
+                const page = location.hostname + ' ' + document.title + ' ' + String((document.body && document.body.innerText) || '').slice(0, 8000);
+                if (payText.test(page)) found.push('payment');
+              }
 
               const captchaSrc = /recaptcha|hcaptcha|challenges\.cloudflare\.com|turnstile|arkoselabs|funcaptcha/i;
               // 0.9.9: only a visible widget counts; the invisible reCAPTCHA v3 badge (size=invisible, tiny or hidden
@@ -160,16 +182,32 @@ internal static class AgentPageScripts
                 const s = getComputedStyle(el);
                 return r.width >= 60 && r.height >= 40 && s.visibility !== 'hidden' && s.display !== 'none' && s.opacity !== '0';
               };
-              for (const f of document.querySelectorAll('iframe')) {
-                const src = f.src || '';
-                if (captchaSrc.test(src) && !/[?&]size=invisible/i.test(src) && shown(f)) return 'captcha';
-              }
-              for (const el of document.querySelectorAll('.g-recaptcha, .h-captcha, .cf-turnstile, #challenge-form')) {
-                if (el.getAttribute('data-size') !== 'invisible' && shown(el)) return 'captcha';
-              }
+              const captcha = () => {
+                for (const f of document.querySelectorAll('iframe')) {
+                  const src = f.src || '';
+                  if (captchaSrc.test(src) && !/[?&]size=invisible/i.test(src) && shown(f)) return true;
+                }
+                for (const el of document.querySelectorAll('.g-recaptcha, .h-captcha, .cf-turnstile, #challenge-form')) {
+                  if (el.getAttribute('data-size') !== 'invisible' && shown(el)) return true;
+                }
+                return false;
+              };
+              if (captcha()) found.push('captcha');
 
-              return null;
+              return found.length ? found.join(',') : null;
         })(); } catch (e) { return null; } })()
+        """;
+
+    // Runtime.evaluate (by reference): the first visible one-time code input, same detection as Challenge, or null.
+    // co-resident 0.5.3: its ref goes into the hint for the agent ("browser_type it into ref n123").
+    public const string OtpField = """
+        (() => { try {
+              const visible = (el) => el.offsetParent !== null || el.getClientRects().length > 0;
+              const otp = /otp|one.?time|2fa|totp|verification.?code/i;
+              return [...document.querySelectorAll('input')].filter(visible).find((i) =>
+                (i.getAttribute('autocomplete') || '').toLowerCase() === 'one-time-code' ||
+                otp.test(i.name || '') || otp.test(i.id || '')) || null;
+        } catch (e) { return null; } })()
         """;
 
     // Runtime.callFunctionOn with this = select element, argument = wanted value or visible text.

@@ -23,7 +23,7 @@ public static unsafe class MacApp
     private const nuint CommandKey = 1 << 20, ShiftKey = 1 << 17;
     private const nint PolicyRegular = 0, PolicyAccessory = 1;
 
-    private static IntPtr _app, _del, _statusItem, _statusLine, _shellItem, _formsItem, _mainWin;
+    private static IntPtr _app, _del, _statusItem, _statusLine, _shellItem, _formsItem, _otpItem, _mainWin;
     private static readonly IntPtr[] _browserItems = new IntPtr[3];
     private static readonly List<IntPtr> _popups = new();
     private static readonly Dictionary<IntPtr, string> _downloads = new();
@@ -31,7 +31,7 @@ public static unsafe class MacApp
     private static int _refreshing;
 
     private sealed record Snapshot(bool SetUp, string Env, string DeviceId, string Name, string Short, bool Paired,
-        bool Revoked, bool Running, bool Shell, string Browser, bool ConfirmForms = true);
+        bool Revoked, bool Running, bool Shell, string Browser, bool ConfirmForms = true, bool AllowOtp = false, string Role = "");
 
     private static string ShowFile => Path.Combine(Paths.DataDir, "app.show");
     private static string StartsFile => Path.Combine(Paths.DataDir, "app.starts");
@@ -95,7 +95,8 @@ public static unsafe class MacApp
         return new Snapshot(st != null && st.Account.Length > 0, st?.EnvironmentId ?? "", st?.DeviceId ?? "", st?.Name ?? "", st?.Short ?? "",
             st?.Paired == true, st?.Bridge?.State == "revoked", code == 0 && so.Contains("state = running"),
             new ShellSettings(Path.Combine(Paths.DataDir, "shell.json")).Enabled,
-            new BrowserSettings(Path.Combine(Paths.DataDir, "browser.json")).Mode, MacBrowser.ConfirmForms);
+            new BrowserSettings(Path.Combine(Paths.DataDir, "browser.json")).Mode, MacBrowser.ConfirmForms,
+            MacBrowser.AllowOtpFromChat(st?.Role), st?.Role ?? "");
     }
 
     private static string StatusText(Snapshot s) =>
@@ -113,6 +114,7 @@ public static unsafe class MacApp
         Send(_statusLine, "setTitle:", Str(StatusText(s)));
         SendN(_shellItem, "setState:", s.Shell ? 1 : 0);
         SendN(_formsItem, "setState:", s.ConfirmForms ? 1 : 0);
+        SendN(_otpItem, "setState:", s.AllowOtp ? 1 : 0);
         string[] modes = { "on", "read", "off" };
         for (int i = 0; i < 3; i++) SendN(_browserItems[i], "setState:", s.Browser == modes[i] ? 1 : 0);
         IntPtr button = Send(_statusItem, "button");
@@ -188,6 +190,7 @@ public static unsafe class MacApp
         _statusLine = Item("…", null);
         _shellItem = Item("Agents may run commands (asks every time)", "toggleShell:", "", _del);
         _formsItem = Item("Ask before sending forms", "toggleForms:", "", _del);
+        _otpItem = Item("Agent may type one-time codes from chat", "toggleOtp:", "", _del);
         string[] titles = { "On", "Read pages only", "Off" };
         for (int i = 0; i < 3; i++)
         {
@@ -199,7 +202,7 @@ public static unsafe class MacApp
             Separator(),
             _statusLine,
             _shellItem,
-            Sub("Agent browser", Menu("Agent browser", _browserItems.Append(Separator()).Append(_formsItem).ToArray())),
+            Sub("Agent browser", Menu("Agent browser", _browserItems.Append(Separator()).Append(_formsItem).Append(_otpItem).ToArray())),
             Item("Open the CO folder", "openFolder:", "", _del),
             Item("Show the log", "openLog:", "", _del),
             Separator(),
@@ -303,6 +306,7 @@ public static unsafe class MacApp
         ("toggleShell:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnToggleShell, "v@:@"),
         ("browserMode:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnBrowserMode, "v@:@"),
         ("toggleForms:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnToggleForms, "v@:@"),
+        ("toggleOtp:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnToggleOtp, "v@:@"),
         ("openFolder:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnOpenFolder, "v@:@"),
         ("openLog:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnOpenLog, "v@:@"),
         ("quitMenu:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnQuit, "v@:@"),
@@ -378,6 +382,18 @@ public static unsafe class MacApp
         MacBrowser.ConfirmForms = on;
         Log.Write("window app: agent browser form confirmations " + (on ? "on" : "off"));
         _snap = _snap with { ConfirmForms = on };
+        RefreshMenu();
+    });
+
+    // 0.5.3: one-time codes from chat (checked: the agent types the code the user sends in chat; unchecked: code pages
+    // pause the tab). The click stores an explicit value, so the device default no longer applies.
+    [UnmanagedCallersOnly]
+    private static void OnToggleOtp(IntPtr self, IntPtr sel, IntPtr sender) => Guard("otp", () =>
+    {
+        bool on = !_snap.AllowOtp;
+        MacBrowser.OtpSetting = on;
+        Log.Write("window app: agent browser one-time codes from chat " + (on ? "on" : "off"));
+        _snap = _snap with { AllowOtp = on };
         RefreshMenu();
     });
 

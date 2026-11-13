@@ -244,6 +244,12 @@ public sealed partial class AgentPage
         "input[name*=\"cvv\" i],input[id*=\"cvv\" i]," +
         "input[name*=\"iban\" i],input[id*=\"iban\" i]," +
         "input[name*=\"otp\" i],input[id*=\"otp\" i]," +
+        // co-resident 0.5.3: more one-time code fields (the agent may type codes from chat into them).
+        "input[name*=\"one-time\" i],input[id*=\"one-time\" i],input[name*=\"onetime\" i],input[id*=\"onetime\" i]," +
+        "input[name*=\"one_time\" i],input[id*=\"one_time\" i],input[name*=\"verification\" i],input[id*=\"verification\" i]," +
+        "input[name*=\"2fa\" i],input[id*=\"2fa\" i],input[name*=\"totp\" i],input[id*=\"totp\" i]," +
+        "input[name*=\"mfa\" i],input[id*=\"mfa\" i],input[name*=\"smscode\" i],input[id*=\"smscode\" i]," +
+        "input[name*=\"sms_code\" i],input[id*=\"sms_code\" i],input[name*=\"sms-code\" i],input[id*=\"sms-code\" i]," +
         "input[name*=\"pin\" i],input[id*=\"pin\" i]," +
         "input[name*=\"password\" i],input[id*=\"password\" i]," +
         "input[name*=\"secret\" i],input[id*=\"secret\" i]," +
@@ -317,7 +323,8 @@ public sealed partial class AgentPage
         + @"|пароль|код[\s_-]+подтверждения|код[\s_-]+из[\s_-]+смс|номер[\s_-]+карты|номер[\s_-]+сч[её]та",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
-    public static bool SensitiveName(string name) => !string.IsNullOrEmpty(name) && SensitiveNameRe.IsMatch(name);
+    // co-resident 0.5.3: also every wording browser_type treats as a one-time code field (AgentOtpRules).
+    public static bool SensitiveName(string name) => !string.IsNullOrEmpty(name) && (SensitiveNameRe.IsMatch(name) || AgentOtpRules.OtpWords(name));
 
     private static bool LooksSensitive(string v)
     {
@@ -609,6 +616,47 @@ public sealed partial class AgentPage
         return (0, 0, res.ValueKind == JsonValueKind.False ? "covered by another element" : "hit test failed");
     }
 
+    // Result of AgentPageScripts.Field -> the classifier's input.
+    public static FieldAttrs AttrsOf(JsonElement f)
+    {
+        if (f.ValueKind != JsonValueKind.Object || !f.TryGetProperty("attrs", out var a) || a.ValueKind != JsonValueKind.Object)
+            return new FieldAttrs();
+        return new FieldAttrs(Str(a, "type") ?? "", Str(a, "autocomplete") ?? "", Str(a, "name") ?? "", Str(a, "id") ?? "",
+            Str(a, "ariaLabel") ?? "", Str(a, "placeholder") ?? "", Str(a, "label") ?? "");
+    }
+
+    /// <summary>
+    /// Whether browser_type may type <paramref name="text"/> into the field described by <paramref name="field"/>
+    /// (result of AgentPageScripts.Field); throws sensitive_field otherwise. Setting off: the pre-0.5.3 rule unchanged
+    /// (every sensitive field refused). Setting on (co-resident 0.5.3): a field that is sensitive only because it takes a
+    /// one-time code accepts a code-like text; password, payment, bank and other secret fields stay refused.
+    /// </summary>
+    /// Returns true when the text goes into a one-time code field (journal pictures are then skipped for a while).
+    public static bool CheckTypingAllowed(JsonElement field, string text, bool allowOtpFromChat)
+    {
+        bool sensitive = field.ValueKind == JsonValueKind.Object && field.TryGetProperty("sensitive", out var sens) && sens.ValueKind == JsonValueKind.True;
+        var kind = AgentOtpRules.Classify(AttrsOf(field));
+        if (allowOtpFromChat && kind == FieldKind.OneTimeCode)
+        {
+            if (AgentOtpRules.LooksLikeCode(text)) return true;
+            throw new ToolException("sensitive_field", "This is a one-time code field; the agent types only the code the user sent in chat " +
+                "(3-12 letters or digits). Ask the user in chat for the code they received.");
+        }
+        if (!sensitive && kind == FieldKind.Plain) return false;
+        if (!sensitive && !allowOtpFromChat) return false;   // pre-0.5.3: only the old rule refuses while the setting is off
+        throw new ToolException("sensitive_field", "This field takes a secret or payment data (" + (Str(field, "reason") is { Length: > 0 } r ? r
+                : kind == FieldKind.OneTimeCode ? "one-time code" : "sensitive")
+            + "); the agent never types there. Ask the user to fill it in the CO browser."
+            + (kind == FieldKind.OneTimeCode && !allowOtpFromChat ? " (Typing one-time codes from chat is off on this device.)" : ""));
+    }
+
+    /// <summary>co-resident 0.5.3: kind of the field by ref (for confirmations: a one-time code is never shown).</summary>
+    public Task<FieldKind> FieldKindAsync(string reference, CancellationToken ct) => RunAsync(async s =>
+    {
+        var f = await CallAsync(s, ParseRef(reference), AgentPageScripts.Field, ct);
+        return AgentOtpRules.Classify(AttrsOf(f));
+    }, ct);
+
     public Task<PageInfo> TypeAsync(string reference, string text, bool submit, CancellationToken ct)
     {
         RequireNotPaused();
@@ -617,9 +665,20 @@ public sealed partial class AgentPage
             var node = ParseRef(reference);
             await RequireActionAllowedAsync(s, ct);
             var f = await CallAsync(s, node, AgentPageScripts.Field, ct);
-            if (f.ValueKind == JsonValueKind.Object && f.TryGetProperty("sensitive", out var sens) && sens.ValueKind == JsonValueKind.True)
-                throw new ToolException("sensitive_field", "This field takes a secret or payment data (" + (Str(f, "reason") ?? "sensitive")
-                    + "); the agent never types there. Ask the user to fill it in the CO browser.");
+            if (CheckTypingAllowed(f, text, AllowOtp()))
+            {
+                // A one-time code soon after a purchase in this tab, or on a page that looks like a card or bank
+                // confirmation (3-D Secure), is a payment step: the user completes it (review of 0.5.3).
+                var ch = await EvalInWorldAsync(s, OpsWorld, AgentPageScripts.Challenge, ct);
+                if (AfterPurchase || AgentOtpRules.Has(ch.ValueKind == JsonValueKind.String ? ch.GetString() : null, "payment"))
+                {
+                    await PauseAsync(s, "payment - complete it in the CO browser, then press 'Return to agent'", ct);
+                    throw new ToolException("user_action_needed",
+                        "This code confirms a payment. The agent tab is paused and in front; ask the user to complete it and press 'Return to agent'.");
+                }
+                MarkCodeTyped();
+            }
+            else if (OtpPending && AgentOtpRules.LooksLikeCode(text)) MarkCodeTyped();   // split code boxes (digit1..digit6)
 
             // Input.insertText works in a hidden tab, but the submit key press (Enter) does not.
             var typeVisible = await EnsureVisibleAsync(s, ct);

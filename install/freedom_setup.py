@@ -1371,6 +1371,8 @@ def cmd_status(a) -> int:
     st = load_state().get('steps', {})
     nxt = None
     for s in STEPS:
+        if s == 'site-probe' and docker_variant():
+            continue   # B/C: the server runs in Docker, there is no hosting to probe
         r = st.get(s)
         out('ok' if r and r.get('ok') else ('FAIL' if r else '-'), f'{s:<12} {r["utc"] + "  " + r["summary"] if r else ""}')
         if nxt is None and not (r and r.get('ok')):

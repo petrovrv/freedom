@@ -186,6 +186,71 @@ namespace AiWorkbenchBridge
         }
     }
 
+    // v1.18.0 (Freedom, "each person has their own keyring"): the job's environment and role reach the agent and its
+    // tools. A household member's job (environment other than the owner's) runs under this Windows account, so its
+    // tools would read the owner's Credential Manager: aiwb_secret (tool library secret-prompt 0.4.0+) refuses them
+    // (own_device_first), PYTHON_KEYRING_BACKEND routes every python keyring call of the job to its refusing backend,
+    // and read-guard 0.5.0 denies shell commands that reach the store. A barrier, not isolation (SPEC: next step).
+    internal static class JobRole
+    {
+        public const string RefusingBackend = "aiwb_secret.MemberRefusedKeyring";
+        public const string DefaultSecretDir = @"C:\AIWorkbench\tools\secret-prompt";
+
+        // "member" only when both are known and differ; a job without an environment is the owner's own.
+        public static string Of(string env, string ownerEnv)
+        {
+            return !String.IsNullOrEmpty(env) && !String.IsNullOrEmpty(ownerEnv) && !String.Equals(env, ownerEnv, StringComparison.Ordinal)
+                ? "member" : "owner";
+        }
+
+        // Folder of aiwb_secret.py: AIWB_SECRET_DIR, the tool library working copy, else its Drive mirror.
+        public static string SecretDir
+        {
+            get
+            {
+                try
+                {
+                    string dir = Environment.GetEnvironmentVariable("AIWB_SECRET_DIR");
+                    if (!String.IsNullOrWhiteSpace(dir))
+                        return dir;
+                    if (File.Exists(Path.Combine(DefaultSecretDir, "aiwb_secret.py")))
+                        return DefaultSecretDir;
+                    if (!String.IsNullOrEmpty(ReadGuard.DriveRoot))
+                    {
+                        dir = Path.Combine(Path.Combine(ReadGuard.DriveRoot, "tools"), "secret-prompt");
+                        if (File.Exists(Path.Combine(dir, "aiwb_secret.py")))
+                            return Path.GetFullPath(dir);
+                    }
+                }
+                catch (Exception)
+                {
+                }
+                return null;
+            }
+        }
+
+        public static string Apply(ProcessStartInfo psi, string env, string ownerEnv)
+        {
+            string role = Of(env, ownerEnv);
+            psi.EnvironmentVariables["AIWB_JOB_ENV"] = env ?? String.Empty;
+            psi.EnvironmentVariables["AIWB_JOB_ROLE"] = role;
+            if (role != "member")
+                return role;
+            // without the folder keyring cannot load the backend and fails: refused either way
+            psi.EnvironmentVariables["PYTHON_KEYRING_BACKEND"] = RefusingBackend;
+            string dir = SecretDir;
+            if (dir != null)
+            {
+                // member_site\sitecustomize.py sets the backend again in every python of the job: Codex drops
+                // variables named *KEY* from its shell environment
+                string old = psi.EnvironmentVariables["PYTHONPATH"];
+                string add = dir + Path.PathSeparator + Path.Combine(dir, "member_site");
+                psi.EnvironmentVariables["PYTHONPATH"] = String.IsNullOrEmpty(old) ? add : add + Path.PathSeparator + old;
+            }
+            return role;
+        }
+    }
+
     // v1.8.0: read-guard (tools\read-guard) checks what agents read from outside (web, mail, chats, downloads) for
     // prompt injection: Claude Code hooks wrap suspicious tool results as data and hold sending/buying/secret
     // actions of a tainted chat until the owner confirms in the chat. Codex gets no hooks: -c hooks need
@@ -359,6 +424,13 @@ namespace AiWorkbenchBridge
         // v1.8.0: context null/empty = no SubagentStart hook; guard = read-guard hooks (PostToolUse/PreToolUse) in the same file.
         public static string Ensure(string context, bool guard)
         {
+            return Ensure(context, guard, false);
+        }
+
+        // v1.18.0: member = a household member's job: PreToolUse also on Grep/Glob (paths of the owner's credential
+        // store); the owner's jobs keep the 1.17 file (no extra hook process per Grep/Glob).
+        public static string Ensure(string context, bool guard, bool member)
+        {
             if (context == null)
                 context = "";
             string guardScript = guard ? ReadGuard.ScriptPath : null;
@@ -368,7 +440,7 @@ namespace AiWorkbenchBridge
                 root = Path.GetTempPath();
             string dir = Path.Combine(Path.Combine(root, "AIWorkbenchBridge"), "subagent-hooks");
 
-            string key = ComputeKey(context + "\n" + (guardScript ?? ""));
+            string key = ComputeKey(context + "\n" + (guardScript ?? "") + (guardScript != null && member ? "\nmember" : ""));
             string hookPath = Path.GetFullPath(Path.Combine(dir, key + ".hook.json"));
             string settingsPath = Path.GetFullPath(Path.Combine(dir, key + ".settings.json"));
 
@@ -405,7 +477,8 @@ namespace AiWorkbenchBridge
                 hooks["PostToolUseFailure"] = new object[] { ReadGuard.ClaudeMatcher(
                     "Bash|PowerShell|WebFetch|WebSearch|Read|mcp__.*", "claude-fail", guardScript) };
                 hooks["PreToolUse"] = new object[] { ReadGuard.ClaudeMatcher(
-                    "Bash|PowerShell|WebFetch|Read|Write|Edit|MultiEdit|NotebookEdit|mcp__.*", "claude-pre", guardScript) };
+                    member ? "Bash|PowerShell|WebFetch|Read|Write|Edit|MultiEdit|NotebookEdit|Grep|Glob|mcp__.*"
+                           : "Bash|PowerShell|WebFetch|Read|Write|Edit|MultiEdit|NotebookEdit|mcp__.*", "claude-pre", guardScript) };
             }
             Dictionary<string, object> settingsRoot = new Dictionary<string, object>();
             settingsRoot["hooks"] = hooks;
@@ -516,7 +589,7 @@ namespace AiWorkbenchBridge
 
     internal sealed partial class BridgeApplicationContext : ApplicationContext
     {
-        private const string BridgeVersion = "1.17.0";
+        private const string BridgeVersion = "1.18.0";
         private const int ProtocolMinor = 2;
 
         private static readonly string[] KnownModes = new string[] { "chat", "cowork" };
@@ -3073,6 +3146,9 @@ namespace AiWorkbenchBridge
                 psi.EnvironmentVariables["AIWB_JOB_ID"] = jobId ?? String.Empty;
                 psi.EnvironmentVariables["AIWB_CHAT_ID"] = request.chatId ?? String.Empty;
                 psi.EnvironmentVariables["AIWB_GUARD_EVENTS"] = guardEventsDir;
+                if (JobRole.Apply(psi, request.environmentId, Modules.OwnerEnv) == "owner" &&
+                    !String.IsNullOrEmpty(request.environmentId) && String.IsNullOrEmpty(Modules.OwnerEnv))
+                    Log("WARNING: owner environment unknown (config push.ownerEnv): job " + jobId + " of '" + request.environmentId + "' runs as owner.");
                 // v1.10.0: agent browser settings of the chat for browser-agent 0.15.0 (and linkedin-web/whatsapp-web)
                 BrowserSettings bs = request.browserSettings ?? new BrowserSettings();
                 psi.EnvironmentVariables["AIWB_BROWSER_TABS"] = bs.tabs.ToString(CultureInfo.InvariantCulture);

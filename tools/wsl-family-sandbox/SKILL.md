@@ -1,7 +1,7 @@
 ---
 name: wsl-family-sandbox
-description: Children's WSL2 sandbox aiwb-family on the home PC (Ubuntu 24.04) — household members (install.json members) compile and run code (C/C++, Python, Node LTS, .NET 8, Java 21, Rust) without seeing the owner's files, Windows drives, other distros, LAN or tailnet; cgroup limits on CPU/memory/processes, disk image per user, own netns with internet only, auto-clean of /tmp. Commands create / status / add-user / reset-user / del-user / check / run / destroy. Use to (re)build the sandbox or to run a child's command (the Bridge pc_* interface).
-version: 0.1.4
+description: Children's WSL2 sandbox aiwb-family on the home PC (Ubuntu 24.04) — household members (install.json members) compile and run code (C/C++, Python, Node LTS, .NET 8, Java 21, Rust) without seeing the owner's files, Windows drives, other distros, LAN or tailnet; each user's own secret store aiwb-secret (set/get/list/delete/exec, also python keyring), invisible to the other users; cgroup limits on CPU/memory/processes, disk image per user, own netns with internet only, auto-clean of /tmp. Commands create / status / add-user / reset-user / del-user / check / run / destroy. Use to (re)build the sandbox or to run a child's command (the Bridge pc_* interface).
+version: 0.2.0
 entry: wsl-family-sandbox.py
 requires: [WSL 2.6+ (wsl --install --name/--location/--vhd-size), internet for apt/nodejs.org on create]
 secrets: []
@@ -33,6 +33,24 @@ wsl.exe -d aiwb-family -u <user> --cd ~ -- bash -lc "<cmd>"
 - **Пакеты**: build-essential, gcc/g++ 13, gdb, strace, cmake, make, python3 + venv/pip (pip ставит только в venv, PEP 668), Node.js — новейший LTS с nodejs.org (sha256, `/opt/node`; `npm i -g` идёт в `~/.local`), dotnet-sdk-8.0, openjdk-21, rustc/cargo из Ubuntu (rustup на пользователя — `--rustup`), git, ripgrep.
 - wsl-throttle не менялся: он ограничивает cgroup `aiwb-throttle` очереди CoreScoping в Ubuntu, песочница — свою `aiwb-family`; они не пересекаются.
 
+## Свои секреты (aiwb-secret, с 0.2.0)
+
+У каждого пользователя песочницы своя связка ключей — правило ядра Freedom «у каждого своя связка ключей». Связка хозяина (Credential Manager домашнего ПК) детям недоступна, их секреты в неё не попадают.
+
+```
+aiwb-secret set NAME [--account A]        # значение: в терминале скрытым вводом (дважды) или первой строкой stdin; из argv нельзя
+aiwb-secret get NAME [--account A]        # печатает значение — только для $(...) в скриптах, не в чат
+aiwb-secret has NAME [--account A]        # 0 есть, 4 нет
+aiwb-secret list                          # только имена и учётки
+aiwb-secret delete NAME [--account A]
+aiwb-secret exec NAME VAR -- CMD [ARGS]   # CMD получает значение в переменной VAR, на экран оно не выводится
+```
+
+- Хранилище: `~/.local/share/aiwb-secrets/secrets.json` в настоящем доме uid (`pwd`, а не `$HOME`/`$XDG_DATA_HOME`), каталог 0700, файл 0600, запись атомарная под `flock`. Дом лежит на образе диска пользователя. Сестра не видит ни дома, ни файла (проверено в `check`). У хозяина учётки в песочнице нет.
+- Python: `keyring.get_password("aiwb/NAME", "A")` в venv ребёнка читает то же хранилище (`PYTHON_KEYRING_BACKEND=aiwb_secret_store.SandboxKeyring` и `PYTHONPATH=/usr/local/lib/aiwb` из `/etc/profile.d/10-aiwb-env.sh`; пакет keyring ставится в venv обычным `pip install keyring`).
+- Ввод значения делает сам человек: в своём терминале песочницы или из скрипта на своём устройстве через stdin. Агент не должен передавать в `set` секрет, который увидел в чате. stdin инструментов `pc_*` Bridge кладёт во временный файл на домашнем ПК, поэтому для секретов этот путь не годится.
+- Граница: root дистрибутива (`wsl -u root` из учётной записи Windows хозяина) может прочитать файл — это граница доверия домашнего ПК, как и для всего дома ребёнка. `reset-user` стирает образ вместе с секретами.
+
 ## Вызов
 
 ```
@@ -62,6 +80,8 @@ uid детей — с 3001: правило `meta skuid` действует на 
 - `wsl -d aiwb-family -u <ребёнок> -e <prog>` минует оболочку входа: процесс без сети и убивается сторожем за ≤ 2–4 с, но эти секунды он вне лимитов cgroup. Bridge должен вызывать только формой выше.
 
 ## История
+
+- 0.2.0 — 2026-11-13 — своя связка ключей у каждого пользователя песочницы: `aiwb-secret` (`/usr/local/lib/aiwb/aiwb_secret_store.py`, set/get/has/list/delete/exec; значение не из argv; 0700/0600 в настоящем доме uid) и бэкенд python keyring поверх него; `check` проверяет хранилище и то, что секреты сестры не читаются. Проверено на живой aiwb-family двумя пользователями: второй не видит секретов первого (ни через `$HOME`, ни через `XDG_DATA_HOME`). Решение владельца 13.11 (чат QCJE).
 
 - 0.1.4 — 2026-11-13 — члены домохозяйства по умолчанию — через `install/aiwb_install.py` ядра Freedom: `AIWB_FREEDOM` (старое имя `AIWB_SOURCE`), затем `repo` из `%LOCALAPPDATA%\AIWorkbench\devtree.json`, затем `C:\AIWorkbench\freedom`; архив `C:\AIWorkbench\source` больше не нужен.
 - 0.1.3 — 2026-11-13 — тексты без имён членов семьи (экспорт Freedom); поведение не изменилось.

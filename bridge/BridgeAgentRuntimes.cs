@@ -127,7 +127,7 @@ namespace AiWorkbenchBridge
             if (String.IsNullOrEmpty(model) && DefaultModelFillsModelArguments) model = agent.defaultModel;
             if (!String.IsNullOrEmpty(model) && agent.modelArguments != null)
                 foreach (string template in agent.modelArguments) args.Add(template.Replace("{value}", model));
-            args.AddRange(SubagentArguments(agent, model));
+            args.AddRange(SubagentArguments(agent, model, JobRole.Of(request.environmentId, Modules.OwnerEnv) == "member"));
             if (!String.IsNullOrEmpty(request.effort) && agent.effortArguments != null)
                 foreach (string template in agent.effortArguments) args.Add(template.Replace("{value}", request.effort));
             return args;
@@ -154,7 +154,7 @@ namespace AiWorkbenchBridge
             get { return false; }
         }
 
-        protected virtual List<string> SubagentArguments(AgentProfile agent, string model)
+        protected virtual List<string> SubagentArguments(AgentProfile agent, string model, bool member)
         {
             return new List<string>();
         }
@@ -290,7 +290,8 @@ namespace AiWorkbenchBridge
 
         // v1.2.4: the agent's policy reaches its subagents through a SubagentStart hook (--settings file).
         // v1.8.0: the same settings file carries the read-guard hooks (PostToolUse/PreToolUse).
-        protected override List<string> SubagentArguments(AgentProfile agent, string model)
+        // v1.18.0: member = a household member's job; its PreToolUse also covers Grep/Glob (own keyring per person).
+        protected override List<string> SubagentArguments(AgentProfile agent, string model, bool member)
         {
             List<string> args = new List<string>();
             bool guard = ReadGuard.ScriptPath != null;
@@ -300,7 +301,7 @@ namespace AiWorkbenchBridge
                     ? null
                     : agent.subagentContext.Replace("{value}", model ?? "");
                 args.Add("--settings");
-                args.Add(SubagentHookFiles.Ensure(context, guard));
+                args.Add(SubagentHookFiles.Ensure(context, guard, member));
             }
             return args;
         }

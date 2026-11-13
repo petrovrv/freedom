@@ -59,6 +59,7 @@ namespace AiWorkbenchBridge.Tests
             TestParsers(samples);
             TestArguments(configs);
             TestReadGuard();
+            TestJobRole();
             TestSupervisor(configs);
             TestRelay();
             TestPcTools();
@@ -121,6 +122,49 @@ namespace AiWorkbenchBridge.Tests
             {
                 Environment.SetEnvironmentVariable("AIWB_READ_GUARD", "off");
                 try { File.Delete(script); } catch (IOException) { }
+            }
+        }
+
+        // v1.18.0: own keyring per person - a household member's job gets role member and the refusing keyring backend
+        static void TestJobRole()
+        {
+            Check("job-role", "owner's env", "owner", JobRole.Of("anna", "anna"));
+            Check("job-role", "member's env", "member", JobRole.Of("kid", "anna"));
+            Check("job-role", "no env = owner's own job", "owner", JobRole.Of("", "anna"));
+            Check("job-role", "owner unknown = owner", "owner", JobRole.Of("kid", ""));
+            string saved = Environment.GetEnvironmentVariable("AIWB_SECRET_DIR");
+            try
+            {
+                Environment.SetEnvironmentVariable("AIWB_SECRET_DIR", @"C:\lib\secret-prompt");
+                var owner = new System.Diagnostics.ProcessStartInfo("x");
+                owner.EnvironmentVariables.Remove("PYTHON_KEYRING_BACKEND");
+                owner.EnvironmentVariables["PYTHONPATH"] = @"C:\old";
+                JobRole.Apply(owner, "anna", "anna");
+                Check("job-role", "owner: AIWB_JOB_ROLE", "owner", owner.EnvironmentVariables["AIWB_JOB_ROLE"]);
+                Check("job-role", "owner: AIWB_JOB_ENV", "anna", owner.EnvironmentVariables["AIWB_JOB_ENV"]);
+                Check("job-role", "owner: keyring as before", "False", owner.EnvironmentVariables.ContainsKey("PYTHON_KEYRING_BACKEND").ToString());
+                Check("job-role", "owner: PYTHONPATH untouched", @"C:\old", owner.EnvironmentVariables["PYTHONPATH"]);
+                var member = new System.Diagnostics.ProcessStartInfo("x");
+                member.EnvironmentVariables["PYTHONPATH"] = @"C:\old";
+                JobRole.Apply(member, "kid", "anna");
+                Check("job-role", "member: AIWB_JOB_ROLE", "member", member.EnvironmentVariables["AIWB_JOB_ROLE"]);
+                Check("job-role", "member: AIWB_JOB_ENV", "kid", member.EnvironmentVariables["AIWB_JOB_ENV"]);
+                Check("job-role", "member: refusing keyring backend", JobRole.RefusingBackend, member.EnvironmentVariables["PYTHON_KEYRING_BACKEND"]);
+                Check("job-role", "member: aiwb_secret and member_site first on PYTHONPATH",
+                    @"C:\lib\secret-prompt" + Path.PathSeparator + @"C:\lib\secret-prompt\member_site" + Path.PathSeparator + @"C:\old",
+                    member.EnvironmentVariables["PYTHONPATH"]);
+                Environment.SetEnvironmentVariable("AIWB_READ_GUARD", Path.Combine(Path.GetTempPath(), "aiwb-test-read-guard-role.py"));
+                File.WriteAllText(Path.Combine(Path.GetTempPath(), "aiwb-test-read-guard-role.py"), "# test stub");
+                string ownerSettings = File.ReadAllText(SubagentHookFiles.Ensure(null, true, false));
+                string memberSettings = File.ReadAllText(SubagentHookFiles.Ensure(null, true, true));
+                Check("job-role", "owner: PreToolUse as in 1.17 (no Grep/Glob)", "False", ownerSettings.Contains("Grep|Glob").ToString());
+                Check("job-role", "member: PreToolUse covers Grep/Glob", "True", memberSettings.Contains("NotebookEdit|Grep|Glob|mcp__.*").ToString());
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("AIWB_SECRET_DIR", saved);
+                Environment.SetEnvironmentVariable("AIWB_READ_GUARD", "off");
+                try { File.Delete(Path.Combine(Path.GetTempPath(), "aiwb-test-read-guard-role.py")); } catch (IOException) { }
             }
         }
 

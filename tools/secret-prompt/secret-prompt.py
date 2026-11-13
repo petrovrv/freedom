@@ -9,6 +9,7 @@ Exit codes:
   2  cancelled
   3  timeout
   4  --check: missing
+  5  refused: a household member's job (own_device_first; the keyring of this PC is the owner's)
 """
 from __future__ import annotations
 
@@ -22,13 +23,14 @@ except ImportError as _exc:  # keyring is a hard requirement
     sys.exit(1)
 
 sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
-from aiwb_secret import get_secret, set_secret  # noqa: E402  (long values are stored in chunks)
+from aiwb_secret import MemberRefused, get_secret, guard, set_secret  # noqa: E402  (long values are stored in chunks)
 
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_CANCEL = 2
 EXIT_TIMEOUT = 3
 EXIT_MISSING = 4
+EXIT_REFUSED = 5
 
 MASK = "•"  # bullet character used to mask input
 DEFAULT_TITLE = "AI Workbench: save secret"
@@ -388,6 +390,11 @@ def run_prompt(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    try:
+        guard()   # 0.4.0: no window, no keyring for a household member's job
+    except MemberRefused as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_REFUSED
     return run_check(args) if args.check else run_prompt(args)
 
 

@@ -101,6 +101,7 @@ def files_tar():
         "usr/local/src/aiwb-enter.c": ("aiwb-enter.c", 0o644),
         "etc/profile.d/00-aiwb-sandbox.sh": ("00-aiwb-sandbox.sh", 0o644),
         "etc/profile.d/10-aiwb-env.sh": ("10-aiwb-env.sh", 0o644),
+        "usr/local/lib/aiwb/aiwb_secret_store.py": ("aiwb_secret_store.py", 0o755),   # 0.2.0: aiwb-secret
     }
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as t:
@@ -126,6 +127,7 @@ chown root:aiwbfam /usr/local/libexec/aiwb-enter.new && chmod 4750 /usr/local/li
 mv -f /usr/local/libexec/aiwb-enter.new /usr/local/libexec/aiwb-enter
 ln -sfn /usr/local/libexec/aiwb-enter /usr/local/bin/aiwb-shell
 grep -qx /usr/local/bin/aiwb-shell /etc/shells || echo /usr/local/bin/aiwb-shell >> /etc/shells
+chmod 755 /usr/local/lib/aiwb && ln -sfn /usr/local/lib/aiwb/aiwb_secret_store.py /usr/local/bin/aiwb-secret
 chmod 755 /var/crash 2>/dev/null || true  # the only world-writable dir of the rootfs (disk outside the quota)
 printf '127.0.0.1\tlocalhost\n127.0.1.1\taiwb-family\n::1\tlocalhost ip6-localhost ip6-loopback\n' > /etc/hosts
 echo files-ok
@@ -237,6 +239,14 @@ echo "INFO /tmp=$(df --output=target /tmp | tail -1) disk=$(df -h --output=size 
 curl -s -o /dev/null -m 10 -w '%{http_code}' https://pypi.org/simple/pip/ | grep -q 200 && ok "internet (pypi)" || bad "internet (pypi)"
 curl -s -o /dev/null -m 10 https://registry.npmjs.org/ && ok "internet (npm)" || bad "internet (npm)"
 for t in __NETDENY__; do curl -s -o /dev/null -m 3 "http://$t/" && bad "reached $t" || ok "blocked $t"; done
+# 0.2.0: own secret store (aiwb-secret): round trip, 0700/0600, keyring backend, value never from argv
+echo aiwb-check-value | aiwb-secret set aiwb-check >/dev/null && [ "$(aiwb-secret get aiwb-check)" = aiwb-check-value ] && ok "aiwb-secret set/get" || bad "aiwb-secret set/get"
+[ "$(stat -c %a ~/.local/share/aiwb-secrets)" = 700 ] && [ "$(stat -c %a ~/.local/share/aiwb-secrets/secrets.json)" = 600 ] && ok "aiwb-secret store 0700/0600" || bad "aiwb-secret store mode"
+aiwb-secret exec aiwb-check V -- sh -c '[ "$V" = aiwb-check-value ]' && ok "aiwb-secret exec" || bad "aiwb-secret exec"
+./v/bin/pip -q install keyring >/dev/null 2>&1 && { [ "$(./v/bin/python -c 'import keyring; print(keyring.get_password("aiwb/aiwb-check", "default"))')" = aiwb-check-value ] && ok "keyring -> aiwb-secret" || bad "keyring -> aiwb-secret"; } || echo "INFO keyring not installed in venv (pip)"
+for o in $(awk '{print $1}' /etc/aiwb-family/users); do [ "$o" = "$(id -un)" ] && continue
+  cat /home/$o/.local/share/aiwb-secrets/secrets.json >/dev/null 2>&1 && bad "secrets of $o readable" || ok "secrets of $o refused"; done
+aiwb-secret delete aiwb-check >/dev/null && ! aiwb-secret has aiwb-check 2>/dev/null && ok "aiwb-secret delete" || bad "aiwb-secret delete"
 cd ~; rm -rf ~/.aiwb-check
 """
 

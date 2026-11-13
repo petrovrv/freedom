@@ -16,7 +16,7 @@ import time
 import unicodedata
 from pathlib import Path
 
-VERSION = "0.3.0"
+VERSION = "0.5.0"
 TOOL_DIR = Path(__file__).resolve().parent
 STATE_DIR = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "AIWorkbenchGuard"   # not AIWorkbenchWork (devtree worktrees)
 TAINT_TTL = 24 * 3600          # a chat stays tainted 24 h after the last suspicious read

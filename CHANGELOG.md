@@ -5,6 +5,22 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- Bridge 1.18.0: each person has their own keyring. Jobs get `AIWB_JOB_ENV` and `AIWB_JOB_ROLE` (`owner`, or
+  `member` when the job's environment is known and differs from the owner's). A member's job also gets
+  `PYTHON_KEYRING_BACKEND=aiwb_secret.MemberRefusedKeyring` (tool `secret-prompt` on `PYTHONPATH`): every python
+  keyring call of any tool in that job is refused with `own_device_first` and a pointer to the device tool
+  `secret_prompt` of the person's own device; `member_site\sitecustomize.py` on `PYTHONPATH` selects it again where
+  Codex drops `*KEY*` variables. A member's read-guard PreToolUse hook also covers Grep and Glob (the owner's: as in 1.17).
+  The owner's jobs: unchanged. Limit: the job still runs under the owner's Windows account (a barrier, not
+  isolation; next step in the SPEC: own Windows account per household member).
+- secret-prompt 0.4.0 (core tool): `aiwb_secret.job_role()` / `guard()` / `MemberRefused` decide in one place;
+  `get_secret`/`set_secret` and the prompt window (exit 5) refuse a member's job.
+- read-guard 0.5.0 (core tool): a member's job is denied shell, file and MCP calls that reach the owner's credential
+  store (keyring, cmdkey, Cred*, vaultcmd, PasswordVault, win32cred, secret-tool, security, Credentials/Vault
+  folders, role variables); no grant opens it.
+- wsl-family-sandbox 0.2.0 (core tool): `aiwb-secret` - each sandbox user's own secret store (0700/0600 in the
+  user's real home, set/get/has/list/delete/exec, value never from argv), also as a python keyring backend; `check`
+  verifies that a sister's secrets are unreadable.
 - CO Resident 0.5.3 (CO.Core, also in the next CO Desktop): one-time codes from chat in the agent browser - setting
   `AllowOtpFromChat` (`agent-browser.json`; Mac menu Agent browser -> "Agent may type one-time codes from chat",
   `co-resident browser otp on|off|default`, CO Desktop checkbox in Connectors -> agent browser). On: a one-time-code page

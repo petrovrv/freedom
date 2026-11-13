@@ -361,6 +361,57 @@ def risky_action(tool, ti, cwd=None):
     return None
 
 
+# 0.5.0 (Freedom, "each person has their own keyring"): a household member's job (Bridge 1.18+ sets AIWB_JOB_ROLE=member)
+# runs under the owner's Windows account on the home PC; it must not reach the owner's credential store. Refused
+# outright (no card, no grant: the owner's yes cannot hand the owner's keyring to a member's job). A barrier, not
+# isolation: the job still runs under the owner's account (SPEC: own keyring per person, next step).
+OWNER_STORE_RE = re.compile(
+    r"\bkeyring\b|\bkeyrings?\.alt\b|aiwb_secret|\bcmdkey\b|\bCred(?:Read|Write|Enumerate|Delete|Backup)\w*|"
+    r"Get-StoredCredential|\bCredentialManager\b|\bvaultcmd\b|PasswordVault|\bwin32cred\b|\bsecret-tool\b|"
+    r"\bsecurity\s+(?:find|add|delete|dump)-(?:generic|internet)-password|\bsecurity\s+dump-keychain|"
+    r"Microsoft[\\/]+(?:Credentials|Vault|Protect)\b|python_keyring|keyring_pass\.cfg|crypted_pass\.cfg|"
+    r"[\\/]\.local[\\/]share[\\/]keyrings\b|Library[\\/]Keychains|"
+    r"\bAIWB_(?:JOB_ROLE|JOB_ENV|OWNER_ENV|INSTALL)\b|PYTHON_KEYRING_BACKEND|secret-prompt|sitecustomize|member_site|"
+    # the role variables dropped without naming them: env -i / -u, a new environment, python -I / -E (no PYTHONPATH)
+    r"\benv\s+(?:-\w*i\b|--ignore-environment\b|-u\b|--unset\b)|-UseNewEnvironment\b|\bEnv:[^\s;'\"]*\*|"
+    r"Remove-Item\s+(?:-Path\s+|-LiteralPath\s+)?['\"]?Env:|\bpy(?:thon)?[\d.]*(?:\.exe)?['\"]?\s+-[A-Za-z]*[IE]\b|"
+    # other readers of the same Credential Manager, and the owner's token files
+    r"\bgit\s+credential\b|git-credential|credential-manager|\bgh(?:\.exe)?\s+auth\s+(?:token|status\s+(?:-t|--show-token))|"
+    r"\.git-credentials|[\\/]\.codex[\\/]auth\.json|\.claude[\\/]\.credentials|[\\/]gh[\\/]hosts\.yml", re.I)
+MEMBER_SHELLS = ("Bash", "PowerShell", "shell", "exec_command", "local_shell")
+MEMBER_PATH_TOOLS = ("Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Grep", "Glob")
+MEMBER_WHY = ("own_device_first: this job belongs to a household member; the keyring (Credential Manager) of this computer "
+              "belongs to its owner and is not available to this job, the owner's confirmation does not change that. "
+              "A secret of this person is entered on the person's own device: device tool secret_prompt "
+              "(mcp__dev_<device>__secret_prompt), and the tools that need it run there or in the person's sandbox "
+              "(aiwb-secret in aiwb-family). Do not try another way; tell the user.")
+
+
+def member_store_access(tool, ti):
+    """For a member's job: what of the call touches the owner's credential store, else None."""
+    if (os.environ.get("AIWB_JOB_ROLE") or "").strip().lower() != "member":
+        return None
+    ti = ti or {}
+    if tool in MEMBER_SHELLS:
+        text = command_text(ti)
+    elif tool in MEMBER_PATH_TOOLS:
+        parts = [str(ti.get(k) or "") for k in ("file_path", "notebook_path", "path", "pattern", "glob")]
+        parts.append(str(ti.get("path") or "") + "/" + str(ti.get("pattern") or ti.get("glob") or ""))
+        # what an editor writes: a script that calls keyring, run later by name
+        parts += [str(ti.get(k) or "") for k in ("content", "new_string", "new_source")]
+        parts += [str(e.get("new_string") or "") for e in (ti.get("edits") or []) if isinstance(e, dict)]
+        text = "\n".join(parts)
+    elif tool == "mcp__aiwb-tools__tool_run":
+        args = ti.get("args")
+        text = f"{ti.get('name', '')} " + (" ".join(map(str, args)) if isinstance(args, list) else str(args or ""))
+    elif tool.startswith("mcp__") and not tool.startswith("mcp__dev_"):
+        text = json.dumps(ti, ensure_ascii=False)
+    else:
+        return None
+    m = OWNER_STORE_RE.search(text)
+    return m.group(0) if m else None
+
+
 def any_taint():
     d = os.path.join(os.environ.get("LOCALAPPDATA") or str(Path.home()), "AIWorkbenchGuard", "taint")
     try:
@@ -376,6 +427,14 @@ QUICK_TOOLS = ("Bash", "PowerShell", "shell", "exec_command", "local_shell", "Wr
 
 def pre_hook(data, flavor):
     tool = data.get("tool_name") or ""
+    hit = member_store_access(tool, data.get("tool_input"))
+    if hit:
+        rg.log_event({"type": "member_keyring_refused", "tool": tool, "match": hit[:60], "agent": flavor,
+                      "env": os.environ.get("AIWB_JOB_ENV", "")})
+        if flavor == "codex":
+            return {"decision": "block", "reason": MEMBER_WHY}
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                       "permissionDecisionReason": MEMBER_WHY}}
     if tool not in QUICK_TOOLS and not tool.startswith("mcp__"):
         return None
     cwd = data.get("cwd")
@@ -569,6 +628,62 @@ def cmd_test(a):
                ("owner's yes counts", rg.find_owner_yes("C", "4821", time.time(), Reader([ed, own]))[0] is not None),
                ("yes without byOwner counts", rg.find_owner_yes("C", "4821", time.time(), Reader([old]))[0] is not None),
                ("newer no wins", rg.find_owner_yes("C", "4821", time.time(), Reader([own, no]))[0] is None)]
+    # 0.5.0: a household member's job never reaches the owner's credential store; the owner's job works as before
+    member = [
+        ("Bash", {"command": "python -c \"import keyring; print(keyring.get_password('aiwb/gmail','x'))\""}, True),
+        ("PowerShell", {"command": "cmdkey /list"}, True),
+        ("PowerShell", {"command": "Get-StoredCredential -Target aiwb/co-mysql"}, True),
+        ("PowerShell", {"command": "[Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]"}, True),
+        ("Bash", {"command": "python -c \"import win32cred; win32cred.CredEnumerate()\""}, True),
+        ("Bash", {"command": "vaultcmd /listcreds:\"Windows Credentials\""}, True),
+        ("Bash", {"command": "security find-generic-password -s aiwb/x -w"}, True),
+        ("Bash", {"command": "secret-tool lookup service aiwb/x"}, True),
+        ("Bash", {"command": r"ls %APPDATA%\Microsoft\Credentials"}, True),
+        ("Bash", {"command": "AIWB_JOB_ROLE=owner python gmail-draft.py --to a@b.c"}, True),
+        ("Bash", {"command": "env -u PYTHON_KEYRING_BACKEND python t.py"}, True),
+        ("Bash", {"command": "python secret-prompt.py --service aiwb/x"}, True),
+        ("Read", {"file_path": r"C:\Users\me\AppData\Roaming\Microsoft\Credentials\ABC"}, True),
+        ("Glob", {"pattern": "**/Microsoft/Vault/**"}, True),
+        ("mcp__aiwb-tools__tool_run", {"name": "secret-prompt", "args": ["--service", "aiwb/x"]}, True),
+        ("Write", {"file_path": "t.py", "content": "from keyring.backends.Windows import WinVaultKeyring"}, True),
+        ("Edit", {"file_path": "t.py", "old_string": "x", "new_string": "import win32cred"}, True),
+        ("MultiEdit", {"file_path": "t.py", "edits": [{"old_string": "a", "new_string": "import keyring"}]}, True),
+        ("Bash", {"command": "env -i PATH=\"$PATH\" python gmail-label.py"}, True),
+        ("PowerShell", {"command": "Remove-Item Env:PYTHON_K*"}, True),
+        ("Bash", {"command": "python -I t.py"}, True),
+        ("Bash", {"command": "printf 'protocol=https\\nhost=github.com\\n' | git credential fill"}, True),
+        ("Bash", {"command": "gh auth token"}, True),
+        ("Read", {"file_path": r"C:\Users\me\.git-credentials"}, True),
+        ("Glob", {"path": r"C:\Users\me\AppData\Roaming\Microsoft", "pattern": "Credentials/**"}, True),
+        ("Write", {"file_path": "hello.py", "content": "print('hello')"}, False),
+        ("Bash", {"command": "python -m venv v && env | sort && python -u t.py"}, False),
+        ("Bash", {"command": "python homework.py && git status"}, False),
+        ("Read", {"file_path": r"C:\x\notes.md"}, False),
+        ("mcp__dev_kidpc__secret_prompt", {"name": "gmail", "account": "kid"}, False),
+    ]
+    saved = os.environ.get("AIWB_JOB_ROLE")
+    try:
+        for role in ("member", "owner", None):
+            if role:
+                os.environ["AIWB_JOB_ROLE"] = role
+            else:
+                os.environ.pop("AIWB_JOB_ROLE", None)
+            for tool, ti, want in member:
+                hit = member_store_access(tool, ti)
+                checks.append((f"{role} {tool} {json.dumps(ti)[:60]} -> {want and role == 'member'}",
+                               bool(hit) == (want and role == "member")))
+        os.environ["AIWB_JOB_ROLE"] = "member"
+        out = pre_hook({"tool_name": "PowerShell", "tool_input": {"command": "cmdkey /list"}, "cwd": chat}, "claude")
+        checks.append(("member: claude pre hook denies cmdkey",
+                       out["hookSpecificOutput"]["permissionDecision"] == "deny" and "own_device_first" in
+                       out["hookSpecificOutput"]["permissionDecisionReason"]))
+        out = pre_hook({"tool_name": "shell", "tool_input": {"command": ["cmdkey", "/list"]}, "cwd": chat}, "codex")
+        checks.append(("member: codex pre hook blocks cmdkey", out.get("decision") == "block"))
+    finally:
+        if saved is None:
+            os.environ.pop("AIWB_JOB_ROLE", None)
+        else:
+            os.environ["AIWB_JOB_ROLE"] = saved
     for tool, ti, cwd, want in risky:
         act = risky_action(tool, ti, cwd)
         got = act["scope"] if act else None

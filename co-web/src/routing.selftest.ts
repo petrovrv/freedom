@@ -133,7 +133,9 @@ export function routeSelfTest(): string[] {
     L, 'Sent to lnx: Home is offline');
   check('home offline, device job: never to another Bridge', routeHost({ selected: HOME, agent: 'codex', wantsDevices: true, owners: three(OFFLINE, OFFLINE, ONLINE), order: order3 }),
     HOME, null);
-  check('lnx, codex with devices: stays on the chosen Bridge', routeHost({ selected: L, agent: 'codex', wantsDevices: true, owners: three(ONLINE, ONLINE, ONLINE), order: order3 }),
+  check('lnx, codex with devices: to Home (its devices)', routeHost({ selected: L, agent: 'codex', wantsDevices: true, owners: three(ONLINE, ONLINE, ONLINE), order: order3 }),
+    HOME, 'Sent to Home: device tools');
+  check('lnx with gwbot keeps it', routeHost({ selected: L, agent: 'gwbot', wantsDevices: false, owners: { ...three(ONLINE, ONLINE, ONLINE), [L]: owner(L, ONLINE, homeAgents) }, order: order3 }),
     L, null);
   check('lnx without gwbot: gateway agent to Home', routeHost({ selected: L, agent: 'gwbot', wantsDevices: false, owners: three(ONLINE, ONLINE, ONLINE), order: order3 }),
     HOME, 'Sent to Home: gwbot runs only at home');

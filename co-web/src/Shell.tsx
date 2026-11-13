@@ -42,7 +42,7 @@ import { dbExecutors } from './dbapi';
 import { HostLight } from './HostLight';
 import { aiSearch, chatRefs, openDocument, projectActivity, projectFreshness, type SearchHit } from './search';
 import {
-  createProject, discoverRoot, hostHealth, listChats, listProjects, loadHost, readLimits, readOwner,
+  createProject, dbOnlyHost, discoverRoot, hostHealth, listChats, listProjects, loadHost, readLimits, readOwner,
   unregisteredBridgeProjects, type HostDirs, type Root,
 } from './workbench';
 
@@ -94,7 +94,9 @@ export default function Shell({ auth }: { auth: Signed }) {
     return autoOrder();
   });
   const autoIds = execOrder.filter((id) => !hosts || hosts[id]);
-  const hostId = (hostPref === 'auto' ? autoHost(owners, localDevice, autoIds) : hostPref) as HostId;
+  // a hand-picked executor that is gone, switched off or not serving this environment falls back to auto
+  const prefOk = hostPref === 'auto' || HOSTS.some((h) => h.id === hostPref);
+  const hostId = (!prefOk || hostPref === 'auto' ? autoHost(owners, localDevice, autoIds) : hostPref) as HostId;
   const host = hosts?.[hostId] || null;
   const owner = owners[hostId] ?? null;
   const limits = limitsByHost[hostId] ?? null;
@@ -190,11 +192,8 @@ export default function Shell({ auth }: { auth: Signed }) {
       try {
         const r = await discoverRoot();
         const loaded: Record<string, HostDirs> = {};
-        for (const h of HOSTS) {
-          // F12: a folder of another executor that cannot be made (a member without write access) is not fatal
-          if (h.id === HOME || h.id === SITE) loaded[h.id] = await loadHost(r, h.id);
-          else await loadHost(r, h.id).then((d) => { loaded[h.id] = d; }, () => undefined);
-        }
+        // F12: other executors take their jobs from the database only; no Drive folders are made for them
+        for (const h of HOSTS) loaded[h.id] = h.id === HOME || h.id === SITE ? await loadHost(r, h.id) : dbOnlyHost(h.id);
         setRoot(r);
         setHosts(loaded);
         await readHosts(loaded);
@@ -243,18 +242,15 @@ export default function Shell({ auth }: { auth: Signed }) {
       }
       return next;
     });
-    if (root) {
-      for (const e of list) {
-        if (hostsRef.current?.[e.id]) continue;
-        try {
-          const d = await loadHost(root, e.id);
-          setHosts((prev) => ({ ...(prev || {}), [e.id]: d }));
-        } catch {
-          /* no Drive folder for it (not allowed): it is reached through the database only */
-        }
-      }
+    const fresh = list.filter((e) => !hostsRef.current?.[e.id]);
+    if (fresh.length && hostsRef.current) {
+      setHosts((prev) => {
+        const next = { ...(prev || {}) };
+        for (const e of fresh) if (!next[e.id]) next[e.id] = dbOnlyHost(e.id);
+        return next;
+      });
     }
-  }, [authOk, env, root]);
+  }, [authOk, env]);
   useEffect(() => { void refreshExecutors(); }, [refreshExecutors]);
   useInterval(refreshExecutors, POLL_HOST_MS, authOk);
 

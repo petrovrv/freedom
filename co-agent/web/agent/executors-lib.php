@@ -287,7 +287,8 @@ function co_exec_owner_view(array $o, string $env, bool $ownMachine): array
     }
     if (is_array($o['projects'] ?? null)) {
         $p = array_filter($o['projects'], static fn($x): bool => is_array($x) && ($x['environmentId'] ?? null) === $env);
-        $out['projects'] = array_map(static fn(array $x): array => array_diff_key($x, ['workspace' => 1]), $p);
+        $out['projects'] = array_map(static fn(array $x): array => array_filter($x,
+            static fn(string $k): bool => stripos($k, 'workspace') === false && stripos($k, 'path') === false, ARRAY_FILTER_USE_KEY), $p);
     }
     if (is_array($o['devices'] ?? null)) {
         $out['devices'] = array_values(array_filter($o['devices'], static fn($d): bool => is_array($d) && ($d['environmentId'] ?? null) === $env));
@@ -325,7 +326,8 @@ function co_exec_list(mysqli $db, string $env, bool $admin): array
     foreach ($ids as $h) {
         $r = $rows[$h] ?? null;
         $o = $owners[$h] ?? null;
-        if ($r === null && $o === null && $h !== EXEC_HOME && $h !== EXEC_SITE) continue;
+        // a host without a row is listed only for the first two ids (a forgotten executor is gone, not "serves all")
+        if ($r === null && $h !== EXEC_HOME && $h !== EXEC_SITE) continue;
         $serves = co_exec_serves_list($r);
         $servesMe = $serves === null || in_array($env, $serves, true);
         if (!$admin && !$servesMe) continue;
@@ -334,7 +336,9 @@ function co_exec_list(mysqli $db, string $env, bool $admin): array
         $item = [
             'id' => $h,
             'kind' => co_exec_kind($r, $h),
-            'title' => $r !== null && (string)$r['title'] !== '' ? (string)$r['title'] : co_exec_title($db, $h),
+            // a member sees the machine name of another person's executor nowhere (the title defaults to it)
+            'title' => $r !== null && (string)$r['title'] !== '' && ($admin || $own || strcasecmp((string)$r['title'], (string)$r['machine']) !== 0)
+                ? (string)$r['title'] : ($r !== null && !$admin && !$own ? $h : co_exec_title($db, $h)),
             'registered' => $r !== null,
             'enabled' => $r === null || (int)$r['enabled'] === 1,
             'ownerEnv' => $r !== null ? (string)$r['owner_env'] : '',
@@ -345,7 +349,7 @@ function co_exec_list(mysqli $db, string $env, bool $admin): array
             'fresh' => $r !== null ? (int)$r['fresh'] === 1 : null,
             'takesJobs' => $alive,
             'servesMe' => $servesMe,
-            'serves' => $serves,
+            'serves' => $admin ? $serves : null,
             'agents' => $r !== null ? ($r['labels']['agents'] ?? []) : (is_array($o['agents'] ?? null) ? array_keys($o['agents']) : []),
             'sandboxForMe' => isset($seats[$h]),
             'rank' => $order[$h] ?? 99,
@@ -382,6 +386,10 @@ function co_exec_set(mysqli $db, array $in, bool $admin): array
         $st = $db->prepare('DELETE FROM executors WHERE host_id = ?');
         $st->execute([$host]);
         $n = $st->affected_rows;
+        $st->close();
+        // and its owner.json copy: models and routing must not see it again as a host that "serves all"
+        $st = $db->prepare("DELETE FROM kv WHERE scope = ? AND name = 'owner'");
+        $st->execute(['host:' . $host]);
         $st->close();
         return ['ok' => true, 'deleted' => $n];
     }

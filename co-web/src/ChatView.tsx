@@ -131,7 +131,9 @@ export default function ChatView(props: Props) {
   const serverFinalizes = useCallback((e: ChatEvent) => {
     const h = hostOf(e)?.hostId || HOST_ID;
     if (h === SITE) return false;
-    const caps = h === host?.hostId ? capabilities : props.owners[h]?.capabilities || [];
+    const caps = h === host?.hostId ? capabilities : props.owners[h]?.capabilities;
+    // owner.json of that host not loaded (yet): as before 0.104.0, so the client never finalizes a second copy
+    if (!caps) return capabilities.includes('db-queue') && h === HOST_ID;
     return caps.includes('db-queue');
   }, [hostOf, host, capabilities, props.owners]);
   const [chat, setChat] = useState(props.chat);

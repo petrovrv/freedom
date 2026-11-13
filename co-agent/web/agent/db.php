@@ -387,7 +387,12 @@ function db_job_claim(array $in): array
     // F12: an executor the owner switched off takes nothing new (cancellations still reach it), nor does a second machine
     // with the id of a registered one (Bridge 1.19.0+ sends its machine; executor_put answered it host_taken)
     $exec = co_exec_row($db, $host);
-    if ($exec !== null && ((int)$exec['enabled'] !== 1 || co_exec_foreign($db, $exec, $in['machine'] ?? null))) {
+    if ($exec !== null && co_exec_foreign($db, $exec, $in['machine'] ?? null)) {
+        // not even the proof of life (claim_poll): the real owner of the id may be dead, and the Drive fallback and the
+        // handover must see that
+        return ['jobs' => [], 'cancel' => [], 'hostTaken' => true];
+    }
+    if ($exec !== null && (int)$exec['enabled'] !== 1) {
         $max = 0;
     }
     $jobs = [];
@@ -1823,7 +1828,7 @@ try {
                 }
                 $out = ['name' => $name, 'agent' => $agent, 'mode' => $mode, 'model' => $model, 'effort' => $effort];
                 if (($t['hostId'] ?? null) !== null) {
-                    if (!co_exec_known(co_db(), $t['hostId'])) {
+                    if (!is_string($t['hostId']) || !co_exec_known(co_db(), $t['hostId'])) {
                         throw new InvalidArgumentException($at . '.hostId must be a known executor (home-main, site or a registered one)');
                     }
                     $out['hostId'] = $t['hostId'];

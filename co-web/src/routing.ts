@@ -90,7 +90,8 @@ export function routeHost(o: {
   const devicesNeedHome = (wantsDevices && agent !== 'claude') || !!o.webDevices;
 
   if (devicesNeedHome || homeOnlyAgent || missingOnSelected) {
-    if (selected !== SITE && !missingOnSelected) return { hostId: selected, note: null };
+    // a Bridge that has the gateway agent keeps it; device jobs stay with Home, which publishes the devices
+    if (selected === HOME || (selected !== SITE && !missingOnSelected && !devicesNeedHome)) return { hostId: selected, note: null };
     const reason = o.webDevices && !homeOnlyAgent && !missingOnSelected ? 'browser devices'
       : devicesNeedHome && !homeOnlyAgent && !missingOnSelected ? 'device tools' : `${agent} runs only at home`;
     let note = `Sent to Home: ${reason}`;

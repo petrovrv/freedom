@@ -46,8 +46,13 @@ export async function discoverRoot(): Promise<Root> {
 
 export interface HostDirs {
   hostId: string;
-  hostDirId: string;
+  hostDirId: string; // F12: '' for an executor reached through the database only (no Drive folder)
   buckets: Record<string, string>; // name -> folder id
+}
+
+// Freedom F12: an executor other than Home and Site lives in the database queue; no Drive folders are made for it.
+export function dbOnlyHost(hostId: string): HostDirs {
+  return { hostId, hostDirId: '', buckets: {} };
 }
 
 const BUCKETS = ['inbox', 'claimed', 'events', 'completed', 'failed', 'rejected', 'cancel'];
@@ -62,12 +67,14 @@ export async function loadHost(root: Root, hostId: string = HOST_ID): Promise<Ho
 }
 
 export async function readOwner(host: HostDirs): Promise<OwnerInfo | null> {
+  if (!host.hostDirId) return null;
   const f = await findChild(host.hostDirId, 'owner.json');
   return f ? getJson<OwnerInfo>(f.id) : null;
 }
 
 // Usage limits published by Bridge from provider output (Claude) and session logs (Codex).
 export async function readLimits(host: HostDirs): Promise<LimitsFile | null> {
+  if (!host.hostDirId) return null;
   const f = await findChild(host.hostDirId, 'limits.json');
   return f ? getJson<LimitsFile>(f.id) : null;
 }
@@ -779,6 +786,7 @@ export async function sendTurn(input: SendInput): Promise<ChatEvent> {
   const attachments: AttachmentRef[] = [];
   let pkgId: string | null = null;
   if (input.files.length) {
+    if (!host.hostDirId) throw new Error(`Files reach only Home and Site for now; ${host.hostId} takes text jobs. Choose Home or Site for this message.`);
     const names = uniqueNames(input.files.map((f) => safeFileName(f.name)));
     pkgId = await ensurePath(host.buckets.inbox, [jobId]);
     const pkgAtt = await ensurePath(pkgId, ['attachments']);
@@ -906,6 +914,7 @@ export async function requestCancel(host: HostDirs, jobId: string): Promise<void
   if (host.hostId === HOST_ID) void publishJobCancel(jobId);
   // S8: the database for every host - the server may have moved the job (co_queue_handover); job_claim carries it
   void dbJobCancel(jobId);
+  if (!host.buckets.cancel) return; // F12: database only
   if (await findChild(host.buckets.cancel, name)) return; // idempotent
   await createFile(host.buckets.cancel, name, '', 'text/plain');
 }
@@ -936,6 +945,7 @@ export async function readJob(host: HostDirs, jobId: string, viaDb = false): Pro
     }
     if (viaDb && j !== undefined) return { phase: 'queued' }; // row not visible yet
   }
+  if (!host.hostDirId) return { phase: 'queued' }; // F12: database only, the row is not visible (yet)
   const found = await list(`name=${q(jobId)} and mimeType=${q(FOLDER_MIME)} and trashed=false`);
   const byId = new Map(Object.entries(host.buckets).map(([k, v]) => [v, k]));
   let bucket: string | undefined;
@@ -1006,6 +1016,7 @@ export async function readBridgeEvents(host: HostDirs, jobId: string, cur: Event
     }
     if (batches && (cur.db || viaDb)) return [];
   }
+  if (!host.buckets.events) return []; // F12: database only
   if (!cur.folderId) {
     cur.folderId = await resolveFolder(host.buckets.events, jobId);
     if (!cur.folderId) return [];
@@ -1291,7 +1302,7 @@ export async function deleteChat(root: Root, chat: Chat, hosts: Record<string, H
     open.map(async (u) => {
       const host = hosts[eventHost(u)];
       if (!host) return;
-      const queued = await findChild(host.buckets.inbox, u.jobId!, true);
+      const queued = host.buckets.inbox ? await findChild(host.buckets.inbox, u.jobId!, true) : null;
       if (queued) await trashFile(queued.id);
       else await requestCancel(host, u.jobId!);
     }),
@@ -1335,6 +1346,7 @@ export async function saveProjectMeta(p: Project, patch: Partial<Omit<Project, '
 }
 
 async function foldersDir(host: HostDirs): Promise<string> {
+  if (!host.hostDirId) throw new Error(`${host.hostId} publishes no folder index on Drive`);
   return ensurePath(host.hostDirId, ['folders']);
 }
 

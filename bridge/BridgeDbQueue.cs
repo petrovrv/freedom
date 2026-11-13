@@ -241,9 +241,14 @@ namespace AiWorkbenchBridge
             body["labels"] = labels;
             if (owner != null)
             {
-                owner.state = (string)body["state"];
-                owner.runningJobs = _runningJobs.Count;
-                body["owner"] = owner;
+                // a copy: the owner.json writer of the scan thread serialises the same record
+                Dictionary<string, object> copy = JsonUtil.DeserializeObject(JsonUtil.Serialize(owner)) as Dictionary<string, object>;
+                if (copy != null)
+                {
+                    copy["state"] = (string)body["state"];
+                    copy["runningJobs"] = _runningJobs.Count;
+                    body["owner"] = copy;
+                }
             }
             return body;
         }
@@ -252,11 +257,13 @@ namespace AiWorkbenchBridge
         {
             ExecutorConfig ex = _config.executor ?? new ExecutorConfig();
             int seconds = Math.Max(10, Math.Min(60, ex.beatSeconds <= 0 ? 30 : ex.beatSeconds));
-            bool oldServer = false;
+            int wait = seconds;
             while (!_exiting)
             {
+                wait = seconds;
                 if (!_hostConflict && _lastOwnerRecord != null)
                 {
+                    string m;
                     try
                     {
                         Dictionary<string, object> resp = DbqCall("executor_put", ExecutorBody(_lastOwnerRecord), true, 15000);
@@ -267,33 +274,48 @@ namespace AiWorkbenchBridge
                                 Log("Executor " + _config.hostId + " registered (" + ExecutorOs() + ", every " + seconds + " s).");
                             _executorState = "ok";
                             _executorTaken = false;
+                            m = null;
+                        }
+                        else
+                        {
+                            object err;
+                            m = resp.TryGetValue("error", out err) && err != null ? err.ToString() : "unexpected answer";
                         }
                     }
                     catch (Exception e)
                     {
-                        string m = e.Message ?? "";
-                        if (m.Contains("host_taken"))
-                        {
-                            _executorState = "host_taken";
-                            _executorTaken = true;
-                            LogThrottled("executor-taken", "Executor id '" + _config.hostId + "' is used by another machine: give this Bridge its own hostId in config.json. " + PushCut(m, 200));
-                        }
-                        else if (m.Contains("unknown_op") || m.Contains("HTTP 400"))
-                        {
-                            // a server before schema 28: the first two ids live by owner.json on Drive as before
-                            if (!oldServer)
-                                Log("Executor heartbeat: the server does not know executor_put yet (" + PushCut(m, 120) + "); retrying every 10 min.");
-                            oldServer = true;
-                            _executorState = "server before schema 28";
-                        }
-                        else
-                        {
-                            _executorState = "error: " + m;
-                            LogThrottled("executor-beat", "Executor heartbeat failed: " + m);
-                        }
+                        m = e.Message ?? "";
+                    }
+                    if (m == null)
+                        _executorTaken = false;
+                    else if (m.Contains("host_taken"))
+                    {
+                        _executorState = "host_taken";
+                        _executorTaken = true;
+                        LogThrottled("executor-taken", "Executor id '" + _config.hostId + "' is used by another machine: give this Bridge its own hostId in config.json. " + PushCut(m, 200));
+                    }
+                    else if (m.Contains("unknown_op"))
+                    {
+                        // a server before schema 28: the first two ids live by owner.json on Drive as before; asked
+                        // again every 10 min, so an upgraded server sees this Bridge without a restart
+                        if (_executorState != "server before schema 28")
+                            Log("Executor heartbeat: the server does not know executor_put yet; retrying every 10 min.");
+                        _executorState = "server before schema 28";
+                        wait = 600;
+                    }
+                    else if (m.Contains("HTTP 400"))
+                    {
+                        // a configuration error (hostId over 32 characters or with a dot, ownerEnv not a member, ...)
+                        _executorState = "refused: " + m;
+                        LogThrottled("executor-config", "Executor " + _config.hostId + " refused by the server (check hostId and executor in config.json): " + PushCut(m, 200));
+                    }
+                    else
+                    {
+                        _executorState = "error: " + m;
+                        LogThrottled("executor-beat", "Executor heartbeat failed: " + m);
                     }
                 }
-                for (int i = 0; i < (oldServer ? 600 : seconds) && !_exiting; i++)
+                for (int i = 0; i < wait && !_exiting; i++)
                     Thread.Sleep(1000);
             }
         }

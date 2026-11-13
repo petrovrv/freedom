@@ -225,9 +225,11 @@ function models_rows(mysqli $db): array
 /** All resources (built-in merged with stored rows), unfiltered. */
 function models_all(mysqli $db): array
 {
-    $owners = models_host_owners($db);
-    $list = models_builtin($owners, co_owner_env(),
-        array_map(static fn(array $r): string => (string)$r['owner_env'], co_exec_rows($db)));
+    // F12: hosts that are no executor (a forgotten one with an old owner.json copy) give no built-in resources
+    $rows = co_exec_rows($db);
+    $owners = array_filter(models_host_owners($db), static fn(string $h): bool => isset(EXEC_COMPAT[$h]) || isset($rows[$h]),
+        ARRAY_FILTER_USE_KEY);
+    $list = models_builtin($owners, co_owner_env(), array_map(static fn(array $r): string => (string)$r['owner_env'], $rows));
     foreach (models_rows($db) as $id => $r) {
         $card = json_decode((string)$r['card_json'], true);
         $card = is_array($card) ? $card : [];
@@ -487,7 +489,7 @@ function models_subtask_spawn(mysqli $db, array $in, callable $mkChat, callable 
     if (!in_array($r['agent'], models_job_agents(), true) || $r['host'] === '') {
         return ['ok' => false, 'error' => 'not_runnable', 'detail' => 'No host runs jobs of this agent yet.'];
     }
-    if (!in_array($r['host'], array_keys(models_host_owners($db)), true)) {
+    if (!in_array($r['host'], array_keys(models_host_owners($db)), true) || !co_exec_known($db, (string)$r['host'])) {
         return ['ok' => false, 'error' => 'host_unknown', 'detail' => "Host {$r['host']} does not take jobs (no owner.json)."];
     }
     $gw = co_gateway_agent($r['agent']);

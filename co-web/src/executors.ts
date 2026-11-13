@@ -28,8 +28,9 @@ export function applyExecutors(next: ExecutorInfo[], persist = true): void {
   list = next.filter((e) => e && HOST_ID_RE.test(e.id));
   const ids = [HOME, SITE, ...list.map((e) => e.id).filter((id) => id !== HOME && id !== SITE)];
   const byId = new Map(list.map((e) => [e.id, e]));
+  // executors that are switched off or do not take this environment's jobs cannot be chosen (403 host_not_serving)
   HOSTS.splice(0, HOSTS.length, ...ids
-    .filter((id) => id === HOME || id === SITE || (byId.get(id)?.enabled !== false))
+    .filter((id) => id === HOME || id === SITE || (byId.get(id)?.enabled !== false && byId.get(id)?.servesMe !== false))
     .map((id) => {
       const e = byId.get(id);
       if (DEFAULTS[id] && (!e || !e.registered)) return { id, ...DEFAULTS[id] };

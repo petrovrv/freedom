@@ -207,5 +207,17 @@ $m = models_all($db);
 $ok("sam-mac/claude is sam's", ($m['sam-mac/claude']['env'] ?? '') === 'sam' && ($m['linux-1/claude']['env'] ?? '') === 'owner'
     && str_ends_with($m['sam-mac/claude']['title'], 'Sam Mac'));
 
+// --- review fixes: members see no machine names or serves lists; Forget leaves no ghost and no resources
+$co = co_exec_list($db, 'sam', false)['executors'];
+$l1 = array_column($co, null, 'id')['linux-1'] ?? [];
+$ok('member: no machine name as title, no serves list', ($l1['title'] ?? '') === 'LINUX-1' && $l1['serves'] === null);
+co_exec_put($db, ['host' => 'linux-6', 'machine' => 'secret-box', 'labels' => ['agents' => ['claude']]]);
+$ok("member sees the id, not another person's machine name", array_column(co_exec_list($db, 'sam', false)['executors'], null, 'id')['linux-6']['title'] === 'linux-6'
+    && array_column(co_exec_list($db, 'owner', true)['executors'], null, 'id')['linux-6']['title'] === 'secret-box');
+$owner('sam-mac', ['hostId' => 'sam-mac', 'updatedUtc' => $now, 'agents' => ['claude' => []]]);
+co_exec_set($db, ['host' => 'sam-mac', 'forget' => true], true);
+$ok('forgotten executor: not listed, no owner.json copy, no resources', !in_array('sam-mac', array_column(co_exec_list($db, 'sam', false)['executors'], 'id'), true)
+    && co_exec_owner($db, 'sam-mac') === null && !isset(models_all($db)['sam-mac/claude']) && !co_exec_known($db, 'sam-mac'));
+
 echo $fail ? "FAILED $fail\n" : "ALL OK\n";
 exit($fail ? 1 : 0);

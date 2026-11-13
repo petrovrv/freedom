@@ -1313,15 +1313,16 @@ export interface ExecutorInfo {
   owner?: import('./types').OwnerInfo;
 }
 
-// A server before schema 28 answers 400 (unknown op): asked once per page load, then never again.
+// A server before schema 28 answers {error: 'unknown_op'}: asked once per page load, then never again.
 let executorsUnsupported = false;
 
 export async function dbExecutors(env: string): Promise<ExecutorInfo[] | null> {
   if (executorsUnsupported) return null;
   const res = await post({ op: 'executors', env }, false);
-  if (res && res.status === 400) executorsUnsupported = true;
-  if (!res || !res.ok) return null;
-  const j = (await res.json().catch(() => null)) as { executors?: unknown } | null;
+  if (!res) return null;
+  const j = (await res.json().catch(() => null)) as { executors?: unknown; error?: string } | null;
+  if (j?.error === 'unknown_op') executorsUnsupported = true;
+  if (!res.ok) return null;
   return j && Array.isArray(j.executors)
     ? (j.executors as ExecutorInfo[]).filter((x) => !!x && typeof x.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/.test(x.id))
     : null;

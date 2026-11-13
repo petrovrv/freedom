@@ -196,9 +196,10 @@ def build_tree(cfg: dict, rev: str, tools_dir: pathlib.Path | None) -> tuple[dic
         for path in [p for p in tree if match_any(p, rule["files"])]:
             text = tree[path].decode("utf-8")
             new, n = rx.subn(rule["replace"], text)
-            if not n:
-                raise RuntimeError(f"rewrite '{rule['regex']}' found nothing in {path} (config is stale)")
-            tree[path] = new.encode("utf-8")
+            # since the reversed direction (docs/DEVELOPMENT.md) the core tree is already public: a rewrite that
+            # finds nothing is done, not stale; the guard still refuses the private text wherever it reappears
+            if n:
+                tree[path] = new.encode("utf-8")
     return tree, dropped
 
 

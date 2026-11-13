@@ -213,7 +213,7 @@ def bridge_patch(cfg: dict) -> dict:
 
 def bridge_config() -> dict:
     """A Bridge config.json of this install: bridge/config.json.example with the names of install.json (site, drive,
-    members, Google project); the one test project of the template for the owner, no corporate domains. No install.json: FileNotFoundError."""
+    members, Google project); the one test project of the template for the owner, no extra company mail domains. No install.json: FileNotFoundError."""
     d = load()
     tpl = Path(__file__).resolve().parents[1] / 'bridge' / 'config.json.example'
     cfg = json.loads(tpl.read_text(encoding='utf-8-sig'))

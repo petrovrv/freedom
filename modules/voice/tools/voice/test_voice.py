@@ -248,7 +248,7 @@ class SpeakerTest(HubTest):
         return json.loads(urllib.request.urlopen(req, timeout=20).read())
 
     def test_bad_person_ids_dropped(self):
-        self.assertEqual(sorted(self.hub.people), ["kid", "alice"])
+        self.assertEqual(sorted(self.hub.people), ["alice", "kid"])
         self.assertEqual(self.hub.points["pc"]["people"], ["alice"])
         self.assertEqual(self.hub.points["pc"]["unknown"], "home")
 

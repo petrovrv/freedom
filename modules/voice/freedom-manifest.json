@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
  "version": "0.2.0",
- "created": "2026-11-14T11:22:08Z",
+ "created": "2026-11-14T11:23:25Z",
  "files": [
   {
    "path": "context/voice.md",
@@ -36,7 +36,7 @@
   {
    "path": "tools/voice/test_voice.py",
    "size": 16203,
-   "sha256": "2346c9c39b4bc422e08f7fdc8d1165b1f1a1ac4860fbf3e10d214edcff33a771"
+   "sha256": "c39b3a9fa31ef126d35034a64ab5b65966b607b63437447825e91f28084ccc78"
   },
   {
    "path": "tools/voice/voice.py",
@@ -63,7 +63,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "digkxdHKcI2JzKVyMTz/17eOS3UmJTibrUsXxDsrskdU/9QWGVsVtF8SaqHiAsF1diIso2maPxp5B6hUrkWnAg=="
+   "sig": "B18eMRaHmVKIeQXe8//XcgWNx3We39n4eADGr0oT1aEJvj5Eb+jJLABCOpEwblZtHigcLXSf+VJMOhaEC0VlBw=="
   }
  ],
  "module": "voice"

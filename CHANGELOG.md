@@ -5,6 +5,8 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- Module voice 0.3.1 (server): spoken questions to claude run on the fast model (`haiku`); a question that starts with "сложный вопрос" (uk "складне питання", en "hard/complex question", nl "moeilijke vraag") gets the model of the chat's last typed turn, which voice turns no longer overwrite.
+
 ## 0.5.0 (2026-11-14)
 
 - **Install by invitation** (SPEC §7.5): setup wizard step `invite` comes first (paste the invite code of the person who invited you, or none: help = forum); `report --send` shows the sanitized report and sends it to the inviter only after the friend's yes, `report --answers` prints the answers; the invite secret stays in the keyring (`aiwb/freedom-invite`).

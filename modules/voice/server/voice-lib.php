@@ -14,6 +14,9 @@ const CO_VOICE_AGENTS = ['claude', 'codex'];
 const CO_VOICE_RESUME_S = 1800;       // a voice session of the chat is resumed within 30 min of its last answer
 const CO_VOICE_PROTOCOL_MAX = 12000;  // chars of the chat protocol given to a new voice session
 const CO_VOICE_TEXT_MAX = 2000;
+// voice turns of claude run on a fast model; a question that starts with one of these words gets the chat's own model
+const CO_VOICE_FAST_MODEL = 'haiku';
+const CO_VOICE_DEEP = '/^\s*(сложный|складне|hard|complex|moeilijke)\s+(вопрос|питання|question|vraag)(?!\pL)/iu';
 
 /** {hub, key} from ~/co-agent/secrets/voice.json, or null. */
 function co_voice_config(): ?array
@@ -189,11 +192,13 @@ function co_voice_queue(mysqli $db, string $chatId, string $env, array $chat, st
                                  AND JSON_EXISTS(request, '$.voice') LIMIT 1", [$chatId]);
     if ($busy) return ['busy' => $busy['job_id']];
 
-    // agent, model and host of the chat's last turn
-    $last = co_voice_one($db, "SELECT request, host_id FROM jobs WHERE chat_id = ? AND state = 'completed' ORDER BY queued_utc DESC LIMIT 1", [$chatId]);
+    // agent, model and host of the chat's last turn typed in a client (voice turns run on the fast model)
+    $last = co_voice_one($db, "SELECT request, host_id FROM jobs WHERE chat_id = ? AND state = 'completed' AND NOT JSON_EXISTS(request, '$.voice')
+                                ORDER BY queued_utc DESC LIMIT 1", [$chatId]);
     $prev = $last ? (json_decode((string)$last['request'], true) ?: []) : [];
     $agent = in_array($prev['agent'] ?? null, CO_VOICE_AGENTS, true) ? $prev['agent'] : 'claude';
     $model = $agent === ($prev['agent'] ?? null) && is_string($prev['model'] ?? null) ? $prev['model'] : null;
+    if ($agent === 'claude' && !preg_match(CO_VOICE_DEEP, $text)) $model = CO_VOICE_FAST_MODEL;
     // the executor of the chat's last turn, if it still serves the project's environment (F12), else Home
     $host = $last && co_exec_known($db, (string)$last['host_id']) && co_exec_serves($db, (string)$last['host_id'], (string)$chat['env'])
         ? (string)$last['host_id'] : 'home-main';

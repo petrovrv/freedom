@@ -32,6 +32,11 @@ class Fake(BaseHTTPRequestHandler):
         self.wfile.write(b)
 
     def do_GET(self):
+        if self.path.startswith("/api/states/media_player."):
+            return self._json({"state": "playing", "attributes": {"media_title": "Yesterday", "media_artist": "The Beatles",
+                                                                  "volume_level": 0.5}})
+        if self.path.startswith("/api/config/config_entries/entry"):
+            return self._json([{"entry_id": "E1", "state": "loaded"}])
         if self.path == "/v1/models":
             return self._json({"data": [{"id": "small"}, {"id": "turbo"}, {"id": voice.DEFAULT_VOICES["ru"]}]})
         return self._json({"message": "API running."})
@@ -51,6 +56,12 @@ class Fake(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             return self.wfile.write(data)
+        if self.path.startswith("/api/services/music_assistant/search"):
+            return self._json({"service_response": {"playlists": [
+                {"uri": "ytmusic://playlist/1", "name": "Calm YT", "media_type": "playlist"},
+                {"uri": "spotify://playlist/2", "name": "Calm Focus", "media_type": "playlist"}]}})
+        if self.path.startswith("/api/services/"):
+            return self._json([])
         if self.path == "/api/conversation/process":
             d = json.loads(body)
             if "час" in d["text"]:
@@ -192,6 +203,62 @@ class HubTest(unittest.TestCase):
         self.assertEqual(voice.norm_lang("ja", ("ru", "nl"), "ru"), "ru")
         self.assertAlmostEqual(voice.audio_seconds(voice.wav_bytes(b"\x00\x00" * 8000)), 0.5)
         self.assertEqual(voice.audio_seconds(b"x" * 8000, "audio/webm"), 2.0)
+
+
+class MusicTest(HubTest):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        base = f"http://127.0.0.1:{cls.fake.server_port}"
+        cls.hub.public = "http://hub"
+        cls.hub.music = voice.Music({"players": {"living": "media_player.living_ma", "kitchen": "media_player.kitchen_ma"},
+                                     "default": "living", "aliases": {"гостин": "living", "кухн": "kitchen"}}, base, "ha")
+
+    def svc(self, name):
+        return [json.loads(b) for p, _, b in CALLS if p.startswith("/api/services/" + name)]
+
+    def test_parse(self):
+        al = {"гостин": "living"}
+        p = voice.music_parse("поставь что-нибудь спокойное для работы на колонке в гостиной", al)
+        self.assertEqual((p["query"], p["type"], p["players"], p["strong"]), ("спокойное для работы", "playlist", ["living"], True))
+        p = voice.music_parse("включи песню Yesterday из Спотифая", al)
+        self.assertEqual((p["query"], p["type"], p["provider"]), ("Yesterday", "track", "spotify"))
+        self.assertFalse(voice.music_parse("включи свет на кухне", al)["strong"])
+        self.assertIsNone(voice.music_parse("расскажи анекдот", al))
+        self.assertEqual(voice.music_parse("Пауза.", al)["action"], "pause")
+        self.assertEqual(voice.music_parse("play Radiohead everywhere", al)["players"], ["*"])
+
+    def test_strong_phrase_plays_without_ha(self):
+        _, r = self.post("/v1/voice/turn", {"text": "поставь Шостаковича на кухне", "speak": "0"}, key="p1")
+        self.assertEqual(r["route"], "music")
+        self.assertFalse([c for c in CALLS if c[0] == "/api/conversation/process"])
+        d = self.svc("music_assistant/play_media")[0]
+        self.assertEqual((d["media_id"], d["entity_id"]), ("Шостаковича", ["media_player.kitchen_ma"]))
+        self.assertIn("Шостаковича", r["reply"])
+
+    def test_provider_search_picks_that_provider(self):
+        _, r = self.post("/v1/voice/turn", {"text": "поставь что-нибудь спокойное из спотифая", "speak": "0"}, key="p1")
+        self.assertEqual(self.svc("music_assistant/play_media")[0]["media_id"], "spotify://playlist/2")
+        self.assertIn("Calm Focus", r["reply"])
+
+    def test_weak_phrase_after_ha(self):
+        _, r = self.post("/v1/voice/turn", {"text": "включи Beatles", "speak": "0"}, key="p1")
+        self.assertEqual(r["route"], "music")
+        _, r = self.post("/v1/voice/turn", {"text": "включи отопление", "speak": "0"}, key="p1")
+        self.assertEqual(r["route"], "agent")  # HA failed and it is a home word: not a song
+
+    def test_controls(self):
+        _, r = self.post("/v1/voice/turn", {"text": "что сейчас играет", "speak": "0"}, key="p1")
+        self.assertIn("The Beatles — Yesterday", r["reply"])
+        self.post("/v1/voice/turn", {"text": "тише", "speak": "0"}, key="p1")
+        self.assertEqual(self.svc("media_player/volume_set")[0]["volume_level"], 0.4)
+        self.post("/v1/voice/turn", {"text": "пауза", "speak": "0"}, key="p1")
+        self.assertTrue(self.svc("media_player/media_pause"))
+
+    def test_reply_on_music_player_is_an_announcement(self):
+        self.hub.cast_play("media_player.living_ma", b"x", "audio/mpeg")
+        self.assertTrue(self.svc("music_assistant/play_announcement"))
+        self.assertFalse(self.svc("media_player/play_media"))
 
 
 class FakeVP:

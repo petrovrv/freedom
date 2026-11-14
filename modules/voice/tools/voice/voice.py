@@ -36,7 +36,7 @@ import urllib.request
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 UA = f"freedom-voice/{VERSION}"
 LANGS = ("ru", "uk", "en", "nl", "fr", "de")
 WHISPER_NAMES = {"russian": "ru", "ukrainian": "uk", "english": "en", "dutch": "nl", "flemish": "nl", "french": "fr",
@@ -63,6 +63,230 @@ SAY = {
 # still answer and can reach HA itself. homeAssistant.keepErrors lists codes HA should answer anyway.
 HA_KEEP_ERRORS = set()
 AGENT_PREFIX = re.compile(r"^\s*(агент|агенте|клод|claude|agent|асистент|assistant)[\s,:.!-]+", re.I)
+
+# ------------------------------------------------------------------ music (Music Assistant through HA)
+# "поставь/сыграй/play ..." is music at once; "включи ..." only when it also names music (песню, плейлист, Spotify)
+# or when HA did not take it as a home command ("включи свет" stays HA's).
+M_STRONG = r"поставь(?:те)?|сыграй(?:те)?|заграй|постав|play|put on|speel"
+M_WEAK = r"включи(?:те)?|вруби|запусти|увімкни|увiмкни|turn on|start"
+M_VERB = re.compile(rf"^\s*(?:(?:пожалуйста|будь ласка|please|alsjeblieft)[\s,]+)?({M_STRONG}|{M_WEAK})\b[\s,]*", re.I)
+M_CUE = re.compile(r"музык|музик|песн|пісн|трек|альбом|плейлист|плейліст|радио|радіо|playlist|album|song|music|track|"
+                   r"radio|muziek|liedje|nummer|spotify|спотиф|спотіф|youtube|ютуб|ю туб", re.I)
+M_PROVIDER = [("spotify", re.compile(r"\s*\b(?:(?:из|с|со|в|на|from|on|in|van|op|з|зі|у)\s+)?(?:spotify|спотиф\w*|спотіф\w*)\b", re.I)),
+              ("ytmusic", re.compile(r"\s*\b(?:(?:из|с|со|в|на|from|on|in|van|op|з|зі|у)\s+)?(?:youtube(?:\s+music)?|yt\s+music|"
+                                     r"ю\s?туб\w*(?:\s+музык\w*)?|ютуб\w*(?:\s+музи?к\w*)?)\b", re.I))]
+M_ALL = re.compile(r"\s*\b(?:везде|по всему дому|во всём доме|во всем доме|everywhere|all speakers|всюди|по всьому будинку|overal)\b", re.I)
+M_TYPES = [("playlist", r"плейлист\w*|плейліст\w*|playlist|afspeellijst"), ("album", r"альбом\w*|album"),
+           ("track", r"песн\w*|песенк\w*|пісн\w*|трек\w*|song|track|liedje|nummer"), ("radio", r"радио|радіо|radio")]
+M_VAGUE = re.compile(r"^(?:что[- ]нибудь|что[- ]то|чего[- ]нибудь|щось|що-небудь|something|some|anything|iets)\b\s*", re.I)
+M_FILLER = re.compile(r"^(?:мне|нам|мені|нам|me|us|for me|ну|a|an|the|de|het|een|немного|трохи|some)\b\s*", re.I)
+M_MUSICWORD = re.compile(r"^(?:музык[уаи]|музик[уи]|music|muziek)\b\s*(?:(?:by|от|группы|гурту|van)\s+)?", re.I)
+M_MOOD = re.compile(r"^(?:для|под|на|for|to|voor|om)\b", re.I)
+# "включи свет на кухне" that HA could not do is not a song to search for
+M_HOMEWORD = re.compile(r"свет|світл|ламп|люстр|подсветк|отоплен|опален|обогрев|батаре|котёл|котел|ворот|гараж|розетк|чайник|"
+                        r"кондиц|вентилят|телевиз|телевіз|пылесос|пилосос|бойлер|light|lamp|heating|heater|gate|garage|socket|"
+                        r"plug|\bfan\b|kettle|\btv\b|licht|verwarming|poort|stopcontact", re.I)
+M_CONTROL = [
+    ("pause", r"пауза|на паузу|поставь на паузу|останови(?:сь)?|стоп|хватит|выключи музыку|вимкни музику|pause|stop(?: the)? music|stop|pauze|stop de muziek"),
+    ("resume", r"продолж(?:и|ай)(?: музыку| играть)?|продовж(?:и|уй)(?: музику)?|играй дальше|resume|continue|verder(?: spelen)?"),
+    ("next", r"дальше|следующ\w*(?: песн\w*| трек\w*)?|наступн\w*(?: пісн\w*| трек\w*)?|переключи|пропусти|next(?: song| track)?|skip|volgende"),
+    ("previous", r"назад|предыдущ\w*(?: песн\w*| трек\w*)?|попередн\w*(?: пісн\w*| трек\w*)?|previous(?: song| track)?|vorige"),
+    ("louder", r"громче|ещё громче|еще громче|сделай громче|голосніше|louder|volume up|luider"),
+    ("quieter", r"тише|ещё тише|еще тише|сделай тише|тихіше|quieter|volume down|zachter"),
+    ("what", r"что (?:сейчас )?(?:играет|звучит|за песня|это за песня)|що (?:зараз )?грає|what(?:'s| is) playing|wat speelt er"),
+]
+M_SAY = {
+    "ru": {"play": "Включаю {q}.", "resume": "Продолжаю.", "pause": "Пауза.", "next": "Следующий трек.", "previous": "Предыдущий трек.",
+           "louder": "Громче.", "quieter": "Тише.", "what": "Играет {q}.", "nothing": "Сейчас ничего не играет.",
+           "notfound": "Не нашла {q}.", "what_to_play": "Что включить?", "off": "Музыка не настроена.", "fail": "Не получилось включить музыку."},
+    "uk": {"play": "Вмикаю {q}.", "resume": "Продовжую.", "pause": "Пауза.", "next": "Наступний трек.", "previous": "Попередній трек.",
+           "louder": "Голосніше.", "quieter": "Тихіше.", "what": "Грає {q}.", "nothing": "Зараз нічого не грає.",
+           "notfound": "Не знайшла {q}.", "what_to_play": "Що увімкнути?", "off": "Музику не налаштовано.", "fail": "Не вийшло увімкнути музику."},
+    "en": {"play": "Playing {q}.", "resume": "Resuming.", "pause": "Paused.", "next": "Next track.", "previous": "Previous track.",
+           "louder": "Louder.", "quieter": "Quieter.", "what": "Now playing {q}.", "nothing": "Nothing is playing.",
+           "notfound": "I could not find {q}.", "what_to_play": "What should I play?", "off": "Music is not set up.", "fail": "Could not start the music."},
+    "nl": {"play": "Ik speel {q}.", "resume": "Ik ga verder.", "pause": "Gepauzeerd.", "next": "Volgend nummer.", "previous": "Vorig nummer.",
+           "louder": "Luider.", "quieter": "Zachter.", "what": "Nu speelt {q}.", "nothing": "Er speelt niets.",
+           "notfound": "Ik vond {q} niet.", "what_to_play": "Wat zal ik spelen?", "off": "Muziek is niet ingesteld.", "fail": "De muziek starten lukte niet."},
+}
+
+
+def music_parse(text, aliases=None):
+    """A music phrase -> {action, query, type, provider, players, strong} or None (not music).
+
+    aliases: spoken speaker names -> player name ("гостин" -> "living"); matched as word prefixes after на/в/on/op."""
+    t = re.sub(r"[.!?…]+$", "", (text or "").strip())
+    low = t.lower()
+    for action, rx in M_CONTROL:
+        if re.fullmatch(rf"(?:{rx})(?:\s+(?:пожалуйста|please|будь ласка|alsjeblieft))?", low):
+            return {"action": action, "query": "", "type": None, "provider": None, "players": [], "strong": True}
+    m = M_VERB.match(t)
+    if not m:
+        return None
+    verb, rest = m.group(1).lower(), t[m.end():]
+    strong = bool(re.fullmatch(M_STRONG, verb, re.I)) or bool(M_CUE.search(rest))
+    provider = None
+    for name, rx in M_PROVIDER:
+        pm = rx.search(rest)
+        if pm:
+            provider, rest = name, (rest[:pm.start()] + rest[pm.end():]).strip()
+            break
+    players = []
+    am = M_ALL.search(rest)
+    if am:
+        players, rest = ["*"], (rest[:am.start()] + rest[am.end():]).strip()
+    for alias, player in sorted((aliases or {}).items(), key=lambda kv: -len(kv[0])):
+        sm = re.search(rf"\s*\b(?:на|в|во|у|on|in|op)\s+(?:колонк\w*\s+|колонц\w*\s+|speaker\s+|the\s+)?(?:в\s+|у\s+)?{re.escape(alias)}\w*\s*$",
+                       rest, re.I)
+        if sm:
+            players, rest = [player], rest[:sm.start()].strip()
+            break
+    rest = M_FILLER.sub("", rest).strip(" ,")
+    typ = None
+    for name, rx in M_TYPES:
+        tm = re.match(rf"^(?:{rx})\b\s*", rest, re.I)
+        if tm:
+            typ, rest = name, rest[tm.end():].strip()
+            break
+    vague = False
+    mw = M_MUSICWORD.match(rest)
+    if mw:
+        rest = rest[mw.end():].strip()
+        vague = bool(M_MOOD.match(rest))
+    vm = M_VAGUE.match(rest)
+    if vm:
+        rest, vague = rest[vm.end():].strip(), True
+    rest = re.sub(r"^(?:из|от|группы|by|van)\s+", "", rest, flags=re.I).strip(" ,")
+    if vague and typ is None:
+        typ = "playlist"  # "что-нибудь спокойное для работы" -> the best matching playlist
+    if not rest and typ is None and not strong:
+        return None
+    return {"action": "play", "query": rest, "type": typ, "provider": provider, "players": players, "strong": strong}
+
+
+class Music:
+    """Music Assistant through Home Assistant (integration music_assistant): play by name, control, announcements."""
+
+    def __init__(self, cfg, ha_url, ha_token):
+        cfg = cfg or {}
+        self.ha_url, self.ha_token = ha_url, ha_token
+        self.players = cfg.get("players") or {}  # name -> media_player of Music Assistant
+        self.default = cfg.get("default") or next(iter(self.players), "")
+        self.aliases = {k.lower(): v for k, v in (cfg.get("aliases") or {}).items() if v in self.players}
+        self.entry = cfg.get("configEntryId") or ""
+        self.volume_step = float(cfg.get("volumeStep") or 0.1)
+        self.announce_volume = cfg.get("announceVolume")
+        self.ok = bool(self.players and ha_url and ha_token)
+
+    def _h(self):
+        return {"Authorization": f"Bearer {self.ha_token}", "Content-Type": "application/json"}
+
+    def service(self, domain, svc, data, response=False):
+        url = f"{self.ha_url}/api/services/{domain}/{svc}" + ("?return_response" if response else "")
+        code, _, resp = http("POST", url, json.dumps(data).encode(), self._h(), timeout=40)
+        if code != 200:
+            raise RuntimeError(f"{domain}.{svc}: HTTP {code} {resp[:200]!r}")
+        return json.loads(resp or b"null")
+
+    def state(self, ent):
+        code, _, data = http("GET", f"{self.ha_url}/api/states/{ent}", headers=self._h(), timeout=10)
+        return json.loads(data) if code == 200 else {}
+
+    def entities(self, names):
+        if "*" in names:
+            return list(dict.fromkeys(self.players.values()))
+        return [self.players[n] for n in names if n in self.players] or [self.players[self.default]]
+
+    def active(self):
+        """Players that play now (else those paused, else the default one)."""
+        st = {e: self.state(e).get("state") for e in dict.fromkeys(self.players.values())}
+        return [e for e, s in st.items() if s == "playing"] or [e for e, s in st.items() if s == "paused"] or \
+            [self.players[self.default]]
+
+    def _entry(self):
+        if not self.entry:
+            code, _, data = http("GET", f"{self.ha_url}/api/config/config_entries/entry?domain=music_assistant",
+                                 headers=self._h(), timeout=10)
+            items = json.loads(data) if code == 200 else []
+            self.entry = next((e["entry_id"] for e in items if e.get("state") == "loaded"), "")
+        return self.entry
+
+    def search(self, query, typ, provider):
+        types = [typ] if typ and typ != "radio" else ["artist", "playlist", "track", "album"]
+        r = self.service("music_assistant", "search", {"config_entry_id": self._entry(), "name": query,
+                                                       "media_type": types, "limit": 8}, response=True)
+        res = (r or {}).get("service_response") or {}
+        for t in types:
+            for it in res.get(t + "s") or []:
+                uri = it.get("uri") or ""
+                if not provider or uri.startswith(provider + ":"):
+                    return it
+        return None
+
+    def run(self, p, lang):
+        """Carry out a parsed phrase; returns the reply text."""
+        S = M_SAY.get(lang, M_SAY["en"])
+        if not self.ok:
+            return S["off"]
+        a = p["action"]
+        if a == "what":
+            for e in self.active():
+                s = self.state(e)
+                at = s.get("attributes") or {}
+                if s.get("state") == "playing" and at.get("media_title"):
+                    who = at.get("media_artist")
+                    return S["what"].format(q=f"{who} — {at['media_title']}" if who else at["media_title"])
+            return S["nothing"]
+        if a in ("pause", "resume", "next", "previous"):
+            svc = {"pause": "media_pause", "resume": "media_play", "next": "media_next_track", "previous": "media_previous_track"}[a]
+            self.service("media_player", svc, {"entity_id": self.active()})
+            return S[a]
+        if a in ("louder", "quieter"):
+            for e in self.active():
+                v = (self.state(e).get("attributes") or {}).get("volume_level")
+                v = 0.3 if v is None else v
+                v = min(1.0, v + self.volume_step) if a == "louder" else max(0.0, v - self.volume_step)
+                self.service("media_player", "volume_set", {"entity_id": e, "volume_level": round(v, 2)})
+            return S[a]
+        ents = self.entities(p["players"])
+        q, typ = p["query"], p["type"]
+        if not q:
+            if typ is None:  # "включи музыку": continue what was playing
+                self.service("media_player", "media_play", {"entity_id": ents})
+                return S["resume"]
+            return S["what_to_play"]
+        data = {"entity_id": ents, "enqueue": "replace"}
+        if p["provider"] or typ == "playlist":
+            it = self.search(q, typ, p["provider"])
+            if not it:
+                return S["notfound"].format(q=q)
+            data.update(media_id=it["uri"], media_type=it.get("media_type") or typ)
+            name = it.get("name") or q
+            if it.get("media_type") == "track" and it.get("artists"):
+                name = f"{it['artists'][0].get('name')} — {name}"
+        else:
+            data["media_id"] = q
+            if typ in ("playlist", "album", "track"):
+                data["media_type"] = typ
+            name = q
+        if typ == "radio":
+            data["radio_mode"] = True
+        try:
+            self.service("music_assistant", "play_media", data)
+        except RuntimeError as e:
+            log("music", e)
+            return S["notfound"].format(q=q) if "HTTP 400" in str(e) or "HTTP 500" in str(e) else S["fail"]
+        return S["play"].format(q=name)
+
+    def announce(self, ent, url):
+        """A reply on a Music Assistant player: the music ducks and resumes after it; False = not ours."""
+        if not self.ok or ent not in self.players.values():
+            return False
+        data = {"entity_id": ent, "url": url, "use_pre_announce": False}
+        if self.announce_volume is not None:
+            data["announce_volume"] = int(self.announce_volume)
+        self.service("music_assistant", "play_announcement", data)
+        return True
 
 
 def say(lang, key):
@@ -344,6 +568,7 @@ class Hub:
         self.ha_agent = h.get("agentId") or ""
         self.cast = h.get("speakers") or {}  # name -> media_player entity
         self.keep_errors = set(h.get("keepErrors") or HA_KEEP_ERRORS)
+        self.music = Music(cfg.get("music"), self.ha_url, self.ha_token)
         c = cfg.get("co") or {}
         self.co_url = (c.get("dbUrl") or "").strip()
         self.co_key = secret(c.get("hostKey"), "VOICE_CO_HOST_KEY")
@@ -460,6 +685,8 @@ class Hub:
             raise RuntimeError("cast: speaker, publicAudioBase and the HA token are required")
         ext = "mp3" if "mpeg" in typ else "wav"
         url = f"{self.public}/a/{self.clip(data, typ)}.{ext}"
+        if self.music.announce(ent, url):  # Music Assistant player: the music pauses for the reply and goes on
+            return ent
         body = json.dumps({"entity_id": ent, "media_content_id": url, "media_content_type": "music",
                            "announce": True}).encode()
         code, _, resp = http("POST", self.ha_url + "/api/services/media_player/play_media", body,
@@ -477,6 +704,17 @@ class Hub:
         t = re.sub(r"^[#>*\-\s|]+", "", t, flags=re.M)
         t = re.sub(r"[*_~|]+", "", t)
         return re.sub(r"\s+", " ", t).strip()[:1500]
+
+    def _music(self, mp, lang, out, tm):
+        t1 = time.time()
+        try:
+            reply = self.music.run(mp, lang)
+        except Exception as e:  # noqa: BLE001 - said, never a failed turn
+            log("music", e)
+            reply = M_SAY.get(lang, M_SAY["en"])["fail"]
+        tm["music"] = round(time.time() - t1, 2)
+        out.update(route="music", music={k: mp[k] for k in ("action", "query", "type", "provider", "players")})
+        return reply
 
     # -- one voice turn
     def turn(self, text=None, audio=None, filename="audio.wav", typ="audio/wav", lang=None, route="auto",
@@ -529,13 +767,19 @@ class Hub:
                 else:  # CO Web sends it into its chat itself
                     out.update(route="agent", text=text, timings=tm)
                     return out
-            if route in ("auto", "home", "client"):
+            mp = music_parse(text, self.music.aliases) if self.music.ok and route != "agent" else None
+            if mp and mp["strong"]:  # "поставь ...", "пауза", "включи песню ..." - music at once, before HA
+                reply = self._music(mp, lang, out, tm)
+            if out["route"] is None and route in ("auto", "home", "client"):
                 t1 = time.time()
                 h = self.home(text, lang)
                 tm["home"] = round(time.time() - t1, 2)
                 out["home"] = h["code"]
-                if h["handled"] or route == "home":
+                if h["handled"] or (route == "home" and not mp):
                     out["route"], reply = "home", h["reply"] or say(lang, "fail")
+                elif mp and h["code"] in ("no_intent_match", "no_valid_targets", "ha_off") \
+                        and not M_HOMEWORD.search(mp["query"]):  # "включи Шостаковича": not a home command, so music
+                    reply = self._music(mp, lang, out, tm)
             if out["route"] is None:
                 if route == "client":  # the caller (CO Web) sends the phrase into its own chat
                     out["route"] = "agent"
@@ -550,6 +794,8 @@ class Hub:
                 out["route"] = "agent"
                 reply = self.clean(ans) if ans else say(lang, why)
         out["reply"] = reply
+        if out["route"] == "music" and speaker and out["music"]["action"] in ("play", "resume", "pause", "next", "previous"):
+            speak = False  # the speaker itself shows it worked; a spoken reply would cut into the music
         if speak and reply:
             t1 = time.time()
             data, atype = self.speak(reply, lang, fmt)
@@ -712,6 +958,7 @@ def hub_status(hub):
     if hub.ha_url:
         code, _, _ = http("GET", hub.ha_url + "/api/", headers={"Authorization": f"Bearer {hub.ha_token}"}, timeout=5)
         st["homeAssistant"] = {"ok": code == 200, "speakers": sorted(hub.cast)}
+        st["music"] = {"ok": hub.music.ok, "players": sorted(hub.music.players), "default": hub.music.default}
     st["agent"] = {"configured": bool(hub.co_url and hub.co_key), "points": sorted(hub.points)}
     st["speakerId"] = {"ok": hub.vp.ok, "model": os.path.basename(hub.vp.model) if hub.vp.model else "",
                        "people": sorted(hub.people), "enrolled": hub.vp.enrolled() if hub.vp.ok else []}

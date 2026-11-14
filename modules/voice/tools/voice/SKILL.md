@@ -1,7 +1,7 @@
 ---
 name: voice
-description: Voice pipeline of Freedom (module voice) — the hub on the family server (speech to text and text to speech through speaches/piper, short home commands to Home Assistant, the rest to the CO agent of a chosen chat, answer as audio, Cast speakers through HA) and the voice point on a device (wake word with openWakeWord + VAD, Windows/Linux, also headless; always-on listening only after the device owner turns it on); speaker recognition in two levels (wake-word verifier on the device, voiceprints on the hub that route a question to the recognised person's chat, strangers get home commands only); say/ask/check for tests. Use to run or check the voice assistant, speak a text on a home speaker, or set up a voice point.
-version: 0.2.0
+description: Voice pipeline of Freedom (module voice) — the hub on the family server (speech to text and text to speech through speaches/piper, short home commands to Home Assistant, the rest to the CO agent of a chosen chat, answer as audio, Cast speakers through HA; music by voice - Spotify/YouTube Music through Music Assistant on the speakers, replies duck the music) and the voice point on a device (wake word with openWakeWord + VAD, Windows/Linux, also headless; always-on listening only after the device owner turns it on); speaker recognition in two levels (wake-word verifier on the device, voiceprints on the hub that route a question to the recognised person's chat, strangers get home commands only); say/ask/check for tests. Use to run or check the voice assistant, speak a text on a home speaker, or set up a voice point.
+version: 0.3.0
 entry: voice.py
 requires: [python 3.10+, hub - standard library (speaker recognition - sherpa-onnx numpy and an ONNX speaker model), point - sounddevice openwakeword onnxruntime scikit-learn (own venv, setup-point)]
 platform: any
@@ -47,6 +47,24 @@ python voice.py check --config-hub /srv/voice/hub.json # на сервере
 4. TTS: piper-голос языка (`speaches.voices`), формат mp3 или wav; с `speaker` ответ уходит на Cast-динамик через HA `media_player.play_media` (клип по адресу `publicAudioBase`, 10 мин).
 
 `route=client` (CO Web): хаб не ждёт агента, а возвращает `{route: agent, text}` — страница сама отправляет текст в свой чат.
+
+## Музыка (0.3.0)
+
+Нужны Music Assistant и его интеграция в Home Assistant (`music_assistant`): MA сам ищет в Spotify, YouTube Music и других подключённых сервисах и играет на Cast-колонках.
+
+- «поставь / сыграй / play / speel …», а также «включи …» со словом про музыку (песню, плейлист, альбом, радио, Spotify, YouTube) — сразу в музыку, без HA.
+- «включи Шостаковича» без такого слова сначала идёт в HA. Если HA ответил `no_intent_match` или `no_valid_targets` и во фразе нет слов про дом (свет, отопление, ворота…), это музыка.
+- Что разбирается: тип (`плейлист`, `альбом`, `песню`, `радио X` = radio mode), источник (`из спотифая`, `с ютуб музыки` — поиск только в нём), колонка (`на колонке в гостиной` — по `aliases`, `везде` — все плееры). «что-нибудь спокойное для работы» и «музыку для сна» — поиск плейлиста.
+- Управление короткими фразами: пауза/стоп, продолжи, дальше/следующий, назад, громче/тише (шаг `volumeStep`), «что играет».
+- После «включи» хаб не говорит в ту же колонку, чтобы не перебить музыку. Ответ на колонку, которая есть в `music.players`, идёт через `music_assistant.play_announcement`: музыка затихает и потом продолжается.
+
+```json
+"music": {"players": {"living": "media_player.living_room_left_2"}, "default": "living",
+          "aliases": {"гостин": "living", "living": "living", "woonkamer": "living"},
+          "volumeStep": 0.1, "announceVolume": null, "configEntryId": ""}
+```
+
+`players` — плееры Music Assistant (сущности HA интеграции MA, не сами Cast). В `homeAssistant.speakers` для объявлений поверх музыки ставят их же.
 
 ## Конфигурация хаба (`hub.json`, без секретов)
 
@@ -117,6 +135,7 @@ python voice.py whois phrase.wav
 
 ## История
 
+- 0.3.0 — 2026-11-14 — музыка: маршрут `music` (Music Assistant через HA: play_media/search по имени, источнику, типу, колонке; пауза, дальше, громкость, «что играет»), ответы на колонку MA через play_announcement; в `/turn` route `music`.
 - 0.2.0 — 2026-11-14 — узнавание голоса: `enroll` (верификатор слова-пробуждения на устройстве + отпечаток на хабе), `whois`, на хабе `people`/`speakerId`, `/v1/voice/enroll|forget|whois`, незнакомый голос получает только команды дома; `setup-point` ставит scikit-learn и scipy.
 - 0.1.1 — 2026-11-14 — по ревью: ключ проверяется до чтения тела, длина и число одновременных запросов ограничены; свой ключ у каждой точки (`points`: чей вопрос, чат, оболочка), ключ клиента агента не зовёт; голосовой режим CO Web (`route=client`) снова проходит через HA; JSON `speak: false`; язык без голоса не роняет синтез; точка без настроек ждёт, а не завершается; причины отказа агента озвучиваются.
 - 0.1.0 — 2026-11-14 — первая версия: hub (speaches STT/TTS, HA, агент через voice_ask, Cast), point (openWakeWord + VAD), say/ask/check, setup-point.

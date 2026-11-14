@@ -87,9 +87,9 @@
       }
       return coExt.upload('turn', rec.file, rec.filename, { lang: lang, route: 'client' }).then(function (r) {
         if (!r || r.error) throw new Error((r && r.error) || 'hub_failed');
-        if (r.route === 'home' || r.route === 'none') {
+        if (r.route === 'home' || r.route === 'music' || r.route === 'none') {
           note = (r.text ? r.text + ' → ' : '') + (r.reply || '');
-          return play(r.audio).then(function () { finishTurn(r.route === 'home'); });
+          return play(r.audio).then(function () { finishTurn(r.route === 'home' || r.route === 'music'); });
         }
         // a question for the agent of this chat
         note = r.text;

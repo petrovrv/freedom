@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.2.0",
- "created": "2026-11-14T11:23:25Z",
+ "version": "0.3.0",
+ "created": "2026-11-14T11:45:33Z",
  "files": [
   {
    "path": "context/voice.md",
@@ -11,12 +11,12 @@
   {
    "path": "module.json",
    "size": 2397,
-   "sha256": "4c4753c1fa5e1e2f3b909fbeb90637bf887a607a850a54cc88615275c4e0af4b"
+   "sha256": "c18bf9a78f78c87a96fc4f9daf08ab3281d47a8d7ddd010e35b8ae413d6fe664"
   },
   {
    "path": "README.md",
-   "size": 3387,
-   "sha256": "ba07bd58633264598273123a53b3867afe9e1bf63c8f8df279cd1b93ca2cc0e9"
+   "size": 3812,
+   "sha256": "3a766257cbdecb3cf9a6691ec3b4f801d0640d3ae82fecf215faded686cfdc0c"
   },
   {
    "path": "server/ops.php",
@@ -30,18 +30,18 @@
   },
   {
    "path": "tools/voice/SKILL.md",
-   "size": 14131,
-   "sha256": "719ba87f39f195d46d131d9ebcc8e346507102da1b67b76b4536fe07b1bb040a"
+   "size": 16901,
+   "sha256": "1e3447de8d938ab4b5e0e92ea62ec3e80c5511fdb630597575c732d96879e34b"
   },
   {
    "path": "tools/voice/test_voice.py",
-   "size": 16203,
-   "sha256": "c39b3a9fa31ef126d35034a64ab5b65966b607b63437447825e91f28084ccc78"
+   "size": 20623,
+   "sha256": "0c1ff2b6339045fde0703ad5e6bc9ef3a799f03a207c1c104e0bedd0a7509db5"
   },
   {
    "path": "tools/voice/voice.py",
-   "size": 66368,
-   "sha256": "06cfab23721432ac7618d9c5514d3d2372b36328964430f00cf71322092bd57e"
+   "size": 82755,
+   "sha256": "e3eab7165f9d3f58847d569e747365bb6531a26286eaa0a444269dd628b9e4ab"
   },
   {
    "path": "ui/composer.css",
@@ -55,15 +55,15 @@
   },
   {
    "path": "ui/composer.js",
-   "size": 8161,
-   "sha256": "323e2a06194779c2b13f2005ffc28e9c2af290a6e277af90908b7898c0facee2"
+   "size": 8207,
+   "sha256": "7f6d35d6302d4df76ae7007e9ed52a965629b23a686ad885f5ab10d91f1c533e"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "B18eMRaHmVKIeQXe8//XcgWNx3We39n4eADGr0oT1aEJvj5Eb+jJLABCOpEwblZtHigcLXSf+VJMOhaEC0VlBw=="
+   "sig": "1GnZZ4TVhmBa7hTravf8KZyL8hlAO/DQngwYst+J2vZ7sdgmo/mFJa9GRMZfGlejwgEmDqiy5TdXkxGT4uwRBg=="
   }
  ],
  "module": "voice"

@@ -5,6 +5,7 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- Bridge 1.20.0: a voice job (`request.voice`, module voice) starts Claude with `--strict-mcp-config` and an empty server list — no account connectors, plugin or settings MCP servers (33 on the owner's PC); device servers named on the command line stay. Measured start of `claude -p` with haiku: 13 s → 4 s. Other agents start as before. `net8/tests/json-golden.txt` regenerated (`JobRequest.voice`, `BridgeConfig.executor`).
 - Module voice 0.3.3 (server): spoken questions to claude run on a fast model — `haiku`, else `sonnet`, whichever the executor's catalog (owner.json) has; a question that starts with "сложный вопрос" (uk "складне питання", en "hard/complex question", nl "moeilijke vraag") gets the model of the chat's last typed turn, which voice turns no longer overwrite.
 
 ## 0.5.0 (2026-11-14)

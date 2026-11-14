@@ -128,6 +128,19 @@ namespace AiWorkbenchBridge.Tests
         // v1.18.0: own keyring per person - a household member's job gets role member and the refusing keyring backend
         static void TestJobRole()
         {
+            // v1.20.0: voice turns start without MCP servers; device servers named on the command line stay
+            {
+                string empty = Path.Combine(Path.GetTempPath(), "aiwb-lean-test.json");
+                AgentRuntime cl = AgentRuntime.Get("claude-stream-json");
+                string[] lean = cl.AddLeanArguments(new string[] { "-p", "--verbose", "-" }, empty);
+                Check("lean", "claude", "-p --verbose --strict-mcp-config --mcp-config " + empty + " -", String.Join(" ", lean));
+                Check("lean", "claude empty config", "{\"mcpServers\":{}}", File.ReadAllText(empty));
+                Check("lean", "claude with devices", "-p --mcp-config d.json --strict-mcp-config -",
+                    String.Join(" ", cl.AddLeanArguments(new string[] { "-p", "--mcp-config", "d.json", "-" }, empty)));
+                Check("lean", "claude twice", String.Join(" ", lean), String.Join(" ", cl.AddLeanArguments(lean, empty)));
+                Check("lean", "codex unchanged", "exec -", String.Join(" ", AgentRuntime.Get("codex-jsonl").AddLeanArguments(new string[] { "exec", "-" }, empty)));
+                File.Delete(empty);
+            }
             Check("job-role", "owner's env", "owner", JobRole.Of("anna", "anna"));
             Check("job-role", "member's env", "member", JobRole.Of("kid", "anna"));
             Check("job-role", "no env = owner's own job", "owner", JobRole.Of("", "anna"));

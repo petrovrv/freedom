@@ -159,6 +159,13 @@ namespace AiWorkbenchBridge
             return new List<string>();
         }
 
+        // v1.20.0: start without the user's MCP servers (account connectors, plugins, settings); only servers this
+        // command line names itself (devices) stay. Agents without such a switch start as usual.
+        public virtual string[] AddLeanArguments(string[] args, string emptyConfigPath)
+        {
+            return args;
+        }
+
         public virtual string[] AddDeviceArguments(string[] args, DeviceLaunch launch)
         {
             throw new InvalidOperationException("Agent protocol '" + Protocol + "' does not support device tools.");
@@ -315,6 +322,19 @@ namespace AiWorkbenchBridge
             args.Add("--resume");
             args.Add(sessionId);
             return args.ToArray();
+        }
+
+        public override string[] AddLeanArguments(string[] args, string emptyConfigPath)
+        {
+            if (Array.IndexOf(args, "--strict-mcp-config") >= 0) return args;
+            List<string> extra = new List<string> { "--strict-mcp-config" };
+            if (Array.IndexOf(args, "--mcp-config") < 0)
+            {
+                File.WriteAllText(emptyConfigPath, "{\"mcpServers\":{}}", new UTF8Encoding(false));
+                extra.Add("--mcp-config");
+                extra.Add(emptyConfigPath);
+            }
+            return InsertBeforeStdinMarker(args, extra);
         }
 
         public override string[] AddDeviceArguments(string[] args, DeviceLaunch launch)

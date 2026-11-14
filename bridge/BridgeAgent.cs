@@ -589,7 +589,7 @@ namespace AiWorkbenchBridge
 
     internal sealed partial class BridgeApplicationContext : ApplicationContext
     {
-        private const string BridgeVersion = "1.19.0";
+        private const string BridgeVersion = "1.20.0";
         private const int ProtocolMinor = 2;
 
         private static readonly string[] KnownModes = new string[] { "chat", "cowork" };
@@ -3121,8 +3121,11 @@ namespace AiWorkbenchBridge
                     followupSink = new FollowupSink(inspector, eventWriter);
                 }
                 request.browserSettings = ResolveBrowserSettings(request);
-                psi.Arguments = CommandLine.Build(
-                    AddDeviceArguments(runtime, request, localJobDir, agentArgs, psi));
+                agentArgs = AddDeviceArguments(runtime, request, localJobDir, agentArgs, psi);
+                // v1.20.0: a voice turn waits for the agent's start; 33 MCP servers (connectors, plugins) took ~9 s of it
+                if (request.voice != null)
+                    agentArgs = runtime.AddLeanArguments(agentArgs, McpConfigPath(request.jobId, localJobDir));
+                psi.Arguments = CommandLine.Build(agentArgs);
                 psi.WorkingDirectory = workspace;
                 psi.UseShellExecute = false;
                 psi.RedirectStandardOutput = true;
@@ -6825,6 +6828,15 @@ namespace AiWorkbenchBridge
         public bool? web { get; set; }
     }
 
+    // v1.20.0: request.voice of module voice (the chat row and the point); only its presence changes the launch
+    internal sealed class VoiceRequest
+    {
+        public string path { get; set; }
+        public string file { get; set; }
+        public string lang { get; set; }
+        public string point { get; set; }
+    }
+
     internal sealed class ContextFolderRequest
     {
         public string rootId { get; set; }
@@ -7033,6 +7045,8 @@ namespace AiWorkbenchBridge
         public List<string> deviceToolsDeny { get; set; }
         public bool tainted { get; set; }
         public JobTaskRequest task { get; set; }
+        // v1.20.0: a spoken question from a voice point (module voice); its agent starts without MCP servers
+        public VoiceRequest voice { get; set; }
 
         // Filled by Bridge after validation; never read from request.json.
         [ScriptIgnore]

@@ -36,7 +36,7 @@ import urllib.request
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.3.13"
+VERSION = "0.3.14"
 UA = f"freedom-voice/{VERSION}"
 LANGS = ("ru", "uk", "en", "nl", "fr", "de")
 WHISPER_NAMES = {"russian": "ru", "ukrainian": "uk", "english": "en", "dutch": "nl", "flemish": "nl", "french": "fr",
@@ -81,9 +81,16 @@ M_PROVIDER = [("spotify", re.compile(r"\s*\b(?:(?:из|с|со|в|на|from|on|i
               ("ytmusic", re.compile(r"\s*\b(?:(?:из|с|со|в|на|from|on|in|van|op|з|зі|у)\s+)?(?:youtube(?:\s+music)?|yt\s+music|"
                                      r"ю\s?туб\w*(?:\s+музык\w*)?|ютуб\w*(?:\s+музи?к\w*)?)\b", re.I)),
               ("internet_archive", re.compile(r"\s*\b(?:(?:из|с|со|в|на|from|on|in|van|op|з|зі|у)\s+)?(?:(?:the\s+)?(?:internet|web)\s*archive|"
-                                              r"archive\.org|(?:интернет|веб|інтернет)[- ]?архив\w*|(?:інтернет|веб)[- ]?архів\w*|"
+                                              r"archive\.org|(?:интернет|веб|інтернет)[- ]?арх\w*|"
                                               r"(?:internet|web)\s*archief)\b", re.I)),
               ("soundcloud", re.compile(r"\s*\b(?:(?:из|с|со|в|на|from|on|in|van|op|з|зі|у)\s+)?(?:sound\s?cloud|саунд\s?клауд\w*)\b", re.I))]
+M_POLITE = re.compile(r"[,\s]*\b(?:пожалуйста|please|будь ласка|alsjeblieft)\b[,\s]*", re.I)
+# "поищи запись в веб-архиве": after the source is cut out, what is left of the request is not part of the title
+M_SEEK = re.compile(r"[,\s]*\b(?:поищи|найди|ищи|пошукай|знайди|search(?: for)?|look(?: for)?|zoek)\b"
+                    r"(?:\s+(?:запись|записи|запис|это|его|её|ее|it|a recording|een opname))?[,\s]*$", re.I)
+# words between a preposition and a speaker name: "на колонке Bluetooth в моём кабинете"
+M_SPKWORDS = (r"(?:(?:колонк\w*|колонц\w*|speakers?|the|bluetooth|блютуз\w*|моем|моём|моей|моих|моему|нашем|нашей|"
+              r"мо[єї]й|мо[їє]му|my|our|mijn|onze|de)\s+|(?:на|в|во|у|on|in|op)\s+)*")
 M_ALL = re.compile(r"\s*\b(?:везде|по всему дому|во всём доме|во всем доме|everywhere|all speakers|всюди|по всьому будинку|overal)\b", re.I)
 M_TYPES = [("playlist", r"плейлист\w*|плейліст\w*|playlist|afspeellijst"), ("album", r"альбом\w*|album"),
            ("track", r"песн\w*|песенк\w*|пісн\w*|трек\w*|song|track|liedje|nummer"), ("radio", r"радио|радіо|radio")]
@@ -107,16 +114,16 @@ M_CONTROL = [
 M_SAY = {
     "ru": {"play": "Включаю {q}.", "resume": "Продолжаю.", "pause": "Пауза.", "next": "Следующий трек.", "previous": "Предыдущий трек.",
            "louder": "Громче.", "quieter": "Тише.", "what": "Играет {q}.", "nothing": "Сейчас ничего не играет.",
-           "notfound": "Не нашла {q}.", "what_to_play": "Что включить?", "off": "Музыка не настроена.", "fail": "Не получилось включить музыку."},
+           "notfound": "Не нашла {q}.", "elsewhere": "Там не нашла, включаю {q}.", "what_to_play": "Что включить?", "off": "Музыка не настроена.", "fail": "Не получилось включить музыку."},
     "uk": {"play": "Вмикаю {q}.", "resume": "Продовжую.", "pause": "Пауза.", "next": "Наступний трек.", "previous": "Попередній трек.",
            "louder": "Голосніше.", "quieter": "Тихіше.", "what": "Грає {q}.", "nothing": "Зараз нічого не грає.",
-           "notfound": "Не знайшла {q}.", "what_to_play": "Що увімкнути?", "off": "Музику не налаштовано.", "fail": "Не вийшло увімкнути музику."},
+           "notfound": "Не знайшла {q}.", "elsewhere": "Там не знайшла, вмикаю {q}.", "what_to_play": "Що увімкнути?", "off": "Музику не налаштовано.", "fail": "Не вийшло увімкнути музику."},
     "en": {"play": "Playing {q}.", "resume": "Resuming.", "pause": "Paused.", "next": "Next track.", "previous": "Previous track.",
            "louder": "Louder.", "quieter": "Quieter.", "what": "Now playing {q}.", "nothing": "Nothing is playing.",
-           "notfound": "I could not find {q}.", "what_to_play": "What should I play?", "off": "Music is not set up.", "fail": "Could not start the music."},
+           "notfound": "I could not find {q}.", "elsewhere": "Not found there, playing {q}.", "what_to_play": "What should I play?", "off": "Music is not set up.", "fail": "Could not start the music."},
     "nl": {"play": "Ik speel {q}.", "resume": "Ik ga verder.", "pause": "Gepauzeerd.", "next": "Volgend nummer.", "previous": "Vorig nummer.",
            "louder": "Luider.", "quieter": "Zachter.", "what": "Nu speelt {q}.", "nothing": "Er speelt niets.",
-           "notfound": "Ik vond {q} niet.", "what_to_play": "Wat zal ik spelen?", "off": "Muziek is niet ingesteld.", "fail": "De muziek starten lukte niet."},
+           "notfound": "Ik vond {q} niet.", "elsewhere": "Daar niet gevonden, ik speel {q}.", "what_to_play": "Wat zal ik spelen?", "off": "Muziek is niet ingesteld.", "fail": "De muziek starten lukte niet."},
 }
 
 
@@ -133,6 +140,8 @@ def music_parse(text, aliases=None):
     if not m:
         return None
     verb, rest = m.group(1).lower(), t[m.end():]
+    # spoken requests come in several sentences: "Сыграй на колонке в кабинете. Второй концерт. Поищи в архиве."
+    rest = re.sub(r"\s*[.!?…;]+\s*", ", ", M_POLITE.sub(" ", " " + rest + " ")).strip(" ,")
     strong = bool(re.fullmatch(M_STRONG, verb, re.I)) or bool(M_CUE.search(rest))
     provider = None
     for name, rx in M_PROVIDER:
@@ -140,19 +149,20 @@ def music_parse(text, aliases=None):
         if pm:
             provider, rest = name, (rest[:pm.start()] + rest[pm.end():]).strip()
             break
+    rest = M_SEEK.sub("", rest)
     players = []
     am = M_ALL.search(rest)
     if am:
         players, rest = ["*"], (rest[:am.start()] + rest[am.end():]).strip()
     for alias, player in sorted((aliases or {}).items(), key=lambda kv: -len(kv[0])):
-        sm = re.search(rf"\s*\b(?:на|в|во|у|on|in|op)\s+(?:колонк\w*\s+|колонц\w*\s+|speaker\s+|the\s+)?(?:в\s+|у\s+)?{re.escape(alias)}\w*\s*$",
-                       rest, re.I)
+        sm = re.search(rf"\s*\b(?:на|в|во|у|on|in|op)\s+{M_SPKWORDS}{re.escape(alias)}\w*(?=$|[\s,])", rest, re.I)
         if sm:
-            players, rest = [player], rest[:sm.start()].strip()
+            players, rest = [player], (rest[:sm.start()] + rest[sm.end():]).strip()
             break
     if not players:  # a speaker we do not know ("on my Bluetooth speaker") is not part of the title: the default one
-        rest = re.sub(r"\s*\b(?:на|в|у|on|in|op)\s+(?:\w+\s+){0,2}?(?:колонк\w*|колонц\w*|speakers?|luidspreker\w*)\s*$",
-                      "", rest, flags=re.I)
+        rest = re.sub(r"\s*\b(?:на|в|у|on|in|op)\s+(?:\w+\s+){0,2}?(?:колонк\w*|колонц\w*|speakers?|luidspreker\w*)"
+                      r"(?:\s+(?:bluetooth|блютуз\w*))?(?=$|[\s,])", "", rest, flags=re.I)
+    rest = re.sub(r"\s*,[\s,]*", ", ", rest).strip(" ,")
     rest = M_FILLER.sub("", rest).strip(" ,")
     typ = None
     for name, rx in M_TYPES:
@@ -190,6 +200,9 @@ class Music:
         self.entry = cfg.get("configEntryId") or ""
         self.volume_step = float(cfg.get("volumeStep") or 0.1)
         self.announce_volume = cfg.get("announceVolume")
+        # a title without a named source is looked up here first ("ytmusic"); excluded sources only when named
+        self.default_provider = cfg.get("defaultProvider") or ""
+        self.exclude = [x for x in (cfg.get("excludeProviders") or []) if x]
         self.ok = bool(self.players and ha_url and ha_token)
 
     def _h(self):
@@ -225,18 +238,19 @@ class Music:
             self.entry = next((e["entry_id"] for e in items if e.get("state") == "loaded"), "")
         return self.entry
 
-    def search(self, query, typ, provider):
-        # with a source named, a track first: archive-like sources answer a title with labels and uploaders as "artists"
+    def search(self, query, typ, provider, exclude=(), artist_first=False):
+        # a title: a track first (archive-like sources also answer with labels and uploaders as "artists");
+        # a short name ("Шостаковича") without a named source: the artist first
         types = [typ] if typ and typ != "radio" else \
-            (["track", "album", "playlist", "artist"] if provider else ["artist", "playlist", "track", "album"])
+            (["artist", "playlist", "track", "album"] if artist_first else ["track", "album", "playlist", "artist"])
         r = self.service("music_assistant", "search", {"config_entry_id": self._entry(), "name": query,
-                                                       "media_type": types, "limit": 25 if provider else 8}, response=True)
+                                                       "media_type": types, "limit": 25}, response=True)
         res = (r or {}).get("service_response") or {}
         for t in types:
             for it in res.get(t + "s") or []:
-                uri = it.get("uri") or ""
                 # an instance URI carries a suffix: spotify--W2wzeWB7://track/..., internet_archive://track/...
-                if not provider or uri.split(":", 1)[0].split("--", 1)[0] == provider:
+                prov = (it.get("uri") or "").split(":", 1)[0].split("--", 1)[0]
+                if (prov == provider) if provider else prov not in exclude:
                     return it
         return None
 
@@ -273,8 +287,18 @@ class Music:
                 return S["resume"]
             return S["what_to_play"]
         data = {"entity_id": ents, "enqueue": "replace"}
-        if p["provider"] or typ == "playlist":
+        it, said = None, "play"
+        if p["provider"]:
             it = self.search(q, typ, p["provider"])
+            if not it and self.default_provider and self.default_provider != p["provider"]:
+                # the named source has nothing (archives hardly know Russian titles): the default one, said aloud
+                it, said = self.search(q, typ, self.default_provider), "elsewhere"
+        elif self.default_provider or self.exclude or typ == "playlist":
+            short = len(q.split()) <= 2
+            if self.default_provider:
+                it = self.search(q, typ, self.default_provider, artist_first=short)
+            it = it or self.search(q, typ, "", self.exclude, artist_first=short)
+        if p["provider"] or typ == "playlist" or it:
             if not it:
                 return S["notfound"].format(q=q)
             data.update(media_id=it["uri"], media_type=it.get("media_type") or typ)
@@ -293,7 +317,7 @@ class Music:
         except RuntimeError as e:
             log("music", e)
             return S["notfound"].format(q=q) if "HTTP 400" in str(e) or "HTTP 500" in str(e) else S["fail"]
-        return S["play"].format(q=name)
+        return S[said].format(q=name)
 
     def announce(self, ent, url):
         """A reply on a Music Assistant player: the music ducks and resumes after it; False = not ours."""

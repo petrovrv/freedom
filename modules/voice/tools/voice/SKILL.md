@@ -1,7 +1,7 @@
 ---
 name: voice
 description: Voice pipeline of Freedom (module voice) — the hub on the family server (speech to text and text to speech through speaches/piper, short home commands to Home Assistant, the rest to the CO agent of a chosen chat, answer as audio, Cast speakers through HA; music by voice - Spotify/YouTube Music through Music Assistant on the speakers, replies duck the music) and the voice point on a device (wake word with openWakeWord + VAD, Windows/Linux, also headless; always-on listening only after the device owner turns it on); speaker recognition in two levels (wake-word verifier on the device, voiceprints on the hub that route a question to the recognised person's chat, strangers get home commands only); say/ask/check for tests. Use to run or check the voice assistant, speak a text on a home speaker, or set up a voice point.
-version: 0.3.13
+version: 0.3.14
 entry: voice.py
 requires: [python 3.10+, hub - standard library (speaker recognition - sherpa-onnx numpy and an ONNX speaker model), point - sounddevice openwakeword onnxruntime scikit-learn (own venv, setup-point)]
 platform: any
@@ -55,15 +55,18 @@ python voice.py check --config-hub /srv/voice/hub.json # на сервере
 
 - «поставь / сыграй / play / speel …», а также «включи …» со словом про музыку (песню, плейлист, альбом, радио, Spotify, YouTube) — сразу в музыку, без HA.
 - «включи Шостаковича» без такого слова сначала идёт в HA. Если HA ответил `no_intent_match` или `no_valid_targets` и во фразе нет слов про дом (свет, отопление, ворота…), это музыка.
-- Что разбирается: тип (`плейлист`, `альбом`, `песню`, `радио X` = radio mode), источник (`из спотифая`, `с ютуб музыки` — поиск только в нём), колонка (`на колонке в гостиной` — по `aliases`, `везде` — все плееры). «что-нибудь спокойное для работы» и «музыку для сна» — поиск плейлиста.
+- Что разбирается: тип (`плейлист`, `альбом`, `песню`, `радио X` = radio mode), источник (`из спотифая`, `с ютуб музыки`, `из интернет-архива`, `с саундклауда` — поиск только в нём; если там пусто, берётся `defaultProvider`, и это говорится вслух), колонка (`на колонке в гостиной` — по `aliases`, `везде` — все плееры). «что-нибудь спокойное для работы» и «музыку для сна» — поиск плейлиста.
 - Управление короткими фразами: пауза/стоп, продолжи, дальше/следующий, назад, громче/тише (шаг `volumeStep`), «что играет».
 - После «включи» хаб не говорит в ту же колонку, чтобы не перебить музыку. Ответ на колонку, которая есть в `music.players`, идёт через `music_assistant.play_announcement`: музыка затихает и потом продолжается.
 
 ```json
 "music": {"players": {"living": "media_player.living_room_left_2"}, "default": "living",
           "aliases": {"гостин": "living", "living": "living", "woonkamer": "living"},
-          "volumeStep": 0.1, "announceVolume": null, "configEntryId": ""}
+          "volumeStep": 0.1, "announceVolume": null, "configEntryId": "",
+          "defaultProvider": "ytmusic", "excludeProviders": ["spotify"]}
 ```
+
+`defaultProvider` — где искать название без источника (сначала трек; короткое имя в 1–2 слова — сначала исполнитель), потом во всех, кроме `excludeProviders`. Исключённый источник (например, чужой аккаунт Spotify) берётся, только если его назвали. Фраза из нескольких предложений («Сыграй на колонке в моём кабинете. Второй концерт Рахманинова. Поищи запись в веб-архиве.») разбирается целиком: вежливые слова и «поищи запись» в название не попадают, колонка может стоять в середине.
 
 `players` — плееры Music Assistant (сущности HA интеграции MA, не сами Cast). В `homeAssistant.speakers` для объявлений поверх музыки ставят их же.
 
@@ -144,6 +147,7 @@ python voice.py whois phrase.wav
 
 ## История
 
+- 0.3.14 — 2026-11-14 — музыка: `defaultProvider`/`excludeProviders`, запасной источник с объявлением, разбор фраз из нескольких предложений и колонки в середине фразы. 0.3.13: источники Internet Archive и SoundCloud, сравнение источника без суффикса экземпляра MA (`spotify--xxx://`).
 - 0.3.7 — 2026-11-14 — `outputKeepAlive` (Bluetooth-колонка не засыпает: сигналы и ответы без 5-секундной задержки), «Секунду.» через `fillerAfter` с ожидания хаба.
 - 0.3.6 — 2026-11-14 — сигналы длиннее и громче, с 0,5 с разгона для спящей Bluetooth-колонки.
 - 0.3.0 — 2026-11-14 — музыка: маршрут `music` (Music Assistant через HA: play_media/search по имени, источнику, типу, колонке; пауза, дальше, громкость, «что играет»), ответы на колонку MA через play_announcement; в `/turn` route `music`.

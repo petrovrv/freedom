@@ -236,6 +236,21 @@ class MusicTest(HubTest):
         self.assertEqual((p["query"], p["provider"]), ("Последняя поэма", "internet_archive"))
         self.assertEqual(voice.music_parse("play Bach from the web archive", al)["provider"], "internet_archive")
         self.assertEqual(voice.music_parse("поставь Баха с саундклауда", al)["provider"], "soundcloud")
+        p = voice.music_parse("Пожалуйста, сыграй, пожалуйста, на колонке Bluetooth в моем кабинете. Второй концерт "
+                              "Рахманинова. Поищи запись в веб-архаев.", {"кабинет": "office"})
+        self.assertEqual((p["query"], p["provider"], p["players"]), ("Второй концерт Рахманинова", "internet_archive", ["office"]))
+
+    def test_default_provider_first_excluded_never(self):
+        m = self.hub.music
+        m.default_provider, m.exclude = "ytmusic", ["spotify"]
+        try:
+            self.post("/v1/voice/turn", {"text": "поставь что-нибудь спокойное", "speak": "0"}, key="p1")
+            self.assertEqual(self.svc("music_assistant/play_media")[-1]["media_id"], "ytmusic://playlist/1")
+            m.default_provider, m.exclude = "soundcloud", ["spotify", "ytmusic"]  # nothing there: any not excluded
+            self.post("/v1/voice/turn", {"text": "поставь Waltz", "speak": "0"}, key="p1")
+            self.assertEqual(self.svc("music_assistant/play_media")[-1]["media_id"], "internet_archive://track/w2")
+        finally:
+            m.default_provider, m.exclude = "", []
 
     def test_strong_phrase_plays_without_ha(self):
         _, r = self.post("/v1/voice/turn", {"text": "поставь Шостаковича на кухне", "speak": "0"}, key="p1")

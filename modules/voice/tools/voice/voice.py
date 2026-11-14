@@ -19,7 +19,9 @@ Secrets never live in files of this tool: the hub reads them from environment va
 """
 import argparse
 import base64
+import glob
 import gzip
+import hashlib
 import hmac
 import io
 import json
@@ -36,7 +38,7 @@ import urllib.request
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.3.15"
+VERSION = "0.3.16"
 UA = f"freedom-voice/{VERSION}"
 LANGS = ("ru", "uk", "en", "nl", "fr", "de")
 WHISPER_NAMES = {"russian": "ru", "ukrainian": "uk", "english": "en", "dutch": "nl", "flemish": "nl", "french": "fr",
@@ -609,6 +611,9 @@ class Hub:
                                      # commands only (default once people are set), "point" = as the point's env
                                      "people": [p for p in (pc.get("people") or []) if p in self.people],
                                      "unknown": pc.get("unknown") if pc.get("unknown") in ("home", "point") else "home"}
+        # one-time pairing codes of points (voice.py hub-pair): sha256(code).json {point, exp}, one use
+        sid = (cfg.get("speakerId") or {}).get("dir") or ""
+        self.pair_dir = cfg.get("pairDir") or (os.path.join(os.path.dirname(sid.rstrip("/")), "pair") if sid else "")
         self.slots = threading.BoundedSemaphore(int(cfg.get("maxConcurrent") or 6))
         self.langs = tuple(cfg.get("languages") or ("ru", "uk", "en", "nl"))
         self.default_lang = cfg.get("defaultLanguage") or self.langs[0]
@@ -902,6 +907,20 @@ def make_handler(hub):
                 found = ("client", None)
             return found
 
+        def _pair(self):
+            self.close_connection = True
+            try:
+                n = int(self.headers.get("Content-Length") or "0")
+                code = str(json.loads(self.rfile.read(n) if 0 < n < 4096 else b"{}").get("code") or "")
+            except (ValueError, AttributeError):
+                code = ""
+            r = pair_take(hub, code)
+            if not r:
+                time.sleep(1.0)  # guessing a 16-letter code is hopeless anyway; keep it slow
+                return self._send(403, {"error": "bad_or_used_code"})
+            log("pair", r["point"])
+            return self._send(200, r)
+
         def _path(self):
             # behind Tailscale Funnel the hub may sit under a path (/voice); the API keeps its own names
             p = urllib.parse.urlsplit(self.path).path
@@ -911,6 +930,11 @@ def make_handler(hub):
             p = self._path()
             if p == "/v1/voice/health":
                 return self._send(200, {"ok": True, "version": VERSION})
+            if p == "/setup/mac.sh":  # public code, no secrets: the installer of a voice point on a Mac
+                return self._send(200, MAC_SETUP.encode(), "text/x-shellscript; charset=utf-8")
+            if p == "/setup/voice.py":
+                with open(os.path.abspath(__file__), "rb") as f:
+                    return self._send(200, f.read(), "text/x-python; charset=utf-8")
             m = re.fullmatch(r"/a/([A-Za-z0-9_-]{20,})\.(mp3|wav)", p)
             if m:  # a reply clip for a Cast speaker (unguessable id, 10 min)
                 c = hub.clips.get(m.group(1))
@@ -920,6 +944,8 @@ def make_handler(hub):
 
         def do_POST(self):
             p = self._path()
+            if p == "/v1/voice/pair":  # a one-time code (made by the hub owner) -> this point's key
+                return self._pair()
             role, point = self._caller()
             if role is None:  # before reading anything of the body
                 self.close_connection = True
@@ -1012,6 +1038,58 @@ def make_handler(hub):
     return H
 
 
+PAIR_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def pair_code_file(hub, code):
+    code = re.sub(r"[^A-Z0-9]", "", (code or "").upper())
+    if len(code) < 12 or not hub.pair_dir:
+        return None
+    return os.path.join(hub.pair_dir, hashlib.sha256(code.encode()).hexdigest() + ".json")
+
+
+def pair_take(hub, code):
+    """One use: the code file is removed before the key is returned; an expired code is refused."""
+    f = pair_code_file(hub, code)
+    if not f:
+        return None
+    with hub.lock:
+        try:
+            d = load_json(f)
+            os.remove(f)
+        except (OSError, ValueError):
+            return None
+    pc = hub.points.get(d.get("point") or "")
+    if not pc or float(d.get("exp") or 0) < time.time():
+        return None
+    return {"point": d["point"], "key": pc["key"], "people": pc["people"], "lang": d.get("lang") or "",
+            "wakeWord": d.get("wakeWord") or "hey_jarvis"}
+
+
+def cmd_hub_pair(a):
+    """On the family server (inside the hub container): a one-time code that gives a new device this point's key."""
+    hub = Hub(load_json(a.config))
+    if a.point not in hub.points:
+        sys.exit(f"hub-pair: no point {a.point!r} with a key in the config")
+    if not hub.pair_dir:
+        sys.exit("hub-pair: pairDir (or speakerId.dir) is not set")
+    os.makedirs(hub.pair_dir, exist_ok=True)
+    for old in glob.glob(os.path.join(hub.pair_dir, "*.json")):  # drop expired codes
+        try:
+            if float(load_json(old).get("exp") or 0) < time.time():
+                os.remove(old)
+        except (OSError, ValueError):
+            pass
+    import secrets as _s
+    code = "".join(_s.choice(PAIR_ALPHABET) for _ in range(16))
+    with open(pair_code_file(hub, code), "w", encoding="utf-8") as f:
+        json.dump({"point": a.point, "exp": time.time() + a.hours * 3600, "lang": a.lang or "",
+                   "wakeWord": a.wake_word or ""}, f)
+    print(json.dumps({"point": a.point, "code": "-".join(code[i:i + 4] for i in range(0, 16, 4)),
+                      "expiresHours": a.hours}))
+    return 0
+
+
 def hub_status(hub):
     st = {"version": VERSION, "languages": list(hub.langs), "voices": {k: v for k, v in hub.voices.items() if k in hub.langs}}
     code, _, data = http("GET", hub.sp_url + "/v1/models", headers=hub._sp_headers(), timeout=5)
@@ -1038,6 +1116,44 @@ def cmd_hub(a):
     log(f"voice hub {VERSION} on {host}:{port}; speaches {hub.sp_url}; HA {'on' if hub.ha_token else 'off'}; "
         f"agent {'on' if hub.co_key and hub.co_chat else 'off'}")
     srv.serve_forever()
+
+
+# The installer of a voice point on a Mac (Apple Silicon or Intel, macOS 13+), served by the hub at /setup/mac.sh:
+#   curl -fsSL https://<hub>/voice/setup/mac.sh | bash -s -- https://<hub>/voice <CODE> [person]
+# No admin password: Python 3.12 through uv in the user's home, the point in its own venv, the key in the login keychain.
+# Always-on listening is asked of the person at the Mac (the device's owner), never switched on by the script.
+MAC_SETUP = r"""#!/bin/bash
+set -euo pipefail
+HUB="${1:?hub URL}"; CODE="${2:?one-time code}"; PERSON="${3:-}"
+HUB="${HUB%/}"
+BASE="$HOME/.local/share/AIWorkbench"; VENV="$BASE/venvs/voice"; APP="$BASE/voice"
+TTY=/dev/tty
+say_step() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
+[ "$(uname -s)" = Darwin ] || { echo "This installer is for macOS."; exit 1; }
+mkdir -p "$APP"
+say_step "1/6 Python (uv, no admin password)"
+export PATH="$HOME/.local/bin:$PATH"
+command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | env UV_NO_MODIFY_PATH=1 sh
+[ -x "$VENV/bin/python" ] || uv venv --seed --python 3.12 "$VENV"
+say_step "2/6 Voice point program"
+curl -fsSL "$HUB/setup/voice.py" -o "$APP/voice.py.new" && mv "$APP/voice.py.new" "$APP/voice.py"
+PY="$VENV/bin/python"
+"$PY" "$APP/voice.py" setup-point
+say_step "3/6 Pairing with the family voice hub"
+"$PY" "$APP/voice.py" pair --hub "$HUB" --code "$CODE" | tee "$APP/pair.json"
+[ -n "$PERSON" ] || PERSON="$("$PY" -c 'import json,sys; p=json.load(open(sys.argv[1])).get("people") or [""]; print(p[0])' "$APP/pair.json")"
+say_step "4/6 Your voice (macOS asks Terminal for the microphone: allow it)"
+if [ -n "$PERSON" ]; then
+  "$PY" "$APP/voice.py" enroll --person "$PERSON" < "$TTY" || echo "Voice recording failed - repeat later: $PY $APP/voice.py enroll --person $PERSON"
+fi
+say_step "5/6 Always-on listening"
+"$PY" "$APP/voice.py" point-config --always-listen on < "$TTY" || echo "Left off. Turn on later: $PY $APP/voice.py point-config --always-listen on"
+say_step "6/6 Start at login"
+"$PY" "$APP/voice.py" service install
+echo
+echo "Done. Say 'hey Jarvis' and wait for the beep. Log: ~/.config/AIWorkbench/voice-point.log"
+echo "Stop listening: $PY $APP/voice.py point-config --always-listen off   Remove: $PY $APP/voice.py service uninstall"
+"""
 
 
 # ------------------------------------------------------------------ client side (point, say, ask)
@@ -1320,7 +1436,9 @@ def cmd_point(a):
                         t_beat, peak, best = now, 0, 0.0
                     if (zero_s and zeros * 0.08 >= zero_s) or (reopen_s and now - t_open >= reopen_s):
                         if zeros * 0.08 >= zero_s:
-                            log(f"input gave only zeros for {zeros * 0.08:.0f} s: reopening it")
+                            log(f"input gave only zeros for {zeros * 0.08:.0f} s: reopening it" +
+                                (" (macOS: allow this Python in System Settings > Privacy & Security > Microphone)"
+                                 if sys.platform == "darwin" else ""))
                         try:
                             stream.close()
                         except Exception:  # noqa: BLE001
@@ -1916,6 +2034,84 @@ def cmd_point_config(a):
     return 0
 
 
+def cmd_pair(a):
+    """This device becomes a point of the hub: a one-time code from the hub owner -> the point's key into keyring."""
+    c = client_cfg(a.config)
+    hub = (a.hub or c["hub"] or "").rstrip("/")
+    if not hub:
+        sys.exit("pair: --hub URL")
+    code, _, data = http("POST", hub + "/v1/voice/pair", json.dumps({"code": a.code}).encode(),
+                         {"Content-Type": "application/json"}, timeout=30)
+    if code != 200:
+        sys.exit(f"pair: the hub refused the code (HTTP {code}) - ask for a new one")
+    r = json.loads(data)
+    import keyring
+    keyring.set_password("aiwb/voice-hub", "default", r["key"])
+    c.update(hub=hub, point=r["point"])
+    if r.get("lang"):
+        c["lang"] = r["lang"]
+    if r.get("wakeWord"):
+        c["wakeWord"] = r["wakeWord"]
+    save_client_cfg(c, a.config)
+    print(json.dumps({"point": r["point"], "people": r.get("people") or [], "hub": hub, "lang": c.get("lang")}))
+    return 0
+
+
+LAUNCH_LABEL = "org.freedom.voice.point"
+
+
+def cmd_service(a):
+    """Run the point at login: a LaunchAgent on macOS, a systemd user unit on Linux (on Windows Bridge runs it)."""
+    import subprocess
+    py = venv_python() or sys.executable
+    me = os.path.abspath(__file__)
+    logd = os.path.dirname(client_cfg_path())
+    if sys.platform == "darwin":
+        plist = os.path.expanduser(f"~/Library/LaunchAgents/{LAUNCH_LABEL}.plist")
+        tgt = f"gui/{os.getuid()}"
+        if a.action in ("uninstall", "install"):
+            subprocess.call(["launchctl", "bootout", f"{tgt}/{LAUNCH_LABEL}"], stderr=subprocess.DEVNULL)
+            if a.action == "uninstall":
+                if os.path.exists(plist):
+                    os.remove(plist)
+                print(json.dumps({"service": "removed"}))
+                return 0
+            import plistlib
+            os.makedirs(os.path.dirname(plist), exist_ok=True)
+            os.makedirs(logd, exist_ok=True)
+            with open(plist, "wb") as f:
+                plistlib.dump({"Label": LAUNCH_LABEL, "ProgramArguments": [py, "-u", me, "point"],
+                               "RunAtLoad": True, "KeepAlive": True, "ThrottleInterval": 30,
+                               "ProcessType": "Interactive",
+                               "StandardOutPath": os.path.join(logd, "voice-point.out"),
+                               "StandardErrorPath": os.path.join(logd, "voice-point.out")}, f)
+            subprocess.check_call(["launchctl", "bootstrap", tgt, plist])
+            print(json.dumps({"service": "installed", "plist": plist}))
+            return 0
+        r = subprocess.run(["launchctl", "print", f"{tgt}/{LAUNCH_LABEL}"], capture_output=True, text=True)
+        st = re.search(r"state = (\w+)", r.stdout)
+        print(json.dumps({"service": st.group(1) if st else "not installed"}))
+        return 0
+    if sys.platform.startswith("linux"):
+        unit = os.path.expanduser("~/.config/systemd/user/aiwb-voice-point.service")
+        if a.action == "install":
+            os.makedirs(os.path.dirname(unit), exist_ok=True)
+            with open(unit, "w", encoding="utf-8") as f:
+                f.write(f"[Unit]\nDescription=Freedom voice point\n\n[Service]\nExecStart={py} -u {me} point\n"
+                        "Restart=always\nRestartSec=30\n\n[Install]\nWantedBy=default.target\n")
+            subprocess.check_call(["systemctl", "--user", "daemon-reload"])
+            subprocess.check_call(["systemctl", "--user", "enable", "--now", "aiwb-voice-point.service"])
+        elif a.action == "uninstall":
+            subprocess.call(["systemctl", "--user", "disable", "--now", "aiwb-voice-point.service"])
+            if os.path.exists(unit):
+                os.remove(unit)
+        r = subprocess.run(["systemctl", "--user", "is-active", "aiwb-voice-point.service"],
+                           capture_output=True, text=True)
+        print(json.dumps({"service": r.stdout.strip() or "not installed"}))
+        return 0
+    sys.exit("service: on Windows the point runs as a service of the voice module under Bridge")
+
+
 def cmd_say(a):
     c = client_cfg(a.config)
     if a.hub:
@@ -1982,6 +2178,21 @@ def main(argv=None):
     s.add_argument("--wake", help="openWakeWord model (hey_jarvis, alexa, hey_mycroft, or a path to .onnx)")
     s.add_argument("--once", action="store_true", help="record one phrase now, no wake word")
     s.set_defaults(fn=cmd_point)
+    s = sub.add_parser("hub-pair", help="on the family server: a one-time code that pairs a new device as a point")
+    s.add_argument("--config", required=True)
+    s.add_argument("--point", required=True)
+    s.add_argument("--hours", type=float, default=72)
+    s.add_argument("--lang", help="language of that point (ru, en, nl, uk); '' = detect")
+    s.add_argument("--wake-word")
+    s.set_defaults(fn=cmd_hub_pair)
+    s = sub.add_parser("pair", help="this device becomes a point: the one-time code -> the point key in keyring")
+    s.add_argument("--code", required=True)
+    s.add_argument("--hub")
+    s.add_argument("--config")
+    s.set_defaults(fn=cmd_pair)
+    s = sub.add_parser("service", help="run the point at login (macOS LaunchAgent, Linux systemd user unit)")
+    s.add_argument("action", choices=["install", "uninstall", "status"])
+    s.set_defaults(fn=cmd_service)
     s = sub.add_parser("setup-point", help="create the venv of the voice point (sounddevice, openWakeWord)")
     s.add_argument("--latest", action="store_true", help="newest onnxruntime also on Windows")
     s.set_defaults(fn=cmd_setup_point)

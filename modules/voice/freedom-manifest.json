@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.3.9",
- "created": "2026-11-14T18:44:21Z",
+ "version": "0.3.10",
+ "created": "2026-11-14T19:10:22Z",
  "files": [
   {
    "path": "context/voice.md",
@@ -10,8 +10,8 @@
   },
   {
    "path": "module.json",
-   "size": 2397,
-   "sha256": "bfa187eb7dfcac55b34ff80cd1ade6cb7e213716e32d59c2b89f729642c7fafb"
+   "size": 2398,
+   "sha256": "b148d13f459a3b5ee04d49cd4b076ff7eecc31c937f0dd967cf7485b4a6d7a59"
   },
   {
    "path": "README.md",
@@ -30,18 +30,18 @@
   },
   {
    "path": "tools/voice/SKILL.md",
-   "size": 23926,
-   "sha256": "660983011b76bb80556d37246226438dbb881fb5cf46deb70676e31ebef18270"
+   "size": 26322,
+   "sha256": "08417e6e323f59eab8c0944d173b703e73654ca807f7b1a4631517cc28a70f27"
   },
   {
    "path": "tools/voice/test_voice.py",
-   "size": 24537,
-   "sha256": "d14621fe62d9fc889136e343fceb58f915ca4fa1890b5be869b2dc1a9c78daf7"
+   "size": 26041,
+   "sha256": "4847175ffd1a6a2f4ec74756b46d096c61dda61b13232dac98c3fd64dda515d6"
   },
   {
    "path": "tools/voice/voice.py",
-   "size": 106596,
-   "sha256": "6687d08ca749c232c73f65c7054c55c9438863f0caf0bf67d2bf243603d15908"
+   "size": 117527,
+   "sha256": "d4f9cdb90d9ef8ffed3ca1ae70ec50b3cc89f80f9585bae64f4691b722c17ab1"
   },
   {
    "path": "ui/composer.css",
@@ -63,7 +63,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "6WRa/LLjmvBpVPC6Q0BT0G2FmtuWOB+BG8p6qL/18/4WHr5AtUsQ4vm5gc2cViwIIoEasMEqPtSOPpMuij9jCQ=="
+   "sig": "LyijZrROwfkTtPxV9FofkC81Utoheb0/BZL+ObJrCPt5DOuH8l0jnZVnQfNmmTrMBxCo383hS5nmPRtymHzxBw=="
   }
  ],
  "module": "voice"

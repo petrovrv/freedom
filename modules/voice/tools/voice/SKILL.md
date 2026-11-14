@@ -1,7 +1,7 @@
 ---
 name: voice
 description: Voice pipeline of Freedom (module voice) — the hub on the family server (speech to text and text to speech through speaches/piper, short home commands to Home Assistant, the rest to the CO agent of a chosen chat, answer as audio, Cast speakers through HA; music by voice - Spotify/YouTube Music through Music Assistant on the speakers, replies duck the music) and the voice point on a device (wake word with openWakeWord + VAD, Windows/Linux, also headless; always-on listening only after the device owner turns it on); speaker recognition in two levels (wake-word verifier on the device, voiceprints on the hub that route a question to the recognised person's chat, strangers get home commands only); say/ask/check for tests. Use to run or check the voice assistant, speak a text on a home speaker, or set up a voice point.
-version: 0.3.15
+version: 0.3.16
 entry: voice.py
 requires: [python 3.10+, hub - standard library (speaker recognition - sherpa-onnx numpy and an ONNX speaker model), point - sounddevice openwakeword onnxruntime scikit-learn (own venv, setup-point)]
 platform: any
@@ -22,6 +22,7 @@ secrets: [aiwb/voice-hub default (point, say, ask, check - the hub key), hub - f
 | `setup-point` | устройство | venv точки `%LOCALAPPDATA%\AIWorkbench\venvs\voice` (Linux `~/.local/share/AIWorkbench/venvs/voice`) |
 | `enroll` | устройство | образцы голоса человека: верификатор слова-пробуждения на устройстве (уровень 1) + отпечаток голоса на хабе (уровень 2); `--forget` удаляет |
 | `whois` | где угодно | чей голос в WAV (по ключу точки) |
+| `hub-pair`, `pair`, `service` | сервер / устройство | одноразовый код сопряжения точки, служба точки на Маке и Linux |
 | `say`, `ask`, `check` | где угодно | проверка: сказать текст, один ход из WAV или текста, состояние хаба |
 
 ## Вызов
@@ -120,6 +121,21 @@ services:
 - Модель агента выбирает сервер (модуль voice): голосовые вопросы к claude идут на быструю модель (`haiku`), а вопрос, начинающийся словами «сложный вопрос» (uk «складне питання», en «hard/complex question», nl «moeilijke vraag»), — на модель последнего набранного хода чата.
 - Windows: onnxruntime 1.20.1 (новее требует VC++ runtime 14.40+, иначе «DLL initialization routine failed»).
 
+## Точка на Маке или Linux по одноразовому коду (0.3.16)
+
+Ключ точки не передаётся через чат: хозяин хаба делает одноразовый код, устройство меняет его на ключ и кладёт в свою связку ключей (Keychain на Маке).
+
+```
+# на сервере семьи (точка уже есть в hub.json points с ключом-файлом):
+docker exec voice-hub python /app/voice.py hub-pair --config /app/hub.json --point mac-anna [--hours 72] [--lang ru]
+# на Маке, в Терминале, человек сам (без пароля администратора):
+curl -fsSL https://<hub>/voice/setup/mac.sh | bash -s -- https://<hub>/voice ABCD-EFGH-JKLM-NPQR
+```
+
+Установщик (`/setup/mac.sh`, открытый код без секретов, хаб отдаёт его и `voice.py` без ключа): Python 3.12 через uv в домашней папке, venv точки, `pair` (код → ключ в Keychain, имя точки, язык), `enroll` первого человека точки (Терминал спросит доступ к микрофону), вопрос о постоянном прослушивании — включает только сам человек, служба `service install` (LaunchAgent `org.freedom.voice.point`; на Linux — systemd user unit). Код одноразовый: файл `sha256(код).json` в `pairDir` (по умолчанию `state/pair` рядом с `speakerId.dir`) удаляется до выдачи ключа, просроченный не принимается.
+
+Если в журнале точки «input gave only zeros» — macOS не дал микрофон процессу службы: Системные настройки → Конфиденциальность → Микрофон, разрешить Python.
+
 ## Узнавание голоса (0.2.0)
 
 Два уровня, оба выключены, пока никто не записал образцы:
@@ -149,6 +165,7 @@ python voice.py whois phrase.wav
 
 ## История
 
+- 0.3.16 — 2026-11-14 — точка на Маке: `hub-pair` / `/v1/voice/pair` (одноразовый код → ключ точки), `pair`, `service install|uninstall|status` (LaunchAgent / systemd user), установщик `/setup/mac.sh`.
 - 0.3.15 — 2026-11-14 — музыка: `music.byEnv` — источник по умолчанию, исключённые источники и колонка на человека (у одного YouTube Music, у другого свой Spotify).
 - 0.3.14 — 2026-11-14 — музыка: `defaultProvider`/`excludeProviders`, запасной источник с объявлением, разбор фраз из нескольких предложений и колонки в середине фразы. 0.3.13: источники Internet Archive и SoundCloud, сравнение источника без суффикса экземпляра MA (`spotify--xxx://`).
 - 0.3.7 — 2026-11-14 — `outputKeepAlive` (Bluetooth-колонка не засыпает: сигналы и ответы без 5-секундной задержки), «Секунду.» через `fillerAfter` с ожидания хаба.

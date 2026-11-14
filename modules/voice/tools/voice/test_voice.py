@@ -3,11 +3,13 @@
 import base64
 import gzip
 import importlib.util
+import io
 import json
 import os
 import sys
 import threading
 import unittest
+from unittest import mock
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -115,6 +117,32 @@ class HubTest(unittest.TestCase):
                 return r.status, json.loads(r.read())
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read())
+
+    def test_pair_one_time_code(self):
+        import tempfile
+        d = tempfile.mkdtemp()
+        self.hub.pair_dir = d
+        try:
+            out = io.StringIO()
+            with mock.patch("sys.stdout", out), mock.patch.object(voice, "load_json", lambda p: {}), \
+                    mock.patch.object(voice, "Hub", lambda cfg: self.hub):
+                voice.main(["hub-pair", "--config", "x", "--point", "kitchen", "--lang", "nl"])
+            code = json.loads(out.getvalue())["code"]
+            self.assertRegex(code, r"^[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$")
+            st, r = self.post("/v1/voice/pair", {"code": code.lower()}, key="")
+            self.assertEqual((st, r["point"], r["key"], r["lang"]), (200, "kitchen", "p1", "nl"))
+            self.assertEqual(self.post("/v1/voice/pair", {"code": code}, key="")[0], 403)  # one use
+            self.assertEqual(self.post("/v1/voice/pair", {"code": "AAAA-BBBB-CCCC-DDDD"}, key="")[0], 403)
+            self.assertEqual(os.listdir(d), [])
+        finally:
+            self.hub.pair_dir = ""
+
+    def test_setup_files_public(self):
+        with urllib.request.urlopen(self.url + "/voice/setup/mac.sh", timeout=10) as r:
+            body = r.read().decode()
+        self.assertTrue(body.startswith("#!/bin/bash") and "always-listen on" in body and "pair --hub" in body)
+        with urllib.request.urlopen(self.url + "/setup/voice.py", timeout=10) as r:
+            self.assertIn(b"def cmd_pair", r.read())
 
     def test_auth(self):
         try:

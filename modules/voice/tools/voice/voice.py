@@ -36,7 +36,7 @@ import urllib.request
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.3.0"
+VERSION = "0.3.9"
 UA = f"freedom-voice/{VERSION}"
 LANGS = ("ru", "uk", "en", "nl", "fr", "de")
 WHISPER_NAMES = {"russian": "ru", "ukrainian": "uk", "english": "en", "dutch": "nl", "flemish": "nl", "french": "fr",
@@ -322,8 +322,20 @@ def secret(spec, env_name=None):
     return ""
 
 
+LOG_FILE = None  # set by the point: its stderr is not kept by the service host, so it also writes a small file
+
+
 def log(*a):
-    print(time.strftime("%H:%M:%S"), *a, file=sys.stderr, flush=True)
+    line = " ".join([time.strftime("%H:%M:%S")] + [str(x) for x in a])
+    print(line, file=sys.stderr, flush=True)
+    if LOG_FILE:
+        try:
+            if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > 1_000_000:
+                os.replace(LOG_FILE, LOG_FILE + ".1")
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(time.strftime("%Y-%m-%d ") + line + "\n")
+        except OSError:
+            pass
 
 
 # ------------------------------------------------------------------ HTTP helpers
@@ -1042,18 +1054,76 @@ def play_wav(data):
     a = np.frombuffer(frames, dtype=np.int16)
     if ch > 1:
         a = a.reshape(-1, ch)
-    sd.play(a, rate)
-    sd.wait()
+    play_blocking(sd, a, rate)
+
+
+def play_blocking(sd, a, rate):
+    """Play without sd.play: its callback thread outlives the call and crashed PortAudio (access violation) when the
+    microphone stream opened right after it or the process ended, so a blocking stream is opened and closed here."""
+    ch = 1 if a.ndim == 1 else a.shape[1]
+    with sd.OutputStream(samplerate=rate, channels=ch, dtype=a.dtype) as o:
+        o.write(a.reshape(-1, ch))
+
+
+def apply_output(c):
+    """outputDevice of the point config (index or part of the name) for beeps and replies; else the system default."""
+    out = c.get("outputDevice")
+    if out in (None, ""):
+        return
+    try:
+        import sounddevice as sd
+        sd.default.device = (sd.default.device[0], int(out) if str(out).isdigit() else out)
+    except Exception as e:  # noqa: BLE001
+        log("outputDevice:", str(e)[:120])
+
+
+class OutputKeepAlive:
+    """Silence written to the output device all the time the point runs: a Bluetooth speaker drops its link after a
+    few seconds of quiet and the next sound waited ~5 s for it (every beep and reply); with the stream open it plays in
+    ~0.3 s and the speaker does not fall asleep. On by default when outputDevice is set (outputKeepAlive true/false)."""
+    active = False
+
+    def __init__(self, c):
+        self.stop_ev = threading.Event()
+        self.thread = None
+        on = c.get("outputKeepAlive")
+        if on is None:
+            on = c.get("outputDevice") not in (None, "")
+        if on:
+            self.thread = threading.Thread(target=self._run, daemon=True)
+            self.thread.start()
+
+    def _run(self):
+        try:
+            import numpy as np
+            import sounddevice as sd
+            z = np.zeros((1600, 1), np.float32)
+            with sd.OutputStream(samplerate=16000, channels=1, dtype="float32") as o:
+                OutputKeepAlive.active = True
+                while not self.stop_ev.is_set():
+                    o.write(z)
+        except Exception as e:  # noqa: BLE001
+            log("output keep-alive:", str(e)[:120])
+        finally:
+            OutputKeepAlive.active = False
+
+    def stop(self):
+        self.stop_ev.set()
+        if self.thread:
+            self.thread.join(2)
 
 
 def beep(kind="start"):
     try:
         import numpy as np
         import sounddevice as sd
-        f, d = (880, 0.12) if kind == "start" else (520, 0.10)
+        f, d = (880, 0.3) if kind == "start" else (520, 0.25)
         t = np.linspace(0, d, int(16000 * d), False)
-        sd.play((0.25 * np.sin(2 * np.pi * f * t) * np.hanning(t.size)).astype(np.float32), 16000)
-        sd.wait()
+        tone = (0.6 * np.sin(2 * np.pi * f * t) * np.hanning(t.size)).astype(np.float32)
+        # 0.5 s of near-silent noise first: a sleeping Bluetooth speaker wakes on it and swallowed the bare 0.12 s beep
+        # (not needed while OutputKeepAlive holds the speaker awake)
+        lead = (np.random.randn(0 if OutputKeepAlive.active else 8000) * 1e-4).astype(np.float32)
+        play_blocking(sd, np.concatenate([lead, tone, np.zeros(1600, np.float32)]), 16000)
     except Exception:
         pass
 
@@ -1139,13 +1209,35 @@ def cmd_point(a):
     vad = VAD()
     model = None if a.once else wake_model(Model, wake, c)
     blk = 1280  # 80 ms at 16 kHz, what openWakeWord expects
-    stream = sd.InputStream(samplerate=16000, channels=1, dtype="int16", blocksize=blk, device=c.get("inputDevice"))
-    stream.start()
+    apply_output(c)
+    keep = OutputKeepAlive(c)
+    global LOG_FILE
+    LOG_FILE = os.path.join(os.path.dirname(Indicator().path), "voice-point.log")
+    log(f"point {VERSION} start: input {c.get('inputDevice')!r}, output {c.get('outputDevice')!r}, wake {wake}")
+
+    def open_input():
+        st = sd.InputStream(samplerate=16000, channels=1, dtype="int16", blocksize=blk, device=c.get("inputDevice"))
+        st.start()
+        return st
+
+    stream = open_input()
 
     def read():
         data, _ = stream.read(blk)
         return data[:, 0].copy()
 
+    # Precaution: a Windows input stream can go dead while it keeps delivering blocks in real time. The point reopens it
+    # after zeroOnlySeconds of all-zero blocks and every reopenMinutes while it waits for the wake word; once in
+    # heartbeatMinutes it logs the level and the best score, and a score of nearMiss..threshold is logged too (once a
+    # second at most) - to tell "the word was not heard" from "heard, but the verifier or the threshold refused it".
+    reopen_s = float(c.get("reopenMinutes", 10) or 0) * 60
+    zero_s = float(c.get("zeroOnlySeconds", 15) or 0)
+    beat_s = float(c.get("heartbeatMinutes", 10) or 0) * 60
+    near = float(c.get("nearMiss", 0.1) or 0)
+    t_near = 0.0
+
+    import collections
+    ring = collections.deque(maxlen=30)  # the last 2.4 s: the wake word for wakeCheck
     stop_file = os.path.join(os.path.dirname(Indicator().path), "voice-point.stop")
     try:
         while True:
@@ -1153,8 +1245,24 @@ def cmd_point(a):
                 ind.set("listening", wake=wake)
                 model.reset()
                 n = 0
+                t_open = t_beat = time.time()
+                zeros, peak, best = 0, 0, 0.0
                 while True:
                     n += 1
+                    now = time.time()
+                    if beat_s and now - t_beat >= beat_s:
+                        log(f"heartbeat: peak {peak / 32768:.4f}, best wake score {best:.3f}")
+                        t_beat, peak, best = now, 0, 0.0
+                    if (zero_s and zeros * 0.08 >= zero_s) or (reopen_s and now - t_open >= reopen_s):
+                        if zeros * 0.08 >= zero_s:
+                            log(f"input gave only zeros for {zeros * 0.08:.0f} s: reopening it")
+                        try:
+                            stream.close()
+                        except Exception:  # noqa: BLE001
+                            pass
+                        stream = open_input()
+                        t_open, zeros = now, 0
+                        model.reset()
                     if n % 60 == 0 and not client_cfg(a.config)["alwaysListen"]:  # switched off (every ~5 s)
                         ind.set("off", reason="always-on listening was turned off")
                         return 0
@@ -1162,8 +1270,26 @@ def cmd_point(a):
                         os.remove(stop_file)
                         ind.set("off", reason="stopped")
                         return 0
-                    scores = model.predict(read())
+                    block = read()
+                    ring.append(block)
+                    bp = int(abs(block.astype("int32")).max())
+                    zeros = zeros + 1 if bp == 0 else 0
+                    peak = max(peak, bp)
+                    scores = model.predict(block)
+                    best = max(best, max(scores.values()))
+                    if near and near <= max(scores.values()) < c["threshold"] and now - t_near >= 1:
+                        t_near = now
+                        log(f"near miss: wake score {max(scores.values()):.2f} (threshold {c['threshold']}), peak {bp / 32768:.3f}")
                     if max(scores.values()) >= c["threshold"]:
+                        log(f"wake word {max(scores.values()):.2f}")
+                        if c.get("wakeCheck"):
+                            for _ in range(5):  # the score crosses the threshold inside the word: take its end too
+                                ring.append(read())
+                        if c.get("wakeCheck") and not wake_voice_ok(c, ring, ind):
+                            model.reset()  # not a voice of this point's people: no beep, keep listening
+                            ring.clear()
+                            ind.set("listening", wake=wake)
+                            continue
                         break
             stream.stop()
             beep("start")
@@ -1177,9 +1303,11 @@ def cmd_point(a):
             else:
                 beep("end")
                 ind.set("thinking")
+                fill = Filler(c)
                 try:
                     r = hub_call(c, "/v1/voice/turn", {"lang": c["lang"] or "", "format": "wav", "point": c["point"],
                                                        "speaker": c["speaker"]}, audio=wav_bytes(pcm))
+                    fill.stop()
                     ind.set("speaking", text=f'{r.get("text")} -> [{r.get("route")}] {r.get("reply")}',
                             timings=r.get("timings"))
                     play_reply(c, r)
@@ -1190,6 +1318,84 @@ def cmd_point(a):
             stream.start()
     finally:
         stream.close()
+        keep.stop()
+
+
+FILLER_TEXT = {"ru": "Секунду.", "uk": "Секунду.", "en": "One moment.", "nl": "Een moment."}
+
+
+class Filler:
+    """A short "one moment" when the hub has not answered within fillerAfter s (default 4: home commands come back
+    sooner, an agent takes 5-20 s), so a slow answer does not sound like a dead point. The clip is spoken by the hub
+    once and cached on this device; fillerAfter 0 turns it off."""
+
+    def __init__(self, c):
+        self.done = threading.Event()
+        self.thread = None
+        after = float(c.get("fillerAfter", 4.0) or 0)
+        if after > 0:
+            self.thread = threading.Thread(target=self._run, args=(c, after), daemon=True)
+            self.thread.start()
+
+    def _run(self, c, after):
+        if self.done.wait(after):
+            return
+        try:
+            data = filler_clip(c)
+            if not self.done.is_set():
+                play_wav(data)
+        except Exception as e:  # noqa: BLE001
+            log("filler:", str(e)[:120])
+
+    def stop(self):
+        """Before the reply: no filler any more; one already playing is let finish (two streams at once)."""
+        self.done.set()
+        if self.thread:
+            self.thread.join(3)
+
+
+def filler_clip(c):
+    lang = c.get("lang") or "ru"
+    text = c.get("fillerText") or FILLER_TEXT.get(lang, FILLER_TEXT["en"])
+    path = os.path.join(os.path.dirname(client_cfg_path()), f"voice-filler-{lang}.wav")
+    try:
+        with open(path + ".txt", encoding="utf-8") as f:
+            same = f.read() == text
+    except OSError:
+        same = False
+    if same and os.path.isfile(path):
+        with open(path, "rb") as f:
+            return f.read()
+    data = hub_call(c, "/v1/voice/speak", {"text": text, "lang": lang, "format": "wav", "speaker": ""}, timeout=15)
+    if not isinstance(data, (bytes, bytearray)):
+        raise RuntimeError("hub speak: no audio")
+    with open(path, "wb") as f:
+        f.write(data)
+    with open(path + ".txt", "w", encoding="utf-8") as f:
+        f.write(text)
+    return data
+
+
+def wake_voice_ok(c, ring, ind):
+    """wakeCheck: whose voice said the wake word (hub /whois on the last 2 s). False only when the hub answers that it is
+    none of the point's people; a hub error lets the phrase through (the hub checks the voice again on the turn)."""
+    import numpy as np
+    wav = wav_bytes(np.concatenate(list(ring)).astype(np.int16).tobytes())
+    try:  # the last checked wake word, one file on this device only (to tune the threshold)
+        with open(os.path.join(os.path.dirname(client_cfg_path()), "voice-wake-last.wav"), "wb") as f:
+            f.write(wav)
+    except OSError:
+        pass
+    try:
+        r = hub_call(c, "/v1/voice/whois", {}, audio=wav, timeout=5)
+    except Exception as e:  # noqa: BLE001
+        log("wake check:", str(e)[:120])
+        return True
+    # a 1 s wake word gives a weaker voiceprint than a phrase: own voice 0.73-0.88, synthetic strangers up to 0.69
+    if r.get("person") and float(r.get("score") or 0) >= float(c.get("wakeCheckThreshold") or 0.72):
+        return True
+    ind.set("ignored", text=f"wake word in an unknown voice ({r.get('score')})")
+    return False
 
 
 def wake_model(Model, wake, c):
@@ -1261,21 +1467,34 @@ def wake_score(model, a16):
 
 
 def train_verifier(wake, c, negatives_dir):
-    """Verifier of this device: positives = wake clips of every person enrolled here, negatives = their other speech and
-    the wake word in synthetic voices (what must not wake the point). -> path or None (nobody enrolled)."""
+    """Verifier of this device: positives = wake clips of every person enrolled here, negatives = the wake word in
+    synthetic voices (taken at the frames where the wake model fires, like the positives - so the verifier learns the
+    voice, not "wake word or not") plus the people's other speech. -> path or None (nobody enrolled)."""
+    import contextlib
     import glob
-    from openwakeword.custom_verifier_model import train_custom_verifier
+    import pickle
+    import numpy as np
+    from openwakeword.custom_verifier_model import get_reference_clip_features, train_verifier_model
+    from openwakeword.model import Model
     pos = sorted(glob.glob(os.path.join(enroll_dir(), "*", "wake", "*.wav")))
     if not pos:
         return None
-    neg = sorted(glob.glob(os.path.join(enroll_dir(), "*", "speech", "*.wav")) +
-                 glob.glob(os.path.join(negatives_dir, "*.wav")))
     name = os.path.splitext(os.path.basename(wake))[0]
-    out = os.path.join(os.path.dirname(client_cfg_path()), f"voice-verifier-{name}.pkl")
-    import contextlib
+    oww = Model(wakeword_models=[wake], inference_framework="onnx")
+    syn = sorted(glob.glob(os.path.join(negatives_dir or "", "*.wav")))
+    speech = sorted(glob.glob(os.path.join(enroll_dir(), "*", "speech", "*.wav")))
     with contextlib.redirect_stdout(sys.stderr):
-        train_custom_verifier(positive_reference_clips=pos, negative_reference_clips=neg, output_path=out + ".tmp",
-                              model_name=wake, inference_framework="onnx")
+        fp = [get_reference_clip_features(p, oww, name, threshold=0.5, N=5) for p in pos]
+        fs = [get_reference_clip_features(p, oww, name, threshold=0.05, N=5) for p in syn]
+        fo = [get_reference_clip_features(p, oww, name, threshold=0.0, N=1) for p in speech]
+    P = np.vstack(fp)
+    N = np.vstack([x for x in fs + fo if len(x)] or [np.empty((0,) + P.shape[1:])])
+    if not len(P) or not len(N):
+        raise ValueError("verifier: no usable positive or negative frames")
+    model = train_verifier_model(np.vstack((P, N)), np.array([1] * len(P) + [0] * len(N)))
+    out = os.path.join(os.path.dirname(client_cfg_path()), f"voice-verifier-{name}.pkl")
+    with open(out + ".tmp", "wb") as f:
+        pickle.dump(model, f)
     os.replace(out + ".tmp", out)
     return out
 
@@ -1333,9 +1552,18 @@ def cmd_enroll(a):
         return 0
     L = ENROLL_TEXT.get(a.lang or c["lang"] or "en", ENROLL_TEXT["en"])
     phrases = ENROLL_PHRASES.get(a.lang or c["lang"] or "en", ENROLL_PHRASES["en"])[:a.phrases]
-    print(L["intro"].format(person=a.person))
-    if not a.no_wait:
-        input(L["enter"])
+    if a.gui:  # the window only shows: audio in a child process (PortAudio next to Tk crashed with an access violation)
+        argv = [x for x in sys.argv[1:] if x != "--gui"]
+        return EnrollWindow(L, a.person).run_child([sys.executable, "-u", os.path.abspath(__file__)] + argv + ["--no-wait"])
+    ui = EnrollConsole(L, a.person, wait=not a.no_wait)
+    return ui.run(lambda: enroll_session(a, c, L, phrases, wake, pdir, ui))
+
+
+def enroll_session(a, c, L, phrases, wake, pdir, ui):
+    import numpy as np
+    import sounddevice as sd
+    from openwakeword.model import Model
+    from openwakeword.vad import VAD
     os.makedirs(os.path.join(pdir, "wake"), exist_ok=True)
     os.makedirs(os.path.join(pdir, "speech"), exist_ok=True)
     dev = a.input_device if a.input_device is not None else c.get("inputDevice")
@@ -1343,13 +1571,17 @@ def cmd_enroll(a):
         dev = int(dev)
     oww = Model(wakeword_models=[wake], inference_framework="onnx")
     vad = VAD()
+    apply_output(c)
+    OutputKeepAlive(c)  # daemon thread: ends with the enrollment process
+    t_start = time.time() - 1
 
-    def rec(seconds, until_silence=False):
+    def rec(seconds, until_silence=False, read_s=0.0):
+        time.sleep(read_s * a.pace)  # time to read the prompt before the beep
         beep("start")
         blocks, heard, quiet = [], False, 0
         with sd.InputStream(samplerate=16000, channels=1, dtype="int16", blocksize=1280, device=dev) as st:
             t0 = time.time()
-            while time.time() - t0 < seconds:
+            while time.time() - t0 < seconds * a.pace:
                 b, _ = st.read(1280)
                 b = b[:, 0].copy()
                 blocks.append(b)
@@ -1357,7 +1589,7 @@ def cmd_enroll(a):
                     heard, quiet = True, 0
                 else:
                     quiet += 80
-                if until_silence and heard and quiet >= 900:
+                if until_silence and heard and quiet >= 1800 * a.pace:
                     break
         return np.concatenate(blocks).astype(np.float32) / 32768.0, heard
 
@@ -1365,28 +1597,28 @@ def cmd_enroll(a):
     i, tries = 0, 0
     while i < a.wake_clips and tries < a.wake_clips * 2:
         tries += 1
-        print(L["wake"].format(i=i + 1, n=a.wake_clips, phrase=wake_phrase), flush=True)
-        clip, heard = rec(2.5)
+        ui.say(L["wake"].format(i=i + 1, n=a.wake_clips, phrase=wake_phrase), prompt=True)
+        clip, heard = rec(3.5, read_s=1.0)
         s = wake_score(oww, clip)
         if s < 0.5:
-            print(L["again"] if heard else L["quiet"], f"({s:.2f})", flush=True)
+            ui.say((L["again"] if heard else L["quiet"]) + f" ({s:.2f})")
             continue
         # 1 s of silence before (the model warms up on the first frames), as the point hears it
         save_wav16(os.path.join(pdir, "wake", f"w{i:02d}.wav"), np.concatenate([np.zeros(16000, np.float32), clip]))
-        print(L["ok"], f"({s:.2f})", flush=True)
+        ui.say(L["ok"] + f" ({s:.2f})")
         i += 1
     for j, text in enumerate(phrases):
         for _ in range(2):
-            print(L["phrase"].format(i=j + 1, n=len(phrases), text=text), flush=True)
-            clip, heard = rec(10, until_silence=True)
+            ui.say(L["phrase"].format(i=j + 1, n=len(phrases), text=text), prompt=True)
+            clip, heard = rec(20, until_silence=True, read_s=2.5)
             if heard:
                 save_wav16(os.path.join(pdir, "speech", f"s{j:02d}.wav"), clip)
-                print(L["ok"], flush=True)
+                ui.say(L["ok"])
                 break
-            print(L["quiet"], flush=True)
+            ui.say(L["quiet"])
     r = {"person": a.person, "wakeClips": i, "speechClips": len(os.listdir(os.path.join(pdir, "speech")))}
     if not a.no_verifier and i:
-        print(L["train"], flush=True)
+        ui.say(L["train"], prompt=True)
         neg = synth_negatives(c, wake, ["ru", "uk", "en", "nl"]) if c["hub"] and hub_key() else enroll_dir("_none")
         path = train_verifier(wake, c, neg)
         c["verifier"] = {**(c.get("verifier") or {}), wake: path}
@@ -1394,19 +1626,146 @@ def cmd_enroll(a):
         r["verifier"] = path
         r["check"] = verifier_check(Model, wake, c, pdir, neg)
     if not a.no_hub and c["hub"] and hub_key():
-        print(L["hub"], flush=True)
+        ui.say(L["hub"], prompt=True)
         import glob
         clips = sorted(glob.glob(os.path.join(pdir, "speech", "*.wav")))
+        if a.append:  # only this session's clips (the hub adds them to the voiceprint), wake words too: they are what
+            # the wake check compares
+            clips = [p for p in clips + sorted(glob.glob(os.path.join(pdir, "wake", "*.wav")))
+                     if os.path.getmtime(p) >= t_start]
         wav_list = []
         for p in clips:
             with open(p, "rb") as f:
                 wav_list.append(f.read())
-        r["hub"] = hub_call(c, "/v1/voice/enroll", {"person": a.person, "replace": "1"}, audios=wav_list)
-    print(L["done"], flush=True)
-    print(json.dumps(r, ensure_ascii=False, indent=1))
-    if not a.no_wait:
-        input()
-    return 0
+        r["hub"] = hub_call(c, "/v1/voice/enroll", {"person": a.person, "replace": "" if a.append else "1"},
+                            audios=wav_list)
+        c = {**client_cfg(a.config), "wakeCheck": True}
+        save_client_cfg(c, a.config)
+    return r
+
+
+class EnrollConsole:
+    def __init__(self, L, person, wait=True):
+        self.L, self.person, self.wait = L, person, wait
+
+    def say(self, text, prompt=False):
+        print(text, flush=True)
+
+    def run(self, work):
+        print(self.L["intro"].format(person=self.person))
+        if self.wait:
+            input(self.L["enter"])
+        r = work()
+        enroll_result(r)
+        print(self.L["done"])
+        print(json.dumps(r, ensure_ascii=False, indent=1))
+        if self.wait:
+            input()
+        return 0
+
+
+class EnrollWindow:
+    """A small topmost Tk window (an agent job's console window is not visible on the desktop): the prompt in large
+    letters, a log, Start and Close; the recording runs in a worker thread."""
+
+    def __init__(self, L, person):
+        import queue
+        import tkinter as tk
+        self.L, self.person, self.q = L, person, queue.Queue()
+        self.root = tk.Tk()
+        self.root.title(f"Voice enrollment - {person}")
+        self.root.attributes("-topmost", True)
+        self.root.geometry("720x420")
+        self.big = tk.Label(self.root, text=L["intro"].format(person=person), wraplength=680, justify="left",
+                            font=("Segoe UI", 15))
+        self.big.pack(padx=16, pady=12, fill="x")
+        self.log = tk.Text(self.root, height=10, font=("Consolas", 10))
+        self.log.pack(padx=16, fill="both", expand=True)
+        self.btn = tk.Button(self.root, text="Start", font=("Segoe UI", 13), command=self._start)
+        self.btn.pack(pady=10)
+        self.work = None
+        self.code = 1
+
+    def say(self, text, prompt=False):
+        self.q.put((text, prompt))
+
+    def _pump(self):
+        while not self.q.empty():
+            text, prompt = self.q.get()
+            if prompt:
+                self.big.config(text=text)
+            self.log.insert("end", text + "\n")
+            self.log.see("end")
+        self.root.after(100, self._pump)
+
+    def _start(self):
+        self.btn.config(state="disabled")
+        if getattr(self, "_job", None):
+            threading.Thread(target=self._job, daemon=True).start()
+            return
+
+        def job():
+            try:
+                r = self.work()
+                enroll_result(r)
+                self.say(self.L["done"], prompt=True)
+                self.say(json.dumps({k: v for k, v in r.items() if k != "hub"} | {"hub": (r.get("hub") or {}).get("n")},
+                                    ensure_ascii=False))
+                self.code = 0
+            except Exception as e:  # noqa: BLE001
+                enroll_result({"error": str(e)[:300]})
+                self.say("ERROR: " + str(e)[:300], prompt=True)
+            self.root.after(0, lambda: self.btn.config(text="Close", state="normal", command=self.root.destroy))
+        threading.Thread(target=job, daemon=True).start()
+
+    def run_child(self, cmd):
+        """Start runs cmd (the console enrollment); its lines go to the window, prompts in big letters."""
+        import subprocess
+
+        def job():
+            env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+            try:
+                p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
+                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                for raw in p.stdout:
+                    line = raw.decode("utf-8", "replace").rstrip()
+                    if line:
+                        self.say(line, prompt=line.startswith("[") or line == self.L["done"])
+                self.code = p.wait()
+                if self.code:
+                    self.say(f"ERROR: exit code {self.code}", prompt=True)
+            except Exception as e:  # noqa: BLE001
+                enroll_result({"error": str(e)[:300]})
+                self.say("ERROR: " + str(e)[:300], prompt=True)
+            self.root.after(0, lambda: self.btn.config(text="Close", state="normal", command=self.root.destroy))
+
+        self.work = None
+        self._job = job
+        self.root.after(100, self._pump)
+        self.root.lift()
+        self.root.focus_force()
+        self.root.mainloop()
+        return self.code
+
+    def run(self, work):
+        self.work = work
+        self.root.after(100, self._pump)
+        self.root.lift()
+        self.root.focus_force()
+        self.root.mainloop()
+        return self.code
+
+
+def enroll_result(r):
+    """The last enrollment result next to the samples (the agent that opened the window reads it)."""
+    try:
+        os.makedirs(enroll_dir(), exist_ok=True)
+        with open(os.path.join(enroll_dir(), "last-result.json"), "w", encoding="utf-8") as f:
+            json.dump({**r, "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f, ensure_ascii=False, indent=1)
+    except OSError:
+        pass
+
+
 
 
 def verifier_check(Model, wake, c, pdir, negdir):
@@ -1458,6 +1817,8 @@ def cmd_point_config(a):
         v = getattr(a, k)
         if v is not None:
             c[{"wake_word": "wakeWord"}.get(k, k)] = v
+    if getattr(a, "output_device", None) is not None:
+        c["outputDevice"] = None if a.output_device == "" else (int(a.output_device) if a.output_device.isdigit() else a.output_device)
     if a.input_device is not None:
         c["inputDevice"] = None if a.input_device == "" else (int(a.input_device) if a.input_device.isdigit() else a.input_device)
     if a.always_listen is not None:
@@ -1556,6 +1917,7 @@ def main(argv=None):
     s.add_argument("--speaker", help="'' = this device, or a Cast speaker name from the hub config")
     s.add_argument("--point", help="name of this point")
     s.add_argument("--input-device", help="sounddevice input (index or name; '' = default)")
+    s.add_argument("--output-device", help="sounddevice output for beeps and replies (index or part of the name; '' = system default)")
     s.add_argument("--always-listen", choices=["on", "off"])
     s.add_argument("--yes", action="store_true", help="owner confirms always-on listening without the prompt")
     s.add_argument("--set-key", action="store_true", help="type the hub key into keyring aiwb/voice-hub")
@@ -1569,10 +1931,14 @@ def main(argv=None):
     s.add_argument("--input-device", help="sounddevice input (index or name)")
     s.add_argument("--wake-clips", type=int, default=20)
     s.add_argument("--phrases", type=int, default=8)
+    s.add_argument("--append", action="store_true", help="add this session's clips to the voiceprint on the hub "
+                   "(another microphone, distance or room) instead of replacing it")
+    s.add_argument("--pace", type=float, default=1.0, help="slower (>1) or faster (<1) prompts and recording windows")
     s.add_argument("--no-verifier", action="store_true", help="level 2 only")
     s.add_argument("--no-hub", action="store_true", help="level 1 only")
     s.add_argument("--no-wait", action="store_true", help="no Enter before and after (not in a window)")
     s.add_argument("--forget", action="store_true", help="delete the person's samples here and their voiceprint")
+    s.add_argument("--gui", action="store_true", help="a window instead of the console (for agents: their console is hidden)")
     s.set_defaults(fn=cmd_enroll)
     s = sub.add_parser("whois", help="whose voice is in a WAV file (the hub's speaker recognition)")
     s.add_argument("wav")

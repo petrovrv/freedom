@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.3.3",
- "created": "2026-11-14T14:14:24Z",
+ "version": "0.3.4",
+ "created": "2026-11-14T16:50:19Z",
  "files": [
   {
    "path": "context/voice.md",
@@ -11,7 +11,7 @@
   {
    "path": "module.json",
    "size": 2397,
-   "sha256": "1369823c85d3574db1bd99afac38653a44459eeec04e9635dc1c4de1d8ad71ef"
+   "sha256": "1c190160984f0d6ab0b6b0cf9b80374832db5af7c0a0ff00cff62f986bbafd9f"
   },
   {
    "path": "README.md",
@@ -30,8 +30,8 @@
   },
   {
    "path": "tools/voice/SKILL.md",
-   "size": 16901,
-   "sha256": "1e3447de8d938ab4b5e0e92ea62ec3e80c5511fdb630597575c732d96879e34b"
+   "size": 21542,
+   "sha256": "169617bb661c8e2e62806ec23231ae3cd4276952f62fec70686f82b5902f66b5"
   },
   {
    "path": "tools/voice/test_voice.py",
@@ -40,8 +40,8 @@
   },
   {
    "path": "tools/voice/voice.py",
-   "size": 82755,
-   "sha256": "e3eab7165f9d3f58847d569e747365bb6531a26286eaa0a444269dd628b9e4ab"
+   "size": 99680,
+   "sha256": "be78571261046628f983d62439a85be6281defc2d55632cf2c3b7d1efd9a144e"
   },
   {
    "path": "ui/composer.css",
@@ -55,15 +55,15 @@
   },
   {
    "path": "ui/composer.js",
-   "size": 8207,
-   "sha256": "7f6d35d6302d4df76ae7007e9ed52a965629b23a686ad885f5ab10d91f1c533e"
+   "size": 8731,
+   "sha256": "234c4877eb25288ed24301fd694a43b85516fc41070e561e9558e8929382b8b4"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "0Qd5CDSrUWr8p30MMRmOgduHI+KnMRV65IS18VQQZM2GTWd5K0+k6iFz+PaZkrxg79szGe0Kf+Xk7JA6JzICCA=="
+   "sig": "NpOODX+SWmclTvLNWm6ZzxlZ1xoFquwLfWtJC1DbqLmFAjWFRdHlcXEI0p+knjm3SouN31/7s4AB95bRJO0NCA=="
   }
  ],
  "module": "voice"

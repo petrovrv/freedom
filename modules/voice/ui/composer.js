@@ -11,7 +11,8 @@
   var LANGS = [{ id: '', label: 'auto' }, { id: 'ru', label: 'RU' }, { id: 'uk', label: 'UK' }, { id: 'en', label: 'EN' },
     { id: 'nl', label: 'NL' }];
   var MAX_SECONDS = 30;
-  var SILENCE_MS = 1000;
+  // a pause inside a sentence (breath, a thought) is often 1-1.5 s: shorter cut the phrase off (14.11)
+  var SILENCE_MS = 2000;
   var AGENT_WAIT_MS = 240000;
 
   var root = document.getElementById('voice');
@@ -69,8 +70,11 @@
   function listen() {
     error = '';
     note = '';
-    set('listening');
-    coExt.audio.start(MAX_SECONDS, { silenceMs: SILENCE_MS }).catch(fail);
+    // 'Listening' (the red dot) only once the microphone really records: words said while it was opening were lost
+    set('thinking', 'Microphone…');
+    coExt.audio.start(MAX_SECONDS, { silenceMs: SILENCE_MS }).then(function () {
+      if (state === 'thinking') set('listening', '');
+    }).catch(fail);
   }
 
   function finishTurn(again) {

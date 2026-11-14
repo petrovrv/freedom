@@ -59,7 +59,8 @@ class Fake(BaseHTTPRequestHandler):
         if self.path.startswith("/api/services/music_assistant/search"):
             return self._json({"service_response": {"playlists": [
                 {"uri": "ytmusic://playlist/1", "name": "Calm YT", "media_type": "playlist"},
-                {"uri": "spotify://playlist/2", "name": "Calm Focus", "media_type": "playlist"}]}})
+                {"uri": "spotify--W2wzeWB7://playlist/2", "name": "Calm Focus", "media_type": "playlist"}],
+                "tracks": [{"uri": "internet_archive://track/w2", "name": "Waltz No. 2", "media_type": "track"}]}})
         if self.path.startswith("/api/services/"):
             return self._json([])
         if self.path == "/api/conversation/process":
@@ -231,6 +232,10 @@ class MusicTest(HubTest):
         self.assertEqual(voice.music_parse("Э, поставь Стравинского на колонке", al)["query"], "Стравинского")
         self.assertEqual(voice.music_parse("Пауза.", al)["action"], "pause")
         self.assertEqual(voice.music_parse("play Radiohead everywhere", al)["players"], ["*"])
+        p = voice.music_parse("поставь Последняя поэма из интернет-архива", al)
+        self.assertEqual((p["query"], p["provider"]), ("Последняя поэма", "internet_archive"))
+        self.assertEqual(voice.music_parse("play Bach from the web archive", al)["provider"], "internet_archive")
+        self.assertEqual(voice.music_parse("поставь Баха с саундклауда", al)["provider"], "soundcloud")
 
     def test_strong_phrase_plays_without_ha(self):
         _, r = self.post("/v1/voice/turn", {"text": "поставь Шостаковича на кухне", "speak": "0"}, key="p1")
@@ -242,8 +247,12 @@ class MusicTest(HubTest):
 
     def test_provider_search_picks_that_provider(self):
         _, r = self.post("/v1/voice/turn", {"text": "поставь что-нибудь спокойное из спотифая", "speak": "0"}, key="p1")
-        self.assertEqual(self.svc("music_assistant/play_media")[0]["media_id"], "spotify://playlist/2")
+        self.assertEqual(self.svc("music_assistant/play_media")[0]["media_id"], "spotify--W2wzeWB7://playlist/2")
         self.assertIn("Calm Focus", r["reply"])
+
+    def test_archive_source_takes_a_track(self):
+        _, r = self.post("/v1/voice/turn", {"text": "поставь Waltz из интернет-архива", "speak": "0"}, key="p1")
+        self.assertEqual(self.svc("music_assistant/play_media")[0]["media_id"], "internet_archive://track/w2")
 
     def test_weak_phrase_after_ha(self):
         _, r = self.post("/v1/voice/turn", {"text": "включи Beatles", "speak": "0"}, key="p1")

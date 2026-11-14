@@ -36,7 +36,7 @@ import urllib.request
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.3.12"
+VERSION = "0.3.13"
 UA = f"freedom-voice/{VERSION}"
 LANGS = ("ru", "uk", "en", "nl", "fr", "de")
 WHISPER_NAMES = {"russian": "ru", "ukrainian": "uk", "english": "en", "dutch": "nl", "flemish": "nl", "french": "fr",
@@ -76,10 +76,14 @@ M_VERB = re.compile(rf"^\s*{M_LEAD}({M_STRONG}|{M_WEAK})\b[\s,.!]*", re.I)
 # a query that is only a sound or a filler ("Play uh.") is not a title: ask what to play instead of playing a track "Uh"
 M_JUNK = re.compile(r"uh+|um+|hm+|ah+|oh+|eh+|э+|а+|м+|ой|ну|so|oops|euh|ehm|it|that|this|это|то|please|пожалуйста", re.I)
 M_CUE = re.compile(r"музык|музик|песн|пісн|трек|альбом|плейлист|плейліст|радио|радіо|playlist|album|song|music|track|"
-                   r"radio|muziek|liedje|nummer|spotify|спотиф|спотіф|youtube|ютуб|ю туб", re.I)
+                   r"radio|muziek|liedje|nummer|spotify|спотиф|спотіф|youtube|ютуб|ю туб|archive|архив|архів|archief|soundcloud|саундклауд", re.I)
 M_PROVIDER = [("spotify", re.compile(r"\s*\b(?:(?:из|с|со|в|на|from|on|in|van|op|з|зі|у)\s+)?(?:spotify|спотиф\w*|спотіф\w*)\b", re.I)),
               ("ytmusic", re.compile(r"\s*\b(?:(?:из|с|со|в|на|from|on|in|van|op|з|зі|у)\s+)?(?:youtube(?:\s+music)?|yt\s+music|"
-                                     r"ю\s?туб\w*(?:\s+музык\w*)?|ютуб\w*(?:\s+музи?к\w*)?)\b", re.I))]
+                                     r"ю\s?туб\w*(?:\s+музык\w*)?|ютуб\w*(?:\s+музи?к\w*)?)\b", re.I)),
+              ("internet_archive", re.compile(r"\s*\b(?:(?:из|с|со|в|на|from|on|in|van|op|з|зі|у)\s+)?(?:(?:the\s+)?(?:internet|web)\s*archive|"
+                                              r"archive\.org|(?:интернет|веб|інтернет)[- ]?архив\w*|(?:інтернет|веб)[- ]?архів\w*|"
+                                              r"(?:internet|web)\s*archief)\b", re.I)),
+              ("soundcloud", re.compile(r"\s*\b(?:(?:из|с|со|в|на|from|on|in|van|op|з|зі|у)\s+)?(?:sound\s?cloud|саунд\s?клауд\w*)\b", re.I))]
 M_ALL = re.compile(r"\s*\b(?:везде|по всему дому|во всём доме|во всем доме|everywhere|all speakers|всюди|по всьому будинку|overal)\b", re.I)
 M_TYPES = [("playlist", r"плейлист\w*|плейліст\w*|playlist|afspeellijst"), ("album", r"альбом\w*|album"),
            ("track", r"песн\w*|песенк\w*|пісн\w*|трек\w*|song|track|liedje|nummer"), ("radio", r"радио|радіо|radio")]
@@ -222,14 +226,17 @@ class Music:
         return self.entry
 
     def search(self, query, typ, provider):
-        types = [typ] if typ and typ != "radio" else ["artist", "playlist", "track", "album"]
+        # with a source named, a track first: archive-like sources answer a title with labels and uploaders as "artists"
+        types = [typ] if typ and typ != "radio" else \
+            (["track", "album", "playlist", "artist"] if provider else ["artist", "playlist", "track", "album"])
         r = self.service("music_assistant", "search", {"config_entry_id": self._entry(), "name": query,
-                                                       "media_type": types, "limit": 8}, response=True)
+                                                       "media_type": types, "limit": 25 if provider else 8}, response=True)
         res = (r or {}).get("service_response") or {}
         for t in types:
             for it in res.get(t + "s") or []:
                 uri = it.get("uri") or ""
-                if not provider or uri.startswith(provider + ":"):
+                # an instance URI carries a suffix: spotify--W2wzeWB7://track/..., internet_archive://track/...
+                if not provider or uri.split(":", 1)[0].split("--", 1)[0] == provider:
                     return it
         return None
 

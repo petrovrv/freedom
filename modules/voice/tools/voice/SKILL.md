@@ -1,7 +1,7 @@
 ---
 name: voice
 description: Voice pipeline of Freedom (module voice) — the hub on the family server (speech to text and text to speech through speaches/piper, short home commands to Home Assistant, the rest to the CO agent of a chosen chat, answer as audio, Cast speakers through HA; music by voice - Spotify/YouTube Music through Music Assistant on the speakers, replies duck the music) and the voice point on a device (wake word with openWakeWord + VAD, Windows/Linux, also headless; always-on listening only after the device owner turns it on); speaker recognition in two levels (wake-word verifier on the device, voiceprints on the hub that route a question to the recognised person's chat, strangers get home commands only); say/ask/check for tests. Use to run or check the voice assistant, speak a text on a home speaker, or set up a voice point.
-version: 0.3.12
+version: 0.3.13
 entry: voice.py
 requires: [python 3.10+, hub - standard library (speaker recognition - sherpa-onnx numpy and an ONNX speaker model), point - sounddevice openwakeword onnxruntime scikit-learn (own venv, setup-point)]
 platform: any

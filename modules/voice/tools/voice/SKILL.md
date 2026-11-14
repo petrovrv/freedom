@@ -1,9 +1,9 @@
 ---
 name: voice
-description: Voice pipeline of Freedom (module voice) — the hub on the family server (speech to text and text to speech through speaches/piper, short home commands to Home Assistant, the rest to the CO agent of a chosen chat, answer as audio, Cast speakers through HA) and the voice point on a device (wake word with openWakeWord + VAD, Windows/Linux, also headless; always-on listening only after the device owner turns it on); say/ask/check for tests. Use to run or check the voice assistant, speak a text on a home speaker, or set up a voice point.
-version: 0.1.1
+description: Voice pipeline of Freedom (module voice) — the hub on the family server (speech to text and text to speech through speaches/piper, short home commands to Home Assistant, the rest to the CO agent of a chosen chat, answer as audio, Cast speakers through HA) and the voice point on a device (wake word with openWakeWord + VAD, Windows/Linux, also headless; always-on listening only after the device owner turns it on); speaker recognition in two levels (wake-word verifier on the device, voiceprints on the hub that route a question to the recognised person's chat, strangers get home commands only); say/ask/check for tests. Use to run or check the voice assistant, speak a text on a home speaker, or set up a voice point.
+version: 0.2.0
 entry: voice.py
-requires: [python 3.10+, hub - standard library only, point - sounddevice openwakeword onnxruntime (own venv, setup-point)]
+requires: [python 3.10+, hub - standard library (speaker recognition - sherpa-onnx numpy and an ONNX speaker model), point - sounddevice openwakeword onnxruntime scikit-learn (own venv, setup-point)]
 platform: any
 secrets: [aiwb/voice-hub default (point, say, ask, check - the hub key), hub - files or env named in its config (hub key, speaches key, HA token, CO host key)]
 ---
@@ -20,6 +20,8 @@ secrets: [aiwb/voice-hub default (point, say, ask, check - the hub key), hub - f
 | `point` | ПК, мини-ПК, Linux без экрана | слово-пробуждение (openWakeWord), запись до паузы (silero VAD), фраза → хаб, ответ → динамик устройства или Cast |
 | `point-config` | устройство | настройки точки; `--always-listen on` включает только владелец устройства (вопрос с подтверждением) |
 | `setup-point` | устройство | venv точки `%LOCALAPPDATA%\AIWorkbench\venvs\voice` (Linux `~/.local/share/AIWorkbench/venvs/voice`) |
+| `enroll` | устройство | образцы голоса человека: верификатор слова-пробуждения на устройстве (уровень 1) + отпечаток голоса на хабе (уровень 2); `--forget` удаляет |
+| `whois` | где угодно | чей голос в WAV (по ключу точки) |
 | `say`, `ask`, `check` | где угодно | проверка: сказать текст, один ход из WAV или текста, состояние хаба |
 
 ## Вызов
@@ -90,7 +92,31 @@ services:
 - Слова-пробуждения из коробки: `hey_jarvis`, `alexa`, `hey_mycroft`, `hey_rhasspy` или путь к своей модели `.onnx`.
 - Windows: onnxruntime 1.20.1 (новее требует VC++ runtime 14.40+, иначе «DLL initialization routine failed»).
 
+## Узнавание голоса (0.2.0)
+
+Два уровня, оба выключены, пока никто не записал образцы:
+
+1. **Устройство: верификатор слова-пробуждения.** `enroll --person <id>` записывает 20 раз слово-пробуждение и 8 фраз, а для сравнения берёт то же слово, сказанное синтетическими голосами хаба. По этим записям обучается верификатор openWakeWord (логистическая регрессия на его признаках): `%LOCALAPPDATA%\AIWorkbench\voice-verifier-<wake>.pkl`, ключ `verifier{wake: path}` в `voice-point.json`. После этого точка просыпается только на голоса людей, записанных на этом устройстве: если сырая оценка выше `verifierGate` (0.3), её заменяет вероятность верификатора. Записи остаются только на этом устройстве (`voice-enroll/<id>`): по ним верификатор переобучается, когда добавляют следующего человека. `--forget` удаляет их и отпечаток на хабе.
+2. **Хаб: кто говорит.** Хаб отправляет фразы в `/v1/voice/enroll`, считает по ним отпечаток голоса (эмбеддинг sherpa-onnx, по умолчанию WeSpeaker ResNet34) и хранит только среднее число-вектор: `speakerId.dir/<id>.json`, аудио на хабе не остаётся. На каждом ходе точки с `people` хаб сравнивает голос, параллельно с распознаванием речи (~0,05 с). Узнанный человек получает свои `env`, чат и права из `people`. Незнакомый голос (`unknown: "home"`, по умолчанию) управляет только домом, агент отвечает «Голос не узнан». `unknown: "point"` — как раньше, вопрос идёт от имени точки. Текстовые ходы (`ask --text`) голос не проверяют: их делает тот, у кого ключ точки, то есть хозяин устройства.
+
+Порог `speakerId.threshold` (0.65) и отрыв от второго человека `margin` (0.05) подбираются по `whois`: свой голос даёт 0,8–0,9, синтетические чужие 0,45–0,7. Записывать и удалять людей можно только ключом точки и только для `people` этой точки. Хозяин устройства запускает запись, человек присутствует и согласен: отпечаток голоса — биометрия. Узнавание по голосу — удобство, а не защита: запись или клон голоса проходят. Поэтому секреты, оплату и отправку писем голосом не разрешать.
+
+```json
+"people": {"me": {"env": "<env>", "chat": "CHAT-...", "shell": false}},
+"speakerId": {"model": "/app/models/wespeaker_en_voxceleb_resnet34_LM.onnx", "dir": "/app/state/voiceprints", "threshold": 0.65},
+"points": {"home-pc": {"key": {"file": "..."}, "env": "<env>", "people": ["me"], "unknown": "home"}}
+```
+
+Образ хаба с узнаванием: `FROM python:3.12-slim` + `RUN pip install sherpa-onnx numpy`. Модель (26 МБ): `https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_en_voxceleb_resnet34_LM.onnx`. В compose: `./models:/app/models:ro`, `./state:/app/state` (владелец 65534), `mem_limit` 768m.
+
+```
+python voice.py enroll --person me --lang ru          # в видимом окне: Enter, затем по подсказкам
+python voice.py enroll --person me --forget
+python voice.py whois phrase.wav
+```
+
 ## История
 
+- 0.2.0 — 2026-11-14 — узнавание голоса: `enroll` (верификатор слова-пробуждения на устройстве + отпечаток на хабе), `whois`, на хабе `people`/`speakerId`, `/v1/voice/enroll|forget|whois`, незнакомый голос получает только команды дома; `setup-point` ставит scikit-learn и scipy.
 - 0.1.1 — 2026-11-14 — по ревью: ключ проверяется до чтения тела, длина и число одновременных запросов ограничены; свой ключ у каждой точки (`points`: чей вопрос, чат, оболочка), ключ клиента агента не зовёт; голосовой режим CO Web (`route=client`) снова проходит через HA; JSON `speak: false`; язык без голоса не роняет синтез; точка без настроек ждёт, а не завершается; причины отказа агента озвучиваются.
 - 0.1.0 — 2026-11-14 — первая версия: hub (speaches STT/TTS, HA, агент через voice_ask, Cast), point (openWakeWord + VAD), say/ask/check, setup-point.

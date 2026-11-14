@@ -5,6 +5,8 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- Module voice 0.2.0: speaker recognition in two levels - `voice.py enroll` trains a wake-word verifier on the device and sends a voiceprint to the hub; the hub (`people`, `speakerId`, `/v1/voice/enroll|forget|whois`) routes a recognised voice to that person's chat, strangers get home commands only.
+
 - Module voice 0.1.1 (review fixes): the hub checks the key before reading a body, limits length and parallel requests;
   every voice point has its own key with its person, chat and shell switch (`points`), the client key of the server
   never makes the hub ask the agent; voice jobs are side jobs (`request.voice`, one collapsed row; the chat's own

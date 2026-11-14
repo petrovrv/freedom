@@ -7,6 +7,9 @@
   point  a voice point on a device (Windows, Linux, also headless): wake word on the device (openWakeWord + its silero
          VAD), the phrase goes to the hub, the answer plays on the device's speaker or on a Cast speaker through HA.
          Always-on listening is off until the device's owner turns it on (point-config --always-listen on).
+  enroll record a person's voice: a wake-word verifier on the device (level 1) and a voiceprint on the hub (level 2,
+         sherpa-onnx speaker embeddings) that routes the person's questions to their own chat; strangers get home only.
+  whois  whose voice is in a WAV file.
   say    speak a text through the hub (on this device or on a Cast speaker) - a check and a tool for agents.
   ask    one turn with a recorded WAV file or a text (no microphone) - a check.
   check  is the hub configured and are speaches / HA / CO reachable.
@@ -33,7 +36,7 @@ import urllib.request
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.1.1"
+VERSION = "0.2.0"
 UA = f"freedom-voice/{VERSION}"
 LANGS = ("ru", "uk", "en", "nl", "fr", "de")
 WHISPER_NAMES = {"russian": "ru", "ukrainian": "uk", "english": "en", "dutch": "nl", "flemish": "nl", "french": "fr",
@@ -47,13 +50,13 @@ DEFAULT_VOICES = {
 # what the hub says itself when something fails (the point has no screen)
 SAY = {
     "ru": {"busy": "Агент ещё отвечает на прошлый вопрос.", "agent_off": "Агент не настроен.", "agent_wait": "Агент не ответил вовремя.", "fail": "Не получилось.",
-           "unheard": "Не расслышала."},
+           "unheard": "Не расслышала.", "stranger": "Голос не узнан. Могу только управлять домом."},
     "uk": {"busy": "Агент ще відповідає на попереднє питання.", "agent_off": "Агента не налаштовано.", "agent_wait": "Агент не відповів вчасно.", "fail": "Не вийшло.",
-           "unheard": "Не розчула."},
+           "unheard": "Не розчула.", "stranger": "Голос не впізнано. Можу лише керувати домом."},
     "en": {"busy": "The agent is still answering the last question.", "agent_off": "The agent is not set up.", "agent_wait": "The agent did not answer in time.",
-           "fail": "That did not work.", "unheard": "I did not catch that."},
+           "fail": "That did not work.", "unheard": "I did not catch that.", "stranger": "I do not know this voice. I can only control the home."},
     "nl": {"busy": "De agent beantwoordt nog de vorige vraag.", "agent_off": "De agent is niet ingesteld.", "agent_wait": "De agent antwoordde niet op tijd.",
-           "fail": "Dat lukte niet.", "unheard": "Ik heb het niet verstaan."},
+           "fail": "Dat lukte niet.", "unheard": "Ik heb het niet verstaan.", "stranger": "Ik ken deze stem niet. Ik kan alleen het huis bedienen."},
 }
 # Any HA error goes to the agent: no_intent_match (not a home phrase) but also no_valid_targets and the like (HA
 # matched a sentence pattern by chance: "сколько будет семь умножить на восемь" -> "no object ..."); the agent can
@@ -176,6 +179,128 @@ def wav_bytes(pcm16, rate=16000):
     return out.getvalue()
 
 
+def wav_samples(data):
+    """WAV bytes -> (rate, float32 mono samples in -1..1). 16-bit PCM only (what points and piper produce)."""
+    import numpy as np
+    with wave.open(io.BytesIO(data)) as w:
+        if w.getsampwidth() != 2:
+            raise ValueError("16-bit WAV only")
+        rate, ch, frames = w.getframerate(), w.getnchannels(), w.readframes(w.getnframes())
+    a = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+    if ch > 1:
+        a = a.reshape(-1, ch).mean(axis=1)
+    return rate, a
+
+
+# ------------------------------------------------------------------ who is speaking (level 2)
+class Voiceprints:
+    """Speaker recognition on the hub: a speaker embedding of the phrase (sherpa-onnx with a WeSpeaker/3D-Speaker ONNX
+    model) is compared with the enrolled people (cosine to the mean of their enrollment clips). Only embeddings are
+    stored (one JSON per person in `dir`), never audio. A convenience, not a lock: a recording or a cloned voice passes,
+    so a recognised voice gets the person's chat and permissions, never secrets or payments."""
+
+    def __init__(self, cfg):
+        cfg = cfg or {}
+        self.model = cfg.get("model") or ""
+        self.dir = cfg.get("dir") or "/app/state/voiceprints"
+        self.threshold = float(cfg.get("threshold") or 0.5)
+        self.margin = float(cfg.get("margin") or 0.05)  # best minus second best person
+        self.min_s = float(cfg.get("minSeconds") or 1.0)
+        self.threads = int(cfg.get("threads") or 2)
+        self.ok = bool(self.model) and os.path.isfile(self.model)
+        self._ex = None
+        self._lock = threading.Lock()
+
+    def _extractor(self):
+        if self._ex is None:
+            import sherpa_onnx
+            self._ex = sherpa_onnx.SpeakerEmbeddingExtractor(
+                sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=self.model, num_threads=self.threads))
+        return self._ex
+
+    def embed(self, wav):
+        import numpy as np
+        rate, a = wav_samples(wav)
+        if a.size < rate * self.min_s:
+            raise ValueError("too short for a voiceprint")
+        with self._lock:
+            ex = self._extractor()
+            s = ex.create_stream()
+            s.accept_waveform(rate, a)
+            s.input_finished()
+            if not ex.is_ready(s):
+                raise ValueError("too short for a voiceprint")
+            v = np.array(ex.compute(s), dtype=np.float32)
+        return v / (np.linalg.norm(v) or 1.0)
+
+    def _file(self, person):
+        return os.path.join(self.dir, person + ".json")
+
+    def load(self, person):
+        import numpy as np
+        try:
+            d = load_json(self._file(person))
+        except (OSError, ValueError):
+            return None
+        if d.get("model") != os.path.basename(self.model):  # enrolled with another model: not comparable
+            return None
+        v = np.array(d["mean"], dtype=np.float32)
+        return v / (np.linalg.norm(v) or 1.0), int(d.get("n") or 1)
+
+    def enrolled(self):
+        try:
+            return sorted(f[:-5] for f in os.listdir(self.dir) if f.endswith(".json"))
+        except OSError:
+            return []
+
+    def enroll(self, person, wavs, replace=False):
+        """Add clips to the person's voiceprint; returns {person, n, clips, self: cosine of each clip to the mean}."""
+        import numpy as np
+        vs, skipped = [], 0
+        for w in wavs:
+            try:
+                vs.append(self.embed(w))
+            except ValueError:
+                skipped += 1
+        if not vs:
+            raise ValueError("no usable clip (16-bit WAV, at least %.1f s of speech each)" % self.min_s)
+        old = None if replace else self.load(person)
+        total = np.sum(vs, axis=0) + (old[0] * old[1] if old else 0)
+        n = len(vs) + (old[1] if old else 0)
+        mean = total / n
+        unit = mean / (np.linalg.norm(mean) or 1.0)
+        os.makedirs(self.dir, exist_ok=True)
+        tmp = self._file(person) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"person": person, "model": os.path.basename(self.model), "n": n,
+                       "mean": [round(float(x), 6) for x in mean],
+                       "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f)
+        os.replace(tmp, self._file(person))
+        return {"person": person, "n": n, "clips": len(vs), "skipped": skipped,
+                "self": [round(float(v @ unit), 3) for v in vs]}
+
+    def forget(self, person):
+        try:
+            os.remove(self._file(person))
+            return True
+        except OSError:
+            return False
+
+    def match(self, wav, people):
+        """-> {person or None, score, scores{}} among `people` (ids); person only above threshold and margin."""
+        v = self.embed(wav)
+        scores = {}
+        for p in people:
+            ref = self.load(p)
+            if ref is not None:
+                scores[p] = round(float(v @ ref[0]), 3)
+        ranked = sorted(scores.items(), key=lambda kv: -kv[1])
+        best = ranked[0] if ranked else (None, 0.0)
+        second = ranked[1][1] if len(ranked) > 1 else -1.0
+        ok = best[0] is not None and best[1] >= self.threshold and best[1] - second >= self.margin
+        return {"person": best[0] if ok else None, "score": best[1], "scores": scores}
+
+
 # ------------------------------------------------------------------ the hub
 class Hub:
     def __init__(self, cfg):
@@ -183,13 +308,24 @@ class Hub:
         # the client key (the CO server, CO Web's voice mode): recognition, home commands, speech - never the agent;
         # each voice point has its own key with its own person (env), chat and agent permissions (points{})
         self.key = secret(cfg.get("key"), "VOICE_HUB_KEY")
+        # people a point may recognise by voice (level 2): id -> their env, chat(s) and shell permission
+        self.people = {}
+        for pid, pp in (cfg.get("people") or {}).items():
+            if re.fullmatch(r"[A-Za-z0-9_][\w-]{0,39}", pid) and isinstance(pp, dict):
+                self.people[pid] = {"env": pp.get("env") or "", "chat": pp.get("chat") or "",
+                                    "chats": list(pp.get("chats") or []), "shell": bool(pp.get("shell", False))}
+        self.vp = Voiceprints(cfg.get("speakerId"))
         self.points = {}
         for name, pc in (cfg.get("points") or {}).items():
             k = secret((pc or {}).get("key"))
             if k and re.fullmatch(r"[\w.-]{1,40}", name):
                 self.points[name] = {"key": k, "env": pc.get("env") or "", "chat": pc.get("chat") or "",
                                      "chats": list(pc.get("chats") or []), "speaker": pc.get("speaker") or "",
-                                     "shell": bool(pc.get("shell", False))}
+                                     "shell": bool(pc.get("shell", False)),
+                                     # who this point recognises; a voice of nobody of them: "home" = home
+                                     # commands only (default once people are set), "point" = as the point's env
+                                     "people": [p for p in (pc.get("people") or []) if p in self.people],
+                                     "unknown": pc.get("unknown") if pc.get("unknown") in ("home", "point") else "home"}
         self.slots = threading.BoundedSemaphore(int(cfg.get("maxConcurrent") or 6))
         self.langs = tuple(cfg.get("languages") or ("ru", "uk", "en", "nl"))
         self.default_lang = cfg.get("defaultLanguage") or self.langs[0]
@@ -348,9 +484,36 @@ class Hub:
         t0 = time.time()
         tm = {}
         out = {"route": None}
+        who = None  # recognised voice; None = not checked or not recognised
+        check = bool(point and point.get("people") and audio is not None)
+        th = None
+        if check and self.vp.ok and audio[:4] == b"RIFF":
+            res = {}
+
+            def _who():
+                t1 = time.time()
+                try:
+                    res.update(self.vp.match(audio, point["people"]))
+                except Exception as e:  # noqa: BLE001 - not recognised, never a failed turn
+                    res["error"] = str(e)[:120]
+                tm["voice"] = round(time.time() - t1, 2)
+            th = threading.Thread(target=_who, daemon=True)  # in parallel with speech to text
+            th.start()
         if audio is not None:
             text, lang = self.transcribe(audio, filename, typ, lang if lang in self.langs else None)
             tm["stt"] = round(time.time() - t0, 2)
+        if th is not None:
+            th.join(30)
+            who = res.get("person")
+            out["speaker"] = {"person": who, "score": res.get("score"), **({"error": res["error"]} if "error" in res else {})}
+        elif check:
+            out["speaker"] = {"person": None, "error": "speaker recognition off" if not self.vp.ok else "not a WAV"}
+        asker = point  # whose agent answers: the recognised person, the point itself, or nobody
+        if check:
+            if who:
+                asker = {**point, **self.people[who], "person": who}
+            elif point["unknown"] == "home":
+                asker = None
         lang = norm_lang(lang, self.langs, self.default_lang)
         text = (text or "").strip()
         out.update(text=text, lang=lang)
@@ -379,7 +542,10 @@ class Hub:
                     out["timings"] = tm
                     return out
                 t1 = time.time()
-                ans, why = self.agent(text, lang, chat, point)
+                if point and asker is None:
+                    ans, why = None, "stranger"
+                else:
+                    ans, why = self.agent(text, lang, chat, asker)
                 tm["agent"] = round(time.time() - t1, 2)
                 out["route"] = "agent"
                 reply = self.clean(ans) if ans else say(lang, why)
@@ -470,6 +636,7 @@ def make_handler(hub):
         def _post(self, p, role, point, body):
             q = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query))
             ctype = self.headers.get("Content-Type") or ""
+            files = {}
             try:
                 if ctype.startswith("application/json"):
                     q.update(json.loads(body or b"{}"))
@@ -506,6 +673,29 @@ def make_handler(hub):
                     return self._send(200, hub.home(str(q.get("text") or ""), lang))
                 if p == "/v1/voice/status":
                     return self._send(200, hub_status(hub))
+                if p in ("/v1/voice/enroll", "/v1/voice/forget", "/v1/voice/whois"):
+                    # voiceprints: only with a point's key and only for the people of that point (its owner runs
+                    # the enrollment with the person present - each person records their own voice, by consent)
+                    if role != "point":
+                        return self._send(403, {"error": "a voice point key is required"})
+                    if not hub.vp.ok:
+                        return self._send(409, {"error": "speaker recognition is off (speakerId.model)"})
+                    if p == "/v1/voice/whois":
+                        if audio is None:
+                            return self._send(400, {"error": "audio required"})
+                        return self._send(200, hub.vp.match(audio, point["people"]))
+                    person = str(q.get("person") or "")
+                    if person not in point["people"]:
+                        return self._send(403, {"error": "person is not one of this point's people"})
+                    if p == "/v1/voice/forget":
+                        return self._send(200, {"person": person, "forgotten": hub.vp.forget(person)})
+                    wavs = [d for k, (_, d, _) in sorted(files.items()) if k.startswith("file")] or \
+                           ([audio] if audio is not None else [])
+                    if not wavs or len(wavs) > 60:
+                        return self._send(400, {"error": "1-60 WAV clips required (file0, file1, ...)"})
+                    r = hub.vp.enroll(person, wavs, replace=str(q.get("replace", "")) in ("1", "true", "True"))
+                    log("enroll", point["name"], person, r["n"], r["skipped"])
+                    return self._send(200, r)
             except Exception as e:  # noqa: BLE001 - the client gets the reason, the hub keeps running
                 log("error", p, e)
                 return self._send(502, {"error": str(e)[:300]})
@@ -523,6 +713,8 @@ def hub_status(hub):
         code, _, _ = http("GET", hub.ha_url + "/api/", headers={"Authorization": f"Bearer {hub.ha_token}"}, timeout=5)
         st["homeAssistant"] = {"ok": code == 200, "speakers": sorted(hub.cast)}
     st["agent"] = {"configured": bool(hub.co_url and hub.co_key), "points": sorted(hub.points)}
+    st["speakerId"] = {"ok": hub.vp.ok, "model": os.path.basename(hub.vp.model) if hub.vp.model else "",
+                       "people": sorted(hub.people), "enrolled": hub.vp.enrolled() if hub.vp.ok else []}
     return st
 
 
@@ -579,10 +771,13 @@ def hub_key():
         return ""
 
 
-def hub_call(c, path, payload=None, audio=None, timeout=180):
+def hub_call(c, path, payload=None, audio=None, timeout=180, audios=None):
     url = c["hub"].rstrip("/") + path
     h = {"Authorization": f"Bearer {hub_key()}"}
-    if audio is not None:
+    if audios:
+        body, ct = multipart({k: str(v) for k, v in (payload or {}).items()},
+                             {f"file{i:02d}": (f"clip{i:02d}.wav", d, "audio/wav") for i, d in enumerate(audios)})
+    elif audio is not None:
         body, ct = multipart({k: str(v) for k, v in (payload or {}).items()}, {"file": ("phrase.wav", audio, "audio/wav")})
     else:
         body, ct = json.dumps(payload or {}).encode(), "application/json"
@@ -695,7 +890,7 @@ def cmd_point(a):
             time.sleep(10)
         c = client_cfg(a.config)
     vad = VAD()
-    model = None if a.once else Model(wakeword_models=[wake], inference_framework="onnx")
+    model = None if a.once else wake_model(Model, wake, c)
     blk = 1280  # 80 ms at 16 kHz, what openWakeWord expects
     stream = sd.InputStream(samplerate=16000, channels=1, dtype="int16", blocksize=blk, device=c.get("inputDevice"))
     stream.start()
@@ -750,6 +945,238 @@ def cmd_point(a):
         stream.close()
 
 
+def wake_model(Model, wake, c):
+    """openWakeWord model; with a voice verifier of this device (level 1, `enroll`) the wake word counts only in the
+    enrolled voices: a raw score above verifierGate is replaced by the verifier's probability."""
+    kw = {"wakeword_models": [wake], "inference_framework": "onnx"}
+    ver = c.get("verifier") or {}
+    path = ver.get(wake) if isinstance(ver, dict) else None
+    if path and os.path.isfile(path):  # a pickle written by this tool on this device (enroll), never downloaded
+        kw["custom_verifier_models"] = {os.path.splitext(os.path.basename(wake))[0]: path}
+        kw["custom_verifier_threshold"] = float(c.get("verifierGate") or 0.3)
+    return Model(**kw)
+
+
+# ------------------------------------------------------------------ enrollment (levels 1 and 2)
+ENROLL_TEXT = {
+    "ru": {"intro": "Запись образцов голоса для «{person}». Говорите обычным голосом с того места, откуда будете "
+                    "обращаться к точке. Образцы остаются на этом устройстве и на сервере семьи (только числа).",
+           "wake": "[{i}/{n}] После сигнала скажите: {phrase}", "phrase": "[{i}/{n}] После сигнала прочитайте: {text}",
+           "again": "  Не узнала слово-пробуждение, ещё раз.", "ok": "  принято", "quiet": "  Тишина, ещё раз.",
+           "train": "Обучаю верификатор на устройстве...", "hub": "Отправляю образцы на сервер семьи...",
+           "done": "Готово. Можно закрыть окно.", "enter": "Нажмите Enter, чтобы начать... "},
+    "en": {"intro": "Recording voice samples for '{person}'. Speak normally from where you will talk to the point. "
+                    "Samples stay on this device and on the family server (numbers only).",
+           "wake": "[{i}/{n}] After the beep say: {phrase}", "phrase": "[{i}/{n}] After the beep read: {text}",
+           "again": "  Wake word not recognised, once more.", "ok": "  ok", "quiet": "  Silence, once more.",
+           "train": "Training the verifier on this device...", "hub": "Sending samples to the family server...",
+           "done": "Done. You can close this window.", "enter": "Press Enter to start... "},
+}
+ENROLL_PHRASES = {
+    "ru": ["Включи свет на кухне и сделай потеплее.", "Какая завтра погода в Генте?", "Напомни мне в пятницу позвонить врачу.",
+           "Сколько будет двадцать три умножить на семь?", "Расскажи коротко, что нового в мире.",
+           "Поставь таймер на пятнадцать минут.", "Съешь же ещё этих мягких французских булок да выпей чаю.",
+           "Какие у меня встречи на следующей неделе?"],
+    "en": ["Turn on the kitchen light and make it a bit warmer.", "What is the weather tomorrow?",
+           "Remind me on Friday to call the doctor.", "What is twenty three times seven?",
+           "Tell me briefly what is new in the world.", "Set a timer for fifteen minutes.",
+           "The quick brown fox jumps over the lazy dog.", "What meetings do I have next week?"],
+}
+
+
+def enroll_dir(person=None):
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/.local/share")
+    d = os.path.join(base, "AIWorkbench", "voice-enroll")
+    return os.path.join(d, person) if person else d
+
+
+def resample16k(rate, a):
+    import numpy as np
+    if rate == 16000:
+        return a
+    n = int(round(a.size * 16000 / rate))
+    return np.interp(np.linspace(0, a.size - 1, n), np.arange(a.size), a).astype(np.float32)
+
+
+def save_wav16(path, a):
+    import numpy as np
+    pcm = (np.clip(a, -1, 1) * 32767).astype(np.int16).tobytes()
+    with open(path, "wb") as f:
+        f.write(wav_bytes(pcm))
+
+
+def wake_score(model, a16):
+    """Max raw wake score over a 16 kHz float clip (with 1 s of silence before, as the point hears it)."""
+    import numpy as np
+    model.reset()
+    pcm = (np.concatenate([np.zeros(16000, np.float32), a16, np.zeros(8000, np.float32)]) * 32767).astype(np.int16)
+    return max((max(model.predict(pcm[i:i + 1280]).values()) for i in range(0, pcm.size - 1280, 1280)), default=0.0)
+
+
+def train_verifier(wake, c, negatives_dir):
+    """Verifier of this device: positives = wake clips of every person enrolled here, negatives = their other speech and
+    the wake word in synthetic voices (what must not wake the point). -> path or None (nobody enrolled)."""
+    import glob
+    from openwakeword.custom_verifier_model import train_custom_verifier
+    pos = sorted(glob.glob(os.path.join(enroll_dir(), "*", "wake", "*.wav")))
+    if not pos:
+        return None
+    neg = sorted(glob.glob(os.path.join(enroll_dir(), "*", "speech", "*.wav")) +
+                 glob.glob(os.path.join(negatives_dir, "*.wav")))
+    name = os.path.splitext(os.path.basename(wake))[0]
+    out = os.path.join(os.path.dirname(client_cfg_path()), f"voice-verifier-{name}.pkl")
+    import contextlib
+    with contextlib.redirect_stdout(sys.stderr):
+        train_custom_verifier(positive_reference_clips=pos, negative_reference_clips=neg, output_path=out + ".tmp",
+                              model_name=wake, inference_framework="onnx")
+    os.replace(out + ".tmp", out)
+    return out
+
+
+def synth_negatives(c, wake, lang_list):
+    """The wake word said by the hub's synthetic voices (each language) -> 16 kHz WAV clips in a temp folder."""
+    import tempfile
+    d = tempfile.mkdtemp(prefix="voice-neg-")
+    phrase = wake.replace("_", " ")
+    for i, lang in enumerate(lang_list):
+        for j, t in enumerate((phrase, phrase.title() + "!", phrase + ", " + {"ru": "который час", "uk": "котра година",
+                                                                             "nl": "hoe laat is het"}.get(lang, "what time is it"))):
+            try:
+                data = hub_call(c, "/v1/voice/speak", {"text": t, "lang": lang, "format": "wav"})
+                rate, a = wav_samples(data)
+                save_wav16(os.path.join(d, f"tts-{lang}-{j}.wav"), resample16k(rate, a))
+            except Exception as e:  # noqa: BLE001
+                log("negatives", lang, e)
+    return d
+
+
+def cmd_enroll(a):
+    c = client_cfg(a.config)
+    if a.hub:
+        c["hub"] = a.hub
+    if not re.fullmatch(r"[A-Za-z0-9_][\w-]{0,39}", a.person or ""):
+        sys.exit("enroll: --person ID (letters, digits, _ -), the id of the person in the hub config")
+    try:
+        import numpy as np
+        import sounddevice as sd
+        from openwakeword.model import Model
+        from openwakeword.vad import VAD
+        import sklearn  # noqa: F401 - the verifier
+    except ImportError:
+        py = venv_python()
+        if py and os.path.abspath(py) != os.path.abspath(sys.executable):
+            import subprocess
+            return subprocess.call([py, os.path.abspath(__file__)] + sys.argv[1:])
+        sys.exit("enroll: packages missing - run: voice.py setup-point")
+    wake = a.wake or c["wakeWord"]
+    pdir = enroll_dir(a.person)
+    if a.forget:
+        import shutil
+        shutil.rmtree(pdir, ignore_errors=True)
+        r = {"person": a.person, "local": "deleted"}
+        neg = synth_negatives(c, wake, ["ru", "en"]) if os.path.isdir(enroll_dir()) and os.listdir(enroll_dir()) else None
+        path = train_verifier(wake, c, neg) if neg else None
+        c["verifier"] = {**(c.get("verifier") or {}), wake: path} if path else \
+            {k: v for k, v in (c.get("verifier") or {}).items() if k != wake}
+        save_client_cfg(c, a.config)
+        r["verifier"] = path
+        if c["hub"] and hub_key() and not a.no_hub:
+            r["hub"] = hub_call(c, "/v1/voice/forget", {"person": a.person})
+        print(json.dumps(r, ensure_ascii=False))
+        return 0
+    L = ENROLL_TEXT.get(a.lang or c["lang"] or "en", ENROLL_TEXT["en"])
+    phrases = ENROLL_PHRASES.get(a.lang or c["lang"] or "en", ENROLL_PHRASES["en"])[:a.phrases]
+    print(L["intro"].format(person=a.person))
+    if not a.no_wait:
+        input(L["enter"])
+    os.makedirs(os.path.join(pdir, "wake"), exist_ok=True)
+    os.makedirs(os.path.join(pdir, "speech"), exist_ok=True)
+    dev = a.input_device if a.input_device is not None else c.get("inputDevice")
+    if isinstance(dev, str) and dev.isdigit():
+        dev = int(dev)
+    oww = Model(wakeword_models=[wake], inference_framework="onnx")
+    vad = VAD()
+
+    def rec(seconds, until_silence=False):
+        beep("start")
+        blocks, heard, quiet = [], False, 0
+        with sd.InputStream(samplerate=16000, channels=1, dtype="int16", blocksize=1280, device=dev) as st:
+            t0 = time.time()
+            while time.time() - t0 < seconds:
+                b, _ = st.read(1280)
+                b = b[:, 0].copy()
+                blocks.append(b)
+                if vad.predict(b) >= 0.5:
+                    heard, quiet = True, 0
+                else:
+                    quiet += 80
+                if until_silence and heard and quiet >= 900:
+                    break
+        return np.concatenate(blocks).astype(np.float32) / 32768.0, heard
+
+    wake_phrase = wake.replace("_", " ")
+    i, tries = 0, 0
+    while i < a.wake_clips and tries < a.wake_clips * 2:
+        tries += 1
+        print(L["wake"].format(i=i + 1, n=a.wake_clips, phrase=wake_phrase), flush=True)
+        clip, heard = rec(2.5)
+        s = wake_score(oww, clip)
+        if s < 0.5:
+            print(L["again"] if heard else L["quiet"], f"({s:.2f})", flush=True)
+            continue
+        # 1 s of silence before (the model warms up on the first frames), as the point hears it
+        save_wav16(os.path.join(pdir, "wake", f"w{i:02d}.wav"), np.concatenate([np.zeros(16000, np.float32), clip]))
+        print(L["ok"], f"({s:.2f})", flush=True)
+        i += 1
+    for j, text in enumerate(phrases):
+        for _ in range(2):
+            print(L["phrase"].format(i=j + 1, n=len(phrases), text=text), flush=True)
+            clip, heard = rec(10, until_silence=True)
+            if heard:
+                save_wav16(os.path.join(pdir, "speech", f"s{j:02d}.wav"), clip)
+                print(L["ok"], flush=True)
+                break
+            print(L["quiet"], flush=True)
+    r = {"person": a.person, "wakeClips": i, "speechClips": len(os.listdir(os.path.join(pdir, "speech")))}
+    if not a.no_verifier and i:
+        print(L["train"], flush=True)
+        neg = synth_negatives(c, wake, ["ru", "uk", "en", "nl"]) if c["hub"] and hub_key() else enroll_dir("_none")
+        path = train_verifier(wake, c, neg)
+        c["verifier"] = {**(c.get("verifier") or {}), wake: path}
+        save_client_cfg(c, a.config)
+        r["verifier"] = path
+        r["check"] = verifier_check(Model, wake, c, pdir, neg)
+    if not a.no_hub and c["hub"] and hub_key():
+        print(L["hub"], flush=True)
+        import glob
+        clips = sorted(glob.glob(os.path.join(pdir, "speech", "*.wav")))
+        wav_list = []
+        for p in clips:
+            with open(p, "rb") as f:
+                wav_list.append(f.read())
+        r["hub"] = hub_call(c, "/v1/voice/enroll", {"person": a.person, "replace": "1"}, audios=wav_list)
+    print(L["done"], flush=True)
+    print(json.dumps(r, ensure_ascii=False, indent=1))
+    if not a.no_wait:
+        input()
+    return 0
+
+
+def verifier_check(Model, wake, c, pdir, negdir):
+    """How the trained verifier scores its own clips: own wake clips should pass, synthetic voices should not."""
+    import glob
+    m = wake_model(Model, wake, c)
+
+    def frac(paths):
+        ok = 0
+        for p in paths:
+            rate, a = wav_samples(open(p, "rb").read())
+            ok += wake_score(m, resample16k(rate, a)) >= float(c.get("threshold") or 0.5)
+        return f"{ok}/{len(paths)}"
+    return {"ownWakePass": frac(sorted(glob.glob(os.path.join(pdir, "wake", "*.wav")))),
+            "syntheticPass": frac(sorted(glob.glob(os.path.join(negdir, "tts-*.wav"))))}
+
+
 def venv_dir():
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/.local/share")
     return os.path.join(base, "AIWorkbench", "venvs", "voice")
@@ -772,7 +1199,7 @@ def cmd_setup_point(a):
     py = venv_python()
     ort = "onnxruntime==1.20.1" if os.name == "nt" and not a.latest else "onnxruntime"
     subprocess.check_call([py, "-m", "pip", "install", "-q", "--disable-pip-version-check", "numpy", "sounddevice",
-                           "openwakeword", ort, "keyring"])
+                           "openwakeword", ort, "keyring", "scikit-learn", "scipy", "tqdm"])
     subprocess.check_call([py, "-c", "import openwakeword.utils as u; u.download_models()"])
     print(json.dumps({"venv": d, "python": py}))
     return 0
@@ -838,6 +1265,15 @@ def cmd_ask(a):
     return 0
 
 
+def cmd_whois(a):
+    c = client_cfg(a.config)
+    if a.hub:
+        c["hub"] = a.hub
+    with open(a.wav, "rb") as f:
+        print(json.dumps(hub_call(c, "/v1/voice/whois", {}, audio=f.read()), ensure_ascii=False))
+    return 0
+
+
 def cmd_check(a):
     if a.config_hub:
         hub = Hub(load_json(a.config_hub))
@@ -877,6 +1313,25 @@ def main(argv=None):
     s.add_argument("--yes", action="store_true", help="owner confirms always-on listening without the prompt")
     s.add_argument("--set-key", action="store_true", help="type the hub key into keyring aiwb/voice-hub")
     s.set_defaults(fn=cmd_point_config)
+    s = sub.add_parser("enroll", help="record a person's voice: verifier of the wake word here + voiceprint on the hub")
+    s.add_argument("--person", required=True, help="person id of the hub config (people{})")
+    s.add_argument("--config")
+    s.add_argument("--hub")
+    s.add_argument("--wake", help="wake word model (default: the point's)")
+    s.add_argument("--lang", help="prompts and phrases: ru or en")
+    s.add_argument("--input-device", help="sounddevice input (index or name)")
+    s.add_argument("--wake-clips", type=int, default=20)
+    s.add_argument("--phrases", type=int, default=8)
+    s.add_argument("--no-verifier", action="store_true", help="level 2 only")
+    s.add_argument("--no-hub", action="store_true", help="level 1 only")
+    s.add_argument("--no-wait", action="store_true", help="no Enter before and after (not in a window)")
+    s.add_argument("--forget", action="store_true", help="delete the person's samples here and their voiceprint")
+    s.set_defaults(fn=cmd_enroll)
+    s = sub.add_parser("whois", help="whose voice is in a WAV file (the hub's speaker recognition)")
+    s.add_argument("wav")
+    s.add_argument("--config")
+    s.add_argument("--hub")
+    s.set_defaults(fn=cmd_whois)
     s = sub.add_parser("say", help="speak a text through the hub")
     s.add_argument("text")
     s.add_argument("--config")

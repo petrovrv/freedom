@@ -105,7 +105,10 @@ class HubTest(unittest.TestCase):
             return e.code, json.loads(e.read())
 
     def test_auth(self):
-        self.assertEqual(self.post("/v1/voice/turn", {"text": "x"}, key="bad")[0], 401)
+        try:
+            self.assertEqual(self.post("/v1/voice/turn", {"text": "x"}, key="bad")[0], 401)
+        except (ConnectionAbortedError, ConnectionResetError):
+            pass  # the hub closes before reading the body; Windows may reset the socket before the 401 is read
         with urllib.request.urlopen(self.url + "/voice/v1/voice/health") as r:  # Funnel path prefix, no key
             self.assertTrue(json.loads(r.read())["ok"])
 
@@ -189,6 +192,118 @@ class HubTest(unittest.TestCase):
         self.assertEqual(voice.norm_lang("ja", ("ru", "nl"), "ru"), "ru")
         self.assertAlmostEqual(voice.audio_seconds(voice.wav_bytes(b"\x00\x00" * 8000)), 0.5)
         self.assertEqual(voice.audio_seconds(b"x" * 8000, "audio/webm"), 2.0)
+
+
+class FakeVP:
+    """Speaker recognition stand-in: the WAV's last 4 bytes name the speaker (b'ALIC' -> alice, else nobody)."""
+    ok = True
+    model = "fake.onnx"
+
+    def __init__(self):
+        self.enrolled_clips = {}
+
+    def match(self, wav, people):
+        p = "alice" if wav.endswith(b"ALIC") and "alice" in people else None
+        return {"person": p, "score": 0.8 if p else 0.2, "scores": {}}
+
+    def enroll(self, person, wavs, replace=False):
+        self.enrolled_clips[person] = len(wavs)
+        return {"person": person, "n": len(wavs), "clips": len(wavs), "skipped": 0, "self": []}
+
+    def forget(self, person):
+        return self.enrolled_clips.pop(person, None) is not None
+
+    def enrolled(self):
+        return sorted(self.enrolled_clips)
+
+
+class SpeakerTest(HubTest):
+    """Level 2: a point with people answers as the recognised person; a stranger gets home commands only."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fake = serve(Fake)
+        base = f"http://127.0.0.1:{cls.fake.server_port}"
+        os.environ["VOICE_HUB_KEY"] = "k1"
+        os.environ["T_PT"] = "p1"
+        os.environ["T_P2"] = "p2"
+        cls.hub = voice.Hub({
+            "speaches": {"url": base, "sttModel": "turbo", "sttModelShort": "small"},
+            "homeAssistant": {"url": base, "token": {"env": "T_HA"}},
+            "co": {"dbUrl": base + "/db.php", "hostKey": {"env": "T_CO"}, "chatId": "CHAT-0", "waitSeconds": 10},
+            "people": {"alice": {"env": "alice", "chat": "CHAT-A"}, "kid": {"env": "kid", "chat": "CHAT-K"},
+                       "../x": {"env": "evil"}},
+            "points": {"kitchen": {"key": {"env": "T_PT"}, "env": "me", "chat": "CHAT-1", "chats": ["CHAT-2"]},
+                       "pc": {"key": {"env": "T_P2"}, "env": "alice", "chat": "CHAT-1", "people": ["alice", "../x"]}},
+        })
+        cls.hub.ha_token, cls.hub.co_key = "ha", "co"
+        cls.hub.vp = FakeVP()
+        cls.srv = serve(voice.make_handler(cls.hub))
+        cls.url = f"http://127.0.0.1:{cls.srv.server_port}"
+
+    def turn_audio(self, tail, key="p2"):
+        wav = voice.wav_bytes(b"\x00\x00" * 16000) + tail  # transcribed as "расскажи анекдот" -> agent
+        body, ct = voice.multipart({"speak": "0"}, {"file": ("p.wav", wav, "audio/wav")})
+        req = urllib.request.Request(self.url + "/v1/voice/turn", body, {"Authorization": f"Bearer {key}", "Content-Type": ct})
+        return json.loads(urllib.request.urlopen(req, timeout=20).read())
+
+    def test_bad_person_ids_dropped(self):
+        self.assertEqual(sorted(self.hub.people), ["kid", "alice"])
+        self.assertEqual(self.hub.points["pc"]["people"], ["alice"])
+        self.assertEqual(self.hub.points["pc"]["unknown"], "home")
+
+    def test_recognised_voice_asks_as_the_person(self):
+        r = self.turn_audio(b"ALIC")
+        self.assertEqual((r["route"], r["speaker"]["person"]), ("agent", "alice"))
+        ask = [a for a in self.asks() if a["op"] == "voice_ask"][0]
+        self.assertEqual((ask["env"], ask["chatId"]), ("alice", "CHAT-A"))
+
+    def test_stranger_gets_home_only(self):
+        r = self.turn_audio(b"XXXX")
+        self.assertEqual((r["route"], r["speaker"]["person"], r["reply"]), ("agent", None, voice.SAY["ru"]["stranger"]))
+        self.assertEqual([a for a in self.asks() if a["op"] == "voice_ask"], [])
+
+    def test_point_without_people_unchanged(self):
+        r = self.turn_audio(b"XXXX", key="p1")
+        self.assertNotIn("speaker", r)
+        self.assertEqual([a["env"] for a in self.asks() if a["op"] == "voice_ask"], ["me"])
+
+    def enroll(self, person, key="p2"):
+        wav = voice.wav_bytes(b"\x00\x00" * 16000)
+        body, ct = voice.multipart({"person": person}, {"file00": ("a.wav", wav, "audio/wav"), "file01": ("b.wav", wav, "audio/wav")})
+        req = urllib.request.Request(self.url + "/v1/voice/enroll", body, {"Authorization": f"Bearer {key}", "Content-Type": ct})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
+    def test_enroll_only_own_people_with_point_key(self):
+        self.assertEqual(self.enroll("alice"), (200, {"person": "alice", "n": 2, "clips": 2, "skipped": 0, "self": []}))
+        self.assertEqual(self.enroll("kid")[0], 403)          # not a person of this point
+        self.assertEqual(self.enroll("alice", key="p1")[0], 403)  # kitchen has no people
+        self.assertEqual(self.enroll("alice", key="k1")[0], 403)  # client key never enrolls
+        self.assertEqual(self.post("/v1/voice/forget", {"person": "alice"}, key="p2"), (200, {"person": "alice", "forgotten": True}))
+
+
+class VoiceprintMathTest(unittest.TestCase):
+    def test_enroll_match_and_model_change(self):
+        import tempfile
+        import numpy as np
+        d = tempfile.mkdtemp()
+        model = os.path.join(d, "m.onnx")
+        open(model, "wb").close()
+        vp = voice.Voiceprints({"model": model, "dir": os.path.join(d, "vp"), "threshold": 0.6})
+        vecs = {b"A": np.array([1, 0, 0], np.float32), b"B": np.array([0, 1, 0], np.float32),
+                b"C": np.array([0.9, 0.1, 0], np.float32)}
+        vp.embed = lambda w: vecs[w[:1]] / np.linalg.norm(vecs[w[:1]])
+        vp.enroll("a", [b"A1", b"C1"])
+        vp.enroll("b", [b"B1"])
+        self.assertEqual(vp.match(b"A2", ["a", "b"])["person"], "a")
+        self.assertEqual(vp.match(b"B2", ["a"])["person"], None)  # b is not asked for
+        self.assertEqual(vp.enrolled(), ["a", "b"])
+        vp.model = os.path.join(d, "other.onnx")  # another model: old voiceprints are not comparable
+        self.assertEqual(vp.match(b"A2", ["a", "b"])["person"], None)
 
 
 if __name__ == "__main__":

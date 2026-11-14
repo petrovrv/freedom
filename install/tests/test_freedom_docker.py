@@ -237,6 +237,31 @@ class SecretStoreTest(Base):
         self.assertIsNot(fs.keyring_get, None)
 
 
+class StackSecretsTest(Base):
+    def test_new_stack_never_takes_the_keyring_secrets(self):
+        h = FakeHost()
+        keys = {('aiwb/co-push', 'default'): 'real-push-key', ('aiwb/co-mysql', 'co'): 'real-db-pw'}
+        with mock.patch.object(fs, 'keyring_get', lambda s, a='default': keys.get((s, a))),                 mock.patch.object(fs, 'keyring_set', lambda s, a, v: keys.__setitem__((s, a), v)):
+            made = fd.make_stack_secrets(h, {'dbUser': 'co', 'keyring': True})
+        self.assertEqual(sorted(made), ['db_password', 'db_root_password', 'push_key'])
+        self.assertNotEqual(h.files['push_key'], 'real-push-key')
+        self.assertNotEqual(h.files['db_password'], 'real-db-pw')
+        self.assertEqual(keys[('aiwb/co-push', 'default')], 'real-push-key')     # another installation's: kept
+        self.assertEqual(keys[('aiwb/co-mysql', 'co')], 'real-db-pw')
+
+    def test_empty_keyring_gets_the_fresh_secret_and_existing_stack_is_kept(self):
+        h = FakeHost()
+        keys = {}
+        with mock.patch.object(fs, 'keyring_get', lambda s, a='default': keys.get((s, a))),                 mock.patch.object(fs, 'keyring_set', lambda s, a, v: keys.__setitem__((s, a), v)):
+            fd.make_stack_secrets(h, {'dbUser': 'co', 'keyring': True})
+            self.assertEqual(keys[('aiwb/co-push', 'default')], h.files['push_key'])
+            self.assertEqual(fd.make_stack_secrets(h, {'dbUser': 'co', 'keyring': True}), [])
+        keys2 = {}
+        with mock.patch.object(fs, 'keyring_get', lambda s, a='default': keys2.get((s, a))),                 mock.patch.object(fs, 'keyring_set', lambda s, a, v: keys2.__setitem__((s, a), v)):
+            fd.make_stack_secrets(FakeHost(), {'dbUser': 'co', 'keyring': False})
+        self.assertEqual(keys2, {})
+
+
 class ReviewFixesTest(Base):
     def test_variant_c_only_localhost_name(self):
         d = json.loads(json.dumps(BASE))

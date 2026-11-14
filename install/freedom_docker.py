@@ -27,8 +27,10 @@ acmeEmail, keyring (also keep the generated secrets in the OS keyring of this co
 
 Secrets: generated once into <stackDir>/secrets (folder 0700, files 0600) on the Docker host: db_password,
 db_root_password, push_key, and google_oauth_web.json when --oauth-client is given. With docker.keyring (default) the
-database password, push key and web OAuth client are also read from / written to the keyring entries of variant A
-(aiwb/co-mysql, aiwb/co-push, aiwb/google-oauth-web), so Bridge and the tools of this PC find them.
+database password, push key and web OAuth client are also written to the keyring entries of variant A
+(aiwb/co-mysql, aiwb/co-push, aiwb/google-oauth-web), so Bridge and the tools of this PC find them. A new stack never
+takes its database password or push key from the keyring (it may hold another installation's); an entry that holds
+another value is kept with a warning. Test stands on a PC with a real installation: docker.keyring false.
 """
 import argparse
 import datetime as dt
@@ -347,6 +349,31 @@ class DockerTarget:
         pass
 
 
+def make_stack_secrets(h, s: dict) -> list:
+    """New secrets of a new stack are always fresh, never taken from the OS keyring: the keyring of this computer can
+    hold the secrets of another installation (a variant A site, or the real one while this stack is a test stand), and
+    copying them into the stack would hand that installation's push key or database password to the stack. With
+    docker.keyring a fresh secret goes to an empty keyring entry; an entry that holds another value is kept, with a
+    warning (Bridge and the tools of this computer go on using it)."""
+    made = []
+    for name, keyring_key in (('db_password', ('aiwb/co-mysql', s['dbUser'])), ('db_root_password', None),
+                              ('push_key', ('aiwb/co-push', 'default'))):
+        if h.secret(name):
+            continue
+        val = secrets.token_urlsafe(32)
+        h.set_secret(name, val)
+        made.append(name)
+        if not (keyring_key and s['keyring']):
+            continue
+        old = fs.keyring_get(*keyring_key)
+        if not old:
+            keyring_put(fs.keyring_set, *keyring_key, val)
+        elif old != val:
+            out('warn', f'keyring {keyring_key[0]} already holds a secret of another installation: kept; this stack has '
+                        f'its own in the stack folder. A test stand: docker.keyring false in its install.json')
+    return made
+
+
 @contextmanager
 def secret_store(host: Host, s: dict):
     """freedom_setup reads and writes its secrets through keyring_get/keyring_set; for the stack they come from the
@@ -442,17 +469,7 @@ def cmd_up(a) -> int:
                 0o755 if name.endswith('.sh') else 0o644)
     h.write(f'{st}/Caddyfile', caddyfile(s).encode(), 0o644)
     h.write(f'{st}/.env', env_text(s, h.nproc()).encode(), 0o600)
-    made = []
-    for name, keyring_key in (('db_password', ('aiwb/co-mysql', s['dbUser'])), ('db_root_password', None),
-                              ('push_key', ('aiwb/co-push', 'default'))):
-        if h.secret(name):
-            continue
-        val = fs.keyring_get(*keyring_key) if keyring_key and s['keyring'] else None
-        val = val or secrets.token_urlsafe(32)
-        h.set_secret(name, val)
-        if keyring_key and s['keyring'] and not fs.keyring_get(*keyring_key):
-            keyring_put(fs.keyring_set, *keyring_key, val)
-        made.append(name)
+    made = make_stack_secrets(h, s)
     out('ok', f'stack folder {st}' + (f'; secrets made (0600): {", ".join(made)}' if made else '; secrets kept'))
     args = ['up', '-d', '--remove-orphans'] + ([] if a.no_build else ['--build'])
     out('info', f'docker compose -p {s["project"]} {" ".join(args)} (first build: a few minutes)')

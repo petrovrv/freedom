@@ -1306,6 +1306,7 @@ export default function ChatView(props: Props) {
         canAttach={capabilities.length === 0 || capabilities.includes('attachments')}
         matchFile={capabilities.includes('chat-files') ? (n) => matchUpload(safeFileName(n), composerStreams)?.name ?? null : undefined}
         hostHealth={props.hostHealth}
+        events={events}
         onSend={sendOrQueue}
         onModeChange={(m) => {
           // 0.37.0: a draft has no chat.json yet; its mode goes with the first message (changing chat.defaultMode
@@ -2089,7 +2090,7 @@ interface SendForm {
 }
 
 function Composer({
-  draftKey, initial, owner, owners, hostId, env, allowedModes, allowedAgents, prefill, disabled, canAttach, matchFile, hostHealth, onSend, onModeChange, templates,
+  draftKey, initial, owner, owners, hostId, env, allowedModes, allowedAgents, prefill, disabled, canAttach, matchFile, hostHealth, events, onSend, onModeChange, templates,
 }: {
   draftKey: string;
   initial: Selection;
@@ -2105,6 +2106,8 @@ function Composer({
   // 0.55.0: name of the chat file an upload would continue (null = a new file); absent = the host has no chat files
   matchFile?: (name: string) => string | null;
   hostHealth: HostHealth;
+  // the chat's messages, for composer pages with chat.read (voice mode waits for the answer)
+  events?: ChatEvent[] | null;
   onSend: (i: SendForm, progress: (s: string) => void) => Promise<void>;
   onModeChange: (m: Mode) => void;
   // 0.37.0: environment templates (new-chat screen only)
@@ -2145,7 +2148,10 @@ function Composer({
         el.setSelectionRange(el.value.length, el.value.length);
       }
     },
-  }), [setText]);
+    // ext/1 composer.send (voice mode): the phrase goes out like a quick reply; a busy composer refuses it
+    send: (t: string) => voiceSend.current(t),
+    events: events || undefined,
+  }), [setText, events]);
 
   // S6: the catalog of the executor the model was picked on (ModelPicker), else of the chat's current one
   const catalog = (sel.host ? owners[sel.host] ?? owner : owner)?.agents?.[sel.agent];
@@ -2241,6 +2247,20 @@ function Composer({
       setProgress('');
     }
   }
+
+  // composer.send of a module page: the latest state (a ref, since composerInput is memoized)
+  const voiceSend = useRef<(t: string) => Promise<void>>(async () => undefined);
+  voiceSend.current = async (t: string) => {
+    if (busy || disabled) throw new Error('The chat is busy; try again when the answer is in.');
+    setBusy(true);
+    setErr(null);
+    try {
+      await onSend({ text: t.trim(), sel, files: [], returnFiles: [], forceNew: false }, setProgress);
+    } finally {
+      setBusy(false);
+      setProgress('');
+    }
+  };
 
   async function submit() {
     if (!text.trim() || busy || disabled) return;

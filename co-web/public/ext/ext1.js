@@ -18,6 +18,13 @@
 //   coExt.input(text, {interim, done}), coExt.focusInput()      composer.input - text into the message box
 //   coExt.audio.start(maxSeconds) / stop() / cancel()           media.audio - CO Web records the microphone
 //   coExt.speech.start(lang) / stop() / platform()              media.speech - browser speech service, events 'speech'
+//   coExt.audio.start(maxSeconds, {silenceMs})                  media.audio - stops by itself after silenceMs of quiet
+//                                                               (event 'audio' {silence: true}; then stop())
+//   coExt.send(text)                                            composer.send - the text goes out as the chat's next
+//                                                               message (agent and model of the composer)
+//   coExt.play(bytes, type) / coExt.play(null)                  media.play - CO Web plays an audio answer (ArrayBuffer,
+//                                                               audio/*); resolves {ended} when it ends or is stopped
+// A composer page with chat.read gets 'chat' {events, canAsk} like a viewer panel (voice mode waits for the answer).
 // Any slot: coExt.upload(name, blob, filename, fields) (manifest server.uploads), coExt.storage.get/set(key, value).
 // ctx.media in the composer: {audio, speech, platform} - what this browser can do. Events: 'audio', 'speech', 'sent'
 // (the message went out: speech recognition stopped).
@@ -151,7 +158,9 @@
     focusInput: function () { post({ t: 'input', focus: true }); },
     // microphone recorded by CO Web (permission media.audio); stop -> {file: Blob, filename, type} or null; events 'audio'
     audio: {
-      start: function (maxSeconds) { return request({ t: 'audio', action: 'start', maxSeconds: maxSeconds || 300 }, 60000); },
+      start: function (maxSeconds, opts) {
+        return request({ t: 'audio', action: 'start', maxSeconds: maxSeconds || 300, silenceMs: Number(opts && opts.silenceMs) || 0 }, 60000);
+      },
       stop: function () { return request({ t: 'audio', action: 'stop' }, 60000); },
       cancel: function () { return request({ t: 'audio', action: 'cancel' }, 10000); },
     },
@@ -161,6 +170,13 @@
       start: function (lang) { return request({ t: 'speech', action: 'start', lang: lang || '' }, 10000); },
       stop: function () { return request({ t: 'speech', action: 'stop' }, 10000); },
       platform: function () { return request({ t: 'speech', action: 'platform' }, 0); },
+    },
+    // the chat's next message (permission composer.send); refused while the chat is busy
+    send: function (text) { return request({ t: 'send', text: String(text || '') }, 120000); },
+    // an audio answer played by CO Web (permission media.play); null stops it
+    play: function (bytes, type) {
+      if (!bytes) return request({ t: 'play', action: 'stop' }, 10000);
+      return request({ t: 'play', action: 'play', bytes: bytes, type: String(type || 'audio/mpeg') }, 600000);
     },
     // POST of a file to an upload the module declared (manifest server.uploads); the handler's JSON comes back
     upload: function (name, file, filename, fields) {

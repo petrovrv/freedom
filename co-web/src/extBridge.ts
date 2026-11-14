@@ -85,7 +85,12 @@ export function moduleUrl(m: Pick<ModuleInfo, 'id' | 'version'>, entry: string):
 //             Web; results come back as 'speech' events.
 //   upload  - a POST of a file to one of the module's declared uploads (manifest server.uploads, agent/module.php&u=)
 //   storage - a few small values of the module kept in this browser (per module, per key)
-export const EXT_PERMISSIONS = { input: 'composer.input', audio: 'media.audio', speech: 'media.speech' } as const;
+export const EXT_PERMISSIONS = {
+  input: 'composer.input', audio: 'media.audio', speech: 'media.speech',
+  // voice mode (module voice, SPEC §3.8): send a text as the chat's next message; play an audio answer
+  send: 'composer.send', play: 'media.play',
+} as const;
+const MAX_PLAY = 10 * 1024 * 1024;
 const MAX_INPUT = 20000;
 const MAX_UPLOAD = 25 * 1024 * 1024;
 const MAX_STORE = 4096;
@@ -100,7 +105,9 @@ export type ExtRequest =
   | { t: 'title'; text: string }
   | { t: 'size'; w: number; h: number; overlay: boolean }
   | { t: 'input'; text: string; interim: string; done: boolean; focus: boolean }
-  | { t: 'audio'; id: string; action: 'start' | 'stop' | 'cancel'; maxSeconds: number }
+  | { t: 'audio'; id: string; action: 'start' | 'stop' | 'cancel'; maxSeconds: number; silenceMs: number }
+  | { t: 'send'; id: string; text: string }
+  | { t: 'play'; id: string; action: 'play' | 'stop'; bytes: ArrayBuffer | null; type: string }
   | { t: 'speech'; id: string; action: 'start' | 'stop' | 'platform'; lang: string }
   | { t: 'upload'; id: string; name: string; file: Blob; filename: string; fields: Record<string, string> }
   | { t: 'storage'; id: string; action: 'get' | 'set'; key: string; value: string | null }
@@ -182,7 +189,21 @@ export function parseExtMessage(data: unknown): ExtRequest | null {
   if (m.t === 'audio') {
     if (!reqId(m.id) || (m.action !== 'start' && m.action !== 'stop' && m.action !== 'cancel')) return null;
     const max = Number(m.maxSeconds);
-    return { t: 'audio', id: m.id, action: m.action, maxSeconds: Number.isFinite(max) ? Math.max(1, Math.min(600, max)) : 300 };
+    // silenceMs > 0: the recording stops by itself that long after the speaker went quiet (hands-free voice mode)
+    const quiet = Number(m.silenceMs);
+    return { t: 'audio', id: m.id, action: m.action, maxSeconds: Number.isFinite(max) ? Math.max(1, Math.min(600, max)) : 300,
+      silenceMs: Number.isFinite(quiet) && quiet > 0 ? Math.max(300, Math.min(5000, quiet)) : 0 };
+  }
+  if (m.t === 'send') {
+    if (!reqId(m.id) || typeof m.text !== 'string' || !m.text.trim() || m.text.length > MAX_INPUT) return null;
+    return { t: 'send', id: m.id, text: m.text };
+  }
+  if (m.t === 'play') {
+    if (!reqId(m.id) || (m.action !== 'play' && m.action !== 'stop')) return null;
+    if (m.action === 'stop') return { t: 'play', id: m.id, action: 'stop', bytes: null, type: '' };
+    const type = typeof m.type === 'string' && /^audio\/[a-z0-9.+-]{1,30}$/.test(m.type) ? m.type : '';
+    if (!(m.bytes instanceof ArrayBuffer) || !m.bytes.byteLength || m.bytes.byteLength > MAX_PLAY || !type) return null;
+    return { t: 'play', id: m.id, action: 'play', bytes: m.bytes, type };
   }
   if (m.t === 'speech') {
     if (!reqId(m.id) || (m.action !== 'start' && m.action !== 'stop' && m.action !== 'platform')) return null;
@@ -218,7 +239,8 @@ export function parseExtMessage(data: unknown): ExtRequest | null {
  */
 export function capabilityRefusal(m: Pick<ModuleInfo, 'enabled' | 'permissions' | 'uploads'>, slot: string, r: ExtRequest): string {
   if (!m.enabled) return 'module_disabled';
-  const need = r.t === 'input' ? EXT_PERMISSIONS.input : r.t === 'audio' ? EXT_PERMISSIONS.audio : r.t === 'speech' ? EXT_PERMISSIONS.speech : '';
+  const need = r.t === 'input' ? EXT_PERMISSIONS.input : r.t === 'audio' ? EXT_PERMISSIONS.audio : r.t === 'speech' ? EXT_PERMISSIONS.speech
+    : r.t === 'send' ? EXT_PERMISSIONS.send : r.t === 'play' ? EXT_PERMISSIONS.play : '';
   if (need && !m.permissions.includes(need)) return 'permission_not_declared';
   if (need && slot !== 'ui.composer') return 'composer_only';
   if (r.t === 'upload' && !(m.uploads || []).includes(r.name)) return 'upload_not_declared';

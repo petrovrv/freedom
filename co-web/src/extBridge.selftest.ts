@@ -59,6 +59,20 @@ ok('speech refused without its permission', !!sp && capabilityRefusal(mod, 'ui.c
 ok('declared upload allowed', !!up && capabilityRefusal(mod, 'ui.composer', up) === '');
 ok('undeclared upload refused', !!up && capabilityRefusal({ ...mod, uploads: [] }, 'ui.composer', up) === 'upload_not_declared');
 ok('disabled module refused', !!inp && capabilityRefusal({ ...mod, enabled: false }, 'ui.composer', inp) === 'module_disabled');
+// voice mode (composer.send, media.play, silence stop)
+const au2 = parseExtMessage({ ext: 1, t: 'audio', id: 'a2', action: 'start', maxSeconds: 30, silenceMs: 50 });
+ok('silenceMs clamped up', au2?.t === 'audio' && au2.silenceMs === 300);
+ok('no silenceMs = 0', au?.t === 'audio' && au.silenceMs === 0);
+const snd = parseExtMessage({ ext: 1, t: 'send', id: 'n1', text: 'hello' });
+ok('send parsed', snd?.t === 'send' && snd.text === 'hello');
+ok('empty send refused', parseExtMessage({ ext: 1, t: 'send', id: 'n1', text: '  ' }) === null);
+const pl = parseExtMessage({ ext: 1, t: 'play', id: 'p1', action: 'play', bytes: new ArrayBuffer(8), type: 'audio/mpeg' });
+ok('play parsed', pl?.t === 'play' && pl.type === 'audio/mpeg');
+ok('play of a non-audio type refused', parseExtMessage({ ext: 1, t: 'play', id: 'p1', action: 'play', bytes: new ArrayBuffer(8), type: 'text/html' }) === null);
+ok('play stop parsed', parseExtMessage({ ext: 1, t: 'play', id: 'p1', action: 'stop' })?.t === 'play');
+ok('send refused without composer.send', !!snd && capabilityRefusal(mod, 'ui.composer', snd) === 'permission_not_declared');
+ok('send allowed with composer.send', !!snd && capabilityRefusal({ ...mod, permissions: ['composer.send'] }, 'ui.composer', snd) === '');
+ok('play refused outside the composer', !!pl && capabilityRefusal({ ...mod, permissions: ['media.play'] }, 'ui.header', pl) === 'composer_only');
 const d = { ...m, device: { tools: [], ops: ['geo_folder_add'], default: 'on' as const, warning: '' } };
 ok('server op routed to the server', JSON.stringify(callRoute(d, 'geo_state', true)) === '{"route":"server"}');
 ok('device op routed to the device', JSON.stringify(callRoute(d, 'geo_folder_add', true)) === '{"route":"device"}');

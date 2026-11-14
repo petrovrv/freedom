@@ -1,0 +1,16 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* Voice mode button of the composer (module voice). Colors come from CO Web through ext/1 (theme). */
+:root { --bg: #fafaf7; --panel: #fff; --fg: #1c1c1a; --muted: #6c6c66; --line: #deded8; --accent: #1f5fbf; --bad: #b3261e; }
+html, body { margin: 0; padding: 0; background: transparent; color: var(--fg); font: 13px system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+* { box-sizing: border-box; }
+#voice { display: inline-flex; gap: 4px; align-items: center; height: 30px; padding: 1px; white-space: nowrap; }
+.btn { border: 1px solid var(--line); background: transparent; color: inherit; border-radius: 7px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.on { border-color: var(--bad); color: var(--bad); }
+.btn.loop[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+select { border: 1px solid var(--line); border-radius: 7px; padding: 4px 4px; background: var(--bg); color: inherit; font: inherit; font-size: 12px; }
+.note { color: var(--muted); font-size: 12px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
+.err { color: var(--bad); font-size: 12px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }

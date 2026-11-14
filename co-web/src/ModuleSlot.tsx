@@ -9,7 +9,7 @@
 // permissions also the message box, microphone and speech of the composer slot (composerMedia.ts), uploads and a little
 // storage. A module with data about people (manifest personal) asks a person whose switch is "ask" right in the slot.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AudioCapture, audioFileName, mediaSupport, platformDictation, SpeechCapture } from './composerMedia';
+import { AudioCapture, audioFileName, AudioPlayback, mediaSupport, platformDictation, SpeechCapture } from './composerMedia';
 import { dbModuleCall, dbModuleList, dbModulePerson, dbModuleUpload } from './dbapi';
 import { callRoute, capabilityRefusal, moduleUrl, navTarget, parseExtMessage, reqRefusal, SLOT_PERMISSION, THEME_VARS, type ExtRequest, type ModuleHint, type ModuleInfo, type ModuleUi } from './extBridge';
 import { setModuleList } from './moduleStore';
@@ -93,6 +93,10 @@ export interface ComposerInput {
   set(text: string, interim: string, done: boolean): void;
   /** caret to the end of the box (platform voice typing types there itself) */
   focus(): void;
+  /** ext/1 composer.send: the text goes out as the chat's next message with the composer's agent and model */
+  send?(text: string): Promise<void>;
+  /** ext/1 chat.read in the composer: the messages of the chat (voice mode waits for the agent's answer) */
+  events?: ChatEvent[];
 }
 
 const STORE_PREFIX = 'co.ext.';
@@ -207,10 +211,11 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
   panelRef.current = panel;
   const rootRef = useRef(rootId);
   rootRef.current = rootId;
-  // a viewer pane gets the messages of its chat (chat.read)
-  const chatOn = !!panel && m.permissions.includes('chat.read');
-  const evs = panel?.events;
-  const canAsk = !!panel?.canAsk;
+  // a viewer pane gets the messages of its chat (chat.read); so does a composer page (voice mode waits for the answer)
+  const composerChat = ui.slot === 'ui.composer' && !!input?.events;
+  const chatOn = (!!panel || composerChat) && m.permissions.includes('chat.read');
+  const evs = panel ? panel.events : input?.events;
+  const canAsk = panel ? !!panel.canAsk : !!input?.send;
   const slim = useMemo(() => (chatOn ? (evs || []).map(slimEvent) : null), [chatOn, evs]);
   const chatRef = useRef({ slim, canAsk });
   chatRef.current = { slim, canAsk };
@@ -223,7 +228,8 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
   // microphone and speech run here on the page's behalf (ext/1 media.audio / media.speech); one of each per frame
   const audio = useRef<AudioCapture | null>(null);
   const speech = useRef<SpeechCapture | null>(null);
-  useEffect(() => () => { audio.current?.cancel(); speech.current?.dispose(); }, []);
+  const player = useRef<AudioPlayback | null>(null);
+  useEffect(() => () => { audio.current?.cancel(); speech.current?.dispose(); player.current?.stop(); }, []);
   useEffect(() => {
     if (ui.slot !== 'ui.composer') return;
     const f = () => {
@@ -246,7 +252,7 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
       case 'audio': {
         audio.current ??= new AudioCapture((u) => send({ t: 'event', type: 'audio', data: u }));
         if (r.action === 'start') {
-          await audio.current.start(r.maxSeconds);
+          await audio.current.start(r.maxSeconds, r.silenceMs);
           return null;
         }
         if (r.action === 'cancel') {
@@ -268,6 +274,20 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
         if (r.action === 'start') speech.current.start(r.lang);
         else speech.current.stop();
         return null;
+      }
+      case 'send': {
+        const box = inputRef.current;
+        if (!box?.send) throw new Error('no_message_box');
+        await box.send(r.text);
+        return { ok: true };
+      }
+      case 'play': {
+        player.current ??= new AudioPlayback();
+        if (r.action === 'stop' || !r.bytes) {
+          player.current.stop();
+          return null;
+        }
+        return player.current.play(r.bytes, r.type);
       }
       case 'upload':
         return dbModuleUpload(mod.current.id, r.name, r.file, r.filename, r.fields);

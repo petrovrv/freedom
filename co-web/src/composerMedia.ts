@@ -249,14 +249,16 @@ export class AudioCapture {
   private done: Promise<Blob | null> | null = null;
   private gen = 0;
   private starting = false;
-  private onTick: (u: { recording: boolean; seconds: number }) => void;
-  constructor(onTick: (u: { recording: boolean; seconds: number }) => void) {
+  private level: { ctx: AudioContext; timer: ReturnType<typeof setInterval> } | null = null;
+  private onTick: (u: { recording: boolean; seconds: number; silence?: boolean }) => void;
+  constructor(onTick: (u: { recording: boolean; seconds: number; silence?: boolean }) => void) {
     this.onTick = onTick;
   }
 
   get recording(): boolean { return !!this.rec; }
 
-  async start(maxSeconds: number): Promise<void> {
+  /** silenceMs > 0: stop by itself that long after speech went quiet (the event says silence: true; then stop()). */
+  async start(maxSeconds: number, silenceMs = 0): Promise<void> {
     if (this.rec || this.starting) throw new Error('already recording');
     // a cancel (or unmount) while the microphone permission is pending must win over the late stream
     const gen = ++this.gen;
@@ -314,6 +316,7 @@ export class AudioCapture {
     }
     const t0 = Date.now();
     this.onTick({ recording: true, seconds: 0 });
+    if (silenceMs > 0) this.watchSilence(stream, silenceMs);
     this.tick = setInterval(() => {
       const s = Math.floor((Date.now() - t0) / 1000);
       this.onTick({ recording: true, seconds: Math.min(s, maxSeconds) });
@@ -344,7 +347,51 @@ export class AudioCapture {
     }
   }
 
+  // voice mode: a level meter on the stream; speech = RMS over an adaptive floor, then quiet for silenceMs -> stop.
+  // Nothing heard in the first 8 s stops too (the page gets an empty or short recording and says so).
+  private watchSilence(stream: MediaStream, silenceMs: number) {
+    const Ctx = (window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext
+      || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return;
+    let ctx: AudioContext;
+    try {
+      ctx = new Ctx();
+    } catch {
+      return;
+    }
+    const an = ctx.createAnalyser();
+    an.fftSize = 1024;
+    ctx.createMediaStreamSource(stream).connect(an);
+    const buf = new Float32Array(an.fftSize);
+    let floor = 0.01, heard = false, quietSince = 0;
+    const t0 = Date.now();
+    const timer = setInterval(() => {
+      an.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+      const rms = Math.sqrt(sum / buf.length);
+      const now = Date.now();
+      if (rms > Math.max(0.02, floor * 3)) {
+        heard = true;
+        quietSince = 0;
+      } else {
+        floor = floor * 0.95 + rms * 0.05;
+        if (heard && !quietSince) quietSince = now;
+      }
+      if ((heard && quietSince && now - quietSince >= silenceMs) || (!heard && now - t0 > 8000)) {
+        this.onTick({ recording: true, seconds: Math.floor((now - t0) / 1000), silence: true });
+        this.halt(false);
+      }
+    }, 100);
+    this.level = { ctx, timer };
+  }
+
   private release() {
+    if (this.level) {
+      clearInterval(this.level.timer);
+      void this.level.ctx.close().catch(() => undefined);
+      this.level = null;
+    }
     if (this.tick !== null) {
       clearInterval(this.tick);
       this.tick = null;
@@ -357,5 +404,54 @@ export class AudioCapture {
       this.rec = null;
       this.onTick({ recording: false, seconds: 0 });
     }
+  }
+}
+
+// ---------- audio playback (ext/1 media.play) ----------
+
+/**
+ * Plays an answer for a module page (voice mode): the page's frame has no media of its own (CSP), so CO Web plays the
+ * bytes; play() resolves when the clip ends or is stopped. One clip at a time per frame.
+ */
+export class AudioPlayback {
+  private el: HTMLAudioElement | null = null;
+  private url = '';
+  private finish: (() => void) | null = null;
+
+  play(bytes: ArrayBuffer, type: string): Promise<{ ended: boolean }> {
+    this.stop();
+    this.url = URL.createObjectURL(new Blob([bytes], { type }));
+    const el = new Audio(this.url);
+    this.el = el;
+    return new Promise((resolve, reject) => {
+      const done = (ended: boolean) => {
+        if (this.el === el) this.cleanup();
+        resolve({ ended });
+      };
+      this.finish = () => done(false);
+      el.onended = () => done(true);
+      el.onerror = () => {
+        if (this.el === el) this.cleanup();
+        reject(new Error('This browser cannot play the answer.'));
+      };
+      el.play().catch((e) => {
+        if (this.el === el) this.cleanup();
+        reject(new Error(e instanceof Error && e.name === 'NotAllowedError' ? 'Tap the page once so the browser lets it speak.' : 'Playback failed.'));
+      });
+    });
+  }
+
+  stop(): void {
+    const f = this.finish;
+    try { this.el?.pause(); } catch { /* ignore */ }
+    this.cleanup();
+    f?.();
+  }
+
+  private cleanup() {
+    if (this.url) URL.revokeObjectURL(this.url);
+    this.url = '';
+    this.el = null;
+    this.finish = null;
   }
 }

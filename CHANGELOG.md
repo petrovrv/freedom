@@ -5,6 +5,17 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- **Voice assistant** (Freedom F13, SPEC §3.8): module voice 0.1.0 - a voice hub for the family server (`tools/voice`
+  `voice.py hub`, standard library only: speech to text and piper voices through speaches, Home Assistant conversation
+  first, any HA error or "agent, ..." to the CO agent of a chat, answer as audio, Cast speakers through HA), a voice
+  point with a wake word for Windows and Linux (`voice.py point`: openWakeWord + silero VAD, own venv, always-on
+  listening only after the device owner turns it on; service `point` under Bridge), 🗣 voice mode in the composer, and
+  server ops `voice_status`, `voice_speak`, `voice_ask_user`, `voice_answer_user`, upload `turn`, host ops `voice_ask` /
+  `voice_answer` (a phrase of a voice point becomes a message and a job of a chat, own agent session `request.voice`).
+- CO Web 0.105.0, ext/1 for composer pages: `media.audio` with `silenceMs` (the recording stops after a pause),
+  `media.play` (CO Web plays an audio answer for the sandboxed frame), `composer.send` (a text goes out as the chat's
+  next message), `chat.read` in the `ui.composer` slot.
+
 - Setup wizard `subs`: finds claude/codex right after their official installers (`~/.local/bin`, the npm prefix) and adds those folders to the Windows user PATH; before, a fresh install said "claude: not installed" (rehearsal in a clean Windows 11 VM).
 - Installer (Docker variants B/C): a new stack makes its own database password and push key and never copies them from the OS keyring, which can hold another installation's (a test stand on the owner's PC took the real push key); a keyring entry with another value is kept with a warning.
 - Bridge 1.19.0 install.sh: `--deps` also installs OpenSSL 3 (`libssl3` / `libssl3t64`, Fedora `openssl-libs`) and zlib, and the install stops with a clear hint when OpenSSL is missing (minimal Debian images have none; .NET 8 needs it).

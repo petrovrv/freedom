@@ -30,7 +30,9 @@ Files the core reads itself (`context/*.md|txt`) must be registered files of the
 |---|---|
 | `files.read` | `file.get`, `file.pdf`, `file.sibling` |
 | `files.write` | `file.putSibling` |
-| `chat.read` | a viewer panel gets the events of its chat (`chat` messages) |
+| `chat.read` | a viewer panel (or a composer page) gets the events of its chat (`chat` messages) |
+| `composer.send` | `coExt.send` (composer slot) |
+| `media.play` | `coExt.play` (composer slot) |
 | `chat.post` | `chat.ask` |
 | `ui.navigate` | `navigate` (only to targets of `provides.navigate`) |
 
@@ -73,6 +75,15 @@ A page includes `/ext/ext1.js` and talks through `window.coExt`:
 - `coExt.navigate(url, target)` — `self` (whole window) or `blank` (new tab/window).
 - `coExt.title(text)` — window title of a `ui.page`.
 - `coExt.on('context'|'blur'|'chat', fn)`.
+
+Composer slot (`ui.composer`, a page in the action row of the message box; CO Web captures for the frame, which has an
+opaque origin): `coExt.input`/`focusInput` (`composer.input`), `coExt.audio.start(maxSeconds, {silenceMs})`/`stop`/`cancel`
+(`media.audio`; with `silenceMs` the recording stops by itself after that much quiet following speech, event `audio`
+`{silence: true}`, then `stop()` returns it), `coExt.speech.*` (`media.speech`), `coExt.send(text)` (`composer.send`: the
+text goes out as the chat's next message with the composer's agent and model; refused while the chat is busy),
+`coExt.play(bytes, type)` / `coExt.play(null)` (`media.play`: CO Web plays an `audio/*` ArrayBuffer up to 10 MB and
+answers `{ended}` when it ends or is stopped). With `chat.read` a composer page gets `chat` `{events, canAsk}` like a
+viewer panel. Examples: `dictation/README.md` (input), `voice/README.md` (voice mode).
 
 Core services (`coExt.req`):
 

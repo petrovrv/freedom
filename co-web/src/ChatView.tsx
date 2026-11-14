@@ -2250,13 +2250,16 @@ function Composer({
 
   // composer.send of a module page: the latest state (a ref, since composerInput is memoized)
   const voiceSend = useRef<(t: string) => Promise<void>>(async () => undefined);
+  const voiceBusy = useRef(false); // set at once: two sends in one tick must not both pass the busy check
   voiceSend.current = async (t: string) => {
-    if (busy || disabled) throw new Error('The chat is busy; try again when the answer is in.');
+    if (busy || disabled || voiceBusy.current) throw new Error('The chat is busy; try again when the answer is in.');
+    voiceBusy.current = true;
     setBusy(true);
     setErr(null);
     try {
       await onSend({ text: t.trim(), sel, files: [], returnFiles: [], forceNew: false }, setProgress);
     } finally {
+      voiceBusy.current = false;
       setBusy(false);
       setProgress('');
     }

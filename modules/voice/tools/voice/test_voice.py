@@ -81,10 +81,12 @@ class HubTest(unittest.TestCase):
         cls.fake = serve(Fake)
         base = f"http://127.0.0.1:{cls.fake.server_port}"
         os.environ["VOICE_HUB_KEY"] = "k1"
+        os.environ["T_PT"] = "p1"
         cls.hub = voice.Hub({
             "speaches": {"url": base, "sttModel": "turbo", "sttModelShort": "small"},
             "homeAssistant": {"url": base, "token": {"env": "T_HA"}},
-            "co": {"dbUrl": base + "/db.php", "hostKey": {"env": "T_CO"}, "chatId": "CHAT-1", "env": "me", "waitSeconds": 10},
+            "co": {"dbUrl": base + "/db.php", "hostKey": {"env": "T_CO"}, "chatId": "CHAT-0", "waitSeconds": 10},
+            "points": {"kitchen": {"key": {"env": "T_PT"}, "env": "me", "chat": "CHAT-1", "chats": ["CHAT-2"]}},
         })
         cls.hub.ha_token, cls.hub.co_key = "ha", "co"
         cls.srv = serve(voice.make_handler(cls.hub))
@@ -112,15 +114,43 @@ class HubTest(unittest.TestCase):
         self.assertEqual((code, r["route"], r["reply"]), (200, "home", "10:42"))
         self.assertEqual(base64.b64decode(r["audio"]["b64"]), "AUDIO:10:42".encode())
 
+    def asks(self):
+        return [json.loads(gzip.decompress(base64.b64decode(json.loads(c[2])["gz"]))) for c in CALLS if c[0] == "/db.php"]
+
     def test_ha_error_goes_to_agent_and_markdown_is_cleaned(self):
-        code, r = self.post("/v1/voice/turn", {"text": "сколько будет семь умножить на восемь", "lang": "ru", "speak": "0"})
+        code, r = self.post("/v1/voice/turn", {"text": "сколько будет семь умножить на восемь", "lang": "ru", "speak": False}, key="p1")
         self.assertEqual((r["route"], r["home"]), ("agent", "no_valid_targets"))
         self.assertEqual(r["reply"], "Кот зашёл в бар. ссылка")
-        ask = [json.loads(gzip.decompress(base64.b64decode(json.loads(c[2])["gz"]))) for c in CALLS if c[0] == "/db.php"][0]
-        self.assertEqual((ask["op"], ask["chatId"], ask["env"]), ("voice_ask", "CHAT-1", "me"))
+        self.assertNotIn("audio", r)  # JSON false = no speech
+        ask = self.asks()[0]
+        self.assertEqual((ask["op"], ask["chatId"], ask["env"], ask["point"], ask["shell"]), ("voice_ask", "CHAT-1", "me", "kitchen", False))
+
+    def test_point_chat_must_be_allowed(self):
+        self.post("/v1/voice/turn", {"text": "агент, привет", "lang": "ru", "speak": "0", "chat": "CHAT-2"}, key="p1")
+        self.post("/v1/voice/turn", {"text": "агент, привет", "lang": "ru", "speak": "0", "chat": "CHAT-EVIL"}, key="p1")
+        self.assertEqual([a["chatId"] for a in self.asks() if a["op"] == "voice_ask"], ["CHAT-2", "CHAT-1"])
+
+    def test_client_key_never_reaches_the_agent(self):
+        code, r = self.post("/v1/voice/turn", {"text": "агент, расскажи анекдот", "lang": "ru", "route": "agent", "speak": "0"})
+        self.assertEqual((r["route"], r.get("reply")), ("agent", None))
+        self.assertEqual(self.asks(), [])
+
+    def test_bad_length_refused_before_reading(self):
+        import http.client
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port, timeout=5)
+        c.putrequest("POST", "/v1/voice/turn")
+        c.putheader("Authorization", "Bearer k1")
+        c.putheader("Content-Length", "-1")
+        c.endheaders()
+        self.assertEqual(c.getresponse().status, 413)
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port, timeout=5)
+        c.putrequest("POST", "/v1/voice/turn")
+        c.putheader("Content-Length", str(100 * 1024 * 1024))
+        c.endheaders()  # no body sent: the hub answers 401 without waiting for it
+        self.assertEqual(c.getresponse().status, 401)
 
     def test_agent_prefix_skips_home(self):
-        code, r = self.post("/v1/voice/turn", {"text": "Агент, который час", "lang": "ru", "speak": "0"})
+        code, r = self.post("/v1/voice/turn", {"text": "Агент, который час", "lang": "ru", "speak": "0"}, key="p1")
         self.assertEqual(r["route"], "agent")
         self.assertFalse(any(c[0] == "/api/conversation/process" for c in CALLS))
 
@@ -129,6 +159,11 @@ class HubTest(unittest.TestCase):
         self.assertEqual((r["route"], r["text"]), ("agent", "расскажи анекдот"))
         self.assertNotIn("audio", r)
         self.assertFalse(any(c[0] == "/db.php" for c in CALLS))
+
+    def test_client_route_still_answers_home_commands(self):
+        code, r = self.post("/v1/voice/turn", {"text": "который час", "lang": "ru", "route": "client"})
+        self.assertEqual((r["route"], r["reply"]), ("home", "10:42"))
+        self.assertIn("audio", r)
 
     def test_audio_short_phrase_uses_small_model(self):
         wav = voice.wav_bytes(b"\x00\x00" * 16000)  # 1 s

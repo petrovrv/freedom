@@ -359,13 +359,22 @@ export class AudioCapture {
     } catch {
       return;
     }
-    const an = ctx.createAnalyser();
-    an.fftSize = 1024;
-    ctx.createMediaStreamSource(stream).connect(an);
+    let an: AnalyserNode;
+    try {
+      an = ctx.createAnalyser();
+      an.fftSize = 1024;
+      ctx.createMediaStreamSource(stream).connect(an);
+    } catch {
+      void ctx.close().catch(() => undefined);
+      return;
+    }
+    // a context may start suspended (Safari, no fresh gesture): the level would read 0 and stop every recording
+    void ctx.resume().catch(() => undefined);
     const buf = new Float32Array(an.fftSize);
     let floor = 0.01, heard = false, quietSince = 0;
     const t0 = Date.now();
     const timer = setInterval(() => {
+      if (ctx.state !== 'running') return; // no level to judge: the page stops it (button or limit)
       an.getFloatTimeDomainData(buf);
       let sum = 0;
       for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];

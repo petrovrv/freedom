@@ -5,6 +5,14 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- Module voice 0.1.1 (review fixes): the hub checks the key before reading a body, limits length and parallel requests;
+  every voice point has its own key with its person, chat and shell switch (`points`), the client key of the server
+  never makes the hub ask the agent; voice jobs are side jobs (`request.voice`, one collapsed row; the chat's own
+  session is never resumed by a voice answer), the job is stored before its message, one voice job per chat under a
+  lock, the executor must still serve the environment, no shell unless the point allows it; CO Web's voice mode asks
+  Home Assistant again (route `client`). CO Web 0.105.1: `composer.send` needs a click into the page (10 sends within
+  10 minutes per click) and cannot pass twice in one tick; the silence meter resumes a suspended audio context.
+
 - **Voice assistant** (Freedom F13, SPEC §3.8): module voice 0.1.0 - a voice hub for the family server (`tools/voice`
   `voice.py hub`, standard library only: speech to text and piper voices through speaches, Home Assistant conversation
   first, any HA error or "agent, ..." to the CO agent of a chat, answer as audio, Cast speakers through HA), a voice

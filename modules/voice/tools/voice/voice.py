@@ -33,7 +33,7 @@ import urllib.request
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 UA = f"freedom-voice/{VERSION}"
 LANGS = ("ru", "uk", "en", "nl", "fr", "de")
 WHISPER_NAMES = {"russian": "ru", "ukrainian": "uk", "english": "en", "dutch": "nl", "flemish": "nl", "french": "fr",
@@ -46,13 +46,13 @@ DEFAULT_VOICES = {
 }
 # what the hub says itself when something fails (the point has no screen)
 SAY = {
-    "ru": {"agent_off": "Агент не настроен.", "agent_wait": "Агент не ответил вовремя.", "fail": "Не получилось.",
+    "ru": {"busy": "Агент ещё отвечает на прошлый вопрос.", "agent_off": "Агент не настроен.", "agent_wait": "Агент не ответил вовремя.", "fail": "Не получилось.",
            "unheard": "Не расслышала."},
-    "uk": {"agent_off": "Агента не налаштовано.", "agent_wait": "Агент не відповів вчасно.", "fail": "Не вийшло.",
+    "uk": {"busy": "Агент ще відповідає на попереднє питання.", "agent_off": "Агента не налаштовано.", "agent_wait": "Агент не відповів вчасно.", "fail": "Не вийшло.",
            "unheard": "Не розчула."},
-    "en": {"agent_off": "The agent is not set up.", "agent_wait": "The agent did not answer in time.",
+    "en": {"busy": "The agent is still answering the last question.", "agent_off": "The agent is not set up.", "agent_wait": "The agent did not answer in time.",
            "fail": "That did not work.", "unheard": "I did not catch that."},
-    "nl": {"agent_off": "De agent is niet ingesteld.", "agent_wait": "De agent antwoordde niet op tijd.",
+    "nl": {"busy": "De agent beantwoordt nog de vorige vraag.", "agent_off": "De agent is niet ingesteld.", "agent_wait": "De agent antwoordde niet op tijd.",
            "fail": "Dat lukte niet.", "unheard": "Ik heb het niet verstaan."},
 }
 # Any HA error goes to the agent: no_intent_match (not a home phrase) but also no_valid_targets and the like (HA
@@ -180,7 +180,17 @@ def wav_bytes(pcm16, rate=16000):
 class Hub:
     def __init__(self, cfg):
         self.cfg = cfg
+        # the client key (the CO server, CO Web's voice mode): recognition, home commands, speech - never the agent;
+        # each voice point has its own key with its own person (env), chat and agent permissions (points{})
         self.key = secret(cfg.get("key"), "VOICE_HUB_KEY")
+        self.points = {}
+        for name, pc in (cfg.get("points") or {}).items():
+            k = secret((pc or {}).get("key"))
+            if k and re.fullmatch(r"[\w.-]{1,40}", name):
+                self.points[name] = {"key": k, "env": pc.get("env") or "", "chat": pc.get("chat") or "",
+                                     "chats": list(pc.get("chats") or []), "speaker": pc.get("speaker") or "",
+                                     "shell": bool(pc.get("shell", False))}
+        self.slots = threading.BoundedSemaphore(int(cfg.get("maxConcurrent") or 6))
         self.langs = tuple(cfg.get("languages") or ("ru", "uk", "en", "nl"))
         self.default_lang = cfg.get("defaultLanguage") or self.langs[0]
         s = cfg.get("speaches") or {}
@@ -201,8 +211,7 @@ class Hub:
         c = cfg.get("co") or {}
         self.co_url = (c.get("dbUrl") or "").strip()
         self.co_key = secret(c.get("hostKey"), "VOICE_CO_HOST_KEY")
-        self.co_chat = c.get("chatId") or ""
-        self.co_env = c.get("env") or ""
+        self.co_chat = c.get("chatId") or ""  # default chat of points without their own
         self.co_wait = int(c.get("waitSeconds") or 120)
         self.public = (cfg.get("publicAudioBase") or "").rstrip("/")  # LAN address Cast speakers fetch replies from
         self.clips = {}  # id -> (expires, type, bytes)
@@ -228,7 +237,9 @@ class Hub:
         return (d.get("text") or "").strip(), norm_lang(d.get("language") or lang, self.langs, self.default_lang)
 
     def speak(self, text, lang, fmt="mp3"):
-        voice = self.voices.get(lang) or self.voices.get(self.default_lang)
+        voice = self.voices.get(lang) or self.voices.get(self.default_lang) or next(iter(self.voices.values()), None)
+        if not voice:
+            raise RuntimeError("text to speech: no voice configured")
         body = json.dumps({"model": voice, "input": text[:4000], "voice": voice.rsplit("-", 2)[-2] if "-" in voice else "default",
                            "response_format": fmt}).encode()
         code, ct, data = http("POST", self.sp_url + "/v1/audio/speech", body,
@@ -266,18 +277,32 @@ class Hub:
             raise RuntimeError(f"CO {op}: {d.get('error') or code}")
         return d
 
-    def agent(self, text, lang, chat=None, point=""):
-        """The CO agent of the voice chat answers; None when it is not set up or does not answer in time."""
-        chat = chat or self.co_chat
-        if not (self.co_url and self.co_key and chat):
+    def agent(self, text, lang, chat=None, point=None):
+        """The CO agent of the point's chat answers as the point's person; (None, reason) when it cannot."""
+        if not point:
             return None, "agent_off"
-        job = self.co("voice_ask", {"chatId": chat, "env": self.co_env, "text": text, "lang": lang, "point": point})
+        chat = chat if chat and chat in point["chats"] + [point["chat"]] else (point["chat"] or self.co_chat)
+        if not (self.co_url and self.co_key and chat and point["env"]):
+            return None, "agent_off"
+        try:
+            job = self.co("voice_ask", {"chatId": chat, "env": point["env"], "text": text, "lang": lang,
+                                        "point": point["name"], "shell": point["shell"]})
+        except RuntimeError as e:
+            log("agent", e)
+            return None, "fail"
+        if job.get("busy"):
+            return None, "busy"
         if job.get("error") or not job.get("jobId"):
+            log("agent", job.get("error"))
             return None, "fail"
         end = time.time() + self.co_wait
         while time.time() < end:
             time.sleep(1.5)
-            r = self.co("voice_answer", {"jobId": job["jobId"]})
+            try:
+                r = self.co("voice_answer", {"jobId": job["jobId"]})
+            except RuntimeError as e:
+                log("agent", e)
+                continue
             if r.get("answer"):
                 return r["answer"], "ok"
             if r.get("state") in ("completed", "failed", "cancelled", "rejected"):
@@ -319,7 +344,7 @@ class Hub:
 
     # -- one voice turn
     def turn(self, text=None, audio=None, filename="audio.wav", typ="audio/wav", lang=None, route="auto",
-             speak=True, fmt="mp3", chat=None, point="", speaker=""):
+             speak=True, fmt="mp3", chat=None, point=None, speaker=""):
         t0 = time.time()
         tm = {}
         out = {"route": None}
@@ -336,8 +361,12 @@ class Hub:
             forced = AGENT_PREFIX.match(text)
             if forced:
                 text = text[forced.end():].strip() or text
-                route = "agent"
-            if route in ("auto", "home"):
+                if route != "client":
+                    route = "agent"
+                else:  # CO Web sends it into its chat itself
+                    out.update(route="agent", text=text, timings=tm)
+                    return out
+            if route in ("auto", "home", "client"):
                 t1 = time.time()
                 h = self.home(text, lang)
                 tm["home"] = round(time.time() - t1, 2)
@@ -383,12 +412,23 @@ def make_handler(hub):
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            if self.close_connection:
+                self.send_header("Connection", "close")
             self.end_headers()
             self.wfile.write(body)
 
-        def _authed(self):
-            got = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
-            return bool(hub.key) and hmac.compare_digest(got.encode(), hub.key.encode())
+        def _caller(self):
+            """("client", None) for the client key, ("point", {...}) for a point's key, (None, None) otherwise."""
+            got = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip().encode()
+            if not got:
+                return None, None
+            found = (None, None)
+            for name, pc in hub.points.items():  # compare with every key (no early exit)
+                if hmac.compare_digest(got, pc["key"].encode()):
+                    found = ("point", {**pc, "name": name})
+            if hub.key and hmac.compare_digest(got, hub.key.encode()):
+                found = ("client", None)
+            return found
 
         def _path(self):
             # behind Tailscale Funnel the hub may sit under a path (/voice); the API keeps its own names
@@ -408,12 +448,26 @@ def make_handler(hub):
 
         def do_POST(self):
             p = self._path()
-            n = int(self.headers.get("Content-Length") or 0)
-            if n > 25 * 1024 * 1024:
-                return self._send(413, {"error": "too_large"})
-            body = self.rfile.read(n) if n else b""
-            if not self._authed():
+            role, point = self._caller()
+            if role is None:  # before reading anything of the body
+                self.close_connection = True
                 return self._send(401, {"error": "unauthorized"})
+            try:
+                n = int(self.headers.get("Content-Length") or "0")
+            except ValueError:
+                n = -1
+            if n < 0 or n > 25 * 1024 * 1024:
+                self.close_connection = True
+                return self._send(413, {"error": "bad_length"})
+            if not hub.slots.acquire(timeout=30):
+                self.close_connection = True
+                return self._send(503, {"error": "busy"})
+            try:
+                return self._post(p, role, point, self.rfile.read(n) if n else b"")
+            finally:
+                hub.slots.release()
+
+        def _post(self, p, role, point, body):
             q = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query))
             ctype = self.headers.get("Content-Type") or ""
             try:
@@ -429,10 +483,13 @@ def make_handler(hub):
                 if p == "/v1/voice/turn":
                     if audio is None and not q.get("text"):
                         return self._send(400, {"error": "audio or text required"})
+                    route = q.get("route") if q.get("route") in ("auto", "home", "agent", "client") else "auto"
+                    if role == "client" and route != "home":
+                        route = "client"  # the client key never makes the hub ask the agent
+                    speaker = q.get("speaker") or (point or {}).get("speaker") or ""
                     r = hub.turn(text=q.get("text"), audio=audio, filename=fn, typ=typ, lang=q.get("lang"),
-                                 route=q.get("route") or "auto", speak=str(q.get("speak", "1")) not in ("0", "false"),
-                                 fmt=q.get("format") or "mp3", chat=q.get("chat"), point=str(q.get("point") or "")[:40],
-                                 speaker=q.get("speaker") or "")
+                                 route=route, speak=q.get("speak", "1") not in (False, 0, "0", "false", "False"),
+                                 fmt=q.get("format") or "mp3", chat=q.get("chat"), point=point, speaker=speaker)
                     log("turn", r.get("route"), r.get("lang"), r.get("timings"))
                     return self._send(200, r)
                 if p == "/v1/voice/transcribe":
@@ -465,7 +522,7 @@ def hub_status(hub):
     if hub.ha_url:
         code, _, _ = http("GET", hub.ha_url + "/api/", headers={"Authorization": f"Bearer {hub.ha_token}"}, timeout=5)
         st["homeAssistant"] = {"ok": code == 200, "speakers": sorted(hub.cast)}
-    st["agent"] = {"configured": bool(hub.co_url and hub.co_key and hub.co_chat)}
+    st["agent"] = {"configured": bool(hub.co_url and hub.co_key), "points": sorted(hub.points)}
     return st
 
 
@@ -609,7 +666,15 @@ def cmd_point(a):
     if a.hub:
         c["hub"] = a.hub
     if not c["hub"] or not hub_key():
-        sys.exit("point: set the hub (point-config --hub URL) and the key (keyring aiwb/voice-hub or VOICE_HUB_KEY)")
+        # a service of the module starts on every Bridge: an unconfigured point waits instead of exiting (restarts)
+        Indicator().set("off", reason="not configured: point-config --hub URL --set-key")
+        while True:
+            time.sleep(30)
+            c = client_cfg(a.config)
+            if a.hub:
+                c["hub"] = a.hub
+            if c["hub"] and hub_key():
+                break
     try:
         import sounddevice as sd
         from openwakeword.model import Model

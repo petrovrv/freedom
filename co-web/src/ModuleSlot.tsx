@@ -100,6 +100,8 @@ export interface ComposerInput {
 }
 
 const STORE_PREFIX = 'co.ext.';
+const SEND_TOUCH_MS = 10 * 60_000;
+const SEND_PER_TOUCH = 10;
 /** The composer sent its message: composer pages get the event 'sent', speech recognition stops without a last result. */
 export const COMPOSER_SENT = 'co-composer-sent';
 
@@ -230,6 +232,17 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
   const speech = useRef<SpeechCapture | null>(null);
   const player = useRef<AudioPlayback | null>(null);
   useEffect(() => () => { audio.current?.cancel(); speech.current?.dispose(); player.current?.stop(); }, []);
+  // composer.send needs the person: a click into this frame (the frame takes the focus) allows up to SEND_PER_TOUCH
+  // messages within SEND_TOUCH_MS (a voice conversation), so a page cannot send on its own
+  const touch = useRef({ at: 0, sent: 0 });
+  useEffect(() => {
+    if (ui.slot !== 'ui.composer' || !m.permissions.includes('composer.send')) return;
+    const f = () => setTimeout(() => {
+      if (document.activeElement === frame.current) touch.current = { at: Date.now(), sent: 0 };
+    }, 0);
+    window.addEventListener('blur', f);
+    return () => window.removeEventListener('blur', f);
+  }, [ui.slot, m.permissions]);
   useEffect(() => {
     if (ui.slot !== 'ui.composer') return;
     const f = () => {
@@ -278,6 +291,9 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
       case 'send': {
         const box = inputRef.current;
         if (!box?.send) throw new Error('no_message_box');
+        const t = touch.current;
+        if (Date.now() - t.at > SEND_TOUCH_MS || t.sent >= SEND_PER_TOUCH) throw new Error('needs_user_touch');
+        t.sent++;
         await box.send(r.text);
         return { ok: true };
       }

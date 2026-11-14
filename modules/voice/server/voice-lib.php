@@ -172,6 +172,19 @@ function co_voice_ask(mysqli $db, array $in): array
     $chat = co_voice_one($db, 'SELECT c.project_id, p.env FROM chats c JOIN projects p ON p.project_id = c.project_id WHERE c.chat_id = ?', [$chatId]);
     if (!$chat) return ['error' => 'not_found'];
     if (!share_can(share_chat_role($db, (string)$env, co_is_owner_env((string)$env), (string)$chatId), 'write')) return ['error' => 'forbidden'];
+    // one voice job per chat at a time: the check and the insert under a named lock (two points may ask at once)
+    $lock = 'co-voice-' . $chatId;
+    if ((int)(co_voice_one($db, 'SELECT GET_LOCK(?, 5) AS l', [$lock])['l'] ?? 0) !== 1) return ['busy' => null];
+    try {
+        return co_voice_queue($db, (string)$chatId, (string)$env, $chat, $text, $lang, $point, ($in['shell'] ?? false) === true);
+    } finally {
+        co_voice_one($db, 'SELECT RELEASE_LOCK(?) AS r', [$lock]);
+    }
+}
+
+/** The insert part of co_voice_ask (under its lock). */
+function co_voice_queue(mysqli $db, string $chatId, string $env, array $chat, string $text, string $lang, string $point, bool $shell): array
+{
     $busy = co_voice_one($db, "SELECT job_id FROM jobs WHERE chat_id = ? AND state IN ('inbox', 'claimed', 'running') AND result IS NULL
                                  AND JSON_EXISTS(request, '$.voice') LIMIT 1", [$chatId]);
     if ($busy) return ['busy' => $busy['job_id']];
@@ -181,7 +194,9 @@ function co_voice_ask(mysqli $db, array $in): array
     $prev = $last ? (json_decode((string)$last['request'], true) ?: []) : [];
     $agent = in_array($prev['agent'] ?? null, CO_VOICE_AGENTS, true) ? $prev['agent'] : 'claude';
     $model = $agent === ($prev['agent'] ?? null) && is_string($prev['model'] ?? null) ? $prev['model'] : null;
-    $host = $last && co_exec_known($db, (string)$last['host_id']) ? (string)$last['host_id'] : 'home-main';
+    // the executor of the chat's last turn, if it still serves the project's environment (F12), else Home
+    $host = $last && co_exec_known($db, (string)$last['host_id']) && co_exec_serves($db, (string)$last['host_id'], (string)$chat['env'])
+        ? (string)$last['host_id'] : 'home-main';
 
     $sess = co_voice_one($db, "SELECT JSON_VALUE(result, '$.sessionId') AS sid, JSON_VALUE(request, '$.agent') AS agent FROM jobs
                                 WHERE chat_id = ? AND state = 'completed' AND JSON_EXISTS(request, '$.voice')
@@ -191,25 +206,27 @@ function co_voice_ask(mysqli $db, array $in): array
     $conversation = $resume ? ['operation' => 'resume', 'sessionId' => $sess['sid']] : ['operation' => 'new', 'sessionId' => null];
     $rules = "[Voice: the user said this to a voice point" . ($point !== '' ? " ($point)" : '') . ". Your answer is read aloud: "
         . "answer in the language of the question ($lang), briefly (1-3 sentences), plain text without markdown, lists, links or code.]\n\n";
-    $instruction = ($resume ? '' : co_voice_preamble($db, (string)$chatId)) . $rules . $text;
+    $instruction = ($resume ? '' : co_voice_preamble($db, $chatId)) . $rules . $text;
 
     $stamp = gmdate('YmdHis');
     $jobId = 'JOB-' . $stamp . '-' . co_voice_rand(6);
     $now = gmdate('Y-m-d\TH:i:s') . sprintf('.%03dZ', (int)(microtime(true) * 1000) % 1000);
-    $voice = ['lang' => $lang, 'point' => $point];
-    db_append_event(['event' => [
+    // request.voice also names the row of the chat (ext/1 sideJobs: path, file)
+    $voice = ['path' => '', 'file' => $point !== '' ? $point : 'voice', 'lang' => $lang, 'point' => $point];
+    $event = [
         'schemaVersion' => 1, 'eventId' => 'EVT-' . $stamp . '-' . co_voice_rand(6), 'type' => 'user_message',
         'createdUtc' => $now, 'chatId' => $chatId, 'branchId' => 'BR-root', 'jobId' => $jobId, 'hostId' => $host,
         'agent' => $agent, 'author' => $env, 'text' => '🎙 ' . $text, 'attachments' => [], 'returnFiles' => [],
         'conversation' => $conversation, 'mode' => 'chat', 'model' => $model, 'effort' => null, 'voice' => $voice,
-    ]]);
+    ];
     $req = [
         'schemaVersion' => 3, 'protocolMinor' => 1, 'hostId' => $host, 'jobId' => $jobId, 'environmentId' => $chat['env'],
         'projectId' => $chat['project_id'], 'chatId' => $chatId, 'branchId' => 'BR-root', 'agent' => $agent,
         'instruction' => $instruction, 'conversation' => $conversation, 'attachments' => [], 'artifactPaths' => [],
         'timeoutMinutes' => 10, 'mode' => 'chat', 'model' => $model, 'effort' => null, 'output' => ['autoExport' => false],
-        // a voice point has no screen to confirm anything on: no devices or context folders
-        'permissions' => ['files' => 'read', 'shell' => true, 'web' => true], 'contextFolders' => [], 'voice' => $voice,
+        // anyone near a point can speak to it and it has no screen to confirm anything on: no devices or context
+        // folders, and no shell unless the owner allowed it for this point (hub config points.<name>.shell)
+        'permissions' => ['files' => 'read', 'shell' => $shell, 'web' => true], 'contextFolders' => [], 'voice' => $voice,
     ];
     $json = co_db_json($req);
     $sha = hash('sha256', co_db_json(['request' => $req, 'result' => null]));
@@ -220,6 +237,8 @@ function co_voice_ask(mysqli $db, array $in): array
     );
     $st->execute([$jobId, $host, $chat['env'], $chat['project_id'], $chatId, $agent, $model, $json, $sha, $env]);
     $st->close();
+    // the message after the job: a message without its job would hold the chat back for ever
+    db_append_event(['event' => $event]);
     return ['jobId' => $jobId, 'resume' => $resume, 'agent' => $agent, 'host' => $host];
 }
 

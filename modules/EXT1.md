@@ -80,7 +80,8 @@ Composer slot (`ui.composer`, a page in the action row of the message box; CO We
 opaque origin): `coExt.input`/`focusInput` (`composer.input`), `coExt.audio.start(maxSeconds, {silenceMs})`/`stop`/`cancel`
 (`media.audio`; with `silenceMs` the recording stops by itself after that much quiet following speech, event `audio`
 `{silence: true}`, then `stop()` returns it), `coExt.speech.*` (`media.speech`), `coExt.send(text)` (`composer.send`: the
-text goes out as the chat's next message with the composer's agent and model; refused while the chat is busy),
+text goes out as the chat's next message with the composer's agent and model; refused while the chat is busy and
+without the person: a click into the page allows up to 10 sends within 10 minutes, else `needs_user_touch`),
 `coExt.play(bytes, type)` / `coExt.play(null)` (`media.play`: CO Web plays an `audio/*` ArrayBuffer up to 10 MB and
 answers `{ended}` when it ends or is stopped). With `chat.read` a composer page gets `chat` `{events, canAsk}` like a
 viewer panel. Examples: `dictation/README.md` (input), `voice/README.md` (voice mode).

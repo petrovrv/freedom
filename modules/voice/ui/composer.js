@@ -46,7 +46,8 @@
 
   function fail(e) {
     var m = String((e && e.message) || e || 'error');
-    error = m === 'not_configured' ? 'The voice hub is not configured on the server.' : m;
+    error = m === 'not_configured' ? 'The voice hub is not configured on the server.'
+      : m === 'needs_user_touch' ? 'Press 🗣 to go on (a click allows 10 messages in 10 minutes).' : m;
     if (waiter) clearTimeout(waiter.timer);
     waiter = null;
     set('idle');

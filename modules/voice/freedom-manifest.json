@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.1.0",
- "created": "2026-11-14T10:05:32Z",
+ "version": "0.1.1",
+ "created": "2026-11-14T10:21:07Z",
  "files": [
   {
    "path": "context/voice.md",
@@ -10,8 +10,8 @@
   },
   {
    "path": "module.json",
-   "size": 2132,
-   "sha256": "89f6d825442f8dc3cd105a8830f75120397de15f098f07d17d0b6d7c2da3b395"
+   "size": 2227,
+   "sha256": "9d6c59d868b26169c4d5a5d8bf03af247894a08411d205c62ba2ef46cfe2193e"
   },
   {
    "path": "README.md",
@@ -25,23 +25,23 @@
   },
   {
    "path": "server/voice-lib.php",
-   "size": 15737,
-   "sha256": "bacd53a87ae54cde03941e506889899958172424b3d77687894d50c85ea032fd"
+   "size": 16996,
+   "sha256": "aeb0fd665b22c7a0e2f08b1643bdef7f54746e5f1db1dd36335df7c935d240f9"
   },
   {
    "path": "tools/voice/SKILL.md",
-   "size": 7426,
-   "sha256": "b8e9687659b863427862009e62aab2a28461515a398654f8a5560930e9c1a3d4"
+   "size": 8927,
+   "sha256": "1a923461b51dfdcdd72dea20989e5e54fafcdda3c29967d75c7ff508a976f8b7"
   },
   {
    "path": "tools/voice/test_voice.py",
-   "size": 8186,
-   "sha256": "df7e697770339e9e44e03042d2ab39f03ae732e9e7ead834defd006f719c7a8f"
+   "size": 10234,
+   "sha256": "aa6c595b3e12345be387105cb4851229733c9d0170acfdb0ee7e7377d97a8b7e"
   },
   {
    "path": "tools/voice/voice.py",
-   "size": 38340,
-   "sha256": "19049fa6c2bf747988919ce7ba053f4a9f1190b46a9ccb5485fb40c80867f0c9"
+   "size": 42023,
+   "sha256": "66ac96a708dcb874e05c87a3a1418bfdcc801ae253bdc8289abbe81e2cf2779a"
   },
   {
    "path": "ui/composer.css",
@@ -55,15 +55,15 @@
   },
   {
    "path": "ui/composer.js",
-   "size": 8060,
-   "sha256": "3c8ee9249cd37d60528e74b718ec0779965463687cd224b5cb6790237df67674"
+   "size": 8161,
+   "sha256": "323e2a06194779c2b13f2005ffc28e9c2af290a6e277af90908b7898c0facee2"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "w+BmQBMZn4Pk5L8gNQPpKzZWQKLfohknANWZFx50Q2vpsoRgGiwPCTIIj2zlZDcKJRnZQR0JviGdsioCp45YCQ=="
+   "sig": "VjGZHKT/g6Z9uuxyV2lMEIiIlNbkGTLxqLhaPIDt5d5oDgv/smYKar5zdyBPKTD2XbEHLi7xIJ+aJZcVhe1xCA=="
   }
  ],
  "module": "voice"

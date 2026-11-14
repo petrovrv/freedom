@@ -1,7 +1,7 @@
 ---
 name: voice
 description: Voice pipeline of Freedom (module voice) — the hub on the family server (speech to text and text to speech through speaches/piper, short home commands to Home Assistant, the rest to the CO agent of a chosen chat, answer as audio, Cast speakers through HA) and the voice point on a device (wake word with openWakeWord + VAD, Windows/Linux, also headless; always-on listening only after the device owner turns it on); say/ask/check for tests. Use to run or check the voice assistant, speak a text on a home speaker, or set up a voice point.
-version: 0.1.0
+version: 0.1.1
 entry: voice.py
 requires: [python 3.10+, hub - standard library only, point - sounddevice openwakeword onnxruntime (own venv, setup-point)]
 platform: any
@@ -55,10 +55,14 @@ python voice.py check --config-hub /srv/voice/hub.json # на сервере
  "homeAssistant": {"url": "http://127.0.0.1:8123", "token": {"file": "/run/secrets/ha_token"},
                    "speakers": {"living": "media_player.living_room"}},
  "co": {"dbUrl": "https://<site>/agent/db.php", "hostKey": {"file": "/run/secrets/co_host_key"},
-        "chatId": "CHAT-...", "env": "<owner env>", "waitSeconds": 150},
+        "chatId": "CHAT-...", "waitSeconds": 150},
+ "points": {"kitchen": {"key": {"file": "/run/secrets/point_kitchen"}, "env": "<whose questions>",
+                        "chat": "CHAT-...", "chats": [], "speaker": "", "shell": false}},
  "publicAudioBase": "http://<server LAN address>:8095",
  "key": {"file": "/run/secrets/hub_key"}}
 ```
+
+Ключи: `key` — ключ клиента (сервер CO для голосового режима CO Web): распознавание, команды дома, синтез, но никогда не агент. У каждой голосовой точки свой ключ в `points` — с ним хаб спрашивает агента от имени `env` в чате `chat` (запрошенный чат — только из `chats`), без оболочки, пока `shell` не `true`: говорить с точкой может любой рядом. Точки без записи в `points` агента не спрашивают.
 
 Секрет — `{"file": ...}`, `{"env": ...}` или `{"keyring": service}`; переменные `VOICE_HUB_KEY`, `VOICE_SPEACHES_KEY`, `VOICE_HA_TOKEN`, `VOICE_CO_HOST_KEY` важнее. Голоса piper загружаются в speaches один раз: `POST /v1/models/speaches-ai/piper-ru_RU-irina-medium`.
 
@@ -88,4 +92,5 @@ services:
 
 ## История
 
+- 0.1.1 — 2026-11-14 — по ревью: ключ проверяется до чтения тела, длина и число одновременных запросов ограничены; свой ключ у каждой точки (`points`: чей вопрос, чат, оболочка), ключ клиента агента не зовёт; голосовой режим CO Web (`route=client`) снова проходит через HA; JSON `speak: false`; язык без голоса не роняет синтез; точка без настроек ждёт, а не завершается; причины отказа агента озвучиваются.
 - 0.1.0 — 2026-11-14 — первая версия: hub (speaches STT/TTS, HA, агент через voice_ask, Cast), point (openWakeWord + VAD), say/ask/check, setup-point.

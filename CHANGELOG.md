@@ -5,6 +5,13 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- CO Web 0.106.0 (database hiccups): reads of the CO database retry twice (1 s, 3 s) after a timeout, a network error or
+  a 5xx/429 answer, and the breaker after 3 failed reads pauses for 30 s instead of 5 min; a chat keeps the messages on
+  screen or shows this browser's last copy (IndexedDB, 30 recent chats per account, wiped on sign-out) with a notice
+  instead of an empty page with a red error, tries again every 10 s and when the network comes back; messages sent
+  meanwhile wait in the outbox. Host tab → Jobs lists the database failures this browser saw (timeout / http code /
+  network) to tell a slow network from a refusing host.
+
 - Module voice 0.2.0: speaker recognition in two levels - `voice.py enroll` trains a wake-word verifier on the device and sends a voiceprint to the hub; the hub (`people`, `speakerId`, `/v1/voice/enroll|forget|whois`) routes a recognised voice to that person's chat, strangers get home commands only.
 
 - Module voice 0.1.1 (review fixes): the hub checks the key before reading a body, limits length and parallel requests;

@@ -38,7 +38,7 @@ import { formatBytes, formatLocal, safeFileName, sha256Hex } from './util';
 import { buildStreams, fetchVersion, isWorkingFile, matchUpload, uploadTarget, type ChatStream } from './chatFiles';
 import { UndoPanel } from './UndoPanel';
 import {
-  appendEvent, copyToFolder, fetchArtifact, finalizeTurn, locateArtifact, loadChatEvents, newCursor, readBridgeEvents, readJob, envProfileBlock, projectMemoryBlock, readProjectInstructions, speaker,
+  appendEvent, copyToFolder, DbUnavailableError, fetchArtifact, finalizeTurn, locateArtifact, loadChatEvents, newCursor, readBridgeEvents, readJob, envProfileBlock, projectMemoryBlock, readProjectInstructions, speaker,
   appendFamilyMessage, appendReaction, familyTranscript, createChat, eventHost, requestCancel, sendTurn, updateChatMeta, wantsTitle, type EventCursor, type HostDirs, type HostHealth, type Root,
 } from './workbench';
 import { dbDossierContext, dbFollowupAdd, dbFollowupCancel, dbFollowupDone, dbFollowupList, dbFollowupTake, dbGetTemplates, dbProtocol, dbPutTemplates, dbQueueOn, dbRelated, dbSharesGet, dbToolStarted, type Followup } from './dbapi';
@@ -142,6 +142,8 @@ export default function ChatView(props: Props) {
   // 0.55.0: files of this chat (from its messages), to recognise an upload as a new version of one of them
   const composerStreams = useMemo<ChatStream[]>(() => buildStreams(events || [], null, project.projectId, chat.chatId), [events, project.projectId, chat.chatId]);
   const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [staleUtc, setStaleUtc] = useState<string | null>(null); // 0.106.0: messages on screen are a copy from then
+  const lastLoadUtc = useRef<string | null>(null);
   const [monitors, setMonitors] = useState<Record<string, Monitor>>({});
   const monRef = useRef(monitors);
   const finalizingRef = useRef(new Set<string>());
@@ -193,7 +195,21 @@ export default function ChatView(props: Props) {
       const ev = await loadChatEvents(chat);
       setEvents(ev);
       setLoadErr(null);
+      setStaleUtc(null);
+      lastLoadUtc.current = new Date().toISOString();
     } catch (e) {
+      // 0.106.0: database down — keep what is on screen, or show this browser's last copy, and say so (not a red error)
+      if (e instanceof DbUnavailableError) {
+        const copy = e.copy;
+        if (!eventsRef.current?.length && copy) {
+          setEvents(copy.events);
+          setStaleUtc(copy.savedUtc);
+        } else if (eventsRef.current?.length) {
+          setStaleUtc((v) => v || lastLoadUtc.current || new Date().toISOString());
+        }
+        setLoadErr(e.message);
+        return;
+      }
       setLoadErr(categorize(e).message);
     }
   }, [chat, authOk]);
@@ -202,6 +218,13 @@ export default function ChatView(props: Props) {
     void reload();
   }, [reload]);
   useInterval(reload, POLL_LISTS_MS, authOk);
+  // 0.106.0: while the database does not answer, try again every 10 s and at once when the network comes back
+  useInterval(reload, 10000, authOk && !!loadErr);
+  useEffect(() => {
+    const on = () => void reload();
+    window.addEventListener('online', on);
+    return () => window.removeEventListener('online', on);
+  }, [reload]);
 
   // 0.32.0: the chat protocol (server secretary) as a mirror column next to the messages.
   // 0.90.2: never shown in the family chat (the secretary still keeps it)
@@ -746,14 +769,16 @@ export default function ChatView(props: Props) {
   }
 
   async function sendOrQueue(input: SendForm, progress: (s: string) => void) {
-    if (navigator.onLine) return onSend(input, progress);
-    if (chatState.draft) throw new Error('No network: a new chat needs a connection. The text stays here.');
-    if (input.files.length) throw new Error('No network: files are sent only online. The text stays here.');
+    // 0.106.0: messages on screen are a copy (database down): queue like offline, sent once the database answers
+    if (navigator.onLine && !staleUtc) return onSend(input, progress);
+    const why = navigator.onLine ? 'No connection to the CO database' : 'No network';
+    if (chatState.draft) throw new Error(`${why}: a new chat needs a connection. The text stays here.`);
+    if (input.files.length) throw new Error(`${why}: files are sent only online. The text stays here.`);
     outboxAdd({ chatId: chatState.chatId, text: input.text, sel: input.sel, returnFiles: input.returnFiles, forceNew: input.forceNew });
   }
 
   useEffect(() => {
-    if (!online || !authOk || events === null || chatPending.length > 0 || !outbox.length || flushing.current || chat.draft) return;
+    if (!online || !authOk || events === null || staleUtc || chatPending.length > 0 || !outbox.length || flushing.current || chat.draft) return;
     if (Date.now() - lastFlushFail.current < 20000) return; // after a failure: next try with the chat reload (20 s)
     const item = outbox[0];
     if (!outboxTake(item.id)) return;
@@ -768,7 +793,7 @@ export default function ChatView(props: Props) {
       .finally(() => {
         flushing.current = false;
       });
-  }, [online, authOk, events, chatPending.length, outbox]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [online, authOk, events, staleUtc, chatPending.length, outbox]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 0.60.0: follow-ups of running jobs (server rows). Delivered ones become chat messages written by the server; late
   // ones (Codex, the site, or the turn already ended) are taken once and sent as one next message after the job.
@@ -1108,7 +1133,15 @@ export default function ChatView(props: Props) {
       <div ref={msgBox} className={`messages${protoOn ? ' mirror' : ''}${family ? ' family' : ''}`} aria-live="polite">
         {protoOn && !chat.draft && <ProtocolHeader data={proto} />}
         {!props.docked && <QuoteAsk box={msgBox} canAsk={authOk && events !== null && !readOnly} onAsk={(text) => setPrefill({ text, send: true, nonce: Date.now() })} />}
-        {loadErr && <div className="error-box">{loadErr}</div>}
+        {loadErr && staleUtc && (
+          <div className="warn-box">
+            {loadErr} Shown: the messages as of{' '}
+            {new Date(staleUtc).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {new Date(staleUtc).toDateString() !== new Date().toDateString() && ', ' + new Date(staleUtc).toLocaleDateString()}
+            ; a message you send now goes out once the database answers.
+          </div>
+        )}
+        {loadErr && !staleUtc && <div className="error-box">{loadErr}</div>}
         {events === null && !loadErr && <div className="muted pad">Loading history from Drive…</div>}
         {inherited.length > 0 && (
           <div className="inherited">

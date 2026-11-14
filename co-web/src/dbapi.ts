@@ -10,7 +10,10 @@ import type { BrowserSettings, EnvTemplate } from './types';
 const ENDPOINT = '/agent/db.php';
 const TIMEOUT_MS = 8000;
 const MAX_FAILURES = 3;
-const COOLDOWN_MS = 5 * 60 * 1000;
+// 0.106.0: 30 s instead of 5 min — one short hiccup of the network or the hosting no longer hides chats for 5 minutes
+const COOLDOWN_MS = 30 * 1000;
+// 0.106.0: reads retry after a timeout, a network error or a 5xx/429 answer before they count as one failure
+const READ_RETRY_MS = [1000, 3000];
 
 // Module-level circuit breaker state.
 let failures = 0;
@@ -18,9 +21,57 @@ let disabledUntil = 0;
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
+// ---------- 0.106.0: why the database did not answer (this browser only, Ops page) ----------
+
+export interface DbFailure { utc: string; op: string; reason: string; ms: number }
+const FAIL_LOG_KEY = 'co.dbFailLog';
+const FAIL_LOG_MAX = 100;
+
+function logFailure(op: string, reason: string, ms: number): void {
+  try {
+    const list = dbFailureLog();
+    list.push({ utc: new Date().toISOString(), op, reason, ms: Math.round(ms) });
+    localStorage.setItem(FAIL_LOG_KEY, JSON.stringify(list.slice(-FAIL_LOG_MAX)));
+  } catch {
+    /* per-browser diagnostics only */
+  }
+}
+
+// Recent failed database calls of this browser, oldest first.
+export function dbFailureLog(): DbFailure[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(FAIL_LOG_KEY) || '[]');
+    return Array.isArray(v) ? (v as DbFailure[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function clearDbFailureLog(): void {
+  try {
+    localStorage.removeItem(FAIL_LOG_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+// timeout | offline | network | http <code> | bad answer
+function failReason(e: unknown, aborted: boolean): string {
+  if (aborted) return 'timeout';
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'offline';
+  return e instanceof Error && e.message ? 'network: ' + e.message.slice(0, 80) : 'network';
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 // True when DB reads are not in cooldown.
 export function dbEnabled(): boolean {
   return Date.now() >= disabledUntil;
+}
+
+// Seconds until the breaker lets calls through again (0 = open).
+export function dbCooldownLeft(): number {
+  return Math.max(0, Math.ceil((disabledUntil - Date.now()) / 1000));
 }
 
 // Record a failure; trip the breaker after MAX_FAILURES consecutive ones.
@@ -33,11 +84,12 @@ function fail(): null {
   return null;
 }
 
-// POST {op, ...params} and return data[key] as an array, or null on any failure.
-async function call(op: string, params: Record<string, unknown>, key: string): Promise<Row[] | null> {
-  if (!dbEnabled()) return null;
+type Attempt = { rows: Row[] } | { retry: boolean; reason: string };
+
+async function attempt(op: string, params: Record<string, unknown>, key: string): Promise<Attempt> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const t0 = Date.now();
   try {
     const token = getToken();
     const headers: Record<string, string> = { 'X-CO-Auth': '1', 'Content-Type': 'application/json' };
@@ -50,21 +102,43 @@ async function call(op: string, params: Record<string, unknown>, key: string): P
       cache: 'no-store',
       signal: ctrl.signal,
     });
-    if (!res.ok) return fail();
+    if (!res.ok) {
+      logFailure(op, 'http ' + res.status, Date.now() - t0);
+      return { retry: res.status >= 500 || res.status === 429, reason: 'http ' + res.status };
+    }
     let data: unknown;
     try {
       data = await res.json();
     } catch {
-      return fail();
+      logFailure(op, 'bad answer', Date.now() - t0);
+      return { retry: true, reason: 'bad answer' };
     }
     const rows = data && typeof data === 'object' ? (data as Record<string, unknown>)[key] : undefined;
-    if (!Array.isArray(rows)) return fail();
-    failures = 0;
-    return rows as Row[];
-  } catch {
-    return fail();
+    if (!Array.isArray(rows)) {
+      logFailure(op, 'bad answer', Date.now() - t0);
+      return { retry: false, reason: 'bad answer' };
+    }
+    return { rows: rows as Row[] };
+  } catch (e) {
+    const reason = failReason(e, ctrl.signal.aborted);
+    logFailure(op, reason, Date.now() - t0);
+    return { retry: reason !== 'offline', reason };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// POST {op, ...params} and return data[key] as an array, or null on any failure (after up to 2 retries).
+async function call(op: string, params: Record<string, unknown>, key: string): Promise<Row[] | null> {
+  if (!dbEnabled()) return null;
+  for (let i = 0; ; i++) {
+    const r = await attempt(op, params, key);
+    if ('rows' in r) {
+      failures = 0;
+      return r.rows;
+    }
+    if (!r.retry || i >= READ_RETRY_MS.length) return fail();
+    await sleep(READ_RETRY_MS[i]);
   }
 }
 
@@ -240,7 +314,15 @@ async function post(body: Record<string, unknown>, gz: boolean, timeoutMs = TIME
     const token = getToken();
     const headers: Record<string, string> = { 'X-CO-Auth': '1', 'Content-Type': 'application/json' };
     if (token) headers.Authorization = `Bearer ${token}`;
-    return await fetch(ENDPOINT, { method: 'POST', headers, body: payload, credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal });
+    const t0 = Date.now();
+    try {
+      const res = await fetch(ENDPOINT, { method: 'POST', headers, body: payload, credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal });
+      if (res.status >= 500 || res.status === 429) logFailure(String(body.op || '?'), 'http ' + res.status, Date.now() - t0);
+      return res;
+    } catch (e) {
+      logFailure(String(body.op || '?'), failReason(e, ctrl.signal.aborted), Date.now() - t0);
+      return null;
+    }
   } catch {
     return null;
   } finally {

@@ -175,6 +175,7 @@ code, pre { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; fon
 .jt-tree { margin: 2px 0 2px 0; padding-left: 18px; }
 
 .error-box { border: 1px solid var(--bad); color: var(--bad); border-radius: 8px; padding: 8px 10px; margin: 6px 0; font-size: 13.5px; }
+.warn-box { border: 1px solid var(--warn); color: var(--warn); border-radius: 8px; padding: 8px 10px; margin: 6px 0; font-size: 13.5px; }
 .error-box pre { white-space: pre-wrap; color: var(--fg); background: var(--code); padding: 6px; border-radius: 6px; }
 .artifacts { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .artifact { display: flex; gap: 8px; align-items: center; background: var(--panel-2); border-radius: 7px; padding: 5px 8px; flex-wrap: wrap; }

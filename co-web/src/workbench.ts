@@ -21,7 +21,8 @@ import { mapLimit, newChatId, newEventId, newJobId, nowUtc, safeFileName, sha256
 import { md5Hex } from './md5';
 import { importSpeaker } from './importPoint';
 import { gatewayBlocked, gatewayBlockedFields } from './gateway';
-import { dbChats, dbDeleteChat, dbEvents, dbJobCancel, dbJobEvents, dbJobGet, dbJobSubmit, dbProjects, dbPut, dbReadsPrimary, dbGetProfile, dbSharedProjects } from './dbapi';
+import { dbChats, dbCooldownLeft, dbDeleteChat, dbEvents, dbJobCancel, dbJobEvents, dbJobGet, dbJobSubmit, dbProjects, dbPut, dbReadsPrimary, dbGetProfile, dbSharedProjects } from './dbapi';
+import { cachedChatEvents, saveChatEvents } from './eventCache';
 import { memoryIndex } from './memoryIndex';
 import { drivePath, ownerEnv } from './members';
 import { executorOf } from './executors';
@@ -387,6 +388,20 @@ function withArtifactPaths(chat: Chat, events: ChatEvent[]): ChatEvent[] {
   );
 }
 
+// 0.106.0: the CO database did not answer (after retries); copy = the messages this browser saw last, if any.
+export class DbUnavailableError extends Error {
+  readonly copy: { events: ChatEvent[]; savedUtc: string } | null;
+  constructor(copy: { events: ChatEvent[]; savedUtc: string } | null) {
+    super(
+      dbCooldownLeft() > 0 || !navigator.onLine
+        ? 'No connection to the CO database. CO tries again by itself in a few seconds.'
+        : 'The CO database did not answer. CO tries again by itself in a few seconds.',
+    );
+    this.name = 'DbUnavailableError';
+    this.copy = copy;
+  }
+}
+
 export async function loadChatEvents(chat: Chat): Promise<ChatEvent[]> {
   // 0.18.0: the database is the primary read source (no Drive call); imported chats keep their sealed segments on Drive.
   if (!chat.importedFrom && !chat.legacy) {
@@ -399,9 +414,12 @@ export async function loadChatEvents(chat: Chat): Promise<ChatEvent[]> {
         if (Date.now() - x.at < 600000 && !byId.has(x.ev.eventId)) byId.set(x.ev.eventId, x.ev);
       }
       const sorted = [...byId.values()].sort((a, b) => a.sequence - b.sequence || a.createdUtc.localeCompare(b.createdUtc));
+      void saveChatEvents(chat.chatId, sorted);
       return withArtifactPaths(chat, sorted);
     }
-    throw new Error('Messages are stored in the CO database, which did not answer. Try again in a minute.');
+    // 0.106.0: the copy this browser saw last, marked as such; callers that cannot use a copy treat it as an error
+    const copy = await cachedChatEvents(chat.chatId);
+    throw new DbUnavailableError(copy ? { events: withArtifactPaths(chat, copy.events), savedUtc: copy.savedUtc } : null);
   }
   const evDir = await resolveFolder(chat.folderId, 'events');
   if (!evDir) return [];

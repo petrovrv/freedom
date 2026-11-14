@@ -2,7 +2,7 @@
 // 0.39.0: "Jobs" section of the Host tab — outcomes per host and agent, durations, re-runs, daily trend and top errors
 // of the job queue (db.php op "ops", owner only).
 import { useEffect, useState } from 'react';
-import { dbOps, type OpsReport } from './dbapi';
+import { clearDbFailureLog, dbFailureLog, dbOps, type DbFailure, type OpsReport } from './dbapi';
 
 // Format seconds as s / min / h
 function fmtSec(s: number | null): string {
@@ -173,6 +173,42 @@ export function OpsSection() {
       ) : (
         renderReport(data)
       )}
+      <BrowserDbFailures tick={tick} />
     </div>
+  );
+}
+
+// 0.106.0: why the database did not answer this browser (kept in this browser only, last 100 failed calls)
+function BrowserDbFailures({ tick }: { tick: number }) {
+  const [list, setList] = useState<DbFailure[]>(() => dbFailureLog());
+  useEffect(() => setList(dbFailureLog()), [tick]);
+  const day = list.filter((f) => Date.now() - Date.parse(f.utc) < 86400000);
+  const by = new Map<string, number>();
+  for (const f of day) {
+    const k = f.reason.startsWith('network') ? 'network' : f.reason;
+    by.set(k, (by.get(k) || 0) + 1);
+  }
+  return (
+    <>
+      <div className="small" style={{ marginTop: 10, fontWeight: 600 }}>Database failures seen by this browser (24 h)</div>
+      {day.length === 0 ? (
+        <div className="small muted" style={{ marginTop: 4 }}>None.</div>
+      ) : (
+        <>
+          <div className="small" style={{ marginTop: 4 }}>
+            {[...by.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k}: ${n}`).join(' · ')}{' '}
+            <button className="btn small" onClick={() => { clearDbFailureLog(); setList([]); }}>Clear</button>
+          </div>
+          <ol className="small muted" style={{ marginTop: 4 }}>
+            {day.slice(-10).reverse().map((f, i) => (
+              <li key={f.utc + i}>
+                {new Date(f.utc).toLocaleTimeString()} · {f.op} · {f.reason} · {(f.ms / 1000).toFixed(1)} s
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+      <div className="small muted">timeout — no answer in 8 s (slow network or busy hosting); http 5xx/429/508 — the hosting refused; offline/network — this device had no connection.</div>
+    </>
   );
 }

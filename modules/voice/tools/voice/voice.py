@@ -36,7 +36,7 @@ import urllib.request
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.3.9"
+VERSION = "0.3.10"
 UA = f"freedom-voice/{VERSION}"
 LANGS = ("ru", "uk", "en", "nl", "fr", "de")
 WHISPER_NAMES = {"russian": "ru", "ukrainian": "uk", "english": "en", "dutch": "nl", "flemish": "nl", "french": "fr",
@@ -1392,7 +1392,11 @@ def wake_voice_ok(c, ring, ind):
         log("wake check:", str(e)[:120])
         return True
     # a 1 s wake word gives a weaker voiceprint than a phrase: own voice 0.73-0.88, synthetic strangers up to 0.69
-    if r.get("person") and float(r.get("score") or 0) >= float(c.get("wakeCheckThreshold") or 0.72):
+    # the hub names a person only above its own threshold (0.65, made for whole phrases); the point judges the best score
+    # among its people against wakeCheckThreshold itself - otherwise a lower point threshold never takes effect (14.11)
+    scores = r.get("scores") or {}
+    best = max([float(v) for v in scores.values()] or [float(r.get("score") or 0) if r.get("person") else 0.0])
+    if best >= float(c.get("wakeCheckThreshold") or 0.72):
         return True
     ind.set("ignored", text=f"wake word in an unknown voice ({r.get('score')})")
     return False

@@ -19,7 +19,7 @@
 #
 # What it does, in this order:
 #   1. --deps: packages through apt-get / dnf (sudo): git, python3 with keyring, libsecret tools, gnome-keyring,
-#      D-Bus user session, ICU.
+#      D-Bus user session, ICU, OpenSSL 3, zlib (.NET 8 needs them; minimal images lack OpenSSL).
 #   2. Secrets (SPEC principle 2, "secrets only in the keyring"): the Secret Service of the session (a desktop's
 #      GNOME Keyring / KWallet) when it keeps a probe secret; else, on a server without a desktop, gnome-keyring as a
 #      systemd user service (aiwb-keyring.service, D-Bus activation of org.freedesktop.secrets points at it), its
@@ -132,15 +132,17 @@ install_deps() {
         *" debian "*|*" ubuntu "*)
             as_root apt-get update -q
             icu="$(apt-cache pkgnames libicu 2>/dev/null | grep -E '^libicu[0-9]+$' | sort -V | tail -1)"
+            # .NET 8 loads OpenSSL 3 (or 1.1) at run time; minimal images have none (Ubuntu 24.04: libssl3t64)
+            ssl="$(apt-cache pkgnames libssl 2>/dev/null | grep -E '^libssl3(t64)?$' | sort | tail -1)"
             # needrestart (Ubuntu) must not restart services of the machine (Docker, Home Assistant ...) behind our back
             as_root env DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 NEEDRESTART_MODE=l \
                 apt-get install -y -q --no-install-recommends ca-certificates git \
                 python3 python3-keyring python3-secretstorage python3-cryptography python3-paramiko libsecret-tools \
-                gnome-keyring dbus-user-session ${icu:-libicu-dev} ;;
+                gnome-keyring dbus-user-session zlib1g ${ssl:-libssl-dev} ${icu:-libicu-dev} ;;
         *" fedora "*)
             as_root dnf install -y -q git python3 python3-keyring python3-secretstorage python3-cryptography \
-                python3-paramiko libsecret gnome-keyring libicu ;;
-        *) die "--deps knows apt-get (Debian/Ubuntu) and dnf (Fedora); install by hand (RHEL: EPEL first): git python3 python3-keyring libsecret gnome-keyring ICU" ;;
+                python3-paramiko libsecret gnome-keyring libicu openssl-libs zlib ;;
+        *) die "--deps knows apt-get (Debian/Ubuntu) and dnf (Fedora); install by hand (RHEL: EPEL first): git python3 python3-keyring libsecret gnome-keyring ICU OpenSSL zlib" ;;
     esac
 }
 
@@ -447,7 +449,10 @@ else
         [ -z "$(git -C "$SRC" status --porcelain -- bridge 2>/dev/null)" ] || COMMIT="$COMMIT-dirty"
     fi
 fi
-VER="$("$BIN" --version)" || die "$BIN does not run (missing ICU? --deps)"
+if command -v ldconfig >/dev/null 2>&1 && ! ldconfig -p 2>/dev/null | grep -qE 'libssl\.so\.(3|1\.1)'; then
+    die "OpenSSL is missing: .NET 8 needs libssl 3 or 1.1 (Debian/Ubuntu: libssl3 / libssl3t64, Fedora: openssl-libs; --deps)"
+fi
+VER="$("$BIN" --version)" || die "$BIN does not run (missing ICU or OpenSSL? --deps)"
 [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "$BIN --version printed '$VER'"
 "$BIN" --validate-config --config "$CFG" >/dev/null 2>&1 \
     || die "Bridge $VER rejects $CFG: $(cat "$STATE/config-check.txt" 2>/dev/null)"

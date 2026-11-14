@@ -5,6 +5,7 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- Bridge 1.19.0 install.sh: `--deps` also installs OpenSSL 3 (`libssl3` / `libssl3t64`, Fedora `openssl-libs`) and zlib, and the install stops with a clear hint when OpenSSL is missing (minimal Debian images have none; .NET 8 needs it).
 - Module dictation 0.2.0: provider `local` (own OpenAI-compatible Whisper server, e.g. speaches on a home server over HTTPS) and a provider chain in `transcribe.json` with failover (local first, Groq/OpenAI next); vocabulary `prompt`; the composer page falls back to browser recognition when every server service fails.
 - **Many executors** (Freedom F12, SPEC §3.1a): any number of Bridges (Windows PCs, Macs, Linux servers) besides the
   site agent; `home-main` and `site` stay the ids of the first two and work without any setting change.

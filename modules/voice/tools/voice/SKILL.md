@@ -1,7 +1,7 @@
 ---
 name: voice
 description: Voice pipeline of Freedom (module voice) — the hub on the family server (speech to text and text to speech through speaches/piper, short home commands to Home Assistant, the rest to the CO agent of a chosen chat, answer as audio, Cast speakers through HA; music by voice - Spotify/YouTube Music through Music Assistant on the speakers, replies duck the music) and the voice point on a device (wake word with openWakeWord + VAD, Windows/Linux, also headless; always-on listening only after the device owner turns it on); speaker recognition in two levels (wake-word verifier on the device, voiceprints on the hub that route a question to the recognised person's chat, strangers get home commands only); say/ask/check for tests. Use to run or check the voice assistant, speak a text on a home speaker, or set up a voice point.
-version: 0.3.14
+version: 0.3.15
 entry: voice.py
 requires: [python 3.10+, hub - standard library (speaker recognition - sherpa-onnx numpy and an ONNX speaker model), point - sounddevice openwakeword onnxruntime scikit-learn (own venv, setup-point)]
 platform: any
@@ -67,6 +67,8 @@ python voice.py check --config-hub /srv/voice/hub.json # на сервере
 ```
 
 `defaultProvider` — где искать название без источника (сначала трек; короткое имя в 1–2 слова — сначала исполнитель), потом во всех, кроме `excludeProviders`. Исключённый источник (например, чужой аккаунт Spotify) берётся, только если его назвали. Фраза из нескольких предложений («Сыграй на колонке в моём кабинете. Второй концерт Рахманинова. Поищи запись в веб-архиве.») разбирается целиком: вежливые слова и «поищи запись» в название не попадают, колонка может стоять в середине.
+
+`byEnv` — свои источники и колонка человека: `{"sam": {"defaultProvider": "spotify", "excludeProviders": [], "default": "living"}}`. Человек — тот, кого узнал хаб по голосу, иначе окружение точки; для голосового режима CO Web — участник, от которого сервер CO прислал фразу (`point: web-<env>` с ключом клиента; ключ точки так назвать другого не может).
 
 `players` — плееры Music Assistant (сущности HA интеграции MA, не сами Cast). В `homeAssistant.speakers` для объявлений поверх музыки ставят их же.
 
@@ -147,6 +149,7 @@ python voice.py whois phrase.wav
 
 ## История
 
+- 0.3.15 — 2026-11-14 — музыка: `music.byEnv` — источник по умолчанию, исключённые источники и колонка на человека (у одного YouTube Music, у другого свой Spotify).
 - 0.3.14 — 2026-11-14 — музыка: `defaultProvider`/`excludeProviders`, запасной источник с объявлением, разбор фраз из нескольких предложений и колонки в середине фразы. 0.3.13: источники Internet Archive и SoundCloud, сравнение источника без суффикса экземпляра MA (`spotify--xxx://`).
 - 0.3.7 — 2026-11-14 — `outputKeepAlive` (Bluetooth-колонка не засыпает: сигналы и ответы без 5-секундной задержки), «Секунду.» через `fillerAfter` с ожидания хаба.
 - 0.3.6 — 2026-11-14 — сигналы длиннее и громче, с 0,5 с разгона для спящей Bluetooth-колонки.

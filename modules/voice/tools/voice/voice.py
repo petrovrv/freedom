@@ -36,7 +36,7 @@ import urllib.request
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.3.14"
+VERSION = "0.3.15"
 UA = f"freedom-voice/{VERSION}"
 LANGS = ("ru", "uk", "en", "nl", "fr", "de")
 WHISPER_NAMES = {"russian": "ru", "ukrainian": "uk", "english": "en", "dutch": "nl", "flemish": "nl", "french": "fr",
@@ -203,6 +203,8 @@ class Music:
         # a title without a named source is looked up here first ("ytmusic"); excluded sources only when named
         self.default_provider = cfg.get("defaultProvider") or ""
         self.exclude = [x for x in (cfg.get("excludeProviders") or []) if x]
+        # per person (env): {"sam": {"defaultProvider": "spotify", "excludeProviders": [], "default": "room"}}
+        self.by_env = {k: v for k, v in (cfg.get("byEnv") or {}).items() if isinstance(v, dict)}
         self.ok = bool(self.players and ha_url and ha_token)
 
     def _h(self):
@@ -219,10 +221,11 @@ class Music:
         code, _, data = http("GET", f"{self.ha_url}/api/states/{ent}", headers=self._h(), timeout=10)
         return json.loads(data) if code == 200 else {}
 
-    def entities(self, names):
+    def entities(self, names, default=None):
         if "*" in names:
             return list(dict.fromkeys(self.players.values()))
-        return [self.players[n] for n in names if n in self.players] or [self.players[self.default]]
+        d = default if default in self.players else self.default
+        return [self.players[n] for n in names if n in self.players] or [self.players[d]]
 
     def active(self):
         """Players that play now (else those paused, else the default one)."""
@@ -254,9 +257,12 @@ class Music:
                     return it
         return None
 
-    def run(self, p, lang):
-        """Carry out a parsed phrase; returns the reply text."""
+    def run(self, p, lang, env=""):
+        """Carry out a parsed phrase for the person env (their own byEnv sources and speaker); returns the reply text."""
         S = M_SAY.get(lang, M_SAY["en"])
+        pref = self.by_env.get(env) or {}
+        dprov = pref["defaultProvider"] if "defaultProvider" in pref else self.default_provider
+        excl = [x for x in pref["excludeProviders"] if x] if "excludeProviders" in pref else self.exclude
         if not self.ok:
             return S["off"]
         a = p["action"]
@@ -279,7 +285,7 @@ class Music:
                 v = min(1.0, v + self.volume_step) if a == "louder" else max(0.0, v - self.volume_step)
                 self.service("media_player", "volume_set", {"entity_id": e, "volume_level": round(v, 2)})
             return S[a]
-        ents = self.entities(p["players"])
+        ents = self.entities(p["players"], pref.get("default"))
         q, typ = p["query"], p["type"]
         if not q:
             if typ is None:  # "включи музыку": continue what was playing
@@ -290,14 +296,14 @@ class Music:
         it, said = None, "play"
         if p["provider"]:
             it = self.search(q, typ, p["provider"])
-            if not it and self.default_provider and self.default_provider != p["provider"]:
+            if not it and dprov and dprov != p["provider"]:
                 # the named source has nothing (archives hardly know Russian titles): the default one, said aloud
-                it, said = self.search(q, typ, self.default_provider), "elsewhere"
-        elif self.default_provider or self.exclude or typ == "playlist":
+                it, said = self.search(q, typ, dprov), "elsewhere"
+        elif dprov or excl or typ == "playlist":
             short = len(q.split()) <= 2
-            if self.default_provider:
-                it = self.search(q, typ, self.default_provider, artist_first=short)
-            it = it or self.search(q, typ, "", self.exclude, artist_first=short)
+            if dprov:
+                it = self.search(q, typ, dprov, artist_first=short)
+            it = it or self.search(q, typ, "", excl, artist_first=short)
         if p["provider"] or typ == "playlist" or it:
             if not it:
                 return S["notfound"].format(q=q)
@@ -758,10 +764,10 @@ class Hub:
         t = re.sub(r"[*_~|]+", "", t)
         return re.sub(r"\s+", " ", t).strip()[:1500]
 
-    def _music(self, mp, lang, out, tm):
+    def _music(self, mp, lang, out, tm, env=""):
         t1 = time.time()
         try:
-            reply = self.music.run(mp, lang)
+            reply = self.music.run(mp, lang, env)
         except Exception as e:  # noqa: BLE001 - said, never a failed turn
             log("music", e)
             reply = M_SAY.get(lang, M_SAY["en"])["fail"]
@@ -771,7 +777,7 @@ class Hub:
 
     # -- one voice turn
     def turn(self, text=None, audio=None, filename="audio.wav", typ="audio/wav", lang=None, route="auto",
-             speak=True, fmt="mp3", chat=None, point=None, speaker=""):
+             speak=True, fmt="mp3", chat=None, point=None, speaker="", env=""):
         t0 = time.time()
         tm = {}
         out = {"route": None}
@@ -806,6 +812,7 @@ class Hub:
             elif point["unknown"] == "home":
                 asker = None
         lang = norm_lang(lang, self.langs, self.default_lang)
+        menv = (asker or point or {}).get("env") or env  # whose music sources (music.byEnv)
         text = (text or "").strip()
         out.update(text=text, lang=lang)
         reply = ""
@@ -822,7 +829,7 @@ class Hub:
                     return out
             mp = music_parse(text, self.music.aliases) if self.music.ok and route != "agent" else None
             if mp and mp["strong"]:  # "поставь ...", "пауза", "включи песню ..." - music at once, before HA
-                reply = self._music(mp, lang, out, tm)
+                reply = self._music(mp, lang, out, tm, menv)
             if out["route"] is None and route in ("auto", "home", "client"):
                 t1 = time.time()
                 h = self.home(text, lang)
@@ -832,7 +839,7 @@ class Hub:
                     out["route"], reply = "home", h["reply"] or say(lang, "fail")
                 elif mp and h["code"] in ("no_intent_match", "no_valid_targets", "ha_off") \
                         and not M_HOMEWORD.search(mp["query"]):  # "включи Шостаковича": not a home command, so music
-                    reply = self._music(mp, lang, out, tm)
+                    reply = self._music(mp, lang, out, tm, menv)
             if out["route"] is None:
                 if route == "client":  # the caller (CO Web) sends the phrase into its own chat
                     out["route"] = "agent"
@@ -953,9 +960,12 @@ def make_handler(hub):
                     if role == "client" and route != "home":
                         route = "client"  # the client key never makes the hub ask the agent
                     speaker = q.get("speaker") or (point or {}).get("speaker") or ""
+                    # the CO server (client key) names the member as point "web-<env>"
+                    wenv = str(q.get("point") or "")[4:] if role == "client" and str(q.get("point") or "").startswith("web-") else ""
                     r = hub.turn(text=q.get("text"), audio=audio, filename=fn, typ=typ, lang=q.get("lang"),
                                  route=route, speak=q.get("speak", "1") not in (False, 0, "0", "false", "False"),
-                                 fmt=q.get("format") or "mp3", chat=q.get("chat"), point=point, speaker=speaker)
+                                 fmt=q.get("format") or "mp3", chat=q.get("chat"), point=point, speaker=speaker,
+                                 env=wenv)
                     log("turn", r.get("route"), r.get("lang"), r.get("timings"))
                     return self._send(200, r)
                 if p == "/v1/voice/transcribe":

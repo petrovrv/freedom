@@ -252,6 +252,22 @@ class MusicTest(HubTest):
         finally:
             m.default_provider, m.exclude = "", []
 
+    def test_music_sources_per_person(self):
+        m = self.hub.music
+        m.default_provider, m.exclude = "ytmusic", ["spotify"]
+        m.by_env = {"sasha": {"defaultProvider": "spotify", "excludeProviders": []}}
+        try:
+            self.post("/v1/voice/turn", {"text": "поставь что-нибудь спокойное", "speak": "0", "route": "home",
+                                         "point": "web-sasha"}, key="k1")  # CO Web of the member sasha
+            self.assertEqual(self.svc("music_assistant/play_media")[-1]["media_id"], "spotify--W2wzeWB7://playlist/2")
+            self.post("/v1/voice/turn", {"text": "поставь что-нибудь спокойное", "speak": "0"}, key="p1")  # env me
+            self.assertEqual(self.svc("music_assistant/play_media")[-1]["media_id"], "ytmusic://playlist/1")
+            self.post("/v1/voice/turn", {"text": "поставь что-нибудь спокойное", "speak": "0", "route": "home",
+                                         "point": "web-sasha"}, key="p1")  # a point key never names someone else
+            self.assertEqual(self.svc("music_assistant/play_media")[-1]["media_id"], "ytmusic://playlist/1")
+        finally:
+            m.default_provider, m.exclude, m.by_env = "", [], {}
+
     def test_strong_phrase_plays_without_ha(self):
         _, r = self.post("/v1/voice/turn", {"text": "поставь Шостаковича на кухне", "speak": "0"}, key="p1")
         self.assertEqual(r["route"], "music")

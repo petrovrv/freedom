@@ -211,10 +211,10 @@ function co_voice_queue(mysqli $db, string $chatId, string $env, array $chat, st
     $prev = $last ? (json_decode((string)$last['request'], true) ?: []) : [];
     $agent = in_array($prev['agent'] ?? null, CO_VOICE_AGENTS, true) ? $prev['agent'] : 'claude';
     $model = $agent === ($prev['agent'] ?? null) && is_string($prev['model'] ?? null) ? $prev['model'] : null;
-    if ($agent === 'claude' && !preg_match(CO_VOICE_DEEP, $text)) $model = co_voice_fast_model($db, $host) ?? $model;
     // the executor of the chat's last turn, if it still serves the project's environment (F12), else Home
     $host = $last && co_exec_known($db, (string)$last['host_id']) && co_exec_serves($db, (string)$last['host_id'], (string)$chat['env'])
         ? (string)$last['host_id'] : 'home-main';
+    if ($agent === 'claude' && !preg_match(CO_VOICE_DEEP, $text)) $model = co_voice_fast_model($db, $host) ?? $model;
 
     $sess = co_voice_one($db, "SELECT JSON_VALUE(result, '$.sessionId') AS sid, JSON_VALUE(request, '$.agent') AS agent FROM jobs
                                 WHERE chat_id = ? AND state = 'completed' AND JSON_EXISTS(request, '$.voice')

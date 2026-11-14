@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.3.2",
- "created": "2026-11-14T14:11:53Z",
+ "version": "0.3.3",
+ "created": "2026-11-14T14:14:24Z",
  "files": [
   {
    "path": "context/voice.md",
@@ -11,7 +11,7 @@
   {
    "path": "module.json",
    "size": 2397,
-   "sha256": "3af0f3717cff413792efcdcb8a2978537996ec3d5348a950288e926b649f5a77"
+   "sha256": "1369823c85d3574db1bd99afac38653a44459eeec04e9635dc1c4de1d8ad71ef"
   },
   {
    "path": "README.md",
@@ -26,7 +26,7 @@
   {
    "path": "server/voice-lib.php",
    "size": 18256,
-   "sha256": "5576b8d3e44f5d09440df3aac0b86dfe68d38b5144e2e8ea93c4dbf42fe6a6d8"
+   "sha256": "08b1a3572796b57f270806c27155377c2f2824ecb5974caac8fe57a477b870e2"
   },
   {
    "path": "tools/voice/SKILL.md",
@@ -63,7 +63,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "eY5ibyagWwhUzhU9jAsPhoOJe5TrvyueVj0rWwM41YmeewaFLJAejxt+dikhCqdkpDgHe1Kji6oXUj7TVcteBg=="
+   "sig": "0Qd5CDSrUWr8p30MMRmOgduHI+KnMRV65IS18VQQZM2GTWd5K0+k6iFz+PaZkrxg79szGe0Kf+Xk7JA6JzICCA=="
   }
  ],
  "module": "voice"

@@ -140,18 +140,26 @@ namespace AiWorkbenchBridge
             if (!OperatingSystem.IsWindows())
                 return OpenOrCreateStoredKey(BridgePlatform.Current.Secrets);
 #endif
+            // ECDsaCng takes its own handle of the key: the opened one is closed here
             if (CngKey.Exists(CallKeyName, CngProvider.MicrosoftSoftwareKeyStorageProvider))
-                return new ECDsaCng(CngKey.Open(CallKeyName, CngProvider.MicrosoftSoftwareKeyStorageProvider));
+                using (CngKey k = CngKey.Open(CallKeyName, CngProvider.MicrosoftSoftwareKeyStorageProvider))
+                    return new ECDsaCng(k);
             CngKeyCreationParameters p = new CngKeyCreationParameters();
             p.Provider = CngProvider.MicrosoftSoftwareKeyStorageProvider;
             p.ExportPolicy = CngExportPolicies.None;
             p.KeyUsage = CngKeyUsages.Signing;
-            return new ECDsaCng(CngKey.Create(CngAlgorithm.ECDsaP256, CallKeyName, p));
+            using (CngKey k = CngKey.Create(CngAlgorithm.ECDsaP256, CallKeyName, p))
+                return new ECDsaCng(k);
         }
 
 #if NET8_0_OR_GREATER
-        internal static ECDsa OpenOrCreateStoredKey(ISecretStore store)
+        internal const string StoreProbeName = "aiwb/bridge-store-probe";
+
+        // A key is made only when the store demonstrably works (a probe item round-trips): a locked or half-started
+        // keyring that answers "no item" must not replace the key paired devices trust. created: a new key was stored.
+        internal static ECDsa OpenOrCreateStoredKey(ISecretStore store, out bool created)
         {
+            created = false;
             ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
             string pkcs8 = store.Read(CallKeyName);
             if (!String.IsNullOrEmpty(pkcs8))
@@ -160,8 +168,30 @@ namespace AiWorkbenchBridge
                 key.ImportPkcs8PrivateKey(Convert.FromBase64String(pkcs8.Trim()), out read);
                 return key;
             }
-            store.Write(CallKeyName, Convert.ToBase64String(key.ExportPkcs8PrivateKey()), "AI Workbench Bridge: device-call key");
+            string probe = Guid.NewGuid().ToString("N");
+            store.Write(StoreProbeName, probe, "AI Workbench Bridge: store probe");
+            bool works = store.Read(StoreProbeName) == probe;
+            try { store.Delete(StoreProbeName); } catch (Exception) { }
+            if (!works || store.Read(CallKeyName) != null)
+            {
+                key.Dispose();
+                throw new InvalidOperationException("the secret store did not answer reliably (" + store.Name + "); no new key made, next start tries again");
+            }
+            string value = Convert.ToBase64String(key.ExportPkcs8PrivateKey());
+            store.Write(CallKeyName, value, "AI Workbench Bridge: device-call key");
+            if (store.Read(CallKeyName) != value)
+            {
+                key.Dispose();
+                throw new InvalidOperationException("the new device-call key could not be read back from " + store.Name);
+            }
+            created = true;
             return key;
+        }
+
+        internal static ECDsa OpenOrCreateStoredKey(ISecretStore store)
+        {
+            bool created;
+            return OpenOrCreateStoredKey(store, out created);
         }
 #endif
 
@@ -197,7 +227,8 @@ namespace AiWorkbenchBridge
 
         public static string Sign(ECDsa key, byte[] data)
         {
-            return Convert.ToBase64String(key.SignData(data, HashAlgorithmName.SHA256));   // IEEE P1363 r||s
+            lock (key)   // one key object serves the device threads; signing is not documented as thread-safe
+                return Convert.ToBase64String(key.SignData(data, HashAlgorithmName.SHA256));   // IEEE P1363 r||s
         }
 
         public static bool Verify(string publicKeyB64, byte[] data, string signatureB64)
@@ -372,9 +403,16 @@ namespace AiWorkbenchBridge
 
             try
             {
-                _deviceCallKey = DeviceCrypto.OpenOrCreateCallKey();
+                bool created = false;
+#if NET8_0_OR_GREATER
+                if (!OperatingSystem.IsWindows())
+                    _deviceCallKey = DeviceCrypto.OpenOrCreateStoredKey(BridgePlatform.Current.Secrets, out created);
+                else
+#endif
+                    _deviceCallKey = DeviceCrypto.OpenOrCreateCallKey();
                 _deviceCallPublicKey = DeviceCrypto.PublicKey(_deviceCallKey);
-                Log("Device-call key fingerprint: " + DeviceCrypto.Fingerprint(_deviceCallPublicKey));
+                Log("Device-call key fingerprint: " + DeviceCrypto.Fingerprint(_deviceCallPublicKey) +
+                    (created ? " (NEW key made now: devices paired before must be paired again)" : ""));
             }
             catch (Exception ex)
             {
@@ -2732,7 +2770,9 @@ namespace AiWorkbenchBridge
             }
             StartThread("relay-devices", RelayDevicesLoop);
             StartThread("relay-claim", RelayClaimLoop);
-            Log("Device relay started: site jobs may call devices of this Bridge.");
+            Log("Device relay started: site jobs may call devices of this Bridge (h-" + _config.hostId + " as dev_" + RelayHomeShort + ").");
+            if (!String.IsNullOrEmpty(D.relayHomeShort) && D.relayHomeShort != RelayHomeShort)
+                Log("WARNING: devices.relayHomeShort \"" + D.relayHomeShort + "\" is not 1-12 of a-z, 0-9; \"home\" is used and may hide another computer's tools.");
         }
 
         private void RelayDevicesLoop()

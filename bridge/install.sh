@@ -146,7 +146,10 @@ install_deps() {
 
 # ---------------------------------------------------------------- root: a dedicated system account
 
-MARK=".aiworkbench-bridge-account"   # in the home of an account this script created (only those are deleted)
+# Accounts this script created: a root-owned list outside their homes (only these are ever deleted). Root never writes
+# into the account's home itself (the account runs agents: it could plant links there); files go in through a
+# root-owned staging folder and are copied by the account.
+ACCOUNTS=/var/lib/aiworkbench-bridge/accounts
 
 as_account() {   # as_account CMD...: a command as $SYSUSER inside its systemd user session (bus of its manager)
     local uid; uid="$(id -u "$SYSUSER")"
@@ -162,72 +165,89 @@ account_session() {   # linger on and the account's user manager up
     [ -S "/run/user/$uid/bus" ] || die "no user manager / D-Bus for $SYSUSER after enable-linger (Debian/Ubuntu: dbus-user-session; --deps)"
 }
 
+ours() {   # the account was created by this script: root-owned record, system uid, home /var/lib/NAME
+    local uid_min; uid_min="$(awk '$1 == "UID_MIN" {print $2}' /etc/login.defs 2>/dev/null)"
+    [ -f "$ACCOUNTS/$SYSUSER" ] && [ "$(stat -c %u "$ACCOUNTS/$SYSUSER")" = 0 ] \
+        && [ "$(id -u "$SYSUSER")" -lt "${uid_min:-1000}" ] && [ "$SYSHOME" = "/var/lib/$SYSUSER" ]
+}
+
 if [ "$(id -u)" = 0 ]; then
     [ -n "$SYSUSER" ] || die "as root only with --system-user NAME (else run it as the account Bridge runs under)"
     [[ "$SYSUSER" =~ ^[a-z][a-z0-9_-]{0,30}$ ]] || die "--system-user: a Linux account name"
+    SYSHOME=""
+    id "$SYSUSER" >/dev/null 2>&1 && SYSHOME="$(getent passwd "$SYSUSER" | cut -d: -f6)"
     if [ "$UNINSTALL" = 1 ]; then
-        id "$SYSUSER" >/dev/null 2>&1 || { say "no account $SYSUSER: nothing to remove"; exit 0; }
-        SYSHOME="$(getent passwd "$SYSUSER" | cut -d: -f6)"
-        if [ -S "/run/user/$(id -u "$SYSUSER")/bus" ] && [ -f "$SYSHOME/freedom/bridge/install.sh" ]; then
+        [ -n "$SYSHOME" ] || { say "no account $SYSUSER: nothing to remove"; exit 0; }
+        ours || die "$SYSUSER was not created by this script: nothing removed (as $SYSUSER: bash install.sh --uninstall)"
+        if [ -f "$SYSHOME/freedom/bridge/install.sh" ] && ( account_session ); then
             as_account bash "$SYSHOME/freedom/bridge/install.sh" --uninstall || true
-        fi
-        if [ ! -f "$SYSHOME/$MARK" ]; then
-            say "services of $SYSUSER removed; the account itself was not made by this script and stays"
-            exit 0
         fi
         loginctl disable-linger "$SYSUSER" || true
         loginctl terminate-user "$SYSUSER" 2>/dev/null || true
         for _ in $(seq 1 20); do pgrep -u "$SYSUSER" >/dev/null || break; sleep 1; done
         pkill -KILL -u "$SYSUSER" 2>/dev/null || true
         userdel -r "$SYSUSER" 2>/dev/null || userdel "$SYSUSER"
-        rm -rf "$SYSHOME"
-        say "removed: the services, linger and the account $SYSUSER with its home $SYSHOME (config, logs, keyring, channel)"
+        rm -rf --one-file-system "/var/lib/$SYSUSER"
+        rm -f "$ACCOUNTS/$SYSUSER"
+        say "removed: the services, linger and the account $SYSUSER with its home /var/lib/$SYSUSER (config, logs, keyring, channel)"
         exit 0
     fi
     if [ -n "$PUT_SECRET" ]; then
         [[ "$PUT_SECRET" =~ ^[A-Za-z0-9._/-]{1,80}$ ]] || die "--put-secret: a keyring name like aiwb/co-push"
-        id "$SYSUSER" >/dev/null 2>&1 || die "no account $SYSUSER (install first)"
-        SYSHOME="$(getent passwd "$SYSUSER" | cut -d: -f6)"
+        [ -n "$SYSHOME" ] || die "no account $SYSUSER (install first)"
         account_session
         as_account secret-tool store --label="$PUT_SECRET" service "$PUT_SECRET" username default \
             || die "secret-tool store failed"
         say "stored $PUT_SECRET in the keyring of $SYSUSER"
         exit 0
     fi
-    if [ "$DEPS" = 1 ]; then install_deps; fi
-    if ! id "$SYSUSER" >/dev/null 2>&1; then
-        useradd --system --create-home --home-dir "/var/lib/$SYSUSER" --shell /bin/bash --comment "AI Workbench Bridge" "$SYSUSER"
-        touch "/var/lib/$SYSUSER/$MARK"
-        say "account $SYSUSER created (system user, home /var/lib/$SYSUSER, no password: sudo -iu $SYSUSER to sign in to the CLIs)"
+    if [ -n "$SYSHOME" ]; then
+        ours || die "account $SYSUSER exists and was not created by this script: choose another name, or run the
+    installer as that account (sudo -iu $SYSUSER bash .../install.sh)"
+    else
+        [ ! -e "/var/lib/$SYSUSER" ] || die "/var/lib/$SYSUSER exists without an account $SYSUSER: choose another name"
     fi
-    SYSHOME="$(getent passwd "$SYSUSER" | cut -d: -f6)"
-    # the sources (the account cannot read the admin's home), the release build next to them, install.json
-    rm -rf "$SYSHOME/freedom.new"
-    cp -a "$SRC" "$SYSHOME/freedom.new"
-    rm -rf "$SYSHOME/freedom"
-    mv "$SYSHOME/freedom.new" "$SYSHOME/freedom"
+    if [ "$DEPS" = 1 ]; then install_deps; fi
+    if [ -z "$SYSHOME" ]; then
+        useradd --system --create-home --home-dir "/var/lib/$SYSUSER" --shell /bin/bash --comment "AI Workbench Bridge" "$SYSUSER"
+        SYSHOME="/var/lib/$SYSUSER"
+        chmod 750 "$SYSHOME"
+        mkdir -p "$ACCOUNTS"
+        chmod 755 "$(dirname "$ACCOUNTS")" "$ACCOUNTS"
+        printf 'created %s by bridge/install.sh\n' "$(date -u +%FT%TZ)" > "$ACCOUNTS/$SYSUSER"
+        say "account $SYSUSER created (system user, home $SYSHOME, no password: sudo -iu $SYSUSER to sign in to the CLIs)"
+    fi
+    # staging: the sources (the account cannot read the admin's home), the release build, install.json
+    STAGE="$(mktemp -d /tmp/aiwb-bridge-stage.XXXXXX)"
+    trap 'rm -rf "$STAGE"' EXIT
+    cp -a "$SRC" "$STAGE/freedom"
     [ -n "$BINARY" ] || BINARY="$(ls -1 "$SRC"/../BridgeAgent-*-"$RID" 2>/dev/null | sort -V | tail -1 || true)"
     if [ -n "$BINARY" ]; then
         [ -f "$BINARY" ] || die "no $BINARY"
-        cp "$BINARY" "$SYSHOME/$(basename "$BINARY")"
+        mkdir "$STAGE/rel"
+        cp "$BINARY" "$STAGE/rel/"
         M="$(dirname "$BINARY")/freedom-manifest.json"
-        if [ -f "$M" ]; then cp "$M" "$SYSHOME/freedom-manifest.json"; else rm -f "$SYSHOME/freedom-manifest.json"; fi
+        [ ! -f "$M" ] || cp "$M" "$STAGE/rel/"
         FWD+=(--binary "$SYSHOME/$(basename "$BINARY")")
     fi
     if [ -n "$CONFIG_FROM" ]; then
-        cp "$CONFIG_FROM" "$SYSHOME/config.from.json"
+        cp "$CONFIG_FROM" "$STAGE/config.from.json"
         FWD+=(--config-from "$SYSHOME/config.from.json")
     fi
     [ -n "$INSTALL_JSON" ] || { [ -n "${SUDO_USER:-}" ] && INSTALL_JSON="$(getent passwd "$SUDO_USER" | cut -d: -f6)/.config/aiwb/install.json"; }
-    mkdir -p "$SYSHOME/.config/aiwb"
-    if [ -f "$SYSHOME/.config/aiwb/install.json" ]; then
-        say "install.json of $SYSUSER kept"
-    elif [ -n "$INSTALL_JSON" ] && [ -f "$INSTALL_JSON" ]; then
-        cp "$INSTALL_JSON" "$SYSHOME/.config/aiwb/install.json"
-        say "install.json copied from $INSTALL_JSON"
-    fi
-    chown -R "$SYSUSER:" "$SYSHOME"
-    chmod 750 "$SYSHOME"
+    if [ -n "$INSTALL_JSON" ] && [ -f "$INSTALL_JSON" ]; then cp "$INSTALL_JSON" "$STAGE/install.json"; fi
+    chmod -R a+rX "$STAGE"   # install.json and config.json name hosts and people, no secrets; /tmp copy lives seconds
+    as_account bash -c '
+        set -euo pipefail
+        S="$1"; cd "$HOME"
+        rm -rf freedom.new; cp -r "$S/freedom" freedom.new; rm -rf freedom; mv freedom.new freedom
+        rm -f freedom-manifest.json
+        if [ -d "$S/rel" ]; then cp "$S"/rel/* .; fi
+        if [ -f "$S/config.from.json" ]; then cp "$S/config.from.json" config.from.json; fi
+        mkdir -p .config/aiwb
+        if [ -f .config/aiwb/install.json ]; then echo "install.json of $USER kept"
+        elif [ -f "$S/install.json" ]; then cp "$S/install.json" .config/aiwb/install.json; chmod 600 .config/aiwb/install.json
+            echo "install.json copied"; fi' _ "$STAGE"
     account_session
     as_account bash "$SYSHOME/freedom/bridge/install.sh" "${FWD[@]}"
     exit $?

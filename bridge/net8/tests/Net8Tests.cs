@@ -836,6 +836,15 @@ namespace AiWorkbenchBridge.Tests
             public void Delete(string target) { Items.Remove(target); }
         }
 
+        private sealed class LockedSecrets : ISecretStore
+        {
+            public readonly List<string> Written = new List<string>();
+            public string Name { get { return "locked"; } }
+            public string Read(string target) { return null; }
+            public void Write(string target, string secret, string comment) { Written.Add(target); }
+            public void Delete(string target) { }
+        }
+
         private static void TestReleaseChannel()
         {
             MemorySecrets store = new MemorySecrets();
@@ -885,6 +894,10 @@ namespace AiWorkbenchBridge.Tests
                 using (System.Security.Cryptography.ECDsa again = DeviceCrypto.OpenOrCreateStoredKey(store))
                     Eq("devices", "same key on the next start", pk, DeviceCrypto.PublicKey(again));
             }
+            // a locked keyring answers "no item" to every read: no new key may replace the one devices trust
+            LockedSecrets locked = new LockedSecrets();
+            Throws<InvalidOperationException>("devices", "locked store: no new key", delegate { DeviceCrypto.OpenOrCreateStoredKey(locked); });
+            Check("devices", "locked store: nothing written but the probe", !locked.Written.Contains(DeviceCrypto.CallKeyName));
 
             string[] files =
             {

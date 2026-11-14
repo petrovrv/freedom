@@ -131,9 +131,14 @@ class InstallShTest(unittest.TestCase):
     def test_root_mode_guards(self):
         text = self.SH.read_text(encoding='utf-8')
         self.assertIn('NEEDRESTART_SUSPEND=1', text)          # apt must not restart the machine's services
-        self.assertIn('MARK=".aiworkbench-bridge-account"', text)
-        self.assertIn('if [ ! -f "$SYSHOME/$MARK" ]', text)   # only an account this script made is deleted
+        # only an account this script made is touched or deleted: a root-owned record outside its home, system uid
+        self.assertIn('ACCOUNTS=/var/lib/aiworkbench-bridge/accounts', text)
+        self.assertIn('ours || die', text)
         self.assertIn('useradd --system', text)
+        # root never writes into the account's home: staging folder, copied by the account itself
+        root = text[text.index('if [ "$(id -u)" = 0 ]; then'):text.index('[ -z "$SYSUSER" ] || die')]
+        self.assertNotIn('chown -R', root)
+        self.assertNotRegex(root, r'\bcp [^\n]*"\$SYSHOME')
 
 
 if __name__ == '__main__':

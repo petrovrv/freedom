@@ -31,11 +31,26 @@ it, into one folder:
   the repository itself, not from an unknown mirror; later releases are checked against the list you already have.
 - `git clone <repository URL>` instead of the archive is for updates and development (same steps).
 
+## If someone invited you (SPEC §7.5)
+
+The person who told you about Freedom may send you an invite code (`fdm-inv1.…`). The wizard asks for it first:
+`python install/freedom_setup.py invite` (paste the code; press Enter, or `invite --none`, if nobody invited you).
+
+- When a step fails: `python install/freedom_setup.py report --send`. You see the exact text first (no passwords,
+  names, addresses or paths); only after your "y" it goes to the inviter's site. Your own AI (no terminal) sends it
+  with `report --send --yes CHECK`, CHECK = the six characters printed under the text it showed you.
+- Later: `python install/freedom_setup.py report --answers` prints what they answered (often "fixed in the next
+  release, update the wizard").
+- The inviter's AI never connects to your computer and does not chat with you; it reads your report and fixes Freedom.
+  Once you are signed in to your own Claude or ChatGPT subscription, your own AI does the rest of the installation.
+- Without an invite the same report goes to your own AI chat or the Freedom forum (`report` without `--send`).
+
 ## Steps and time budget
 
 | # | Step | Command / place | Who | Budget |
 |---|---|---|---|---|
 | 0 | Python 3.10+, Node 20+, git (`winget install Python.Python.3.12 OpenJS.NodeJS.LTS Git.Git`), Google Drive for desktop (signed in); download the three files, `tar -xf freedom-<v>-src.tar.gz`, terminal in the folder; `python -m pip install paramiko keyring cryptography` | terminal | user | 15 min |
+| 0a | `python install/freedom_setup.py invite` (invite code from the person who invited you, or Enter) | terminal | user | 1 min |
 | 1 | `python install/freedom_setup.py preflight` | | wizard | 1 min |
 | 2 | Variant A: hosting panel → MariaDB database + user, SSH key (panel → SSH access → add public key). B/C: install Docker (`install/docker/README.md`) | panel | user | 10 min |
 | 3 | `freedom_setup.py init` (asks: site, e-mail, name, SSH, folders, database; `--variant C` for Docker on this PC); password → keyring `aiwb/co-mysql` | | wizard + user | 5 min |
@@ -59,7 +74,11 @@ Later releases: download the new `CO-Desktop-Setup-<v>.exe` + manifest and run `
 unpack (or `git pull`) the new sources, `site-deploy --apply`, `bridge` (builds and signs the new Bridge; the launcher
 switches when no job runs).
 
-## Rehearsal (before a pilot, or instead of a second computer)
+## Rehearsal (optional, for developers)
+
+Not a release gate (maintainer decision, 14.11.2026): a release is checked by a friend installing on their own real computer by
+invitation; their own AI watches and debugs, errors of Freedom itself come back as reports. Use this only to debug
+the wizard yourself.
 
 1. Clean Windows: Windows Sandbox (Windows 11 Pro: `Enable-WindowsOptionalFeature -Online -FeatureName
    Containers-DisposableClientVM`, administrator + restart) or a Hyper-V VM ("Quick Create" or a 90-day evaluation

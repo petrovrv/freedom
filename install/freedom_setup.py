@@ -7,6 +7,8 @@ Every step prints what it found, what it did and the next action; a failed step 
 or the forum (SPEC 4.3). The state of the steps is kept next to install.json (setup-state.json), so a new run goes on.
 
   python install/freedom_setup.py status                       steps done and the next one
+  python install/freedom_setup.py invite [CODE] [--none]       first step: the invite code of the person who invited you
+                                                              (SPEC 7.5); --none = you came on your own (help: forum)
   python install/freedom_setup.py preflight                    this computer: Python, git, Node/npm, paramiko, keyring, Drive
   python install/freedom_setup.py init [--site-url URL --owner-email E --owner-name N --owner-env ENV --drive-root DIR
                                         --ssh-host H --ssh-port P --ssh-user U --ssh-key FILE --site-home DIR
@@ -35,7 +37,10 @@ or the forum (SPEC 4.3). The state of the steps is kept next to install.json (se
                                                               pc_* of this PC for the owner, household sandbox for
                                                               the other members (SPEC 3.3, step 6a)
   python install/freedom_setup.py verify [--no-tools]          site, sign-in redirect, db.php, then aiwb-smoke / aiwb-e2e
-  python install/freedom_setup.py report [--out FILE]          log without secrets for help (also to the clipboard)
+  python install/freedom_setup.py report [--out FILE] [--send [--yes CHECK]] [--answers]
+                                                              log without secrets for help (also to the clipboard);
+                                                              invited: --send shows it and, after your yes, sends it to
+                                                              the person who invited you; --answers prints their answers
 
 Secrets stay in the OS keyring (SPEC principle 2): aiwb/co-mysql (account = database user), aiwb/google-oauth-web
 (default: JSON of the web OAuth client), aiwb/co-push (default: key of this PC for db.php), aiwb/site-ssh (account = ssh
@@ -66,7 +71,7 @@ REPO = Path(__file__).resolve().parents[1]
 MIN_PHP = (8, 1)        # the CLI PHP of the reference install is 8.1; the code needs match/mixed/readonly (8.1)
 MIN_MARIADB = (10, 5)   # schema.sql uses ADD COLUMN / ADD INDEX IF NOT EXISTS (MariaDB only, not MySQL)
 MIN_NODE = 20
-STEPS = ['preflight', 'init', 'subs', 'site-probe', 'site-deploy', 'google', 'bridge', 'desktop', 'pc-access', 'verify']
+STEPS = ['invite', 'preflight', 'init', 'subs', 'site-probe', 'site-deploy', 'google', 'bridge', 'desktop', 'pc-access', 'verify']
 CRON_LINES = ['* * * * * php {home}/co-agent/cron/drive-sync.php >/dev/null 2>&1',
               '*/5 * * * * php {home}/co-agent/cron/watch-cron.php >/dev/null 2>&1']
 
@@ -122,6 +127,10 @@ def sanitize(text: str, extra=()) -> str:
             words += [m.get('email', ''), m.get('name', ''), m.get('env', '')]
     except (FileNotFoundError, ValueError):
         pass
+    try:   # what was typed at init, also when install.json was never written (init failed before the write)
+        words += [w for w in (load_state().get('redact') or []) if isinstance(w, str)]
+    except Exception:
+        pass
     words += [getpass.getuser(), platform.node()]
     for w in sorted({w for w in words if w and len(w) >= 3}, key=len, reverse=True):
         text = re.sub(re.escape(w), '<redacted>', text, flags=re.I)
@@ -130,10 +139,26 @@ def sanitize(text: str, extra=()) -> str:
     text = re.sub(r'(?i)(password|passwd|secret|token|key|authorization)(["\']?\s*[:=]\s*)\S+', r'\1\2<secret>', text)
     text = re.sub(r'\b(sk|ghp|gho|xox[abp]|ya29|AIza)[-_.A-Za-z0-9]{10,}', '<secret>', text)
     text = re.sub(r'\b[A-Za-z0-9+/_-]{32,}={0,2}', '<secret>', text)
-    text = re.sub(r'(?i)[a-z]:\\users\\[^\\\s"]+', r'C:\\Users\\<user>', text)
+    # Windows paths, also inside JSON (doubled backslashes) and with a space in the profile folder
+    text = re.sub(r'(?i)\b[a-z]:(\\+)users\1[^\\\n"]+', lambda m: 'C:' + m.group(1) + 'Users' + m.group(1) + '<user>', text)
+    text = re.sub(r'(?i)\b([d-z]):(\\+)[^\\\n"]+', lambda m: m.group(1) + ':' + m.group(2) + '<dir>', text)
     text = re.sub(r'/(home|Users)/[^/\s"]+', r'/\1/<user>', text)
-    text = re.sub(r'\bu\d{6,}\b', '<account>', text)
+    text = re.sub(r'(?i)\b(https?://)[^/\s"\'<>]+', r'\1<host>', text)
+    text = re.sub(r'(?i)\b(?:[a-z0-9-]+\.)+([a-z]{2,24})\b', lambda m: '<host>' if _host_tld(m.group(1)) else m.group(0), text)
+    text = re.sub(r'\bu\d{6,}\w*', '<account>', text)
     return text
+
+
+_FILE_EXT = {'py', 'js', 'ts', 'md', 'sh', 'gz', 'ps', 'cs', 'rs', 'go', 'db', 'so', 'pl', 'rb', 'vb', 'ui', 'mo'}
+_GTLD = {'com', 'net', 'org', 'info', 'biz', 'dev', 'app', 'io', 'cloud', 'host', 'online', 'site', 'xyz', 'tech',
+         'store', 'website', 'space', 'live', 'family', 'home', 'world', 'email', 'page', 'blog', 'club', 'one', 'pro',
+         'name', 'ninja', 'tools', 'systems', 'network', 'services', 'digital', 'social', 'today', 'casa', 'solutions'}
+
+
+def _host_tld(tld: str) -> bool:
+    """Is this last label a domain ending (a country code or a common generic one), not a file extension?"""
+    t = tld.lower()
+    return t in _GTLD or (len(t) == 2 and t not in _FILE_EXT)
 
 
 # ---------------------------------------------------------------- helpers
@@ -288,6 +313,18 @@ def _input(prompt: str):
         return None
 
 
+def _remember_redact(*vals):
+    """Keep what the person typed at init in setup-state.json so a report never carries it, even before install.json."""
+    words = []
+    for v in vals:
+        for w in re.split(r'[\s:,;]+', str(v or '')):
+            w = w.strip().rstrip('/').split('//')[-1]
+            if len(w) >= 3 and w.lower() not in ('https', 'http', 'co'):
+                words.append(w)
+    if words:
+        save_state_key('redact', sorted(set((load_state().get('redact') or []) + words))[:200])
+
+
 def cmd_init(a) -> int:
     p = aiwb_install.path()
     if p.is_file() and not a.force:
@@ -303,6 +340,7 @@ def cmd_init(a) -> int:
     email = _ask('Your Google e-mail (owner)', a.owner_email, ia)
     name = _ask('Your first name', a.owner_name, ia)
     env = a.owner_env or (re.sub(r'[^a-z0-9-]', '', (name or '').lower()) or 'owner')
+    _remember_redact(url, email, name, a.owner_env)
     hosting = ia and variant == 'A'  # B/C: no SSH, folders or database host to ask (freedom_docker.py sets them)
     home = _ask('Home folder on the hosting (/home/<user>)', a.site_home, hosting)
     web = _ask('Web root of the site on the hosting (…/public_html)', a.web_root, hosting)
@@ -322,6 +360,8 @@ def cmd_init(a) -> int:
         'connectors': {'corporate': False},
         'hostId': 'home-main',
     }
+    _remember_redact(home, web, d['site']['ssh']['host'], d['site']['ssh']['user'], d['site']['ssh']['keyFile'],
+                     d['site']['db']['name'], d['site']['db']['user'], *(a.member or []))
     for m in a.member or []:
         parts = m.split(':')
         if len(parts) != 3:
@@ -1486,6 +1526,9 @@ def cmd_verify(a) -> int:
 # ---------------------------------------------------------------- status, report
 
 def cmd_status(a) -> int:
+    inv = invite_info()
+    out('info', f'invite: {inv["host"]} (reports: report --send, answers: report --answers)' if inv
+        else 'invite: none - help is the forum (SPEC 4.3)')
     st = load_state().get('steps', {})
     nxt = None
     for s in STEPS:
@@ -1499,19 +1542,29 @@ def cmd_status(a) -> int:
     return 0
 
 
-def cmd_report(a) -> int:
+def report_text() -> str:
     lines = []
     try:
-        lines = log_path().read_text(encoding='utf-8').splitlines()[-200:]
+        # lines of the report command itself are left out, so the text (and its --yes CHECK) stays the same between runs
+        lines = [ln for ln in log_path().read_text(encoding='utf-8').splitlines()
+                 if not re.match(r'\S+ \S+ \S+\s+report( |:|$)', ln)][-200:]
     except OSError:
         pass
     st = load_state()
     text = ('Freedom setup report (no secrets, names or hosts; made by install/freedom_setup.py report)\n'
             f'system: {platform.system()} {platform.release()} {platform.machine()}, Python {platform.python_version()}\n'
-            f'steps: {json.dumps({k: {"ok": v.get("ok"), "summary": v.get("summary")} for k, v in st.get("steps", {}).items()}, ensure_ascii=False)}\n'
+            f'steps: {json.dumps({k: {"ok": v.get("ok"), "summary": sanitize(str(v.get("summary") or ""))} for k, v in st.get("steps", {}).items()}, ensure_ascii=False)}\n'
             '--- last log lines ---\n' + '\n'.join(lines) + '\n'
             '--- question ---\nI am installing Freedom (a self-hosted AI Workbench). Which step failed and what should I do?\n')
-    text = sanitize(text)
+    return sanitize(text)
+
+
+def cmd_report(a) -> int:
+    if a.answers:
+        return invite_answers()
+    text = report_text()
+    if a.send:
+        return invite_send(text, a.yes)
     dest = Path(a.out) if a.out else aiwb_install.path().parent / 'setup-report.txt'
     dest.write_text(text, encoding='utf-8')
     copied = False
@@ -1524,7 +1577,180 @@ def cmd_report(a) -> int:
     elif shutil.which('pbcopy'):
         copied = subprocess.run(['pbcopy'], input=text.encode(), timeout=10).returncode == 0
     out('ok', f'report: {dest}' + (' (also in the clipboard)' if copied else ''))
-    out('next', 'read it, then paste it into your own claude.ai or chatgpt.com chat, or post it to the Freedom forum')
+    out('next', 'invited: python install/freedom_setup.py report --send' if invite_info() else
+        'read it, then paste it into your own claude.ai or chatgpt.com chat, or post it to the Freedom forum')
+    return 0
+
+
+# ---------------------------------------------------------------- invite (SPEC 7.5: install by invitation)
+
+INVITE_RE = re.compile(r'^fdm-inv1\.[A-Za-z0-9_-]{20,800}$')
+INVITE_KEYRING = 'aiwb/freedom-invite'
+INVITE_QUESTION = ('Did someone who already uses Freedom invite you? Paste the invite code from their message, '
+                   'or press Enter if you came on your own: ')
+
+
+def parse_invite(code: str) -> dict:
+    """{'site', 'id', 'k', 'host'} of an invite code fdm-inv1.<base64url JSON {s, i, k}>; ValueError when malformed."""
+    code = re.sub(r'\s+', '', code or '')
+    if not INVITE_RE.match(code):
+        raise ValueError('this is not an invite code (it starts with fdm-inv1.)')
+    raw = code.split('.', 1)[1]
+    try:
+        d = json.loads(base64.urlsafe_b64decode(raw + '=' * (-len(raw) % 4)).decode('utf-8'))
+    except (ValueError, UnicodeDecodeError) as e:
+        raise ValueError(f'the invite code is damaged ({type(e).__name__}); copy it again') from None
+    if not isinstance(d, dict):
+        raise ValueError('the invite code is damaged; copy it again')
+    site, iid, k = str(d.get('s') or '').rstrip('/'), str(d.get('i') or ''), str(d.get('k') or '')
+    m = re.match(r'^(https?)://([A-Za-z0-9.-]+)(:\d+)?(/[A-Za-z0-9._~/-]*)?$', site)
+    if not m or (m.group(1) == 'http' and m.group(2) not in ('localhost', '127.0.0.1')):
+        raise ValueError('the invite code names no https site')
+    if not re.fullmatch(r'inv-[a-f0-9]{12}', iid) or not re.fullmatch(r'[A-Za-z0-9_-]{16,64}', k):
+        raise ValueError('the invite code is damaged; copy it again')
+    return {'site': site, 'id': iid, 'k': k, 'host': m.group(2)}
+
+
+def invite_route(site: str, route: str) -> str:
+    return f'{site}/agent/module.php?m=invite-help&r={route}'
+
+
+def post_json(url: str, obj: dict, timeout: int = 20):
+    """(http code, answer dict); code 0 when the site cannot be reached."""
+    req = urllib.request.Request(url, data=json.dumps(obj, ensure_ascii=False).encode('utf-8'), method='POST',
+                                 headers={'Content-Type': 'application/json', 'User-Agent': 'freedom-setup/1'})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, json.loads(r.read().decode('utf-8') or '{}')
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read().decode('utf-8') or '{}')
+        except ValueError:
+            return e.code, {}
+    except (OSError, ValueError) as e:
+        return 0, {'error': f'{type(e).__name__}'}
+
+
+def save_state_key(key: str, value):
+    st = load_state()
+    st[key] = value
+    state_path().parent.mkdir(parents=True, exist_ok=True)
+    state_path().write_text(json.dumps(st, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+
+def invite_info():
+    """{'site', 'id', 'host', 'k'} of the stored invite, or None (no invite or no secret)."""
+    inv = load_state().get('invite')
+    if not isinstance(inv, dict) or not inv.get('site'):
+        return None
+    k = keyring_get(INVITE_KEYRING) or inv.get('k')
+    return {**inv, 'k': k} if k else None
+
+
+def cmd_invite(a) -> int:
+    code = a.code
+    if code is None and not a.none:
+        if not sys.stdin.isatty():
+            out('FAIL', 'invite: pass the invite code (invite CODE) or --none when nobody invited you')
+            return 1
+        code = input(INVITE_QUESTION).strip()
+    if a.none or not code:
+        save_state_key('invite', None)
+        save_step('invite', True, 'no invite: help = the forum (SPEC 4.3)')
+        out('ok', 'no invite: when a step fails, `report` makes a text for your own AI chat or the Freedom forum')
+        return 0
+    try:
+        inv = parse_invite(code)
+    except ValueError as e:
+        out('FAIL', f'invite: {e}')
+        return 1
+    rc, ans = post_json(invite_route(inv['site'], 'answers'), {'i': inv['id'], 'k': inv['k']})
+    if rc == 403 or (rc == 200 and ans.get('live') is False):
+        out('FAIL', f'invite: {inv["host"]} does not accept this code (expired or revoked) - ask for a new one, '
+                    'or run invite --none')
+        return 1
+    if rc == 200 and ans.get('ok'):
+        out('ok', f'invite accepted by {inv["host"]}')
+    else:
+        out('warn', f'invite: {inv["host"]} did not answer now ({rc or ans.get("error")}); the code is kept, '
+                    'reports go out when it answers')
+    stored = {'site': inv['site'], 'id': inv['id'], 'host': inv['host']}
+    try:
+        keyring_set(INVITE_KEYRING, 'default', inv['k'])
+    except Exception as e:  # no keyring yet on a bare computer: keep it next to the state, say so
+        stored['k'] = inv['k']
+        out('warn', f'keyring not available ({type(e).__name__}): the invite secret is kept in {state_path().name}')
+    save_state_key('invite', stored)
+    save_step('invite', True, f'invited by {inv["host"]}')
+    out('info', 'when a step fails: python install/freedom_setup.py report --send (you see the text first); '
+                "answers: report --answers. The inviter's AI never connects to this computer.")
+    return 0
+
+
+def failed_step() -> str:
+    st = load_state().get('steps', {})
+    bad = [(v.get('utc', ''), k) for k, v in st.items() if isinstance(v, dict) and not v.get('ok')]
+    return max(bad)[1] if bad else ''
+
+
+def report_hash(text: str) -> str:
+    """First 6 hex of sha256 of the report text: --yes CHECK proves this exact text was shown."""
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()[:6]
+
+
+def invite_send(text: str, yes) -> int:
+    inv = invite_info()
+    if not inv:
+        out('FAIL', 'report --send: no invite (run invite CODE); without one, paste `report` into your own AI chat '
+                    'or the Freedom forum')
+        return 1
+    h = report_hash(text)
+    print('---- this exact text will be sent ----\n' + text + f'---- end (check {h}) ----', flush=True)
+    if yes:
+        if str(yes).strip().lower() != h:
+            out('FAIL', f'report --send --yes: the check of the text above is {h}; the text changed or was not '
+                        f'read - read it, then run report --send --yes {h}')
+            return 1
+    else:
+        if not sys.stdin.isatty():
+            out('FAIL', f'report --send: read the text above, then run report --send --yes {h} (or run it in a terminal)')
+            return 1
+        if input(f'Send this to {inv["host"]}? [y/N] ').strip().lower() not in ('y', 'yes'):
+            out('info', 'report --send: not sent')
+            return 0
+    rc, ans = post_json(invite_route(inv['site'], 'intake'), {'i': inv['id'], 'k': inv['k'], 'step': failed_step(),
+                                                              'text': text})
+    if rc == 200 and ans.get('ok'):
+        sent = load_state().get('inviteSent') or []
+        save_state_key('inviteSent', (sent + [ans.get('id')])[-50:])
+        out('ok', f'report --send: sent to {inv["host"]} as {ans.get("id")}; later: python install/freedom_setup.py report --answers')
+        return 0
+    out('FAIL', f'report --send: {inv["host"]} answered {rc or "nothing"} {ans.get("error", "")}'.rstrip())
+    return 1
+
+
+def _printable(text: str) -> str:
+    """The inviter's answer without terminal escape sequences or control characters (newlines and tabs stay)."""
+    text = re.sub(r'\x1b(\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(\x07|\x1b\\)?|[@-Z\\-_])', '', text)
+    return ''.join(ch for ch in text if ch in '\n\t' or (ord(ch) >= 32 and not 0x7f <= ord(ch) <= 0x9f))
+
+
+def invite_answers() -> int:
+    inv = invite_info()
+    if not inv:
+        out('FAIL', 'report --answers: no invite (run invite CODE)')
+        return 1
+    rc, ans = post_json(invite_route(inv['site'], 'answers'), {'i': inv['id'], 'k': inv['k']})
+    if rc != 200 or not ans.get('ok'):
+        out('FAIL', f'report --answers: {inv["host"]} answered {rc or "nothing"} {ans.get("error", "")}'.rstrip())
+        return 1
+    reps = ans.get('reports') or []
+    if not reps:
+        out('info', 'no reports sent yet')
+    for r in reps:
+        out('ok' if r.get('answer') else 'info', f'{r.get("id")} step {r.get("step") or "?"}: {r.get("status")}')
+        if r.get('answer'):
+            print(_printable(str(r['answer'])).rstrip() + '\n', flush=True)
     return 0
 
 
@@ -1534,6 +1760,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog='freedom_setup.py', description='Freedom setup wizard without AI (SPEC 4.1)')
     sp = ap.add_subparsers(dest='cmd')
     sp.add_parser('status')
+    p = sp.add_parser('invite')
+    p.add_argument('code', nargs='?')
+    p.add_argument('--none', action='store_true')
     sp.add_parser('preflight')
     p = sp.add_parser('init')
     for k in ('site-url', 'owner-email', 'owner-name', 'owner-env', 'drive-root', 'ssh-host', 'ssh-port', 'ssh-user',
@@ -1583,8 +1812,11 @@ def main(argv=None) -> int:
     p.add_argument('--no-tools', action='store_true')
     p = sp.add_parser('report')
     p.add_argument('--out')
+    p.add_argument('--send', action='store_true')
+    p.add_argument('--yes', metavar='CHECK', help='the check printed under the report text (proves it was read)')
+    p.add_argument('--answers', action='store_true')
     a = ap.parse_args(argv)
-    fn = {'status': cmd_status, 'preflight': cmd_preflight, 'init': cmd_init, 'subs': cmd_subs,
+    fn = {'status': cmd_status, 'invite': cmd_invite, 'preflight': cmd_preflight, 'init': cmd_init, 'subs': cmd_subs,
           'site-probe': cmd_site_probe, 'site-deploy': cmd_site_deploy, 'google': cmd_google,
           'bridge': cmd_bridge, 'desktop': cmd_desktop, 'desktop-update': cmd_desktop_update,
           'pc-access': cmd_pc_access, 'verify': cmd_verify,
@@ -1598,8 +1830,9 @@ def main(argv=None) -> int:
         raise
     except Exception as e:  # a failed step: the message, and the way to help
         out('FAIL', f'{a.cmd}: {type(e).__name__}: {e}')
-        out('next', 'python install/freedom_setup.py report -> your own claude.ai / chatgpt.com chat or the forum')
         save_step(a.cmd, False, f'{type(e).__name__}')
+        out('next', 'python install/freedom_setup.py report --send (to the person who invited you)' if invite_info() else
+            'python install/freedom_setup.py report -> your own claude.ai / chatgpt.com chat or the forum')
         return 1
 
 

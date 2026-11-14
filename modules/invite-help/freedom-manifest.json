@@ -1,0 +1,55 @@
+{
+ "format": "freedom-release/1",
+ "version": "0.1.0",
+ "created": "2026-11-14T11:48:07Z",
+ "files": [
+  {
+   "path": "module.json",
+   "size": 1838,
+   "sha256": "2cd7965d06bd52f210784c93de7ebb69d3ce4e863efbb5c3858acafdf673100b"
+  },
+  {
+   "path": "README.md",
+   "size": 1400,
+   "sha256": "e4bacb50f6463381185019bcfdc5e1dd8c12ac5f433d2d9075020ff8c39ba0c9"
+  },
+  {
+   "path": "server/invite-lib.php",
+   "size": 17709,
+   "sha256": "7354ca4e3731f345b5857f942c5600d465d7436f0b486b2a8bb48503ca2a5752"
+  },
+  {
+   "path": "server/ops.php",
+   "size": 1802,
+   "sha256": "8ccbb32cf95146c0106ca901e2568a79ca617e06eb938f4df1488cb9d987d212"
+  },
+  {
+   "path": "tests/test_server_ops.py",
+   "size": 8623,
+   "sha256": "178b2e4f9768109d9b50f2af91006cc42227320fff9a278c3c42705d52d7e4ed"
+  },
+  {
+   "path": "tests/test_tool.py",
+   "size": 5156,
+   "sha256": "b1294b9f69f5ab1e901d883c7dcb830c7c1ce68a22cefd6675b9f9a4c5533f78"
+  },
+  {
+   "path": "tools/invite-help/invite-help.py",
+   "size": 13764,
+   "sha256": "7413849cf1bc96d59579a13a68ea301c3e99711101975a7cb40761d9e32feeaf"
+  },
+  {
+   "path": "tools/invite-help/SKILL.md",
+   "size": 3170,
+   "sha256": "fdff36f457d923d1caf1cf1caf929ce5b899609018f91e1a33b0c9fad9411a0d"
+  }
+ ],
+ "signatures": [
+  {
+   "name": "maintainer-1",
+   "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
+   "sig": "bEP2MkKk/8wLk9dPbP+b1SQdCt91sftlRqdMPtKa+K/onEINokZCZ75bptnEnrhXjC32dYPg5SRGwRxiTG/BAw=="
+  }
+ ],
+ "module": "invite-help"
+}

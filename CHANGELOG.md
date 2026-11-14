@@ -5,6 +5,8 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- **Install by invitation** (SPEC §7.5): setup wizard step `invite` comes first (paste the invite code of the person who invited you, or none: help = forum); `report --send` shows the sanitized report and sends it to the inviter only after the friend's yes, `report --answers` prints the answers; the invite secret stays in the keyring (`aiwb/freedom-invite`).
+- Module invite-help 0.1.0 (new, off by default): the inviter's side — owner ops `invite_*` (create/list/revoke invites, read/answer/close reports), public routes `intake` and `answers` (invite id + secret, stored as sha256 only; 64 KB per report, 30 per invite a day, 200 open, push to the owner), home tool `invite-help` (report text wrapped as untrusted data by read-guard, per-invite budget measured with aiwb-budget, `show`/`answer` stop at 80 % until the owner says yes; closed reports deleted after 30 days). The wizard sends a report only after the friend's y or `--yes CHECK` of the text shown. The inviter's AI never connects to the friend's computer.
 - CO Web 0.106.0 (database hiccups): reads of the CO database retry twice (1 s, 3 s) after a timeout, a network error or
   a 5xx/429 answer, and the breaker after 3 failed reads pauses for 30 s instead of 5 min; a chat keeps the messages on
   screen or shows this browser's last copy (IndexedDB, 30 recent chats per account, wiped on sign-out) with a notice

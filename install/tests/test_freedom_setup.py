@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests of install/freedom_setup.py without network, hosting or keyring.  python -m unittest discover install/tests"""
 import json
+import re
 import os
 import sys
 import tempfile
@@ -86,6 +87,30 @@ class SanitizeTest(Base):
                     'boris', '4f3c2a1b9d8e'):
             self.assertNotIn(bad.lower(), s.lower(), f'{bad} leaked: {s}')
         self.assertIn('failed for', s)
+
+    def test_report_before_install_json(self):
+        """A friend whose init failed: no install.json, JSON-escaped paths, a space in the profile folder."""
+        rc = self.init(site_url='https://my-family-site.example.com', ssh_host='srv123.hosting-provider.be',
+                       owner_name='Zebulon', member=['bad-member'])
+        self.assertEqual(rc, 1)
+        self.assertFalse(aiwb_install.path().is_file())
+        fs.save_step('preflight', False, 'drive C:\\Users\\Jane Doe\\My Drive missing; D:\\Jane\\x')
+        fs.out('FAIL', 'init: cannot reach https://my-family-site.example.com (srv123.hosting-provider.be) for Zebulon; '
+                       'db u1234567_co; C:\\Users\\Jane Doe\\AppData; other.example.net')
+        rep = fs.report_text()
+        for bad in ('Jane', 'Doe', 'my-family-site', 'hosting-provider', 'Zebulon', 'u1234567', 'other.example'):
+            self.assertNotIn(bad.lower(), rep.lower(), f'{bad} leaked: {rep}')
+        for keep in ('freedom_setup.py', 'preflight', 'My Drive', 'AppData'):
+            self.assertIn(keep, rep)
+
+    def test_report_never_carries_the_invite_secret(self):
+        with mock.patch.object(fs, 'keyring_set', side_effect=RuntimeError('no keyring')), \
+                mock.patch.object(fs, 'post_json', lambda *a, **k: (200, {'ok': True, 'live': True, 'reports': []})), \
+                mock.patch('builtins.print'):
+            self.assertEqual(fs.cmd_invite(SimpleNamespace(code=invite_code(), none=False)), 0)
+        self.assertEqual(fs.load_state()['invite']['k'], 'K' * 32)     # fallback: kept next to the state
+        self.assertEqual(fs.invite_info()['k'], 'K' * 32)
+        self.assertNotIn('KKKKKKKKKKKKKKKK', fs.report_text())
 
 
 class LayoutDeployTest(Base):
@@ -351,6 +376,141 @@ class InstallersTest(Base):
         with mock.patch.object(fr, 'DEFAULT_TRUST', trust):
             why = fs.release_check(rel / 'CO-Desktop-Setup-9.9.9.exe')
         self.assertIn('signature', why)   # any change of the signed manifest breaks the signature
+
+
+def invite_code(site='https://co.example.org', i='inv-0123456789ab', k='K' * 32):
+    import base64
+    raw = json.dumps({'s': site, 'i': i, 'k': k}).encode()
+    return 'fdm-inv1.' + base64.urlsafe_b64encode(raw).decode().rstrip('=')
+
+
+class InviteTest(Base):
+    """SPEC 7.5: invite code as the first step, report --send after the friend's yes, answers."""
+
+    def run_cmd(self, fn, posts=None, tty=False, inputs=(), **kw):
+        calls = []
+
+        def fake_post(url, obj, timeout=20):
+            calls.append((url, obj))
+            return (posts or {}).get(url.rsplit('r=', 1)[1], (200, {'ok': True, 'reports': []}))
+        ins = iter(inputs)
+        with mock.patch.object(fs, 'post_json', fake_post), mock.patch('builtins.print'),                 mock.patch('builtins.input', lambda *_: next(ins)), mock.patch.object(fs.sys.stdin, 'isatty', lambda: tty):
+            rc = fn(SimpleNamespace(**kw))
+        return rc, calls
+
+    def test_first_step_is_invite(self):
+        self.assertEqual(fs.STEPS[0], 'invite')
+
+    def test_parse_rejects_bad_codes(self):
+        for bad in ('hello', 'fdm-inv1.' + 'A' * 30, invite_code(site='http://evil.example'), invite_code(i='../x'),
+                    invite_code(k='short'), invite_code(site='https://a.example/p?x=1')):
+            with self.assertRaises(ValueError):
+                fs.parse_invite(bad)
+        self.assertEqual(fs.parse_invite(' ' + invite_code() + '\n')['host'], 'co.example.org')
+        self.assertEqual(fs.parse_invite(invite_code(site='http://localhost:8080'))['host'], 'localhost')
+
+    def test_invite_stored_with_secret_in_keyring(self):
+        rc, calls = self.run_cmd(fs.cmd_invite, code=invite_code(), none=False)
+        self.assertEqual(rc, 0)
+        self.assertTrue(calls[0][0].endswith('module.php?m=invite-help&r=answers'))
+        st = fs.load_state()
+        self.assertEqual(st['invite'], {'site': 'https://co.example.org', 'id': 'inv-0123456789ab', 'host': 'co.example.org'})
+        self.assertNotIn('KKKKKKKK', fs.state_path().read_text(encoding='utf-8'))
+        self.assertEqual(self.keys[('aiwb/freedom-invite', 'default')], 'K' * 32)
+        self.assertTrue(st['steps']['invite']['ok'])
+
+    def test_revoked_code_fails_offline_is_kept(self):
+        rc, _ = self.run_cmd(fs.cmd_invite, posts={'answers': (403, {'error': 'forbidden'})}, code=invite_code(), none=False)
+        self.assertEqual(rc, 1)
+        rc, _ = self.run_cmd(fs.cmd_invite, posts={'answers': (200, {'ok': True, 'live': False, 'reports': []})},
+                             code=invite_code(), none=False)   # what the server says for a revoked or expired invite
+        self.assertEqual(rc, 1)
+        self.assertNotIn('invite', fs.load_state())
+        rc, _ = self.run_cmd(fs.cmd_invite, posts={'answers': (0, {'error': 'URLError'})}, code=invite_code(), none=False)
+        self.assertEqual(rc, 0)
+        self.assertEqual(fs.load_state()['invite']['host'], 'co.example.org')
+
+    def test_enter_means_no_invite(self):
+        rc, calls = self.run_cmd(fs.cmd_invite, tty=True, inputs=[''], code=None, none=False)
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls, [])
+        self.assertIsNone(fs.load_state()['invite'])
+        self.assertIn('forum', fs.load_state()['steps']['invite']['summary'])
+
+    def test_no_tty_without_code_asks_for_it(self):
+        rc, _ = self.run_cmd(fs.cmd_invite, code=None, none=False)
+        self.assertEqual(rc, 1)
+
+    def test_send_needs_yes_and_sends_sanitized(self):
+        self.init()
+        self.run_cmd(fs.cmd_invite, code=invite_code(), none=False)
+        fs.out('FAIL', 'subs: ssh u1234567@203.0.113.10 failed for anna@example.org')
+        fs.save_step('subs', False, 'boom')
+        rep = dict(out=None, send=True, yes=False, answers=False)
+        rc, calls = self.run_cmd(fs.cmd_report, tty=True, inputs=['n'], **rep)
+        self.assertEqual((rc, calls), (0, []))
+        rc, calls = self.run_cmd(fs.cmd_report, posts={'intake': (200, {'ok': True, 'id': 'r-20261114000000-0123abcd'})},
+                                 tty=True, inputs=['y'], **rep)
+        self.assertEqual(rc, 0)
+        url, body = calls[0]
+        self.assertTrue(url.endswith('r=intake'))
+        self.assertEqual(body['step'], 'subs')
+        self.assertEqual(body['k'], 'K' * 32)
+        for leak in ('u1234567', '203.0.113.10', 'anna@example.org'):
+            self.assertNotIn(leak, body['text'])
+        self.assertEqual(fs.load_state()['inviteSent'], ['r-20261114000000-0123abcd'])
+        rc, calls = self.run_cmd(fs.cmd_report, **rep)   # no terminal, no --yes: refused
+        self.assertEqual((rc, calls), (1, []))
+        rc, calls = self.run_cmd(fs.cmd_report, **{**rep, 'yes': 'abcdef'})   # a check of another text: refused
+        self.assertEqual((rc, calls), (1, []))
+        text = fs.report_text()
+        h = fs.report_hash(text)
+        rc, calls = self.run_cmd(fs.cmd_report, posts={'intake': (200, {'ok': True, 'id': 'r-20261114000001-0123abcd'})},
+                                 **{**rep, 'yes': h})      # the friend's own AI after showing the text: --yes CHECK
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls[0][1]['text'], text)
+
+    def test_yes_check_from_previous_run_works(self):
+        # the friend's AI: run N prints the text and its check, run N+1 sends with that check (refusals must not change the text)
+        self.init()
+        self.run_cmd(fs.cmd_invite, code=invite_code(), none=False)
+        fs.save_step('subs', False, 'boom')
+        rep = dict(out=None, send=True, yes=False, answers=False)
+        printed = []
+
+        def run(**kw):
+            calls = []
+
+            def fake_post(url, obj, timeout=20):
+                calls.append((url, obj))
+                return (200, {'ok': True, 'id': 'r-20261114000002-0123abcd'})
+            with mock.patch.object(fs, 'post_json', fake_post), \
+                    mock.patch('builtins.print', lambda *a, **k: printed.append(' '.join(map(str, a)))), \
+                    mock.patch.object(fs.sys.stdin, 'isatty', lambda: False):
+                return fs.cmd_report(SimpleNamespace(**{**rep, **kw})), calls
+
+        def last_check():
+            return re.findall(r'\(check ([0-9a-f]{6})\)', '\n'.join(printed))[-1]
+        self.assertEqual(run(), (1, []))
+        h1 = last_check()
+        self.assertEqual(run(yes='000000'), (1, []))           # a wrong check is refused ...
+        self.assertEqual(last_check(), h1)                    # ... and does not change the text
+        rc, calls = run(yes=h1)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(calls), 1)
+
+    def test_send_without_invite_fails(self):
+        rc, calls = self.run_cmd(fs.cmd_report, out=None, send=True, yes=True, answers=False)
+        self.assertEqual((rc, calls), (1, []))
+
+    def test_answers(self):
+        self.run_cmd(fs.cmd_invite, code=invite_code(), none=False)
+        rc, calls = self.run_cmd(fs.cmd_report, posts={'answers': (200, {'ok': True, 'reports': [
+            {'id': 'r-1', 'step': 'subs', 'status': 'answered', 'answer': 'Update the wizard'}]})},
+            out=None, send=False, yes=False, answers=True)
+        self.assertEqual(rc, 0)
+        self.assertEqual(fs._printable('ok\x1b[2J\x1b]0;evil\x07 done\x07\nnext\tline\x9b'), 'ok done\nnext\tline')
+        self.assertEqual(calls[0][1], {'i': 'inv-0123456789ab', 'k': 'K' * 32})
 
 
 class CliPathTest(unittest.TestCase):

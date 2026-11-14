@@ -225,6 +225,10 @@ class MusicTest(HubTest):
         self.assertEqual((p["query"], p["type"], p["provider"]), ("Yesterday", "track", "spotify"))
         self.assertFalse(voice.music_parse("включи свет на кухне", al)["strong"])
         self.assertIsNone(voice.music_parse("расскажи анекдот", al))
+        self.assertEqual(voice.music_parse("Play uh.", al)["query"], "")  # a sound is not a title
+        self.assertEqual(voice.music_parse("Jarvis, play Shostakovich", al)["query"], "Shostakovich")
+        self.assertEqual(voice.music_parse("I play some music on my Bluetooth speaker.", al)["query"], "")
+        self.assertEqual(voice.music_parse("Э, поставь Стравинского на колонке", al)["query"], "Стравинского")
         self.assertEqual(voice.music_parse("Пауза.", al)["action"], "pause")
         self.assertEqual(voice.music_parse("play Radiohead everywhere", al)["players"], ["*"])
 

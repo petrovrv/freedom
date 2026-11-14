@@ -13,6 +13,8 @@ const CO_VOICE_LANGS = ['ru', 'uk', 'en', 'nl', 'fr', 'de'];
 const CO_VOICE_AGENTS = ['claude', 'codex'];
 const CO_VOICE_RESUME_S = 1800;       // a voice session of the chat is resumed within 30 min of its last answer
 const CO_VOICE_PROTOCOL_MAX = 12000;  // chars of the chat protocol given to a new voice session
+const CO_VOICE_DOSSIER_MAX = 6000;    // chars of the speaker's dossier for a new voice session (own unshared chat only)
+const CO_VOICE_RECENT_CHATS = 8;      // titles and summaries of the speaker's latest chats: what they are busy with
 const CO_VOICE_TEXT_MAX = 2000;
 // voice turns of claude run on the first of these models the executor's catalog has (owner.json); a question that
 // starts with CO_VOICE_DEEP gets the chat's own model
@@ -224,7 +226,7 @@ function co_voice_queue(mysqli $db, string $chatId, string $env, array $chat, st
     $conversation = $resume ? ['operation' => 'resume', 'sessionId' => $sess['sid']] : ['operation' => 'new', 'sessionId' => null];
     $rules = "[Voice: the user said this to a voice point" . ($point !== '' ? " ($point)" : '') . ". Your answer is read aloud: "
         . "answer in the language of the question ($lang), briefly (1-3 sentences), plain text without markdown, lists, links or code.]\n\n";
-    $instruction = ($resume ? '' : co_voice_preamble($db, $chatId)) . $rules . $text;
+    $instruction = ($resume ? '' : co_voice_preamble($db, $chatId, $env, $chat)) . $rules . $text;
 
     $stamp = gmdate('YmdHis');
     $jobId = 'JOB-' . $stamp . '-' . co_voice_rand(6);
@@ -272,9 +274,33 @@ function co_voice_answer(mysqli $db, array $in): array
 }
 
 /** Start of a new voice session: the chat's title and protocol. */
-function co_voice_preamble(mysqli $db, string $chatId): string
+function co_voice_preamble(mysqli $db, string $chatId, string $env = '', array $chat = []): string
 {
     $title = (string)(co_voice_one($db, 'SELECT title FROM chats WHERE chat_id = ?', [$chatId])['title'] ?? '');
+    // a voice point has no screen: without who and what around it, "check the new speaker" made no sense to the agent
+    $who = "[CO voice: you are the home voice assistant (wake word \"Jarvis\") of AI Workbench, the agent of the chat \"$title\" "
+        . "($chatId). The speaker is the user of environment \"$env\"; now " . gmdate('Y-m-d H:i') . " UTC. Spoken questions are "
+        . "often about what the user is busy with in their other chats (listed below) or about the voice assistant itself.]\n\n";
+    $ctx = '';
+    // the speaker's own dossier and chats, only in their own unshared chat (a shared chat gets neither)
+    if ($env !== '' && ($chat['env'] ?? null) === $env
+        && !(function_exists('co_dossier_shared') && co_dossier_shared($db, (string)($chat['project_id'] ?? ''), $chatId))) {
+        if (function_exists('co_dossier_context')) {
+            $d = co_dossier_context($db, $env, false, CO_VOICE_DOSSIER_MAX);
+            if ($d !== '') $ctx .= $d . "\n\n";
+        }
+        $st = $db->prepare('SELECT c.chat_id, c.title, c.summary FROM chats c JOIN projects p ON p.project_id = c.project_id
+                            WHERE p.env = ? AND c.chat_id <> ? ORDER BY c.updated_utc DESC LIMIT ' . CO_VOICE_RECENT_CHATS);
+        $st->execute([$env, $chatId]);
+        $res = $st->get_result();
+        $recent = [];
+        while ($r = $res->fetch_assoc()) {
+            $s = trim((string)preg_replace('/\s+/u', ' ', (string)($r['summary'] ?? '')));
+            $recent[] = '- ' . $r['title'] . ($s !== '' ? ': ' . mb_substr($s, 0, 300) : '');
+        }
+        $st->close();
+        if ($recent) $ctx .= "[Latest chats of the user, newest first]\n" . implode("\n", $recent) . "\n[End of latest chats]\n\n";
+    }
     $st = $db->prepare('SELECT section, text FROM protocol WHERE chat_id = ? AND replaced_by IS NULL ORDER BY entry_no');
     $st->execute([$chatId]);
     $res = $st->get_result();
@@ -287,7 +313,7 @@ function co_voice_preamble(mysqli $db, string $chatId): string
         $lines[] = $line;
     }
     $st->close();
-    $out = "[CO voice: you are the agent of the AI Workbench chat \"$title\" ($chatId), asked by voice.]\n\n";
+    $out = $who . $ctx;
     return $lines ? $out . "[Protocol of the chat]\n" . implode("\n", $lines) . "\n[End of protocol]\n\n" : $out;
 }
 

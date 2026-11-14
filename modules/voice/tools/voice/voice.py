@@ -36,7 +36,7 @@ import urllib.request
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.3.10"
+VERSION = "0.3.12"
 UA = f"freedom-voice/{VERSION}"
 LANGS = ("ru", "uk", "en", "nl", "fr", "de")
 WHISPER_NAMES = {"russian": "ru", "ukrainian": "uk", "english": "en", "dutch": "nl", "flemish": "nl", "french": "fr",
@@ -69,7 +69,12 @@ AGENT_PREFIX = re.compile(r"^\s*(агент|агенте|клод|claude|agent|�
 # or when HA did not take it as a home command ("включи свет" stays HA's).
 M_STRONG = r"поставь(?:те)?|сыграй(?:те)?|заграй|постав|play|put on|speel"
 M_WEAK = r"включи(?:те)?|вруби|запусти|увімкни|увiмкни|turn on|start"
-M_VERB = re.compile(rf"^\s*(?:(?:пожалуйста|будь ласка|please|alsjeblieft)[\s,]+)?({M_STRONG}|{M_WEAK})\b[\s,]*", re.I)
+# what speech to text leaves before the verb: the tail of the wake word ("Jarvis, play" -> "I play"), "uh", "can you"
+M_LEAD = (r"(?:(?:hey|ok|okay|эй|слушай|джарвис|jarvis|is|i|uh|um|э+|а|ну|so|можешь|можете|можеш|can you|could you|"
+          r"would you|will you|kun je|wil je|пожалуйста|будь ласка|please|alsjeblieft)[\s,.!]+)*")
+M_VERB = re.compile(rf"^\s*{M_LEAD}({M_STRONG}|{M_WEAK})\b[\s,.!]*", re.I)
+# a query that is only a sound or a filler ("Play uh.") is not a title: ask what to play instead of playing a track "Uh"
+M_JUNK = re.compile(r"uh+|um+|hm+|ah+|oh+|eh+|э+|а+|м+|ой|ну|so|oops|euh|ehm|it|that|this|это|то|please|пожалуйста", re.I)
 M_CUE = re.compile(r"музык|музик|песн|пісн|трек|альбом|плейлист|плейліст|радио|радіо|playlist|album|song|music|track|"
                    r"radio|muziek|liedje|nummer|spotify|спотиф|спотіф|youtube|ютуб|ю туб", re.I)
 M_PROVIDER = [("spotify", re.compile(r"\s*\b(?:(?:из|с|со|в|на|from|on|in|van|op|з|зі|у)\s+)?(?:spotify|спотиф\w*|спотіф\w*)\b", re.I)),
@@ -141,6 +146,9 @@ def music_parse(text, aliases=None):
         if sm:
             players, rest = [player], rest[:sm.start()].strip()
             break
+    if not players:  # a speaker we do not know ("on my Bluetooth speaker") is not part of the title: the default one
+        rest = re.sub(r"\s*\b(?:на|в|у|on|in|op)\s+(?:\w+\s+){0,2}?(?:колонк\w*|колонц\w*|speakers?|luidspreker\w*)\s*$",
+                      "", rest, flags=re.I)
     rest = M_FILLER.sub("", rest).strip(" ,")
     typ = None
     for name, rx in M_TYPES:
@@ -157,6 +165,8 @@ def music_parse(text, aliases=None):
     if vm:
         rest, vague = rest[vm.end():].strip(), True
     rest = re.sub(r"^(?:из|от|группы|by|van)\s+", "", rest, flags=re.I).strip(" ,")
+    if M_JUNK.fullmatch(re.sub(r"[\W_]+", " ", rest).strip()) or len(re.sub(r"\W", "", rest)) < 2:
+        rest = ""
     if vague and typ is None:
         typ = "playlist"  # "что-нибудь спокойное для работы" -> the best matching playlist
     if not rest and typ is None and not strong:
@@ -1061,7 +1071,13 @@ def play_blocking(sd, a, rate):
     """Play without sd.play: its callback thread outlives the call and crashed PortAudio (access violation) when the
     microphone stream opened right after it or the process ended, so a blocking stream is opened and closed here."""
     ch = 1 if a.ndim == 1 else a.shape[1]
-    with sd.OutputStream(samplerate=rate, channels=ch, dtype=a.dtype) as o:
+    try:
+        o = sd.OutputStream(samplerate=rate, channels=ch, dtype=a.dtype)
+    except Exception as e:  # noqa: BLE001 - outputDevice gone (a Bluetooth speaker taken by a phone): system default
+        log("output device missing, system default:", str(e)[:120])
+        o = sd.OutputStream(samplerate=rate, channels=ch, dtype=a.dtype,
+                            device=sd.query_hostapis(0)["default_output_device"])
+    with o:
         o.write(a.reshape(-1, ch))
 
 
@@ -1094,18 +1110,26 @@ class OutputKeepAlive:
             self.thread.start()
 
     def _run(self):
-        try:
-            import numpy as np
-            import sounddevice as sd
-            z = np.zeros((1600, 1), np.float32)
-            with sd.OutputStream(samplerate=16000, channels=1, dtype="float32") as o:
-                OutputKeepAlive.active = True
-                while not self.stop_ev.is_set():
-                    o.write(z)
-        except Exception as e:  # noqa: BLE001
-            log("output keep-alive:", str(e)[:120])
-        finally:
-            OutputKeepAlive.active = False
+        import numpy as np
+        import sounddevice as sd
+        z = np.zeros((1600, 1), np.float32)
+        last = ""
+        while not self.stop_ev.is_set():  # the speaker may leave (taken by a phone) and come back: retry every 30 s
+            try:
+                with sd.OutputStream(samplerate=16000, channels=1, dtype="float32") as o:
+                    OutputKeepAlive.active = True
+                    if last:
+                        log("output keep-alive: back")
+                        last = ""
+                    while not self.stop_ev.is_set():
+                        o.write(z)
+            except Exception as e:  # noqa: BLE001
+                if str(e)[:120] != last:
+                    last = str(e)[:120]
+                    log("output keep-alive:", last)
+            finally:
+                OutputKeepAlive.active = False
+            self.stop_ev.wait(30)
 
     def stop(self):
         self.stop_ev.set()
@@ -1260,6 +1284,13 @@ def cmd_point(a):
                             stream.close()
                         except Exception:  # noqa: BLE001
                             pass
+                        if keep.thread and not OutputKeepAlive.active:  # output speaker gone: PortAudio sees a
+                            try:  # device that came back only after a restart of its device list
+                                sd._terminate()
+                                sd._initialize()
+                                apply_output(c)
+                            except Exception as e:  # noqa: BLE001
+                                log("device list refresh:", str(e)[:120])
                         stream = open_input()
                         t_open, zeros = now, 0
                         model.reset()

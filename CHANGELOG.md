@@ -5,6 +5,7 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- Setup wizard `subs`: finds claude/codex right after their official installers (`~/.local/bin`, the npm prefix) and adds those folders to the Windows user PATH; before, a fresh install said "claude: not installed" (rehearsal in a clean Windows 11 VM).
 - Installer (Docker variants B/C): a new stack makes its own database password and push key and never copies them from the OS keyring, which can hold another installation's (a test stand on the owner's PC took the real push key); a keyring entry with another value is kept with a warning.
 - Bridge 1.19.0 install.sh: `--deps` also installs OpenSSL 3 (`libssl3` / `libssl3t64`, Fedora `openssl-libs`) and zlib, and the install stops with a clear hint when OpenSSL is missing (minimal Debian images have none; .NET 8 needs it).
 - Module dictation 0.2.0: provider `local` (own OpenAI-compatible Whisper server, e.g. speaches on a home server over HTTPS) and a provider chain in `transcribe.json` with failover (local first, Groq/OpenAI next); vocabulary `prompt`; the composer page falls back to browser recognition when every server service fails.

@@ -351,3 +351,16 @@ class InstallersTest(Base):
         with mock.patch.object(fr, 'DEFAULT_TRUST', trust):
             why = fs.release_check(rel / 'CO-Desktop-Setup-9.9.9.exe')
         self.assertIn('signature', why)   # any change of the signed manifest breaks the signature
+
+
+class CliPathTest(unittest.TestCase):
+    def test_fresh_install_folder_goes_into_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / '.local' / 'bin').mkdir(parents=True)
+            with mock.patch.object(Path, 'home', return_value=Path(d)), \
+                    mock.patch.dict(os.environ, {'PATH': 'C:/x', 'APPDATA': str(Path(d) / 'none')}):
+                added = fs.ensure_cli_path()
+                self.assertEqual(added, [str(Path(d) / '.local' / 'bin')])
+                self.assertTrue(os.environ['PATH'].startswith(str(Path(d) / '.local' / 'bin')))
+                self.assertEqual(fs.ensure_cli_path(), [])          # second call: already there
+

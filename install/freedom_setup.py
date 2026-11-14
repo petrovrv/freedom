@@ -368,6 +368,48 @@ CLI_INSTALL = {
 CLI_LOGIN = {'claude': ['claude', 'auth', 'login', '--claudeai'], 'codex': ['codex', 'login', '--device-auth']}
 
 
+SLASHES = '/' + chr(92)
+
+
+def cli_bin_dirs() -> list:
+    """Folders the official installers put the agent CLIs in (the claude installer: ~/.local/bin; npm -g: the npm
+    prefix). A terminal opened before the install does not have them in PATH yet."""
+    home = Path.home()
+    if os.name == 'nt':
+        dirs = [home / '.local' / 'bin', Path(os.environ.get('APPDATA') or home / 'AppData' / 'Roaming') / 'npm']
+    else:
+        dirs = [home / '.local' / 'bin', home / '.npm-global' / 'bin']
+    return [d for d in dirs if d.is_dir()]
+
+
+def ensure_cli_path(persist: bool = False) -> list:
+    """Put the CLI folders into the PATH of this process (and, with persist, of the Windows user, so a new terminal
+    and CO Desktop find claude/codex too). Returns the folders added."""
+    added = []
+    have = [x.rstrip(SLASHES).lower() for x in os.environ.get('PATH', '').split(os.pathsep) if x]
+    for d in cli_bin_dirs():
+        if str(d).rstrip(SLASHES).lower() not in have:
+            os.environ['PATH'] = str(d) + os.pathsep + os.environ.get('PATH', '')
+            added.append(str(d))
+    if persist and os.name == 'nt':
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, 'Environment', 0, winreg.KEY_READ | winreg.KEY_WRITE) as k:
+                try:
+                    cur, kind = winreg.QueryValueEx(k, 'Path')
+                except FileNotFoundError:
+                    cur, kind = '', winreg.REG_EXPAND_SZ
+                parts = [x for x in cur.split(';') if x]
+                low = [os.path.expandvars(x).rstrip(SLASHES).lower() for x in parts]
+                new = [str(d) for d in cli_bin_dirs() if str(d).rstrip(SLASHES).lower() not in low]
+                if new:
+                    winreg.SetValueEx(k, 'Path', 0, kind, ';'.join(parts + new))
+                    out('ok', f'user PATH: added {", ".join(new)} (new terminals find the CLIs)')
+        except OSError as e:
+            out('warn', f'user PATH not changed ({e}); add {", ".join(map(str, cli_bin_dirs()))} by hand')
+    return added
+
+
 def cli_status(cli: str) -> dict:
     rc, v = sh([cli, '--version'], timeout=60)
     if rc == 127:
@@ -390,6 +432,7 @@ def cli_status(cli: str) -> dict:
 
 def cmd_subs(a) -> int:
     which = ['claude', 'codex'] if a.install in (None, 'all') else [a.install]
+    ensure_cli_path()
     if a.install:
         for cli in which:
             if cli_status(cli).get('installed'):
@@ -399,6 +442,7 @@ def cmd_subs(a) -> int:
             out('info', f'installing {cli} with the official installer: {" ".join(cmd)}')
             rc, o = sh(cmd, timeout=900)
             out('ok' if rc == 0 else 'FAIL', f'{cli} install: rc {rc} {o.splitlines()[-1] if o else ""}')
+        ensure_cli_path(persist=True)
     if a.login:
         cmd = CLI_LOGIN[a.login]
         out('info', f'official sign-in: {" ".join(cmd)} - finish it yourself in your browser '

@@ -1,54 +1,54 @@
 {
  "format": "freedom-release/1",
- "version": "0.2.0",
- "created": "2026-11-15T16:00:49Z",
+ "version": "0.3.0",
+ "created": "2026-11-15T16:59:25Z",
  "files": [
   {
    "path": "context/whatsapp.md",
-   "size": 674,
-   "sha256": "133f0b5a65a7a6cde1283a2372d96a62b629599186d67bd03bda3730f47102ed"
+   "size": 792,
+   "sha256": "ef00d31a3dffd0b83ecf687b0d43fd11ce3778a155a9a938ee11e1dbfd59d344"
   },
   {
    "path": "module.json",
-   "size": 2061,
-   "sha256": "a10e8bf7236319e340f0593ff0b8d1eddc42946f7ca8c2632df5b313d0bfdd3d"
+   "size": 2412,
+   "sha256": "95104757bdaa6dde03650d8d1f3826d86b28f3e178b01e1258b2c10846e8af50"
   },
   {
    "path": "README.md",
-   "size": 3048,
-   "sha256": "edb61d6169cdce181151d0d0ef236398efd2d0b3d864a9426644f347c0fe8aef"
+   "size": 3528,
+   "sha256": "1e7647eb535ea21a790441f07e8da1b0fb792a797d7fbcdda283c8d3e0d8a813"
   },
   {
    "path": "server/ops.php",
-   "size": 910,
-   "sha256": "8a91132ad3776f23bca4b4696f9a0edb4814d109452f716388dcc292070ee02c"
+   "size": 1301,
+   "sha256": "72f722daa437c8ecd1bfba7a5012680cf622e5402c4b1625b0d8488791db26a1"
   },
   {
    "path": "server/whatsapp-lib.php",
-   "size": 16197,
-   "sha256": "159749926656fb26b76e3a3105744e89d0dc1a5b031a5eaf52922398ff03e668"
+   "size": 19750,
+   "sha256": "cffca8003eacd5ef1c22e307a4f892542ab0da1832f332525301aeeb1110bdab"
   },
   {
    "path": "tools/whatsapp-agent/service.mjs",
-   "size": 16959,
-   "sha256": "77a310297d432601799b39c440f09126e0a7a881be13703bc186d66f2062c4ab"
+   "size": 17552,
+   "sha256": "99003cbca958a090ef344447e6622a8380b763d7761fbe50dc8badc354fc151d"
   },
   {
    "path": "tools/whatsapp-agent/SKILL.md",
-   "size": 8874,
-   "sha256": "e1ede135f44d85b22020ccbfade30b95a02bd76b6aa7bc6a67691c878101c1a9"
+   "size": 10225,
+   "sha256": "a00475aacb28874d51d3fe920d73db65a5e65a04dae0f536e1d5b04d19ff6dab"
   },
   {
    "path": "tools/whatsapp-agent/whatsapp-agent.py",
-   "size": 18987,
-   "sha256": "255488abacd47e79c6e366cec921db50031a2c6110dcefcdd8e44334525dd97e"
+   "size": 21513,
+   "sha256": "878af0086fab0dc41ee8c50963e2e4ab4b3a36c2fbaf27d753c425d3c4644715"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "UK80v/oXKdFRqi4op0AiotreTD88V/9Gm9tomqpWcgwraZe24Qm4UdVYPzHDsD3owD4q8u3vUDHVJdrIOOq3AQ=="
+   "sig": "F80j/bc6RbmhSdjSpJQq8fx/Z5xbpRrVqpcdSDAZxHxXcQaJsRI/YGGznMvh/Q8JiB23SAo1Zfa5LFT0P5oxAw=="
   }
  ],
  "module": "whatsapp"

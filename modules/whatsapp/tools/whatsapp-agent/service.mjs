@@ -15,6 +15,7 @@ const PORT = Number(args.port || 8789);
 const TOKEN = process.env.WA_AGENT_TOKEN || '';
 const EDGE = args.edge || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const FORWARD = typeof args.forward === 'string' ? args.forward : '';
+const PUSHES = typeof args.pushes === 'string' ? args.pushes : '';
 if (!STATE || !RUNTIME || TOKEN.length < 16) { console.error('need --state, --runtime and WA_AGENT_TOKEN'); process.exit(2); }
 
 const require = createRequire(path.join(RUNTIME, 'package.json'));
@@ -268,6 +269,21 @@ http.createServer(async (req, res) => {
     send(res, 404, { ok: false, error: 'unknown' });
   } catch (e) { send(res, 400, { ok: false, error: e.message || String(e), candidates: e.candidates }); }
 }).listen(PORT, '127.0.0.1');
+
+// CO pushes to WhatsApp (config pushes [env]): the CLI's `pushes` fetches new copies from the server and sends them
+// through this service; every 20 s while ready, one run at a time
+let pushRun = false;
+if (PUSHES) setInterval(() => {
+  if (pushRun || st.state !== 'ready' || !(readConfig().pushes || []).length) return;
+  pushRun = true;
+  const p = spawn(PUSHES, { shell: true, windowsHide: true, env: process.env });
+  let out = ''; p.stdout.on('data', (d) => out += d); p.stderr.on('data', (d) => out += d);
+  p.on('close', (code) => {
+    pushRun = false;
+    let r = null; try { r = JSON.parse(out.trim().split('\n').pop() || '{}'); } catch {}
+    if (code !== 0 || (r && r.sent)) log({ ev: 'pushes', code, sent: r?.sent ?? null, out: code ? out.slice(-400) : undefined });
+  });
+}, 20000);
 
 client.initialize().catch((e) => { st.state = 'start_failed'; st.error = String(e.message || e); writeStatus(); process.exit(2); });
 process.on('unhandledRejection', (e) => log({ ev: 'unhandled', e: String(e?.stack || e).slice(0, 1500) }));

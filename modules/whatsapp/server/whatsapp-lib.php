@@ -250,3 +250,72 @@ function co_wa_answer(mysqli $db, array $in): array
     if (!$r) return ['error' => 'not_found'];
     return ['state' => $r['state'], 'answer' => $r['answer'], 'failure' => $r['error']];
 }
+
+// ---------- Pushes to WhatsApp (notify hook, 0.3.0) ----------
+// The core hands every push it sends to the notify hook. The hook keeps a copy only for the envs whose WhatsApp
+// service asked for them within CO_WA_PUSH_SUB_S (op wa_pushes {envs}); the service on the home PC fetches the copies
+// and writes them to the person's number. Nothing is kept for envs nobody asked for; at most CO_WA_PUSH_KEEP copies
+// and CO_WA_PUSH_TTL_S old.
+const CO_WA_PUSH_SUB_S = 1800;
+const CO_WA_PUSH_KEEP = 300;
+const CO_WA_PUSH_TTL_S = 86400;
+
+/** Runs $fn(&$state) on stateDir/pushes.json under a lock: {seq, subs {env: unix}, items [{id, t, env, title, body, url, tag}]}. */
+function co_wa_push_state(string $dir, callable $fn): mixed
+{
+    if (!is_dir($dir)) @mkdir($dir, 0700, true);
+    $h = fopen("$dir/pushes.json", 'c+');
+    if ($h === false) throw new RuntimeException('pushes.json');
+    try {
+        flock($h, LOCK_EX);
+        $s = json_decode((string)stream_get_contents($h), true);
+        if (!is_array($s)) $s = [];
+        $s += ['seq' => 0, 'subs' => [], 'items' => []];
+        $r = $fn($s);
+        $old = time() - CO_WA_PUSH_TTL_S;
+        $s['items'] = array_slice(array_values(array_filter($s['items'], static fn($i) => (int)($i['t'] ?? 0) >= $old)), -CO_WA_PUSH_KEEP);
+        ftruncate($h, 0);
+        rewind($h);
+        fwrite($h, json_encode($s, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        fflush($h);
+        return $r;
+    } finally {
+        flock($h, LOCK_UN);
+        fclose($h);
+    }
+}
+
+/** notify hook 'push' (core co_push_mirror): {envs, title, body, url, tag}. */
+function co_wa_push_hook(array $ctx, array $in): void
+{
+    $envs = array_values(array_filter(is_array($in['envs'] ?? null) ? $in['envs'] : [], 'co_db_id_ok'));
+    if (!$envs) return;
+    co_wa_push_state((string)$ctx['stateDir'], static function (array &$s) use ($envs, $in): void {
+        $now = time();
+        foreach ($envs as $env) {
+            if ($now - (int)($s['subs'][$env] ?? 0) > CO_WA_PUSH_SUB_S) continue;
+            $s['items'][] = ['id' => ++$s['seq'], 't' => $now, 'env' => $env, 'title' => co_wa_line($in['title'] ?? null, 120),
+                'body' => co_wa_text($in['body'] ?? null, 400), 'url' => co_wa_line($in['url'] ?? null, 300),
+                'tag' => co_wa_line($in['tag'] ?? null, 64)];
+        }
+    });
+}
+
+/**
+ * Host op wa_pushes {envs: [..], after?: id} (the WhatsApp service): keeps the envs subscribed and returns their copies
+ * newer than `after`. Without `after` (first call) only the current position: no backlog.
+ * -> {items [{id, env, title, body, url, tag, t}], last}.
+ */
+function co_wa_pushes(array $ctx, array $in): array
+{
+    $envs = array_values(array_unique(array_filter(is_array($in['envs'] ?? null) ? $in['envs'] : [], 'co_db_id_ok')));
+    $after = isset($in['after']) && is_int($in['after']) ? $in['after'] : null;
+    return co_wa_push_state((string)$ctx['stateDir'], static function (array &$s) use ($envs, $after): array {
+        $now = time();
+        foreach ($s['subs'] as $e => $t) if (!in_array($e, $envs, true)) unset($s['subs'][$e]);
+        foreach ($envs as $e) $s['subs'][$e] = $now;
+        if ($after === null || $after > $s['seq']) return ['items' => [], 'last' => $s['seq']];
+        $items = array_values(array_filter($s['items'], static fn($i) => $i['id'] > $after && in_array($i['env'], $envs, true)));
+        return ['items' => array_slice($items, 0, 20), 'last' => $items ? min($s['seq'], $items[min(19, count($items) - 1)]['id']) : $s['seq']];
+    });
+}

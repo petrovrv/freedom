@@ -78,6 +78,8 @@ def service_cmd(a):
         # "co" = the CO module whatsapp: this script's `forward` puts the message into the configured chat
         fwd = f'"{sys.executable}" "{Path(__file__).resolve()}" forward' if a.forward == "co" else a.forward
         cmd += ["--forward", fwd]
+        if a.forward == "co":
+            cmd += ["--pushes", f'"{sys.executable}" "{Path(__file__).resolve()}" pushes']
     if a.headless:
         cmd += ["--headless"]
     return cmd
@@ -239,7 +241,7 @@ def co_call(op, params, timeout=30):
     raw = gzip.compress(json.dumps({"op": op, **params}, ensure_ascii=False).encode())
     req = urllib.request.Request(url, data=json.dumps({"gz": base64.b64encode(raw).decode()}).encode(), method="POST",
                                  headers={"Content-Type": "application/json", "X-CO-Push-Key": key,
-                                          "User-Agent": "whatsapp-agent/0.2.0"})
+                                          "User-Agent": "whatsapp-agent/0.4.0"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read())
@@ -264,6 +266,8 @@ def cmd_config(a):
                 c.setdefault("family", {})[number] = env
             else:
                 c.setdefault("family", {}).pop(number, None)
+    if a.pushes is not None:
+        c["pushes"] = [e.strip() for e in a.pushes.split(",") if e.strip()]
     if a.names is not None:
         c["names"] = [n.strip() for n in a.names.split(",") if n.strip()]
     for k, v in (("family", a.title_family), ("contacts", a.title_contacts)):
@@ -318,6 +322,63 @@ def cmd_forward(a):
             out({"reply": reply or None, "jobId": job["jobId"], "state": r.get("state"), "failure": r.get("failure")},
                 0 if reply else 1)
     out({"error": "timeout", "jobId": job["jobId"]}, 1)
+
+
+PUSH_CURSOR = STATE / "push-cursor.json"
+
+
+def push_text(item, site):
+    """One WhatsApp message of a CO push: title, body, link."""
+    lines = [f"🔔 {item.get('title') or 'CO'}"]
+    if item.get("body"):
+        lines.append(item["body"])
+    url = item.get("url") or ""
+    if site and url.startswith("/") and url != "/":
+        lines.append(site + url)
+    return "\n".join(lines)
+
+
+def cmd_pushes(a):
+    """Fetch copies of CO pushes (module op wa_pushes) for config pushes [env] and write them to the env's number.
+    Pushes about the WhatsApp chats themselves are skipped: their answer already came here."""
+    c = load_config()
+    envs = [e for e in c.get("pushes") or [] if isinstance(e, str)]
+    numbers = {env: num for num, env in (c.get("family") or {}).items()}
+    envs = [e for e in envs if e in numbers]
+    try:
+        cur = json.loads(PUSH_CURSOR.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cur = {}
+    params = {"envs": envs}
+    if isinstance(cur.get("last"), int) and cur.get("envs") == envs:
+        params["after"] = cur["last"]
+    try:
+        r = co_call("wa_pushes", params)
+    except (OSError, RuntimeError) as e:
+        out({"ok": False, "error": str(e)}, 1)
+    if "items" not in r:
+        out({"ok": False, "error": r.get("error") or "bad_answer"}, 1)
+    skip = [t for t in (c.get("titles") or {}).values() if t] or ["💬 WhatsApp"]
+    site = (install_get("site.url") or "").rstrip("/")
+    sent, skipped, last = 0, 0, cur.get("last") if "after" in params else None
+    for it in r["items"]:
+        title = it.get("title") or ""
+        if any(t in title for t in skip):
+            skipped += 1
+        elif a.dry_run:
+            print(push_text(it, site))
+        else:
+            res = api("/send", {"to": f"{numbers[it['env']]}@c.us", "text": push_text(it, site), "by": "push"}, timeout=60)
+            if not res or not res.get("ok"):
+                break  # service not ready: keep the position, the next run retries
+            sent += 1
+        last = it["id"]
+    else:
+        last = r.get("last", last)
+    if not a.dry_run:
+        STATE.mkdir(parents=True, exist_ok=True)
+        PUSH_CURSOR.write_text(json.dumps({"envs": envs, "last": last}), encoding="utf-8")
+    out({"ok": True, "envs": envs, "sent": sent, "skipped": skipped, "last": last})
 
 
 def cmd_qr_window(a):
@@ -403,11 +464,14 @@ def main():
     p.add_argument("--title-contacts", help="owner's chat title for contacts and groups")
     p.add_argument("--limit-hour", type=int)
     p.add_argument("--limit-day", type=int)
+    p.add_argument("--pushes", help="comma-separated envs whose CO pushes are written to their family number (\"\" = none)")
     p = sub.add_parser("note", help="owner's instruction/permission for one conversation")
     p.add_argument("--to", required=True, help="contact name, +number, or chat/group id")
     p.add_argument("--text")
     p.add_argument("--clear", action="store_true")
     sub.add_parser("forward", help=argparse.SUPPRESS)
+    p = sub.add_parser("pushes", help="write new CO pushes of the envs in config pushes to their numbers (the service runs it)")
+    p.add_argument("--dry-run", action="store_true", help="fetch and show, send nothing, keep the position")
     p = sub.add_parser("qr-window")
     p.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
     p = sub.add_parser("inbox")
@@ -418,7 +482,7 @@ def main():
      "chats": lambda a: simple("/chats", {"limit": a.limit}),
      "read": lambda a: simple("/read", {"chat": a.chat, "limit": a.limit}),
      "contacts": lambda a: simple("/contacts", {}), "qr-window": cmd_qr_window, "inbox": cmd_inbox,
-     "config": cmd_config, "forward": cmd_forward, "note": cmd_note}[a.cmd](a)
+     "config": cmd_config, "forward": cmd_forward, "note": cmd_note, "pushes": cmd_pushes}[a.cmd](a)
 
 
 if __name__ == "__main__":

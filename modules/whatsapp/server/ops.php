@@ -3,7 +3,8 @@
 // Server entry of the module whatsapp: the handlers modules-lib.php calls.
 //   host: wa_ask, wa_answer - the WhatsApp service on the home PC (host key) puts a contact's message into the chosen
 //         chat as an isolated job and reads the answer it sends back
-// No data of its own.
+//   host: wa_pushes - the same service fetches copies of the pushes of the envs it writes to on WhatsApp
+//   notify: push - copies of the server's pushes for those envs (state/modules/whatsapp/pushes.json)
 declare(strict_types=1);
 
 require_once __DIR__ . '/whatsapp-lib.php';
@@ -22,5 +23,9 @@ return [
     'host' => [
         'wa_ask' => static fn(array $c, array $in): array => $coWaSafe(static fn(): array => co_wa_ask($c['db'], $in)),
         'wa_answer' => static fn(array $c, array $in): array => $coWaSafe(static fn(): array => co_wa_answer($c['db'], $in)),
+        'wa_pushes' => static fn(array $c, array $in): array => co_wa_pushes($c, $in),
+    ],
+    'notify' => [
+        'whatsapp' => ['push' => static fn(array $c, array $in) => co_wa_push_hook($c, $in)],
     ],
 ];

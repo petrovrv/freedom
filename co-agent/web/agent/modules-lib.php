@@ -17,6 +17,8 @@
 //   search - search.provider hooks (search-lib.php): 'expand' (other names of query words), 'chats' (one more ranked
 //            list of chats, merged by rank with the core's full-text lists), 'items' (more results such as documents),
 //            'text' (indexed text of a project file); manifest provides.search [{id, hooks}]
+//   notify - copies of pushes (push-lib.php co_push_mirror): hook 'push' gets {envs, title, body, url, tag} of every push
+//            the server sends, e.g. to write it to the person in a messenger; manifest provides.notify [{id, hooks}]
 // Core op names always win: a module cannot take over an op of the core.
 declare(strict_types=1);
 

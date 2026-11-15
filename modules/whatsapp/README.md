@@ -31,3 +31,9 @@ Install:
     python <tools>/whatsapp-agent/whatsapp-agent.py start && python <tools>/whatsapp-agent/whatsapp-agent.py qr-window
     # scan the QR with the agent's phone (Linked devices), then choose the chat:
     python <tools>/whatsapp-agent/whatsapp-agent.py config --chat CHAT-... --assistant "the assistant of ..."
+    # optional: CO pushes of these environments go to their numbers (--family NUMBER=ENV) on WhatsApp
+    python <tools>/whatsapp-agent/whatsapp-agent.py config --pushes "<env>"
+
+Pushes (0.3.0): the server hands every push to the module's `notify` hook (ext/1 `provides.notify`); copies are kept
+only for envs the home service asked for in the last 30 min (`state/modules/whatsapp/pushes.json`, at most 300, 24 h)
+and the service fetches them with host op `wa_pushes` every 20 s.

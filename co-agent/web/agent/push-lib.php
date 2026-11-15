@@ -395,9 +395,43 @@ function co_push_send(array $sub, array $payload, int $ttl = 86400, string $topi
 
 // ---------- Broadcast ----------
 
+/**
+ * Copies of a push for the notify hooks of enabled modules (ext/1 provides.notify, e.g. a messenger account that writes
+ * the push to its person): the members whose devices $filter takes (filters look at the subscription's env), and the
+ * payload. Runs whether or not the env has a subscribed device. Never throws, never blocks the push.
+ */
+function co_push_mirror(callable $filter, array $payload): void
+{
+    if (!function_exists('co_module_hooks') || !function_exists('co_members') || !function_exists('co_db')) return;
+    try {
+        $envs = [];
+        foreach (co_members() as $r) {
+            $env = (string)($r['env'] ?? '');
+            try {
+                if ($env !== '' && $filter(['env' => $env, 'endpoint' => ''])) $envs[] = $env;
+            } catch (Throwable) {
+            }
+        }
+        if ($envs === []) return;
+        $db = co_db();
+        foreach (co_module_hooks($db, 'notify') as $p) {
+            $fn = $p['hooks']['push'] ?? null;
+            if ($fn === null) continue;
+            try {
+                $fn(co_module_ctx($db, $p['module']), ['envs' => $envs] + $payload);
+            } catch (Throwable $e) {
+                error_log("notify hook {$p['module']['id']}/{$p['id']}: " . $e->getMessage());
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('co_push_mirror: ' . $e->getMessage());
+    }
+}
+
 /** @return array{sent:int, removed:int, failed:int} */
 function co_push_broadcast(callable $filter, array $payload, string $topic): array
 {
+    co_push_mirror($filter, $payload);
     $results = [];
     foreach (co_push_load() as $id => $sub) {
         if (is_array($sub) && $filter($sub)) {

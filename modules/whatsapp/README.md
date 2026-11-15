@@ -1,12 +1,22 @@
 # Module whatsapp (the workbench's own WhatsApp account)
 
-A second WhatsApp number for the workbench itself, not the owner's personal one. People saved in that account's
-contacts write to it and the agent answers; the owner can ask any agent to write to someone first.
+A second WhatsApp number for the workbench itself, not the owner's personal one. Household members write to it as to
+their own CO chat; other saved contacts and groups get an isolated assistant; the owner can ask any agent to write to
+someone first.
+
+| Who | What happens |
+|---|---|
+| household member (`config --family NUMBER=ENV`), direct | a normal job in their own chat "💬 WhatsApp" of their environment (made on first use), their dossier and permissions |
+| other saved contact, direct | an isolated job in the owner's chat "💬 WhatsApp: contacts"; without the owner in the conversation it talks only on the owner's instruction (`note`, `send --purpose`) or about the owner's affairs, otherwise asks for permission and the owner gets a 🔔 on WhatsApp |
+| group | silent until called (mention, reply to it, a word of `config --names`); sees the group's last 15 messages; same rules when the owner is not in the group |
+| anyone else | logged only |
+
+Outside the family: 20 turns an hour and 80 a day per conversation; every isolated turn carries the anti-injection rules.
 
 | Layer | Here |
 |---|---|
 | service (home PC) | `tools/whatsapp-agent` — `whatsapp-agent.py run --forever --forward co` under Bridge: [whatsapp-web.js](https://github.com/pedroslopez/whatsapp-web.js) in Edge (own profile, window off the screen), local API on 127.0.0.1 with a token in keyring; incoming direct messages from saved contacts go to `forward`, everyone else is logged and ignored |
-| server | `server/ops.php` — host ops `wa_ask` (the message goes into the chosen chat as `💬 name: text` and a job of its own on home-main, one per contact at a time, a contact's session resumed within 6 h) and `wa_answer` |
+| server | `server/ops.php` — host ops `wa_ask` (finds or makes the chat by title in the environment's home project, puts `💬 name: text` and a job, one per conversation at a time, session resumed within 6 h) and `wa_answer` |
 | isolation | the job carries `request.whatsapp`; Bridge 1.21+ then gives it `permissions.files = isolated` (Claude `--safe-mode`, `--tools WebSearch,WebFetch`, file tools denied, no shell, devices, context folders, MCP, CLAUDE.md or module context), whatever the request says; an older Bridge refuses `isolated`. The prompt has nothing of the owner's: no dossier, other chats or protocol |
 | context | `context/whatsapp.md` — the owner's agents may send through the account only when the owner asks (`whatsapp-agent send`) |
 | data | none on the server; at home `%LOCALAPPDATA%/AIWorkbench/wa-agent/` (linked-device session, inbox, events, `config.json` with the chat) |

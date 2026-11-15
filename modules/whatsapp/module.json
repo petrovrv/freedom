@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "id": "whatsapp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "title": "WhatsApp agent",
-  "description": "The workbench's own WhatsApp account (a second number, not the owner's): the agent answers people saved in that account's contacts and writes first when the owner asks. The account runs as a linked device in a browser on the home PC (whatsapp-web.js, unofficial: WhatsApp may ban the number). Each message becomes a job in one chat the owner chooses, run isolated: no files, shell, devices, MCP, CLAUDE.md or the owner's dossier, only web search.",
+  "description": "The workbench's own WhatsApp account (a second number, not the owner's): household members write to it as to their own CO chat; other saved contacts and groups that call it get an isolated agent (only web search; no files, shell, devices, MCP, CLAUDE.md or the owner's dossier) that speaks without the owner only on the owner's instruction or about the owner's affairs and otherwise asks the owner's permission; it writes first when the owner asks. The account runs as a linked device in a browser on the home PC (whatsapp-web.js, unofficial: WhatsApp may ban the number).",
   "ext": ">=1 <2",
   "scope": "environment",
   "platforms": [
@@ -32,7 +32,7 @@
     "tools": [
       {
         "name": "whatsapp-agent",
-        "minVersion": "0.2.0"
+        "minVersion": "0.3.0"
       }
     ],
     "services": [

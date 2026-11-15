@@ -148,7 +148,47 @@ def cmd_send(a):
     r = api("/send", {"to": a.to, "text": text, "by": os.environ.get("AIWB_JOB_ID")}, timeout=60)
     if r is None:
         out({"ok": False, "error": "service_stopped"}, 2)
+    if r.get("ok") and not a.no_note:
+        # the owner started this conversation: the agent may carry it on within what was asked
+        add_note(r["to"], f"The owner asked you to write here: {a.purpose or text}")
     out(r, 0 if r.get("ok") else 1)
+
+
+def note_key(chat_id):
+    """Notes of a direct chat are kept by phone number (incoming messages may come from a @lid id), of a group by its id."""
+    return chat_id if chat_id.endswith("@g.us") else "".join(ch for ch in chat_id.split("@")[0] if ch.isdigit())
+
+
+def add_note(chat_id, text):
+    c = load_config()
+    notes = c.setdefault("notes", {})
+    notes.setdefault(note_key(chat_id), []).append({"t": time.strftime("%Y-%m-%d %H:%M"), "text": text[:600]})
+    notes[note_key(chat_id)] = notes[note_key(chat_id)][-8:]
+    BASE.mkdir(parents=True, exist_ok=True)
+    CONFIG.write_text(json.dumps(c, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def cmd_note(a):
+    """The owner's instruction or permission for one conversation (contact or group), read by its isolated turns."""
+    if os.environ.get("AIWB_JOB_ROLE", "owner") not in ("owner", ""):
+        out({"ok": False, "error": "forbidden_role"}, 1)
+    to = a.to
+    if not (to.endswith("@g.us") or to.endswith("@c.us")):
+        r = api("/resolve", {"to": to}, timeout=60)
+        if r is None:
+            out({"ok": False, "error": "service_stopped"}, 2)
+        if not r.get("ok"):
+            out(r, 1)
+        to = r["id"]
+    if a.clear:
+        c = load_config()
+        c.get("notes", {}).pop(note_key(to), None)
+        CONFIG.write_text(json.dumps(c, ensure_ascii=False, indent=1), encoding="utf-8")
+        out({"ok": True, "cleared": note_key(to)})
+    if not a.text:
+        out({"ok": True, "notes": load_config().get("notes", {}).get(note_key(to), [])})
+    add_note(to, a.text)
+    out({"ok": True, "key": note_key(to), "notes": load_config()["notes"][note_key(to)]})
 
 
 def simple(path, body):
@@ -212,10 +252,26 @@ def co_call(op, params, timeout=30):
 
 def cmd_config(a):
     c = load_config()
-    for k in ("chat", "env", "assistant"):
+    for k, key in (("env", "env"), ("assistant", "assistant"), ("owner_name", "ownerName")):
         v = getattr(a, k)
         if v is not None:
-            c[k] = v
+            c[key] = v
+    for spec in a.family or []:
+        number, _, env = spec.partition("=")
+        number = "".join(ch for ch in number if ch.isdigit())
+        if number:
+            if env:
+                c.setdefault("family", {})[number] = env
+            else:
+                c.setdefault("family", {}).pop(number, None)
+    if a.names is not None:
+        c["names"] = [n.strip() for n in a.names.split(",") if n.strip()]
+    for k, v in (("family", a.title_family), ("contacts", a.title_contacts)):
+        if v:
+            c.setdefault("titles", {})[k] = v
+    if a.limit_hour or a.limit_day:
+        c["limits"] = {"hour": a.limit_hour or c.get("limits", {}).get("hour", 20),
+                       "day": a.limit_day or c.get("limits", {}).get("day", 80)}
     if not c.get("env"):
         owner = next((m for m in install_get("members", []) or [] if m.get("role") == "owner"), {})
         if owner.get("env"):
@@ -229,10 +285,19 @@ def cmd_forward(a):
     """Called by the service per contact turn: message JSON on stdin -> {"reply", "jobId"} after the CO job ends."""
     item = json.loads(sys.stdin.read() or "{}")
     c = load_config()
-    if not c.get("chat") or not c.get("env"):
-        out({"error": "no_chat", "hint": "whatsapp-agent.py config --chat CHAT-..."}, 1)
-    payload = {"chatId": c["chat"], "env": c["env"], "contact": item.get("from"), "name": item.get("name") or item.get("pushname"),
-               "number": item.get("number"), "text": item.get("text"), "assistant": c.get("assistant")}
+    if not c.get("env"):
+        out({"error": "no_env", "hint": "whatsapp-agent.py config --env OWNER_ENV"}, 1)
+    kind = item.get("kind") or "contact"
+    titles = c.get("titles") or {}
+    payload = {"kind": kind, "env": item.get("family") if kind == "family" else c["env"], "contact": item.get("from"),
+               "name": item.get("name"), "number": item.get("number"), "text": item.get("text"),
+               "chatTitle": titles.get("family" if kind == "family" else "contacts")}
+    if kind != "family":
+        key = item.get("from") if kind == "group" else item.get("number") or ""
+        notes = (c.get("notes") or {}).get(key) or []
+        payload.update({"assistant": c.get("assistant"), "ownerName": c.get("ownerName"), "groupName": item.get("groupName"),
+                        "ownerPresent": bool(item.get("ownerPresent")), "history": item.get("history"),
+                        "note": "\n".join(f"- {n['t']}: {n['text']}" for n in notes)})
     deadline = time.time() + FORWARD_WAIT_S
     job = {}
     while time.time() < deadline:
@@ -320,16 +385,28 @@ def main():
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--text")
     g.add_argument("--text-file")
+    p.add_argument("--purpose", help="what the owner wants from this conversation (kept as a note for the replies)")
+    p.add_argument("--no-note", action="store_true", help="do not keep the owner's request as a note")
     p = sub.add_parser("chats")
     p.add_argument("--limit", type=int, default=30)
     p = sub.add_parser("read")
     p.add_argument("--chat", required=True)
     p.add_argument("--limit", type=int, default=30)
     sub.add_parser("contacts")
-    p = sub.add_parser("config", help="CO chat the contacts' messages go to (module whatsapp)")
-    p.add_argument("--chat")
-    p.add_argument("--env")
+    p = sub.add_parser("config", help="policy of the CO module whatsapp")
+    p.add_argument("--env", help="owner's environment (contacts and groups go to the owner's chat)")
+    p.add_argument("--owner-name", help="how the agent names the owner")
     p.add_argument("--assistant", help="how the agent introduces itself")
+    p.add_argument("--family", action="append", help="NUMBER=ENV household member writing directly (NUMBER= removes)")
+    p.add_argument("--names", help="comma-separated words that call the agent in a group")
+    p.add_argument("--title-family", help="chat title in a member's environment (default 💬 WhatsApp)")
+    p.add_argument("--title-contacts", help="owner's chat title for contacts and groups")
+    p.add_argument("--limit-hour", type=int)
+    p.add_argument("--limit-day", type=int)
+    p = sub.add_parser("note", help="owner's instruction/permission for one conversation")
+    p.add_argument("--to", required=True, help="contact name, +number, or chat/group id")
+    p.add_argument("--text")
+    p.add_argument("--clear", action="store_true")
     sub.add_parser("forward", help=argparse.SUPPRESS)
     p = sub.add_parser("qr-window")
     p.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
@@ -341,7 +418,7 @@ def main():
      "chats": lambda a: simple("/chats", {"limit": a.limit}),
      "read": lambda a: simple("/read", {"chat": a.chat, "limit": a.limit}),
      "contacts": lambda a: simple("/contacts", {}), "qr-window": cmd_qr_window, "inbox": cmd_inbox,
-     "config": cmd_config, "forward": cmd_forward}[a.cmd](a)
+     "config": cmd_config, "forward": cmd_forward, "note": cmd_note}[a.cmd](a)
 
 
 if __name__ == "__main__":

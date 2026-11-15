@@ -82,7 +82,37 @@ client.on('ready', () => {
 });
 client.on('disconnected', (r) => { try { fs.rmSync(path.join(STATE, 'qr.png'), { force: true }); } catch {} st.state = 'disconnected'; st.error = String(r); writeStatus(); log({ ev: 'disconnected', r: String(r) }); setTimeout(() => process.exit(3), 1000); });
 
-// one answer at a time per contact; a contact's messages that arrive while it answers are joined into the next turn
+// Policy (config.json next to state/, re-read on every message):
+//   family {digits: env}   - household members: direct messages become normal jobs in their own chat
+//   names [..]             - words that call the agent in a group (besides a mention or a reply to it)
+//   limits {hour, day}     - turns per contact/group outside the family (a flood costs the owner's subscription)
+// Direct messages from other saved contacts and calls in groups become isolated jobs; the rest is only logged.
+const CONFIG = path.join(STATE, '..', 'config.json');
+const readConfig = () => { try { return JSON.parse(fs.readFileSync(CONFIG, 'utf8')); } catch { return {}; } };
+const digits = (id) => String(id || '').split('@')[0].replace(/\D/g, '');
+
+const phoneCache = new Map();
+async function phoneOf(id) {
+  if (!id) return '';
+  if (id.endsWith('@c.us')) return digits(id);
+  if (phoneCache.has(id)) return phoneCache.get(id);
+  let pn = '';
+  try { pn = digits((await client.getContactLidAndPhone([id]))[0]?.pn); } catch {}
+  phoneCache.set(id, pn);
+  return pn;
+}
+
+const turns = new Map(); // key -> [ms...]
+function overLimit(key, cfg) {
+  const now = Date.now(), lim = { hour: 20, day: 80, ...(cfg.limits || {}) };
+  const list = (turns.get(key) || []).filter((t) => now - t < 86400000);
+  turns.set(key, list);
+  if (list.filter((t) => now - t < 3600000).length >= lim.hour || list.length >= lim.day) return true;
+  list.push(now);
+  return false;
+}
+
+// one answer at a time per chat; messages that arrive meanwhile are joined into the next turn
 const busy = new Map();
 const pending = new Map();
 function runForward(item) {
@@ -94,37 +124,86 @@ function runForward(item) {
     p.stdin.end(JSON.stringify(item));
   });
 }
-async function handle(contactId) {
-  if (busy.get(contactId)) return;
-  const items = pending.get(contactId); if (!items?.length) return;
-  pending.delete(contactId); busy.set(contactId, true);
-  const item = { ...items[items.length - 1], text: items.map((i) => i.text).join('\n') };
+async function handle(chatId) {
+  if (busy.get(chatId)) return;
+  const items = pending.get(chatId); if (!items?.length) return;
+  pending.delete(chatId); busy.set(chatId, true);
+  const item = { ...items[items.length - 1], text: items.map((i) => (items.length > 1 && i.kind === 'group' ? `${i.name || i.number}: ` : '') + i.text).join('\n') };
   try {
     const r = await runForward(item);
     let ans = null; try { ans = JSON.parse(r.out.trim().split('\n').pop() || '{}'); } catch {}
-    if (ans?.reply) {
-      await client.sendMessage(contactId, String(ans.reply));
-      log({ ev: 'replied', to: contactId, chars: String(ans.reply).length, job: ans.jobId || null });
-    } else log({ ev: 'forward_no_reply', to: contactId, code: r.code, out: r.out.slice(-500), err: r.err.slice(-500) });
-  } catch (e) { log({ ev: 'forward_error', to: contactId, e: String(e.message || e) }); }
-  busy.set(contactId, false);
-  if (pending.get(contactId)?.length) handle(contactId);
+    let reply = ans?.reply ? String(ans.reply) : '';
+    // [[owner: ...]] lines are for the owner, never for the conversation
+    const forOwner = [];
+    reply = reply.replace(/^\s*\[\[owner:\s*([\s\S]*?)\]\]\s*$/gim, (_, t) => { forOwner.push(t.trim()); return ''; }).trim();
+    if (reply) {
+      await client.sendMessage(chatId, reply, item.kind === 'group' && item.msgId ? { quotedMessageId: item.msgId } : {});
+      log({ ev: 'replied', to: chatId, kind: item.kind, chars: reply.length, job: ans.jobId || null });
+    } else log({ ev: 'forward_no_reply', to: chatId, code: r.code, out: r.out.slice(-500), err: r.err.slice(-500) });
+    const owner = Object.entries(readConfig().family || {}).find(([, env]) => env === readConfig().env)?.[0];
+    if (forOwner.length && owner) {
+      const where = item.kind === 'group' ? `группа «${item.groupName}», ${item.name || item.number}` : `${item.name || ''} +${item.number}`;
+      await client.sendMessage(`${owner}@c.us`, `🔔 ${where}: ${forOwner.join(' ')}\nРазрешить? Ответьте мне здесь, например: «можно продолжать с ${item.name || item.number} о …».`);
+      log({ ev: 'asked_owner', about: chatId });
+    }
+  } catch (e) { log({ ev: 'forward_error', to: chatId, e: String(e.message || e) }); }
+  busy.set(chatId, false);
+  if (pending.get(chatId)?.length) handle(chatId);
+}
+
+async function groupHistory(chat, cfg, limit = 15) {
+  const msgs = await chat.fetchMessages({ limit });
+  const lines = [];
+  for (const m of msgs) {
+    if (!m.body) continue;
+    let who = 'me (the assistant)';
+    if (!m.fromMe) { const c = await m.getContact().catch(() => null); who = c?.name || c?.pushname || '+' + (await phoneOf(m.author)); }
+    lines.push(`${who}: ${m.body.slice(0, 500)}`);
+  }
+  return lines.join('\n');
 }
 
 client.on('message', async (msg) => {
   try {
-    if (msg.fromMe || msg.isStatus || msg.from.endsWith('@g.us') || msg.from === 'status@broadcast') return;
+    if (msg.fromMe || msg.isStatus || msg.from === 'status@broadcast') return;
+    const cfg = readConfig();
+    const group = msg.from.endsWith('@g.us');
+    const sender = group ? msg.author : msg.from;
     const contact = await msg.getContact();
-    const item = { t: new Date().toISOString(), id: msg.id?._serialized, from: msg.from, number: contact.number || null,
-      name: contact.name || null, pushname: contact.pushname || null, contact: !!contact.isMyContact,
+    const number = await phoneOf(sender) || contact.number || '';
+    const familyEnv = (cfg.family || {})[number] || null;
+    const item = { t: new Date().toISOString(), id: msg.id?._serialized, msgId: msg.id?._serialized, from: msg.from, sender, number,
+      name: contact.name || contact.pushname || null, contact: !!contact.isMyContact, family: familyEnv, group,
       type: msg.type, text: msg.body || (msg.hasMedia ? `[${msg.type}]` : '') };
     fs.appendFileSync(path.join(STATE, 'inbox.jsonl'), JSON.stringify(item) + '\n');
-    if (!item.contact) { log({ ev: 'ignored_not_contact', from: msg.from }); return; }
-    if (!FORWARD) return;
+    if (!FORWARD || !item.text) return;
+    if (group) {
+      const me = client.info?.wid?._serialized, meLid = client.info?.lid?._serialized;
+      const mentioned = (msg.mentionedIds || []).some((m) => [me, meLid].includes(m?._serialized || m));
+      const quoted = msg.hasQuotedMsg ? await msg.getQuotedMessage().catch(() => null) : null;
+      const low = item.text.toLowerCase();
+      const named = (cfg.names || []).some((n) => {
+        if (!n) return false;
+        const i = low.indexOf(n.toLowerCase()), j = i + n.length;
+        return i >= 0 && !/\p{L}/u.test(low[i - 1] || '') && !/\p{L}/u.test(low[j] || ''); // a whole word
+      });
+      if (!mentioned && !(quoted && quoted.fromMe) && !named) return; // not called: stays out of the conversation
+      if (overLimit(msg.from, cfg)) { log({ ev: 'limit', chat: msg.from }); return; }
+      const chat = await msg.getChat();
+      const ownerNumber = Object.entries(cfg.family || {}).find(([, env]) => env === cfg.env)?.[0];
+      let ownerPresent = false;
+      for (const p of chat.participants || []) if (ownerNumber && (await phoneOf(p.id?._serialized)) === ownerNumber) ownerPresent = true;
+      Object.assign(item, { kind: 'group', groupName: chat.name, ownerPresent, history: await groupHistory(chat, cfg) });
+    } else if (familyEnv) {
+      item.kind = 'family';
+    } else if (item.contact) {
+      if (overLimit(msg.from, cfg)) { log({ ev: 'limit', chat: msg.from }); return; }
+      item.kind = 'contact';
+    } else { log({ ev: 'ignored_not_contact', from: msg.from }); return; }
     if (!pending.has(msg.from)) pending.set(msg.from, []);
     pending.get(msg.from).push(item);
     handle(msg.from);
-  } catch (e) { log({ ev: 'message_error', e: String(e.message || e) }); }
+  } catch (e) { log({ ev: 'message_error', e: String(e.stack || e).slice(0, 800) }); }
 });
 
 async function resolveChatId(to) {
@@ -136,6 +215,8 @@ async function resolveChatId(to) {
     return id._serialized;
   }
   const want = String(to).toLowerCase();
+  const groups = (await client.getChats()).filter((c) => c.isGroup && (c.name || '').toLowerCase() === want);
+  if (groups.length === 1) return groups[0].id._serialized;
   const contacts = (await client.getContacts()).filter((c) => c.isMyContact && !c.isGroup);
   const hits = contacts.filter((c) => (c.name || '').toLowerCase() === want);
   const near = hits.length ? hits : contacts.filter((c) => (c.name || '').toLowerCase().includes(want));
@@ -170,6 +251,7 @@ http.createServer(async (req, res) => {
       log({ ev: 'sent', to: id, chars: String(q.text).length, by: q.by || null });
       return send(res, 200, { ok: true, sent: true, to: id, id: m.id?._serialized });
     }
+    if (req.url === '/resolve') return send(res, 200, { ok: true, id: await resolveChatId(q.to) });
     if (req.url === '/chats') {
       const chats = (await client.getChats()).filter((c) => !c.isGroup).slice(0, q.limit || 30);
       return send(res, 200, { ok: true, chats: chats.map((c) => ({ id: c.id._serialized, name: c.name, unread: c.unreadCount, last: c.lastMessage?.body?.slice(0, 120) || null, t: c.timestamp })) });

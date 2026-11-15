@@ -1,22 +1,22 @@
 {
  "format": "freedom-release/1",
- "version": "0.1.0",
- "created": "2026-11-15T15:53:31Z",
+ "version": "0.2.0",
+ "created": "2026-11-15T16:00:49Z",
  "files": [
   {
    "path": "context/whatsapp.md",
-   "size": 474,
-   "sha256": "4ad06b838a53e0f557727c01b7edd73b4bf540d1ed33433018ca09cad7962e21"
+   "size": 674,
+   "sha256": "133f0b5a65a7a6cde1283a2372d96a62b629599186d67bd03bda3730f47102ed"
   },
   {
    "path": "module.json",
-   "size": 1935,
-   "sha256": "1d783e4ba36fbbec89b6223f4fbbb1bc7405925d522bf6a8b98c3c5ca644d400"
+   "size": 2061,
+   "sha256": "a10e8bf7236319e340f0593ff0b8d1eddc42946f7ca8c2632df5b313d0bfdd3d"
   },
   {
    "path": "README.md",
-   "size": 2174,
-   "sha256": "bc619564fb3843036130bf491fb266c0a002202168696a782e3813432616b5b7"
+   "size": 3048,
+   "sha256": "edb61d6169cdce181151d0d0ef236398efd2d0b3d864a9426644f347c0fe8aef"
   },
   {
    "path": "server/ops.php",
@@ -25,30 +25,30 @@
   },
   {
    "path": "server/whatsapp-lib.php",
-   "size": 8765,
-   "sha256": "f700fca5b54297e8fba25a628bf1988591ee5bc741d4545c53a87136f1ac23d3"
+   "size": 16197,
+   "sha256": "159749926656fb26b76e3a3105744e89d0dc1a5b031a5eaf52922398ff03e668"
   },
   {
    "path": "tools/whatsapp-agent/service.mjs",
-   "size": 12067,
-   "sha256": "b2373ebb64c9879b41010bea7d9ee424c4b700aa1a184de9ef0e91cf7ecce377"
+   "size": 16959,
+   "sha256": "77a310297d432601799b39c440f09126e0a7a881be13703bc186d66f2062c4ab"
   },
   {
    "path": "tools/whatsapp-agent/SKILL.md",
-   "size": 6057,
-   "sha256": "2cd1ec2a3ca197c0d9c109410cdfb31538cc3735292c9a5f927d75e49d8e08d4"
+   "size": 8874,
+   "sha256": "e1ede135f44d85b22020ccbfade30b95a02bd76b6aa7bc6a67691c878101c1a9"
   },
   {
    "path": "tools/whatsapp-agent/whatsapp-agent.py",
-   "size": 14546,
-   "sha256": "83f3151c3ee585e7339b48a789cc516e708b2fd6be865faafcdea462520d4180"
+   "size": 18987,
+   "sha256": "255488abacd47e79c6e366cec921db50031a2c6110dcefcdd8e44334525dd97e"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "StJqwj6awlC/2ELYRfUFtXCLCg8BOnz40mzSAAyPwxhz1M4PvZdmVWRDlrdTZtHqsKys/PmhpxeQs52oEMDpCQ=="
+   "sig": "UK80v/oXKdFRqi4op0AiotreTD88V/9Gm9tomqpWcgwraZe24Qm4UdVYPzHDsD3owD4q8u3vUDHVJdrIOOq3AQ=="
   }
  ],
  "module": "whatsapp"

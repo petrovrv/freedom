@@ -1708,7 +1708,8 @@ namespace AiWorkbenchBridge
                 string op = AgentRuntime.ConversationOperation(request);
                 string before = RunModuleHooks("job.before", request, null);
                 string ctx = (op == "new" ? Modules.Context(request.environmentId) : "") + before;
-                request.moduleContext = ctx.Trim().Length > 0 ? ctx.Trim() : null;
+                // v1.21.0: a WhatsApp job (people outside the household) gets no module instructions of the owner
+                request.moduleContext = ctx.Trim().Length > 0 && request.whatsapp == null ? ctx.Trim() : null;
             }
             catch (Exception ex)
             {

@@ -589,7 +589,7 @@ namespace AiWorkbenchBridge
 
     internal sealed partial class BridgeApplicationContext : ApplicationContext
     {
-        private const string BridgeVersion = "1.20.0";
+        private const string BridgeVersion = "1.21.0";
         private const int ProtocolMinor = 2;
 
         private static readonly string[] KnownModes = new string[] { "chat", "cowork" };
@@ -2516,13 +2516,24 @@ namespace AiWorkbenchBridge
                     throw new InvalidOperationException("output limits cannot be negative.");
             }
 
+            // v1.21.0: a message from a contact of the agent's own WhatsApp account (module whatsapp). People outside the
+            // household write it, so whatever the request says the job gets no files, shell, devices or context folders;
+            // the Claude launch adds --safe-mode (no CLAUDE.md, skills, plugins, hooks, MCP) and denies every file tool.
+            if (request.whatsapp != null)
+            {
+                request.permissions = new PermissionsRequest { files = "isolated", shell = false, web = true };
+                request.contextFolders = null;
+                request.devices = null;
+                request.deviceToolsDeny = null;
+            }
+
             request.resolvedContexts = ResolveContextFolders(request.contextFolders);
 
             if (request.permissions != null)
             {
                 string files = NormalizeFilesPermission(request.permissions.files);
                 if (files == "")
-                    throw new InvalidOperationException("permissions.files must be read or write (got '" + request.permissions.files + "').");
+                    throw new InvalidOperationException("permissions.files must be read, write or isolated (got '" + request.permissions.files + "').");
                 request.permissions.files = files;
             }
         }
@@ -2534,6 +2545,8 @@ namespace AiWorkbenchBridge
             if (files == null) return null;
             string v = files.Trim().ToLowerInvariant();
             if (v == "read" || v == "ro" || v == "readonly" || v == "read-only") return "read";
+            // v1.21.0: no file tools at all (WhatsApp jobs of module whatsapp); "none" keeps its old meaning (no restriction)
+            if (v == "isolated") return "isolated";
             if (v == "write" || v == "rw" || v == "readwrite" || v == "read-write" || v == "true") return "write";
             if (v.Length == 0 || v == "false" || v == "none" || v == "null") return null;
             return "";
@@ -3123,7 +3136,7 @@ namespace AiWorkbenchBridge
                 request.browserSettings = ResolveBrowserSettings(request);
                 agentArgs = AddDeviceArguments(runtime, request, localJobDir, agentArgs, psi);
                 // v1.20.0: a voice turn waits for the agent's start; 33 MCP servers (connectors, plugins) took ~9 s of it
-                if (request.voice != null)
+                if (request.voice != null || request.whatsapp != null)
                     agentArgs = runtime.AddLeanArguments(agentArgs, McpConfigPath(request.jobId, localJobDir));
                 psi.Arguments = CommandLine.Build(agentArgs);
                 psi.WorkingDirectory = workspace;
@@ -6823,7 +6836,7 @@ namespace AiWorkbenchBridge
     // v1.1: what the agent may do in this job, chosen per chat in CO Web. Absent = everything allowed.
     internal sealed class PermissionsRequest
     {
-        public string files { get; set; }         // "read" or "write"
+        public string files { get; set; }         // "read", "write" or "isolated" (v1.21.0: no file tools)
         public bool? shell { get; set; }
         public bool? web { get; set; }
     }
@@ -6835,6 +6848,14 @@ namespace AiWorkbenchBridge
         public string file { get; set; }
         public string lang { get; set; }
         public string point { get; set; }
+    }
+
+    // v1.21.0: request.whatsapp of module whatsapp (the chat row and the contact); its presence isolates the job
+    internal sealed class WhatsappRequest
+    {
+        public string path { get; set; }
+        public string file { get; set; }
+        public string contact { get; set; }
     }
 
     internal sealed class ContextFolderRequest
@@ -7047,6 +7068,8 @@ namespace AiWorkbenchBridge
         public JobTaskRequest task { get; set; }
         // v1.20.0: a spoken question from a voice point (module voice); its agent starts without MCP servers
         public VoiceRequest voice { get; set; }
+        // v1.21.0: a message from a contact of the agent's WhatsApp account (module whatsapp); isolated launch
+        public WhatsappRequest whatsapp { get; set; }
 
         // Filled by Bridge after validation; never read from request.json.
         [ScriptIgnore]

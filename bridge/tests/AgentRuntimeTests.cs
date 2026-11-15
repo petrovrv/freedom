@@ -141,6 +141,10 @@ namespace AiWorkbenchBridge.Tests
                 Check("lean", "codex unchanged", "exec -", String.Join(" ", AgentRuntime.Get("codex-jsonl").AddLeanArguments(new string[] { "exec", "-" }, empty)));
                 File.Delete(empty);
             }
+            // v1.21.0: isolated = no file tools (WhatsApp jobs); "none" keeps meaning "no restriction"
+            Check("files", "isolated", "isolated", BridgeApplicationContext.NormalizeFilesPermission(" Isolated "));
+            Check("files", "none unchanged", "null", BridgeApplicationContext.NormalizeFilesPermission("none") ?? "null");
+            Check("files", "read", "read", BridgeApplicationContext.NormalizeFilesPermission("ro"));
             Check("job-role", "owner's env", "owner", JobRole.Of("anna", "anna"));
             Check("job-role", "member's env", "member", JobRole.Of("kid", "anna"));
             Check("job-role", "no env = owner's own job", "owner", JobRole.Of("", "anna"));

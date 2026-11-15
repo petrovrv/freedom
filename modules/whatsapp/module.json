@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "id": "whatsapp",
+  "version": "0.1.0",
+  "title": "WhatsApp agent",
+  "description": "The workbench's own WhatsApp account (a second number, not the owner's): the agent answers people saved in that account's contacts and writes first when the owner asks. The account runs as a linked device in a browser on the home PC (whatsapp-web.js, unofficial: WhatsApp may ban the number). Each message becomes a job in one chat the owner chooses, run isolated: no files, shell, devices, MCP, CLAUDE.md or the owner's dossier, only web search.",
+  "ext": ">=1 <2",
+  "scope": "environment",
+  "platforms": [
+    "windows"
+  ],
+  "requires": {
+    "core": [
+      "jobs"
+    ],
+    "modules": []
+  },
+  "permissions": [
+    "context",
+    "host.key",
+    "net.outbound"
+  ],
+  "isolation": "host",
+  "isolationReason": "a WhatsApp Web session needs a browser on the home PC",
+  "provides": {
+    "ui": [],
+    "context": [
+      {
+        "file": "context/whatsapp.md"
+      }
+    ],
+    "tools": [
+      {
+        "name": "whatsapp-agent",
+        "minVersion": "0.2.0"
+      }
+    ],
+    "services": [
+      {
+        "id": "account",
+        "tool": "whatsapp-agent",
+        "run": "run --forever --forward co",
+        "windowsTask": "\\AIWorkbench\\WaAgent"
+      }
+    ],
+    "data": {
+      "server": "none",
+      "home": "%LOCALAPPDATA%/AIWorkbench/wa-agent (session of the linked device, inbox, events, config.json with the chat id)"
+    },
+    "events": [],
+    "models": [],
+    "deviceTools": [],
+    "sideJobs": [
+      {
+        "key": "whatsapp",
+        "label": "💬 WhatsApp"
+      }
+    ]
+  },
+  "server": {
+    "entry": "server/ops.php",
+    "ops": {
+      "user": [],
+      "push": [],
+      "host": [
+        "wa_ask",
+        "wa_answer"
+      ]
+    }
+  },
+  "dataPolicy": {
+    "onDisable": "keep",
+    "onRemove": "keep",
+    "migrations": "additive"
+  },
+  "defaults": {
+    "enabled": false
+  }
+}

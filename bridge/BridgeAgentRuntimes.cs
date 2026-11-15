@@ -274,10 +274,20 @@ namespace AiWorkbenchBridge
                 if (cloudDenied == null || cloudDenied.Count == 0) return args;
                 p = new PermissionsRequest();
             }
-            bool readOnly = p.files == "read";
-            bool shell = !p.shell.HasValue || p.shell.Value;
+            bool isolated = p.files == "isolated";
+            bool readOnly = p.files == "read" || isolated;
+            bool shell = !isolated && (!p.shell.HasValue || p.shell.Value);
             bool web = !p.web.HasValue || p.web.Value;
             List<string> denied = new List<string>();
+            if (isolated)
+            {
+                // v1.21.0: nothing on this computer is readable or runnable; no CLAUDE.md, skills, plugins, hooks or MCP
+                args.Add("--safe-mode");
+                // allow-list of built-in tools: a deny list missed Workflow, Cron*, worktrees (checked 15.11 on 2.1.310)
+                args.Add("--tools");
+                args.Add(web ? "WebSearch,WebFetch" : "");
+                denied.AddRange(new string[] { "Read", "Glob", "Grep", "LS", "NotebookRead", "Task", "Agent", "Skill", "SlashCommand" });
+            }
             if (readOnly) denied.AddRange(new string[] { "Write", "Edit", "MultiEdit", "NotebookEdit", "mcp__aiwb-tools__tool_run" }); // 1.3.4: tool library may write
             if (!shell) denied.AddRange(new string[] { "Bash", "PowerShell" });
             if (!web) denied.AddRange(new string[] { "WebSearch", "WebFetch" });
@@ -407,6 +417,9 @@ namespace AiWorkbenchBridge
         {
             List<string> args = new List<string>();
             if (p == null) return args; // No chat permissions: Codex keeps its defaults.
+            // v1.21.0: Codex has no switch that hides its file reads; an isolated job must not start on it
+            if (p.files == "isolated")
+                throw new InvalidOperationException("permissions.files=isolated is supported only by Claude.");
             bool readOnly = p.files == "read";
             bool shell = !p.shell.HasValue || p.shell.Value;
             bool web = !p.web.HasValue || p.web.Value;

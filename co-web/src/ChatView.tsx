@@ -49,7 +49,7 @@ import QuoteAsk from './QuoteAsk';
 import { quoteDisplay } from './chatQuote';
 import { inheritedModes, linesBetween, modeDoc, modeLines, modeOn, modePatch, modesText, switchWho, type ModeDecl, type ModeLine } from './moduleModes';
 import { contextOf, moduleList, modesOf, sideJobsOf, useModuleList as useModuleDecls, viewsOf } from './moduleStore';
-import { FamilyComposer, FamilyMessage, Lightbox, familyBlock, isSilent, reactionsOf, wantsCo } from './FamilyChat';
+import { FamilyComposer, FamilyMessage, Lightbox, familyBlock, followsTopic, isSilent, reactionsOf, wantsCo } from './FamilyChat';
 
 // names for the lines of mode switches (Google identity -> its environment's name)
 // Freedom F1: built on use - the member list arrives from the server after this module is loaded
@@ -642,9 +642,10 @@ export default function ChatView(props: Props) {
     const planResume = planOk ? await readResume(chat, current, pPath) : '';
     // an @co turn started later for a message posted while the agent was busy (coFor) or any other path keeps "called"
     const famCalled = input.family?.called ?? wantsCo(input.text);
+    const famFollow = !famCalled && !!input.family?.following;
     const resume = (chat.family ? familyBlock(famCalled, props.author,
       familyTranscript([...current, { type: 'user_message', family: true, author: props.author, text: input.text, jobId: 'now', attachments: [] } as unknown as ChatEvent]),
-      `AI-Workbench/projects/${project.projectId}/chats/${chat.chatId}/branches/${DEFAULT_BRANCH}/attachments/`) : '') + planResume;
+      `AI-Workbench/projects/${project.projectId}/chats/${chat.chatId}/branches/${DEFAULT_BRANCH}/attachments/`, famFollow) : '') + planResume;
     if (planResume) progress('Resuming the unfinished work plan…');
     // S8: on the Site the named device (and the PC library) comes through the relay; the site agent keeps only these
     const desktopIds = (tCaps.includes('device-tools') || target.hostId === SITE) && wantsDevices && device ? [device.deviceId] : [];
@@ -714,12 +715,14 @@ export default function ChatView(props: Props) {
   async function onFamilySend(text: string, files: File[], progress: (s: string) => void) {
     const called = wantsCo(text);
     const running = chatState.draft ? undefined : chatPending.find((u) => !cancelled.has(u.jobId!));
-    const agentTurn = called;
+    // 0.107.0: after a call the agent follows the topic for a few messages (FamilyChat.tsx followsTopic); not while it works
+    const following = !called && !running && !readOnly && !chatState.draft && followsTopic(eventsRef.current || []);
+    const agentTurn = called || following;
     const replyTo = famReply?.eventId;
     // while a turn runs, a message is never a follow-up (it would vanish from the family view): it is posted to the
     // people at once and, when it calls @co, starts its own turn after the running one (coPending -> coFor effect)
     if (agentTurn && !running) {
-      await onSend({ text, sel: { agent: 'claude', mode: 'chat', model: null, effort: null }, files, returnFiles: [], forceNew: false, family: { called, replyTo } }, progress);
+      await onSend({ text, sel: { agent: 'claude', mode: 'chat', model: null, effort: null }, files, returnFiles: [], forceNew: false, family: { called, replyTo, following } }, progress);
       setFamReply(null);
       return;
     }
@@ -2119,7 +2122,7 @@ interface SendForm {
   fileModes?: ('version' | 'new')[];
   returnFiles: string[];
   forceNew: boolean;
-  family?: { called: boolean; replyTo?: string; coFor?: string }; // 0.89.0: an agent turn of a family chat
+  family?: { called: boolean; replyTo?: string; coFor?: string; following?: boolean }; // 0.89.0: an agent turn of a family chat; 0.107.0 following - no @co, the agent follows its topic
 }
 
 function Composer({

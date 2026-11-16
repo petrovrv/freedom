@@ -12,9 +12,10 @@ import { stripQuickReplies } from './quickReplies';
 import { stripTitleMarker } from './chatTitle';
 import { categorize } from './errors';
 import { formatBytes, formatLocal } from './util';
-import { familyName } from './workbench';
+import { CO_CALL, familyName } from './workbench';
 import type { AttachmentRef, ChatEvent } from './types';
 import { memberColor, memberNames } from './members';
+export { followsTopic } from './familyFollow';
 
 export const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const EMOJI = [
@@ -43,11 +44,11 @@ export function Avatar({ email, agent }: { email?: string; agent?: boolean }) {
 
 // "@co" anywhere as a word calls the agent; 0.90.1: also Cyrillic "@со" (and mixed letters - same keys on a ru layout)
 export function wantsCo(text: string): boolean {
-  return /(^|[^\p{L}\p{N}_@])@[cс][oо](?![\p{L}\p{N}_])/iu.test(text);
+  return CO_CALL.test(text);
 }
 
 /** Hidden preamble of an agent turn in a family chat (sendTurn resume field: the agent sees it, the chat does not). */
-export function familyBlock(called: boolean, author: string, recent: string, filesDir: string): string {
+export function familyBlock(called: boolean, author: string, recent: string, filesDir: string, following = false): string {
   return [
     '[Family chat]',
     `This is the family chat of ${memberNames()} in CO (AI Workbench).`
@@ -61,8 +62,13 @@ export function familyBlock(called: boolean, author: string, recent: string, fil
       + 'unless steps are really needed, no reports of what you checked or how you work, no versions, job ids, reviews or tests. '
       + 'Emoji are fine, do not overdo them.',
     called
-      ? `${familyName(author)} called you with @co: do what they ask.`
-      : 'Nobody called you by name: reply exactly [[silent]] and nothing else.',
+      ? `${familyName(author)} called you with @co: do what they ask. Read the messages just before the call too: it is often about them.`
+      : following
+        ? `You took part in this conversation a few messages ago and follow it. ${familyName(author)} wrote the last message without @co. `
+          + 'Join only when it continues your topic and is meant for you or needs your answer or action (a correction, a follow-up '
+          + 'request, a question you can answer); then do it and answer as usual. When people talk to each other, the topic changed, '
+          + 'or a reply would only be a polite echo, reply exactly [[silent]] and nothing else.'
+        : 'Nobody called you by name: reply exactly [[silent]] and nothing else.',
     'Never send messages or mail outside CO on anyone\'s behalf.',
     '[End of family chat]',
     '',

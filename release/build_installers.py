@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Neutral release artifacts of Freedom (0.4.0+): what a new user downloads from the release page.
 
-  python release/build_installers.py OUT --version X.Y.Z [--rev HEAD] [--makensis PATH] [--skip-desktop] [--skip-bridge]
+  python release/build_installers.py OUT --version X.Y.Z --repo OWNER/NAME [--rev HEAD] [--makensis PATH] [--skip-desktop] [--skip-bridge]
 
 OUT gets:
+  freedom-bootstrap.ps1              install/bootstrap.ps1 of REV: the one command a new Windows user runs (agent CLI,
+                                     sign-in, download and check of this release, then the user's own AI installs)
   freedom-X.Y.Z-src.tar.gz           git archive --prefix=freedom-X.Y.Z/ of REV (the wizard, Bridge sources, modules)
   CO-Desktop-Setup-<app>.exe         CO Desktop built WITHOUT install.json: no site, members, Google project or OAuth
                                      client inside; it reads the install.json of the setup wizard or asks at first start
@@ -152,6 +154,17 @@ def build_bridge_linux(out: pathlib.Path, rev: str = 'HEAD') -> list:
     return made
 
 
+def build_bootstrap(out: pathlib.Path, rev: str, repo: str):
+    """The asset knows where its release lives: the repository is filled in here, never kept in the tree."""
+    dst = out / 'freedom-bootstrap.ps1'
+    src = subprocess.run(['git', 'show', f'{rev}:install/bootstrap.ps1'], cwd=REPO, check=True,
+                         capture_output=True).stdout
+    if b"'__FREEDOM_REPO__'" not in src:
+        raise SystemExit('install/bootstrap.ps1 has no __FREEDOM_REPO__ placeholder')
+    dst.write_bytes(src.replace(b"'__FREEDOM_REPO__'", f"'{repo}'".encode()))
+    print(f'ok: {dst}')
+
+
 def build_src(out: pathlib.Path, version: str, rev: str):
     tar = out / f'freedom-{version}-src.tar.gz'
     run(['git', 'archive', f'--prefix=freedom-{version}/', '-o', tar, rev], cwd=REPO)
@@ -160,14 +173,16 @@ def build_src(out: pathlib.Path, version: str, rev: str):
 
 NOTES = """# Freedom {version} — installers
 
-**Install on Windows (≈ 2 h, most of it waiting for Google Cloud and the hosting):** download from this page
+**Install on Windows (≈ 2 h, most of it waiting for Google Cloud and the hosting):** one command in PowerShell —
 
-- `freedom-{version}-src.tar.gz` — the setup wizard, the server, Bridge sources, modules;
-- `CO-Desktop-Setup-{app}.exe` — CO Desktop (the window of your workbench on this PC);
-- `freedom-manifest.json` — the signed list of files (checks both downloads).
+    powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm https://github.com/{repo}/releases/download/v{version}/freedom-bootstrap.ps1)))"
 
-Unpack the archive, open a terminal in the folder and follow `install/PILOT-FRIEND.md` (start:
-`python install/freedom_setup.py preflight`).
+(add ` -Invite <code>` inside the quotes, after the last `)`, when someone invited you). It installs Claude Code or
+Codex, downloads and checks this release into your `Freedom` folder, you sign in to your own subscription, and from
+then on your own AI installs the rest (`install/AGENT-INSTALL.md`), calling you only for sign-ins, secrets and "yes".
+
+By hand instead: download `freedom-{version}-src.tar.gz`, `CO-Desktop-Setup-{app}.exe` and `freedom-manifest.json`
+(the signed list of files), unpack the archive and follow `install/PILOT-FRIEND.md`.
 
 **Linux computer or server as one more Bridge (Debian/Ubuntu, Fedora; x86_64 / aarch64):** download the tarball,
 `freedom-manifest.json` and `BridgeAgent-{bridge}-linux-x64` (or `-linux-arm64`) into one folder, unpack the tarball
@@ -191,6 +206,7 @@ def main(argv=None) -> int:
     ap.add_argument('--version', required=True)
     ap.add_argument('--rev', default='HEAD')
     ap.add_argument('--makensis')
+    ap.add_argument('--repo', required=True, help='GitHub owner/name of the public repository (bootstrap and notes)')
     ap.add_argument('--skip-desktop', action='store_true')
     ap.add_argument('--skip-bridge', action='store_true', help='no Linux builds of Bridge')
     a = ap.parse_args(argv)
@@ -199,10 +215,12 @@ def main(argv=None) -> int:
     app = app_version() if a.skip_desktop else build_desktop(out, find_makensis(a.makensis))
     if not a.skip_bridge:
         build_bridge_linux(out, a.rev)
+    build_bootstrap(out, a.rev, a.repo)
     build_src(out, a.version, a.rev)
     notes = out.parent / f'freedom-{a.version}-notes.md'   # the release text, not an asset
     if not notes.exists():
-        notes.write_text(NOTES.format(version=a.version, app=app, bridge=bridge_version()), encoding='utf-8')
+        notes.write_text(NOTES.format(version=a.version, app=app, bridge=bridge_version(),
+                                            repo=a.repo), encoding='utf-8')
     print('next: python install/freedom_release.py build', out, '--version', a.version, '&& ... sign && verify --strict')
     return 0
 

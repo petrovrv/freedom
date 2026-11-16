@@ -7,6 +7,22 @@ VPS/NAS with Docker (B) or only this PC with Docker in WSL (C). Nobody helps by 
 
 Pass: `verify` green and `aiwb-smoke queue` OK in ≤ 2 h, with the time of every step written down.
 
+## One command, then your own AI (F2b, SPEC §4.1 step 2)
+
+The usual way since 0.5.1. In PowerShell (no administrator needed; winget may ask for UAC once per program):
+
+    powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm https://github.com/<owner>/freedom/releases/latest/download/freedom-bootstrap.ps1))) -Invite <code>"
+
+(without an invite drop ` -Invite <code>`). `install/bootstrap.ps1` asks which subscription you have, installs Git
+and Claude Code (or Node and Codex) with their official installers, downloads the release into
+`%USERPROFILE%\Freedom`, checks every file against the manifest, unpacks it, and you sign in to your own subscription
+in the browser. Then it starts your agent with `install/AGENT-INSTALL.md`: the agent installs Python and the packages,
+runs every wizard step below, keeps a journal with the time of each step (`install/agent-install.log`) and calls you
+only for sign-ins, secrets (the `secret-prompt` window), choices and a "yes" before deploying. Closed the window? Run
+the same command again: it skips what is done and the agent continues from `freedom_setup.py status`.
+
+The table below is what the agent does; it is also the way by hand when you have no subscription yet.
+
 ## What the user gets
 
 One link: the latest release page of the Freedom repository on GitHub (`<repository>/releases/latest`). From
@@ -49,7 +65,7 @@ The person who told you about Freedom may send you an invite code (`fdm-inv1.…
 
 | # | Step | Command / place | Who | Budget |
 |---|---|---|---|---|
-| 0 | Python 3.10+, Node 20+, git (`winget install Python.Python.3.12 OpenJS.NodeJS.LTS Git.Git`), Google Drive for desktop (signed in); download the three files, `tar -xf freedom-<v>-src.tar.gz`, terminal in the folder; `python -m pip install paramiko keyring cryptography` | terminal | user | 15 min |
+| 0 | By hand only (the bootstrap and your agent do this): Python 3.10+, Node 20+, git (`winget install Python.Python.3.12 OpenJS.NodeJS.LTS Git.Git`), Google Drive for desktop (signed in); download the three files, `tar -xf freedom-<v>-src.tar.gz`, terminal in the folder; `python -m pip install paramiko keyring cryptography` | terminal | user | 15 min |
 | 0a | `python install/freedom_setup.py invite` (invite code from the person who invited you, or Enter) | terminal | user | 1 min |
 | 1 | `python install/freedom_setup.py preflight` | | wizard | 1 min |
 | 2 | Variant A: hosting panel → MariaDB database + user, SSH key (panel → SSH access → add public key). B/C: install Docker (`install/docker/README.md`) | panel | user | 10 min |

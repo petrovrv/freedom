@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash(winget install -e --id Python.Python.3.12:*)",
+      "Bash(winget install -e --id OpenJS.NodeJS.LTS:*)",
+      "Bash(winget install -e --id Git.Git:*)",
+      "Bash(python -m pip install paramiko keyring cryptography:*)",
+      "Bash(python install/freedom_setup.py:*)",
+      "Bash(python install/freedom_release.py verify:*)",
+      "Bash(python install/freedom_docker.py:*)",
+      "Bash(python install/freedom_modules.py:*)",
+      "Bash(python --version)",
+      "Bash(node --version)",
+      "Bash(git --version)",
+      "PowerShell(winget install -e --id Python.Python.3.12:*)",
+      "PowerShell(winget install -e --id OpenJS.NodeJS.LTS:*)",
+      "PowerShell(winget install -e --id Git.Git:*)",
+      "PowerShell(python -m pip install paramiko keyring cryptography:*)",
+      "PowerShell(python install/freedom_setup.py:*)",
+      "PowerShell(python install/freedom_release.py verify:*)",
+      "PowerShell(python install/freedom_docker.py:*)",
+      "PowerShell(python install/freedom_modules.py:*)",
+      "Edit(install/agent-install.log)"
+    ],
+    "ask": [
+      "Bash(python install/freedom_setup.py report --send:*)",
+      "Bash(python install/freedom_setup.py site-deploy --build --apply:*)",
+      "Bash(python install/freedom_setup.py site-deploy --apply:*)",
+      "Bash(python install/freedom_setup.py desktop-update:*)",
+      "PowerShell(python install/freedom_setup.py report --send:*)",
+      "PowerShell(python install/freedom_setup.py site-deploy --build --apply:*)",
+      "PowerShell(python install/freedom_setup.py site-deploy --apply:*)",
+      "PowerShell(python install/freedom_setup.py desktop-update:*)"
+    ]
+  }
+}

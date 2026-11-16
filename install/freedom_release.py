@@ -9,7 +9,7 @@ so a mirror can serve but cannot change a release.
   python install/freedom_release.py keygen --name NAME            # key in keyring aiwb/freedom-release, prints the public key
   python install/freedom_release.py build DIR --version 0.1.0 [--out DIR/freedom-manifest.json]
   python install/freedom_release.py sign MANIFEST --name NAME     # adds this maintainer's signature
-  python install/freedom_release.py verify DIR [--manifest M] [--trust install/maintainers.json] [--strict]
+  python install/freedom_release.py verify DIR [--manifest M] [--trust install/maintainers.json] [--strict] [--partial]
 
 The trust list (install/maintainers.json) holds public keys and the threshold; it ships with the installer
 and changes only through a release signed under the previous list. Exit codes: 0 ok, 1 error, 2 not verified.
@@ -112,10 +112,12 @@ def purge_bytecode(root: pathlib.Path) -> int:
     return n
 
 
-def verify(root: pathlib.Path, manifest: dict, trust: dict, strict: bool = False) -> list[str]:
+def verify(root: pathlib.Path, manifest: dict, trust: dict, strict: bool = False, partial: bool = False) -> list[str]:
     """Problems found; empty list = verified. strict also removes byte-code caches first (they are never signed) and
-    then refuses any file the manifest does not list."""
+    then refuses any file the manifest does not list. partial: a listed file that was not downloaded is no problem
+    (a Windows PC needs no Linux Bridge builds), but at least one listed file must be there and match."""
     problems = []
+    present = 0
     if strict:
         purge_bytecode(root)
     if manifest.get("format") != FORMAT:
@@ -143,9 +145,14 @@ def verify(root: pathlib.Path, manifest: dict, trust: dict, strict: bool = False
             continue
         listed.add(rel)
         if not p.is_file():
-            problems.append(f"missing {rel}")
-        elif p.stat().st_size != f.get("size") or sha256_file(p) != f.get("sha256"):
+            if not partial:
+                problems.append(f"missing {rel}")
+            continue
+        present += 1
+        if p.stat().st_size != f.get("size") or sha256_file(p) != f.get("sha256"):
             problems.append(f"changed {rel}")
+    if partial and not present:
+        problems.append("none of the listed files is here")
     if strict:
         for p in list_files(root):
             rel = p.relative_to(root).as_posix()
@@ -182,6 +189,7 @@ def main(argv=None) -> int:
     s = sub.add_parser("sign"); s.add_argument("manifest", type=pathlib.Path); s.add_argument("--name", required=True)
     v = sub.add_parser("verify"); v.add_argument("dir", type=pathlib.Path); v.add_argument("--manifest", type=pathlib.Path)
     v.add_argument("--trust", type=pathlib.Path, default=DEFAULT_TRUST); v.add_argument("--strict", action="store_true")
+    v.add_argument("--partial", action="store_true", help="files of the manifest that are not here are no problem")
     a = ap.parse_args(argv)
     try:
         if a.cmd == "keygen":
@@ -197,7 +205,7 @@ def main(argv=None) -> int:
             print(f"{a.manifest}: signed by {a.name} ({len(m['signatures'])} signature(s))")
         else:
             mp = a.manifest or a.dir / MANIFEST_NAME
-            problems = verify(a.dir, json.loads(mp.read_text(encoding="utf-8")), load_trust(a.trust), a.strict)
+            problems = verify(a.dir, json.loads(mp.read_text(encoding="utf-8")), load_trust(a.trust), a.strict, a.partial)
             for p in problems:
                 print("  " + p)
             print("verified" if not problems else f"NOT verified: {len(problems)} problem(s)")

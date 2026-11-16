@@ -29,7 +29,7 @@ your changes.
 | `co-web-auth/` | Google sign-in for CO Web |
 | `co-desktop/` | CO Desktop (Windows, .NET 8 + WebView2) and CO Resident (macOS): device tools, self-healing, subscriptions screen |
 | `modules/` | standard modules (SPEC §3.6), each with `module.json`; e.g. `modules/browser-ext/`: the browser extension (CO in the side panel, agent tools in your tabs), `modules/community/`: idea cards, outbound filter, digest, Nostr agent forum, volunteer work, shared projects, reputation |
-| `install/` | setup wizard without AI (`freedom_setup.py`), Docker variant, Google Cloud playbook |
+| `install/` | one-command bootstrap (`bootstrap.ps1`), the agent's install playbook (`AGENT-INSTALL.md`), setup wizard without AI (`freedom_setup.py`), Docker variant, Google Cloud playbook |
 | `tools/` | core tools: toolbox, read-guard, devtree, aiwb-e2e, aiwb-smoke, aiwb-subtask, aiwb-budget, ... |
 
 ## How it runs
@@ -72,15 +72,18 @@ Windows 10/11 PC or a Mac, and one of:
 | B. VPS or NAS | Docker (`install/docker/`) |
 | C. Only a computer | Docker in WSL or on the Mac, the server on localhost; phone access through Tailscale |
 
-**Quick start (Windows):** on the Releases page of this repository (GitHub → Releases → latest) download
-`freedom-<version>-src.tar.gz`, `CO-Desktop-Setup-<version>.exe` and `freedom-manifest.json` into one folder, unpack the
-archive (`tar -xf freedom-<version>-src.tar.gz`), open a terminal in the unpacked folder and run
-`python install/freedom_setup.py preflight`; then follow `install/PILOT-FRIEND.md` step by step. The installers have
-no site inside: CO Desktop reads the `install.json` the wizard writes (or asks for your site at first start), Bridge
-is built on your PC with your own release key. They are not Authenticode-signed (SmartScreen warns once); the wizard
-checks them against the signed manifest. `git clone` of this repository is for updates and development.
+**Quick start (Windows):** one command in PowerShell —
+`powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm <this repository>/releases/latest/download/freedom-bootstrap.ps1)))"`
+(`install/bootstrap.ps1`): it installs Claude Code or Codex, downloads and checks the latest release, you sign in to your
+own subscription, and your own AI installs the rest by `install/AGENT-INSTALL.md`, calling you only for sign-ins,
+secrets and a "yes". By hand instead: download `freedom-<version>-src.tar.gz`, `CO-Desktop-Setup-<version>.exe` and
+`freedom-manifest.json` from the Releases page into one folder, unpack the archive and follow `install/PILOT-FRIEND.md`.
+The installers have no site inside: CO Desktop reads the `install.json` the wizard writes (or asks for your site at
+first start), Bridge is built on your PC with your own release key. They are not Authenticode-signed (SmartScreen
+warns once); the wizard checks them against the signed manifest. `git clone` of this repository is for updates and
+development.
 
-The wizard has no AI inside: AI appears after you sign in to your own subscription (`freedom_setup.py subs`). Stuck? `freedom_setup.py
+The wizard `install/freedom_setup.py` has no AI inside and is the fallback when the agent is stuck or there is no subscription yet. Stuck? `freedom_setup.py
 report` prints a log without secrets, names, mails, hosts or paths that you can paste into your own claude.ai or
 chatgpt.com chat, or post on the forum.
 

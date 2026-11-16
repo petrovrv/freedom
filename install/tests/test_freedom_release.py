@@ -54,6 +54,16 @@ class ReleaseTest(unittest.TestCase):
         self.assertIn("bad signature of anna", p)
         self.assertIn("0 valid trusted signature(s), 2 needed", p)
 
+    def test_partial_skips_missing_but_not_changed(self):
+        m = self.signed(self.k1, self.k2)
+        (self.root / "index.html").unlink()
+        self.assertEqual(fr.verify(self.root, m, self.trust), ["missing index.html"])
+        self.assertEqual(fr.verify(self.root, m, self.trust, partial=True), [])
+        (self.root / "assets" / "app.js").write_bytes(b"steal()")
+        self.assertEqual(fr.verify(self.root, m, self.trust, partial=True), ["changed assets/app.js"])
+        (self.root / "assets" / "app.js").unlink()
+        self.assertEqual(fr.verify(self.root, m, self.trust, partial=True), ["none of the listed files is here"])
+
     def test_extra_file_only_in_strict(self):
         m = self.signed(self.k1, self.k2)
         (self.root / "evil.js").write_text("x", encoding="utf-8")

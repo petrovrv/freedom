@@ -16,6 +16,9 @@ const TOKEN = process.env.WA_AGENT_TOKEN || '';
 const EDGE = args.edge || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const FORWARD = typeof args.forward === 'string' ? args.forward : '';
 const PUSHES = typeof args.pushes === 'string' ? args.pushes : '';
+// a runner started before 0.5.0 passes no --transcribe: the same CLI as --pushes then does it
+const TRANSCRIBE = typeof args.transcribe === 'string' ? args.transcribe
+  : / pushes$/.test(PUSHES) ? PUSHES.replace(/ pushes$/, ' transcribe --file') : '';
 if (!STATE || !RUNTIME || TOKEN.length < 16) { console.error('need --state, --runtime and WA_AGENT_TOKEN'); process.exit(2); }
 
 const require = createRequire(path.join(RUNTIME, 'package.json'));
@@ -152,19 +155,52 @@ async function handle(chatId) {
   if (pending.get(chatId)?.length) handle(chatId);
 }
 
+// voice notes (ptt) and audio files -> text through the CLI's `transcribe` (voice hub at home); the file is deleted after
+const VOICE_MAX_S = 600;
+async function voiceText(msg) {
+  if (!TRANSCRIBE || !['ptt', 'audio'].includes(msg.type)) return null;
+  if (Number(msg.duration) > VOICE_MAX_S) return { error: 'too_long', seconds: Number(msg.duration) };
+  const media = await msg.downloadMedia().catch(() => null);
+  if (!media?.data) return { error: 'download_failed' };
+  const dir = path.join(STATE, 'voice'); fs.mkdirSync(dir, { recursive: true });
+  const ext = /mpeg/.test(media.mimetype) ? '.mp3' : /mp4|aac/.test(media.mimetype) ? '.m4a' : /wav/.test(media.mimetype) ? '.wav' : '.ogg';
+  const file = path.join(dir, String(msg.id?.id || Date.now()).replace(/\W/g, '') + ext);
+  fs.writeFileSync(file, Buffer.from(media.data, 'base64'));
+  try {
+    const r = await new Promise((resolve) => {
+      const p = spawn(`${TRANSCRIBE} "${file}"`, { shell: true, windowsHide: true, env: process.env });
+      let out = ''; p.stdout.on('data', (d) => out += d); p.on('close', (code) => resolve({ code, out }));
+    });
+    let d = {}; try { d = JSON.parse(r.out.trim().split('\n').pop() || '{}'); } catch {}
+    log({ ev: 'transcribed', msg: msg.id?._serialized, ok: !!d.ok, chars: (d.text || '').length, s: d.seconds, error: d.error });
+    return d.ok ? { text: d.text || '', lang: d.lang } : { error: d.error || 'transcribe_failed' };
+  } finally { fs.rmSync(file, { force: true }); }
+}
+const voiceLine = (v) => v?.text ? `🎤 (голосовое сообщение, расшифровка) ${v.text}`
+  : `[голосовое сообщение${v?.error === 'too_long' ? ' длиннее 10 мин' : ''}, расшифровать не удалось]`;
+
 async function groupHistory(chat, cfg, limit = 15) {
   const msgs = await chat.fetchMessages({ limit });
   const lines = [];
   for (const m of msgs) {
-    if (!m.body) continue;
+    const body = m.body || (['ptt', 'audio'].includes(m.type) ? '[голосовое сообщение]' : '');
+    if (!body) continue;
     let who = 'me (the assistant)';
     if (!m.fromMe) { const c = await m.getContact().catch(() => null); who = c?.name || c?.pushname || '+' + (await phoneOf(m.author)); }
-    lines.push(`${who}: ${m.body.slice(0, 500)}`);
+    lines.push(`${who}: ${body.slice(0, 500)}`);
   }
   return lines.join('\n');
 }
 
-client.on('message', async (msg) => {
+// one chat's messages are taken in order: a voice note being transcribed is not overtaken by the text after it
+const order = new Map();
+client.on('message', (msg) => {
+  const prev = order.get(msg.from) || Promise.resolve();
+  const next = prev.then(() => onMessage(msg));
+  order.set(msg.from, next);
+  next.then(() => { if (order.get(msg.from) === next) order.delete(msg.from); });
+});
+async function onMessage(msg) {
   try {
     if (msg.fromMe || msg.isStatus || msg.from === 'status@broadcast') return;
     const cfg = readConfig();
@@ -176,6 +212,11 @@ client.on('message', async (msg) => {
     const item = { t: new Date().toISOString(), id: msg.id?._serialized, msgId: msg.id?._serialized, from: msg.from, sender, number,
       name: contact.name || contact.pushname || null, contact: !!contact.isMyContact, family: familyEnv, group,
       type: msg.type, text: msg.body || (msg.hasMedia ? `[${msg.type}]` : '') };
+    // voice of a non-contact is never downloaded: it is only logged, like their text
+    if (['ptt', 'audio'].includes(msg.type) && (familyEnv || contact.isMyContact) && TRANSCRIBE) {
+      const v = await voiceText(msg);
+      item.voice = true; item.text = voiceLine(v) + (msg.body ? `\n${msg.body}` : '');
+    }
     fs.appendFileSync(path.join(STATE, 'inbox.jsonl'), JSON.stringify(item) + '\n');
     if (!FORWARD || !item.text) return;
     if (group) {
@@ -205,7 +246,7 @@ client.on('message', async (msg) => {
     pending.get(msg.from).push(item);
     handle(msg.from);
   } catch (e) { log({ ev: 'message_error', e: String(e.stack || e).slice(0, 800) }); }
-});
+}
 
 async function resolveChatId(to) {
   if (/@(c|g)\.us$/.test(to)) return to;
@@ -261,6 +302,12 @@ http.createServer(async (req, res) => {
       const chat = await client.getChatById(await resolveChatId(q.chat));
       const msgs = await chat.fetchMessages({ limit: q.limit || 30 });
       return send(res, 200, { ok: true, chat: chat.name, messages: msgs.map((m) => ({ fromMe: m.fromMe, t: m.timestamp, type: m.type, text: m.body })) });
+    }
+    if (req.url === '/voice') { // transcript of one voice note by message id (nothing is sent)
+      const m = await client.getMessageById(String(q.id));
+      if (!m) return send(res, 404, { ok: false, error: 'message_not_found' });
+      const v = await voiceText(m);
+      return send(res, 200, { ok: !!v?.text || v?.text === '', type: m.type, ...(v || { error: 'not_voice' }) });
     }
     if (req.url === '/contacts') {
       const cs = (await client.getContacts()).filter((c) => c.isMyContact && !c.isGroup && c.id.server === 'c.us');

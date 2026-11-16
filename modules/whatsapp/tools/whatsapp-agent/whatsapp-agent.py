@@ -80,6 +80,8 @@ def service_cmd(a):
         cmd += ["--forward", fwd]
         if a.forward == "co":
             cmd += ["--pushes", f'"{sys.executable}" "{Path(__file__).resolve()}" pushes']
+    # voice notes become text through the voice hub (module voice); without a hub they stay "[ptt]"
+    cmd += ["--transcribe", f'"{sys.executable}" "{Path(__file__).resolve()}" transcribe --file']
     if a.headless:
         cmd += ["--headless"]
     return cmd
@@ -152,13 +154,19 @@ def cmd_send(a):
         out({"ok": False, "error": "service_stopped"}, 2)
     if r.get("ok") and not a.no_note:
         # the owner started this conversation: the agent may carry it on within what was asked
-        add_note(r["to"], f"The owner asked you to write here: {a.purpose or text}")
+        add_note(note_target(a.to, r["to"]), f"The owner asked you to write here: {a.purpose or text}")
     out(r, 0 if r.get("ok") else 1)
 
 
 def note_key(chat_id):
     """Notes of a direct chat are kept by phone number (incoming messages may come from a @lid id), of a group by its id."""
     return chat_id if chat_id.endswith("@g.us") else "".join(ch for ch in chat_id.split("@")[0] if ch.isdigit())
+
+
+def note_target(given, resolved):
+    """A +number given by the owner keys the note itself: WhatsApp may resolve it to a @lid id, but turns look notes up by phone."""
+    digits = "".join(ch for ch in given if ch.isdigit())
+    return f"{digits}@c.us" if len(digits) >= 8 and all(ch in "+0123456789 ()-" for ch in given) else resolved
 
 
 def add_note(chat_id, text):
@@ -181,7 +189,7 @@ def cmd_note(a):
             out({"ok": False, "error": "service_stopped"}, 2)
         if not r.get("ok"):
             out(r, 1)
-        to = r["id"]
+        to = note_target(to, r["id"])
     if a.clear:
         c = load_config()
         c.get("notes", {}).pop(note_key(to), None)
@@ -268,6 +276,8 @@ def cmd_config(a):
                 c.setdefault("family", {}).pop(number, None)
     if a.pushes is not None:
         c["pushes"] = [e.strip() for e in a.pushes.split(",") if e.strip()]
+    if a.push_mode is not None:
+        c["pushMode"] = a.push_mode
     if a.names is not None:
         c["names"] = [n.strip() for n in a.names.split(",") if n.strip()]
     for k, v in (("family", a.title_family), ("contacts", a.title_contacts)):
@@ -324,6 +334,48 @@ def cmd_forward(a):
     out({"error": "timeout", "jobId": job["jobId"]}, 1)
 
 
+VOICE_TYPES = {".ogg": "audio/ogg", ".opus": "audio/ogg", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
+               ".wav": "audio/wav", ".amr": "audio/amr", ".webm": "audio/webm"}
+
+
+def cmd_transcribe(a):
+    """Speech to text of an audio file through the voice hub of this PC (voice-point.json hub, key aiwb/voice-hub).
+    The recording stays at home: the hub runs speaches on the family server."""
+    if a.msg:
+        r = api("/voice", {"id": a.msg}, timeout=a.timeout)
+        if r is None:
+            out({"ok": False, "error": "service_stopped"}, 2)
+        out(r, 0 if r.get("ok") else 1)
+    vc = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "AIWorkbench" / "voice-point.json"
+    try:
+        hub = (json.loads(vc.read_text(encoding="utf-8")).get("hub") or "").rstrip("/")
+    except (OSError, ValueError):
+        hub = ""
+    hub = os.environ.get("VOICE_HUB_URL", hub).rstrip("/")
+    try:
+        import keyring
+        key = os.environ.get("VOICE_HUB_KEY") or keyring.get_password("aiwb/voice-hub", "default") or ""
+    except Exception:  # noqa: BLE001 - no keyring = no hub
+        key = ""
+    if not hub or not key:
+        out({"ok": False, "error": "no_voice_hub", "hint": "voice.py point-config / pair on this PC"}, 2)
+    f = Path(a.file)
+    data = f.read_bytes()
+    typ = VOICE_TYPES.get(f.suffix.lower(), "audio/ogg")
+    url = hub + "/v1/voice/transcribe" + (f"?lang={a.lang}" if a.lang else "")
+    req = urllib.request.Request(url, data=data, method="POST",
+                                 headers={"Authorization": f"Bearer {key.strip()}", "Content-Type": typ})
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=a.timeout) as r:
+            d = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        out({"ok": False, "error": f"hub HTTP {e.code}", "body": (e.read() or b"")[:200].decode("utf-8", "replace")}, 1)
+    except OSError as e:
+        out({"ok": False, "error": f"hub unreachable: {e}"}, 1)
+    out({"ok": True, "text": (d.get("text") or "").strip(), "lang": d.get("lang"), "seconds": round(time.time() - t0, 1)})
+
+
 PUSH_CURSOR = STATE / "push-cursor.json"
 
 
@@ -336,6 +388,12 @@ def push_text(item, site):
     if site and url.startswith("/") and url != "/":
         lines.append(site + url)
     return "\n".join(lines)
+
+
+def push_wanted(item, mode):
+    """pushMode 'important' (default) drops the '✓ chat' pushes of finished jobs: the user opens CO for those.
+    Failed jobs (✗), confirmations, family chats and outages stay. 'all' keeps everything."""
+    return mode == "all" or not (item.get("title") or "").startswith("✓")
 
 
 def cmd_pushes(a):
@@ -363,7 +421,7 @@ def cmd_pushes(a):
     sent, skipped, last = 0, 0, cur.get("last") if "after" in params else None
     for it in r["items"]:
         title = it.get("title") or ""
-        if any(t in title for t in skip):
+        if any(t in title for t in skip) or not push_wanted(it, c.get("pushMode") or "important"):
             skipped += 1
         elif a.dry_run:
             print(push_text(it, site))
@@ -465,6 +523,8 @@ def main():
     p.add_argument("--limit-hour", type=int)
     p.add_argument("--limit-day", type=int)
     p.add_argument("--pushes", help="comma-separated envs whose CO pushes are written to their family number (\"\" = none)")
+    p.add_argument("--push-mode", choices=["important", "all"],
+                   help="important (default): no '✓ chat' pushes of finished jobs; all: every push")
     p = sub.add_parser("note", help="owner's instruction/permission for one conversation")
     p.add_argument("--to", required=True, help="contact name, +number, or chat/group id")
     p.add_argument("--text")
@@ -472,6 +532,12 @@ def main():
     sub.add_parser("forward", help=argparse.SUPPRESS)
     p = sub.add_parser("pushes", help="write new CO pushes of the envs in config pushes to their numbers (the service runs it)")
     p.add_argument("--dry-run", action="store_true", help="fetch and show, send nothing, keep the position")
+    p = sub.add_parser("transcribe", help="audio file -> text through the voice hub (the service runs it on voice notes)")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--file", help="audio file (ogg/opus, mp3, m4a, wav)")
+    g.add_argument("--msg", help="id of a WhatsApp voice note (the service downloads it; nothing is sent)")
+    p.add_argument("--lang", help="language hint (ru, en, nl, uk); default: detected")
+    p.add_argument("--timeout", type=int, default=180)
     p = sub.add_parser("qr-window")
     p.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
     p = sub.add_parser("inbox")
@@ -482,7 +548,8 @@ def main():
      "chats": lambda a: simple("/chats", {"limit": a.limit}),
      "read": lambda a: simple("/read", {"chat": a.chat, "limit": a.limit}),
      "contacts": lambda a: simple("/contacts", {}), "qr-window": cmd_qr_window, "inbox": cmd_inbox,
-     "config": cmd_config, "forward": cmd_forward, "note": cmd_note, "pushes": cmd_pushes}[a.cmd](a)
+     "config": cmd_config, "forward": cmd_forward, "note": cmd_note, "pushes": cmd_pushes,
+     "transcribe": cmd_transcribe}[a.cmd](a)
 
 
 if __name__ == "__main__":

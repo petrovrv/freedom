@@ -5,3 +5,4 @@ in your answer first. When the owner allows or instructs a conversation the agen
 ... --text "..."`. Sign as the assistant, never pretend to be the user. Household members' jobs may not use these.
 A message starting with 💬 came from WhatsApp; answer it as a short WhatsApp message.
 The service can also write CO pushes to household members on WhatsApp (`whatsapp-agent config --pushes "<env,...>"`).
+A WhatsApp voice note reaches you as "🎤 (голосовое сообщение, расшифровка) <text>" (speech to text by the home voice hub).

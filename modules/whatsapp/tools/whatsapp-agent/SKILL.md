@@ -1,7 +1,7 @@
 ---
 name: whatsapp-agent
 description: The CO agent's OWN WhatsApp account (not the owner's) as a linked device in headless Edge (whatsapp-web.js, own profile, no window) — login by QR window on the PC desktop or by pairing code, status, send a message (the agent writes as itself, owner jobs only), list chats, read a chat, saved contacts, inbox of incoming messages, voice notes transcribed through the home voice hub; incoming messages from saved contacts of the account can be forwarded to a command that answers them, everyone else is logged and ignored. Use when the owner asks to write or answer through the agent's WhatsApp; the owner's personal WhatsApp stays with whatsapp-web (drafts only).
-version: 0.5.0
+version: 0.5.1
 entry: whatsapp-agent.py
 requires: [node 22+, Edge, npm (setup installs whatsapp-web.js 1.34.8 into %LOCALAPPDATA%\AIWorkbench\wa-agent\runtime)]
 secrets: [aiwb/whatsapp-agent local-api (token of the local API, made automatically)]
@@ -47,7 +47,7 @@ send ... [--purpose "чего хочет владелец"] [--no-note]         
 | Кто | Что происходит |
 |---|---|
 | член семьи (`--family НОМЕР=ENV`) пишет напрямую | обычное задание в его чате «💬 WhatsApp» своего окружения (создаётся сам), его досье и права, без ограничений |
-| другой сохранённый контакт пишет напрямую | изолированное задание (только веб) в чате владельца «💬 WhatsApp: contacts»; без владельца в беседе — только по поручению владельца (`note`, `send`) или о делах владельца, иначе предлагает спросить разрешение и шлёт владельцу 🔔 в WhatsApp |
+| другой сохранённый контакт пишет напрямую | изолированное задание (только веб) в чате владельца «💬 WhatsApp: contacts». Правила консьержа (модуль 0.5.0): человека представляет владелец — поручение `note` или первое сообщение бота `send --purpose`. Не представлен — бот только принимает сообщение для владельца и шлёт ему 🔔 «кто это». Представлен — очевидное решает сам в рамках поручения (например, «помогать с установкой»), неочевидное (вне поручения, обещания, встречи, деньги, время и личное владельца, третьи лица) — просит подождать и шлёт 🔔 |
 | группа | молчит, пока не позовут: упоминание, ответ на сообщение бота или слово из `--names`; агент видит 15 последних сообщений; владелец в группе = помогает всем; без владельца — те же правила, что выше |
 | не контакт | только журнал |
 
@@ -71,6 +71,7 @@ send ... [--purpose "чего хочет владелец"] [--no-note]         
 
 ## История
 
+- 0.5.1 — 2026-11-16 — текст 🔔 владельцу: «это …, помогай с …» (представить), «можно …» (разрешить) или «нет» — под правила консьержа модуля whatsapp 0.5.0. Код: Claude.
 - 0.5.0 — 2026-11-16 — голосовые сообщения: расшифровка через голосовой хаб (`transcribe --file/--msg`, API `/voice`), порядок сообщений в чате сохраняется; служба, запущенная старым `run`, берёт команду из `--pushes`. Проверено на живом голосовом (3 с). Код: Claude.
 - 0.4.2 — 2026-11-16 — `note`/`send --purpose` с +номером: поручение хранится по номеру телефона, а не по @lid, который WhatsApp теперь отдаёт на getNumberId (иначе ходы его не видели). Код: Claude.
 - 0.4.1 — 2026-11-15 — фильтр пушей `config --push-mode important|all` (по умолчанию important: без «✓» о готовых заданиях). Код: Claude.

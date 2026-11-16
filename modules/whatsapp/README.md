@@ -7,7 +7,7 @@ someone first.
 | Who | What happens |
 |---|---|
 | household member (`config --family NUMBER=ENV`), direct | a normal job in their own chat "💬 WhatsApp" of their environment (made on first use), their dossier and permissions |
-| other saved contact, direct | an isolated job in the owner's chat "💬 WhatsApp: contacts"; without the owner in the conversation it talks only on the owner's instruction (`note`, `send --purpose`) or about the owner's affairs, otherwise asks for permission and the owner gets a 🔔 on WhatsApp |
+| other saved contact, direct | an isolated job in the owner's chat "💬 WhatsApp: contacts". Without the owner in the conversation the agent is the owner's concierge: it serves only people the owner introduced (`note`, or its own first message `send --purpose`), decides obvious things itself within those notes and, for anything not obvious (outside the notes, promises, appointments, money, the owner's time or private matters, other people), asks them to wait and sends the owner a 🔔; to a person not introduced it only takes a message for the owner and asks the owner who it is |
 | group | silent until called (mention, reply to it, a word of `config --names`); sees the group's last 15 messages; same rules when the owner is not in the group |
 | anyone else | logged only |
 

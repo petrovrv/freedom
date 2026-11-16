@@ -147,7 +147,7 @@ async function handle(chatId) {
     const owner = Object.entries(readConfig().family || {}).find(([, env]) => env === readConfig().env)?.[0];
     if (forOwner.length && owner) {
       const where = item.kind === 'group' ? `группа «${item.groupName}», ${item.name || item.number}` : `${item.name || ''} +${item.number}`;
-      await client.sendMessage(`${owner}@c.us`, `🔔 ${where}: ${forOwner.join(' ')}\nРазрешить? Ответьте мне здесь, например: «можно продолжать с ${item.name || item.number} о …».`);
+      await client.sendMessage(`${owner}@c.us`, `🔔 ${where}: ${forOwner.join(' ')}\nОтветьте мне здесь: «это …, помогай с …» (представить), «можно …» (разрешить) или «нет».`);
       log({ ev: 'asked_owner', about: chatId });
     }
   } catch (e) { log({ ev: 'forward_error', to: chatId, e: String(e.message || e) }); }

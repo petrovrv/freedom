@@ -1,22 +1,22 @@
 {
  "format": "freedom-release/1",
- "version": "0.4.0",
- "created": "2026-11-16T11:23:32Z",
+ "version": "0.5.0",
+ "created": "2026-11-16T19:44:28Z",
  "files": [
   {
    "path": "context/whatsapp.md",
-   "size": 947,
-   "sha256": "8532d3f6959cb29cfec7931829945fcc7b0df092bf6047159aa7396fa9d732ef"
+   "size": 1356,
+   "sha256": "80b3a5d88826c77f5431274775c7c3edcd966299ee48fe4606e1f1d433c9569f"
   },
   {
    "path": "module.json",
-   "size": 2513,
-   "sha256": "5e9ebdb1798b95810cfe436c2b1ba2ea86be9fafa0feae4a93f6b55f02a9f8ba"
+   "size": 2679,
+   "sha256": "589909bf977e7edefd06ba220ef500bcc334addb0200dbd7f09df016f35d36fe"
   },
   {
    "path": "README.md",
-   "size": 3954,
-   "sha256": "b7622553a18661a4bfa430115b791f0f430fd2a854306e1d166e3a8282f18a95"
+   "size": 4242,
+   "sha256": "dd9fdedb97a5e4a2e37186c58cfb24f9035e3968362c08144535501fd163661f"
   },
   {
    "path": "server/ops.php",
@@ -25,18 +25,18 @@
   },
   {
    "path": "server/whatsapp-lib.php",
-   "size": 19750,
-   "sha256": "cffca8003eacd5ef1c22e307a4f892542ab0da1832f332525301aeeb1110bdab"
+   "size": 20616,
+   "sha256": "da885dd6906efcb5c2d48bc3455372370490b9ba1a7c8c208760e8b881adf8f9"
   },
   {
    "path": "tools/whatsapp-agent/service.mjs",
-   "size": 20764,
-   "sha256": "f7a7d452834b5ef2ea339d038be159e086f6d1b8925be3c78ecbcb96fb02bcbb"
+   "size": 20774,
+   "sha256": "2b24138262758f0c894d994de5719d33b6fbf18332dc01cddebcca055e19dd89"
   },
   {
    "path": "tools/whatsapp-agent/SKILL.md",
-   "size": 12998,
-   "sha256": "c5381d95f3550cce5d6276b074c2410933d3daadc960b6c7f77d847457f5dee6"
+   "size": 13754,
+   "sha256": "6c1918618833ba700ab691bdd73a7e9aa5e00a65364c2014b3607f1a2ad1d199"
   },
   {
    "path": "tools/whatsapp-agent/whatsapp-agent.py",
@@ -48,7 +48,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "QVVs40Vtn3gmiYeUTbp9L0zE6dYW5c6q86eUJh2tGCGMYNtZL2ElBy79bFswUISMdMRuUDgRCgV5xNROfHp0CQ=="
+   "sig": "muNFTC2kx+o0Bh9jqj5lfyTDMkX/Jb7qh9RYLumrt3MweWVA0szZxfLglM7ec8M2ROvMecHE3+rnCwdrtYk9Dw=="
   }
  ],
  "module": "whatsapp"

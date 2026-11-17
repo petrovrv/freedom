@@ -24,7 +24,7 @@ import { gatewayBlocked, gatewayBlockedFields } from './gateway';
 import { dbChats, dbCooldownLeft, dbDeleteChat, dbEvents, dbJobCancel, dbJobEvents, dbJobGet, dbJobSubmit, dbProjects, dbPut, dbReadsPrimary, dbGetProfile, dbSharedProjects } from './dbapi';
 import { cachedChatEvents, saveChatEvents } from './eventCache';
 import { memoryIndex } from './memoryIndex';
-import { drivePath, ownerEnv } from './members';
+import { callsAssistant, drivePath, ownerEnv } from './members';
 import { executorOf } from './executors';
 
 // ---------- Root and host ----------
@@ -533,9 +533,8 @@ export function speaker(e: ChatEvent): string {
   return agentName(e.agent);
 }
 
-// "@co" anywhere as a word calls the agent in a family chat (FamilyChat.tsx wantsCo); 0.107.0: a message can start a
-// turn without it (the agent follows its topic), so the transcript marks only real calls
-export const CO_CALL = /(^|[^\p{L}\p{N}_@])@[cс][oо](?![\p{L}\p{N}_])/iu;
+// 0.107.0: a message can start a family turn without @co (the agent follows its topic), so the transcript marks only
+// real calls (members.ts callsAssistant: @co or the assistant's call words)
 
 function transcript(events: ChatEvent[]): string[] {
   const out: string[] = [];
@@ -545,7 +544,7 @@ function transcript(events: ChatEvent[]): string[] {
       // 0.89.0: family chats - people write to each other; a message names its author (and @co when it called the agent)
       if (e.family) {
         if (e.coFor) continue;
-        out.push(`${familyName(e.author)}${e.jobId && CO_CALL.test(e.text || '') ? ' → @co' : ''}:\n${e.text || ''}${att}`);
+        out.push(`${familyName(e.author)}${e.jobId && callsAssistant(e.text || '') ? ' → @co' : ''}:\n${e.text || ''}${att}`);
         continue;
       }
       const where = e.imported && e.attachments?.some((x) => x.path) ? ' — copies are in ./imported/' : '';

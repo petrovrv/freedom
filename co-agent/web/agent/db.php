@@ -1364,7 +1364,7 @@ try {
         case 'members':
             co_json(200, ['members' => array_map(static fn(array $m): array => ['env' => $m['env'], 'email' => $m['email'],
                 'name' => $m['name'], 'color' => $m['color'], 'role' => $m['role']], co_members()),
-                'install' => ['driveRoot' => co_drive_root()]]);
+                'install' => ['driveRoot' => co_drive_root(), 'assistantName' => co_assistant_name(), 'assistantCalls' => co_assistant_calls()]]);
 
         case 'dossier_context':
             [$chatId, $projectId, $pEnv] = $dossierTarget($in);

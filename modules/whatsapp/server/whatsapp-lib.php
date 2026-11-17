@@ -301,6 +301,8 @@ function co_wa_push_hook(array $ctx, array $in): void
 {
     $envs = array_values(array_filter(is_array($in['envs'] ?? null) ? $in['envs'] : [], 'co_db_id_ok'));
     if (!$envs) return;
+    // the family chat stays in CO: the family has its own WhatsApp group, its messages are not copied to anyone
+    if (str_starts_with((string)($in['tag'] ?? ''), 'family-')) return;
     co_wa_push_state((string)$ctx['stateDir'], static function (array &$s) use ($envs, $in): void {
         $now = time();
         foreach ($envs as $env) {

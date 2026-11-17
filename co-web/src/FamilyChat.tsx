@@ -12,9 +12,9 @@ import { stripQuickReplies } from './quickReplies';
 import { stripTitleMarker } from './chatTitle';
 import { categorize } from './errors';
 import { formatBytes, formatLocal } from './util';
-import { CO_CALL, familyName } from './workbench';
+import { familyName } from './workbench';
 import type { AttachmentRef, ChatEvent } from './types';
-import { memberColor, memberNames } from './members';
+import { assistantName, callsAssistant, memberColor, memberNames } from './members';
 export { followsTopic } from './familyFollow';
 
 export const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
@@ -33,7 +33,7 @@ export function familyEnv(email?: string): string | undefined {
 }
 
 export function Avatar({ email, agent }: { email?: string; agent?: boolean }) {
-  if (agent) return <span className="fam-avatar fam-agent" title="AI Workbench (@co)">co</span>;
+  if (agent) return <span className="fam-avatar fam-agent" title={`${assistantName()} (@co)`}>co</span>;
   const env = familyEnv(email);
   return (
     <span className="fam-avatar" style={{ background: memberColor(env) || '#888' }} title={familyName(email)}>
@@ -44,7 +44,7 @@ export function Avatar({ email, agent }: { email?: string; agent?: boolean }) {
 
 // "@co" anywhere as a word calls the agent; 0.90.1: also Cyrillic "@со" (and mixed letters - same keys on a ru layout)
 export function wantsCo(text: string): boolean {
-  return CO_CALL.test(text);
+  return callsAssistant(text);
 }
 
 /** Hidden preamble of an agent turn in a family chat (sendTurn resume field: the agent sees it, the chat does not). */
@@ -52,7 +52,7 @@ export function familyBlock(called: boolean, author: string, recent: string, fil
   return [
     '[Family chat]',
     `This is the family chat of ${memberNames()} in CO (AI Workbench).`
-      + ' People write to each other here; you are @co (shown as "AI Workbench"), and speak only when called.',
+      + ' People write to each other here; you are @co (shown as "' + assistantName() + '"), and speak only when called.',
     `Photos and files people sent are under ${filesDir} (one family-* folder per message).`,
     'The newest messages, with who wrote them:',
     recent,
@@ -187,11 +187,11 @@ export function FamilyMessage({
       onClick={(e) => { if (!(e.target as HTMLElement).closest('a, button, img')) setTap((x) => !x); }}>
       {!mine && <Avatar email={ev.author} agent={agent} />}
       <div className="fam-col">
-        {!mine && <div className="fam-name">{agent ? 'AI Workbench' : familyName(ev.author)}</div>}
+        {!mine && <div className="fam-name">{agent ? assistantName() : familyName(ev.author)}</div>}
         <div className={`fam-bubble${agent ? ' agent' : ''}${failed ? ' failed' : ''}`}>
           {replyEv && (
             <button type="button" className="fam-quote" onClick={() => document.getElementById(`ev-${replyEv.eventId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
-              <b>{replyEv.type === 'assistant_message' ? 'AI Workbench' : familyName(replyEv.author)}</b> {short(replyEv)}
+              <b>{replyEv.type === 'assistant_message' ? assistantName() : familyName(replyEv.author)}</b> {short(replyEv)}
             </button>
           )}
           {!!imgs.length && (
@@ -375,7 +375,7 @@ export function FamilyComposer({
     <div className="fam-composer" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       {reply && (
         <div className="fam-replybar">
-          ↩ <b>{reply.type === 'assistant_message' ? 'AI Workbench' : familyName(reply.author)}</b> {short(reply)}
+          ↩ <b>{reply.type === 'assistant_message' ? assistantName() : familyName(reply.author)}</b> {short(reply)}
           <button type="button" className="link" onClick={onCancelReply} title="Cancel the reply">×</button>
         </div>
       )}
@@ -398,7 +398,7 @@ export function FamilyComposer({
         <button type="button" className="fam-btn" title="Emoji" disabled={disabled} onClick={() => setEmoji((x) => !x)}>😊</button>
         <button type="button" className="fam-btn" title="Photo or file" disabled={disabled || !!busy} onClick={() => fileIn.current?.click()}>📎</button>
         <input ref={fileIn} type="file" multiple hidden onChange={(e) => { if (e.target.files) void add(e.target.files); e.target.value = ''; }} />
-        <textarea ref={ta} rows={1} value={text} disabled={disabled || !!busy} placeholder="Message… (@co calls AI Workbench)"
+        <textarea ref={ta} rows={1} value={text} disabled={disabled || !!busy} placeholder={`Message… (@co calls ${assistantName()})`}
           onChange={(e) => setText(e.target.value)} onKeyDown={onKey} onPaste={onPaste} />
         <button type="button" className="fam-btn send" title="Send" disabled={disabled || !!busy || (!text.trim() && !files.length)} onClick={() => void send()}>➤</button>
       </div>

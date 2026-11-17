@@ -62,6 +62,7 @@ import { ProtocolCell, ProtocolHeader, protocolPaneOn, setProtocolPaneOn, usePro
 import { outboxAdd, outboxList, outboxPut, outboxRemove, outboxSubscribe, outboxTake, watchOnline, type OutboxItem } from './outbox';
 import { gateway, gatewayBlocked, gatewayTools, gatewayVersion } from './gateway';
 import { ModelPicker } from './ModelPicker';
+import { assistantName } from './members';
 
 interface Props {
   // 0.90.0: the family room in the right-panel tab (FamilyPanel): no head, no Inspector slots, no navigation state
@@ -741,7 +742,7 @@ export default function ChatView(props: Props) {
       props.onChatCreated?.(target);
       return;
     }
-    if (agentTurn && running) progress('AI Workbench is busy: it answers right after the running turn');
+    if (agentTurn && running) progress(`${assistantName()} is busy: it answers right after the running turn`);
     setEvents((prev) => (prev && !prev.some((x) => x.eventId === ev.eventId) ? [...prev, ev] : prev));
     await updateChatMeta(target, {});
     props.onChatUpdated();
@@ -1166,7 +1167,7 @@ export default function ChatView(props: Props) {
           <div className="empty small-empty">
             <p className="muted">
               {chat.legacy ? 'This chat was created before CO and has no canonical history.'
-                : family ? '👪 Family chat: write to each other, add photos and emoji. @co calls AI Workbench.'
+                : family ? `👪 Family chat: write to each other, add photos and emoji. @co calls ${assistantName()}.`
                 : 'No messages yet. Choose an agent and send the first message.'}
             </p>
           </div>
@@ -1547,7 +1548,7 @@ function RunningTurn({
     <div className="msg assistant running">
       <div className="msg-meta">
         {compact ? (
-          <span className="muted small"><span className="spinner small" aria-hidden /> AI Workbench is typing…</span>
+          <span className="muted small"><span className="spinner small" aria-hidden /> {assistantName()} is typing…</span>
         ) : <>
           <span className="who">{agentName(ev.agent)}</span>
           <span className={`phase phase-${phase}`}>

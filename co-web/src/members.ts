@@ -16,6 +16,10 @@ export interface Member {
 
 const STORAGE_KEY = 'co.members';
 const DRIVE_KEY = 'co.driveRoot';
+// 0.108.0: the agent's name in the family chat and extra words that call it besides @co (site config.php
+// assistant_name / assistant_calls, sent with op members), e.g. "Джарвис" and @джарвис / @jarvis
+const ASSISTANT_KEY = 'co.assistant';
+let assistant: { name: string; calls: string[] } = { name: 'AI Workbench', calls: [] };
 let members: Member[] = [];
 // Where Google Drive is mounted on the home host (install.json drive.root, sent with op members); the default is the
 // mount of Google Drive for desktop.
@@ -44,6 +48,29 @@ export function applyMembers(list: Member[]): void {
       .map((m) => `.env-${m.env} { --env: ${m.color}; }`)
       .join('\n');
   }
+}
+
+export function applyAssistant(name: unknown, calls: unknown): void {
+  assistant = {
+    name: typeof name === 'string' && name.trim() && name.length <= 40 ? name.trim() : 'AI Workbench',
+    calls: Array.isArray(calls) ? calls.filter((w): w is string => typeof w === 'string' && /^[\p{L}\p{N}_-]{2,30}$/u.test(w)) : [],
+  };
+}
+
+/** The agent's name in the family chat ("AI Workbench" unless the site sets another). */
+export function assistantName(): string {
+  return assistant.name;
+}
+
+// "@co" anywhere as a word (also Cyrillic "@со" and mixed letters - same keys on a ru layout)
+const CO_CALL = /(^|[^\p{L}\p{N}_@])@[cс][oо](?![\p{L}\p{N}_])/iu;
+
+/** True when the text calls the agent: @co or @ + one of the assistant's call words, case-insensitive. */
+export function callsAssistant(text: string): boolean {
+  if (CO_CALL.test(text)) return true;
+  const low = text.toLocaleLowerCase();
+  return assistant.calls.some((w) =>
+    new RegExp(`(^|[^\\p{L}\\p{N}_@])@${w.toLocaleLowerCase().replace(/-/g, '\\-')}(?![\\p{L}\\p{N}_])`, 'u').test(low));
 }
 
 export function memberColor(env: string | undefined): string | undefined {
@@ -88,9 +115,11 @@ export async function loadMembers(accessToken?: string): Promise<boolean> {
     if (!Array.isArray(j.members) || !j.members.some(valid)) return false;
     applyMembers(j.members);
     applyDriveRoot(j.install?.driveRoot);
+    applyAssistant(j.install?.assistantName, j.install?.assistantCalls);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(members));
       localStorage.setItem(DRIVE_KEY, driveRoot);
+      localStorage.setItem(ASSISTANT_KEY, JSON.stringify(assistant));
     } catch {
       /* private mode */
     }
@@ -104,6 +133,8 @@ try {
   const cached = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
   if (Array.isArray(cached)) applyMembers(cached);
   applyDriveRoot(localStorage.getItem(DRIVE_KEY));
+  const a = JSON.parse(localStorage.getItem(ASSISTANT_KEY) || 'null');
+  if (a) applyAssistant(a.name, a.calls);
 } catch {
   /* no cache yet */
 }

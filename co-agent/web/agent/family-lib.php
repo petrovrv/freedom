@@ -81,7 +81,7 @@ function co_family_notify(mysqli $db, array $events, ?string $writerEnv, ?callab
         $chat = $chats[$cid];
         if ($chat === null) continue;
         // the session's account names the writer, not the author field the client sent
-        $from = $type === 'assistant_message' ? 'AI Workbench' : co_family_author_name($writerEmail ?? (string)($ev['author'] ?? ''), $writerEnv);
+        $from = $type === 'assistant_message' ? (function_exists('co_assistant_name') ? co_assistant_name() : 'AI Workbench') : co_family_author_name($writerEmail ?? (string)($ev['author'] ?? ''), $writerEnv);
         // an answer is written by whoever finalizes it (server or an open CO Web): skip the caller's env instead
         $skip = $type === 'assistant_message' ? co_family_author_env($db, $cid, (string)($ev['jobId'] ?? '')) : $writerEnv;
         foreach (co_family_members($db, $cid, $chat) as $env) {

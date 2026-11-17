@@ -42,6 +42,18 @@ function co_drive_root(): string {
     return rtrim((string)co_site_config('drive_root', 'G:\\My Drive'), '\\/');
 }
 
+// 0.108.0: name the agent goes by in the family chat (config.php assistant_name) and extra words that call it
+// besides @co (assistant_calls, e.g. ['джарвис', 'jarvis']); CO Web gets both with op members.
+function co_assistant_name(): string {
+    $n = trim((string)co_site_config('assistant_name', 'AI Workbench'));
+    return $n !== '' && mb_strlen($n) <= 40 ? $n : 'AI Workbench';
+}
+
+function co_assistant_calls(): array {
+    $c = co_site_config('assistant_calls', []);
+    return array_values(array_filter(is_array($c) ? $c : [], static fn($w) => is_string($w) && preg_match('/^[\p{L}\p{N}_-]{2,30}$/u', $w)));
+}
+
 function co_drive_path(string $rel = ''): string {
     $rel = ltrim(str_replace('/', '\\', $rel), '\\');
     return $rel === '' ? co_drive_root() : co_drive_root() . '\\' . $rel;

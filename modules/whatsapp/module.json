@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "whatsapp",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "title": "WhatsApp agent",
   "description": "The workbench's own WhatsApp account (a second number, not the owner's): household members write to it as to their own CO chat; other saved contacts and groups that call it get an isolated agent (only web search; no files, shell, devices, MCP, CLAUDE.md or the owner's dossier) that acts as the owner's concierge: it serves only people the owner introduced (a note, or its own first message on the owner's word), decides obvious things itself within the owner's notes and asks the owner's permission for the rest; to people not introduced it only takes a message for the owner; it writes first when the owner asks. The account runs as a linked device in a browser on the home PC (whatsapp-web.js, unofficial: WhatsApp may ban the number). It can also write the server's pushes to the household members who turned that on (config --pushes). Voice notes are transcribed through the home voice hub of module voice, when it is set up on the PC.",
   "ext": ">=1 <2",

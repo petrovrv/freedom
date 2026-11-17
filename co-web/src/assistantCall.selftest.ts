@@ -16,5 +16,5 @@ ok('not inside a word or mail', !callsAssistant('@джарвисы') && !callsAs
 applyAssistant('', null);
 ok('empty falls back', assistantName() === 'AI Workbench' && !callsAssistant('@jarvis'));
 
-console.log(bad ? `${bad} failed` : 'assistantCall: all passed');
-process.exit(bad ? 1 : 0);
+if (bad) throw new Error(`assistantCall selftest: ${bad} failed`);
+console.log('assistantCall selftest ok');

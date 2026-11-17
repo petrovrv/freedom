@@ -106,6 +106,20 @@ async function phoneOf(id) {
   return pn;
 }
 
+// own ids (phone and lid, user part only): a group mention may carry either; client.info.lid is empty after the ready fallback
+let myIdsCache = null;
+async function myIds() {
+  if (myIdsCache) return myIdsCache;
+  const ids = [client.info?.wid?.user, client.info?.lid?.user].filter(Boolean);
+  try {
+    const r = (await client.getContactLidAndPhone([client.info?.wid?._serialized]))[0] || {};
+    for (const v of [r.lid, r.pn]) if (v) ids.push(String(v?._serialized || v).split('@')[0]);
+  } catch {}
+  const out = [...new Set(ids)];
+  if (out.length > 1) myIdsCache = out; // keep retrying until the lid is known
+  return out;
+}
+
 const turns = new Map(); // key -> [ms...]
 function overLimit(key, cfg) {
   const now = Date.now(), lim = { hour: 20, day: 80, ...(cfg.limits || {}) };
@@ -212,6 +226,7 @@ async function onMessage(msg) {
     const item = { t: new Date().toISOString(), id: msg.id?._serialized, msgId: msg.id?._serialized, from: msg.from, sender, number,
       name: contact.name || contact.pushname || null, contact: !!contact.isMyContact, family: familyEnv, group,
       type: msg.type, text: msg.body || (msg.hasMedia ? `[${msg.type}]` : '') };
+    if (msg.vCards?.length) item.vcards = msg.vCards; // shared contacts (vcard / multi_vcard)
     // voice of a non-contact is never downloaded: it is only logged, like their text
     if (['ptt', 'audio'].includes(msg.type) && (familyEnv || contact.isMyContact) && TRANSCRIBE) {
       const v = await voiceText(msg);
@@ -220,8 +235,9 @@ async function onMessage(msg) {
     fs.appendFileSync(path.join(STATE, 'inbox.jsonl'), JSON.stringify(item) + '\n');
     if (!FORWARD || !item.text) return;
     if (group) {
-      const me = client.info?.wid?._serialized, meLid = client.info?.lid?._serialized;
-      const mentioned = (msg.mentionedIds || []).some((m) => [me, meLid].includes(m?._serialized || m));
+      const mine = await myIds();
+      const mentioned = (msg.mentionedIds || []).some((m) => mine.includes(String(m?._serialized || m).split('@')[0]))
+        || mine.some((id) => new RegExp(`@${id}(?!\\d)`).test(item.text));
       const quoted = msg.hasQuotedMsg ? await msg.getQuotedMessage().catch(() => null) : null;
       const low = item.text.toLowerCase();
       const named = (cfg.names || []).some((n) => {
@@ -279,7 +295,7 @@ http.createServer(async (req, res) => {
       const page = client.pupPage; if (!page) return send(res, 409, { ok: false, error: 'no_page' });
       const d = await page.evaluate(() => ({ store: typeof window.Store, wwebjs: typeof window.WWebJS, debug: typeof window.Debug,
         version: window.Debug?.VERSION || null, req: typeof window.require, mreq: typeof window.__d }));
-      return send(res, 200, { ok: true, ...d, state: await client.getState().catch((e) => String(e)) });
+      return send(res, 200, { ok: true, ...d, myIds: await myIds().catch(() => null), state: await client.getState().catch((e) => String(e)) });
     }
     if (req.url === '/screenshot') {
       const page = client.pupPage; if (!page) return send(res, 409, { ok: false, error: 'no_page' });
@@ -301,7 +317,26 @@ http.createServer(async (req, res) => {
     if (req.url === '/read') {
       const chat = await client.getChatById(await resolveChatId(q.chat));
       const msgs = await chat.fetchMessages({ limit: q.limit || 30 });
-      return send(res, 200, { ok: true, chat: chat.name, messages: msgs.map((m) => ({ fromMe: m.fromMe, t: m.timestamp, type: m.type, text: m.body })) });
+      return send(res, 200, { ok: true, chat: chat.name, messages: msgs.map((m) => ({ id: m.id?._serialized, fromMe: m.fromMe, t: m.timestamp, type: m.type, text: m.body, ...(m.hasMedia ? { media: true } : {}), ...(m._data?.filename ? { filename: m._data.filename } : {}), ...(m.vCards?.length ? { vcards: m.vCards } : {}) })) });
+    }
+    if (req.url === '/media') { // save the media of one message (document, photo...) to a file; nothing is sent
+      const m = await client.getMessageById(String(q.id));
+      if (!m) return send(res, 404, { ok: false, error: 'message_not_found' });
+      const media = m.hasMedia ? await m.downloadMedia().catch(() => null) : null;
+      if (!media?.data) return send(res, 409, { ok: false, error: m.hasMedia ? 'download_failed' : 'no_media' });
+      const name = path.basename(String(media.filename || m._data?.filename || `${m.id?.id || Date.now()}`)).replace(/[<>:"/\|?*]/g, '_');
+      fs.mkdirSync(String(q.dir), { recursive: true });
+      const file = path.join(String(q.dir), name);
+      fs.writeFileSync(file, Buffer.from(media.data, 'base64'));
+      return send(res, 200, { ok: true, file, mimetype: media.mimetype, bytes: fs.statSync(file).size });
+    }
+    if (req.url === '/send-file') { // a local file as a document, with an optional caption
+      const { MessageMedia } = require('whatsapp-web.js');
+      const id = await resolveChatId(q.to);
+      const media = MessageMedia.fromFilePath(String(q.file));
+      const m = await client.sendMessage(id, media, { sendMediaAsDocument: true, ...(q.caption ? { caption: String(q.caption) } : {}) });
+      log({ ev: 'sent_file', to: id, file: path.basename(String(q.file)), by: q.by || null });
+      return send(res, 200, { ok: true, sent: true, to: id, id: m.id?._serialized });
     }
     if (req.url === '/voice') { // transcript of one voice note by message id (nothing is sent)
       const m = await client.getMessageById(String(q.id));

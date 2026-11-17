@@ -146,6 +146,16 @@ def cmd_send(a):
     # household members' jobs may not speak through the owner's agent account
     if os.environ.get("AIWB_JOB_ROLE", "owner") not in ("owner", ""):
         out({"ok": False, "error": "forbidden_role"}, 1)
+    if a.file:
+        f = Path(a.file).resolve()
+        if not f.is_file():
+            out({"ok": False, "error": "no_file"}, 1)
+        r = api("/send-file", {"to": a.to, "file": str(f), "caption": a.caption, "by": os.environ.get("AIWB_JOB_ID")}, timeout=120)
+        if r is None:
+            out({"ok": False, "error": "service_stopped"}, 2)
+        if r.get("ok") and not a.no_note:
+            add_note(note_target(a.to, r["to"]), f"The owner asked you to send the file {f.name} here: {a.purpose or a.caption or ''}")
+        out(r, 0 if r.get("ok") else 1)
     text = Path(a.text_file).read_text(encoding="utf-8") if a.text_file else a.text
     if not text or not text.strip():
         out({"ok": False, "error": "empty_text"}, 1)
@@ -160,6 +170,8 @@ def cmd_send(a):
 
 def note_key(chat_id):
     """Notes of a direct chat are kept by phone number (incoming messages may come from a @lid id), of a group by its id."""
+    if chat_id == "*":  # the owner's rules for every conversation
+        return "*"
     return chat_id if chat_id.endswith("@g.us") else "".join(ch for ch in chat_id.split("@")[0] if ch.isdigit())
 
 
@@ -183,7 +195,7 @@ def cmd_note(a):
     if os.environ.get("AIWB_JOB_ROLE", "owner") not in ("owner", ""):
         out({"ok": False, "error": "forbidden_role"}, 1)
     to = a.to
-    if not (to.endswith("@g.us") or to.endswith("@c.us")):
+    if not (to == "*" or to.endswith("@g.us") or to.endswith("@c.us")):
         r = api("/resolve", {"to": to}, timeout=60)
         if r is None:
             out({"ok": False, "error": "service_stopped"}, 2)
@@ -308,7 +320,7 @@ def cmd_forward(a):
                "chatTitle": titles.get("family" if kind == "family" else "contacts")}
     if kind != "family":
         key = item.get("from") if kind == "group" else item.get("number") or ""
-        notes = (c.get("notes") or {}).get(key) or []
+        notes = ((c.get("notes") or {}).get("*") or []) + ((c.get("notes") or {}).get(key) or [])
         payload.update({"assistant": c.get("assistant"), "ownerName": c.get("ownerName"), "groupName": item.get("groupName"),
                         "ownerPresent": bool(item.get("ownerPresent")), "history": item.get("history"),
                         "note": "\n".join(f"- {n['t']}: {n['text']}" for n in notes)})
@@ -504,6 +516,8 @@ def main():
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--text")
     g.add_argument("--text-file")
+    g.add_argument("--file", help="send this local file as a document (--caption for its text)")
+    p.add_argument("--caption")
     p.add_argument("--purpose", help="what the owner wants from this conversation (kept as a note for the replies)")
     p.add_argument("--no-note", action="store_true", help="do not keep the owner's request as a note")
     p = sub.add_parser("chats")
@@ -525,7 +539,7 @@ def main():
     p.add_argument("--pushes", help="comma-separated envs whose CO pushes are written to their family number (\"\" = none)")
     p.add_argument("--push-mode", choices=["important", "all"],
                    help="important (default): no '✓ chat' pushes of finished jobs; all: every push")
-    p = sub.add_parser("note", help="owner's instruction/permission for one conversation")
+    p = sub.add_parser("note", help="owner's instruction/permission for one conversation ('*' = every conversation)")
     p.add_argument("--to", required=True, help="contact name, +number, or chat/group id")
     p.add_argument("--text")
     p.add_argument("--clear", action="store_true")
@@ -540,6 +554,9 @@ def main():
     p.add_argument("--timeout", type=int, default=180)
     p = sub.add_parser("qr-window")
     p.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
+    p = sub.add_parser("media", help="save the document/photo of one message (id from read) into a folder")
+    p.add_argument("--id", required=True)
+    p.add_argument("--dir", required=True)
     p = sub.add_parser("inbox")
     p.add_argument("--limit", type=int, default=30)
     p.add_argument("--contacts-only", action="store_true")
@@ -547,6 +564,7 @@ def main():
     {"setup": cmd_setup, "start": cmd_start, "run": cmd_run, "status": cmd_status, "stop": cmd_stop, "send": cmd_send,
      "chats": lambda a: simple("/chats", {"limit": a.limit}),
      "read": lambda a: simple("/read", {"chat": a.chat, "limit": a.limit}),
+     "media": lambda a: simple("/media", {"id": a.id, "dir": str(Path(a.dir).resolve())}),
      "contacts": lambda a: simple("/contacts", {}), "qr-window": cmd_qr_window, "inbox": cmd_inbox,
      "config": cmd_config, "forward": cmd_forward, "note": cmd_note, "pushes": cmd_pushes,
      "transcribe": cmd_transcribe}[a.cmd](a)

@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.5.1",
- "created": "2026-11-17T00:13:21Z",
+ "version": "0.5.2",
+ "created": "2026-11-17T21:48:23Z",
  "files": [
   {
    "path": "context/whatsapp.md",
@@ -11,7 +11,7 @@
   {
    "path": "module.json",
    "size": 2679,
-   "sha256": "adae42a03e84e942fdcdaef75388670ed174a3a6f190a5dfba20b515f37666a4"
+   "sha256": "6346be540305da63bf8c01bbcd13890d3ede15476f3d640f2c8ba146435a5241"
   },
   {
    "path": "README.md",
@@ -30,25 +30,25 @@
   },
   {
    "path": "tools/whatsapp-agent/service.mjs",
-   "size": 20774,
-   "sha256": "2b24138262758f0c894d994de5719d33b6fbf18332dc01cddebcca055e19dd89"
+   "size": 23209,
+   "sha256": "dd2c8c79abb8fa34ee71aa6d10e6769127f5c4a89de9d0ecc652689551829a39"
   },
   {
    "path": "tools/whatsapp-agent/SKILL.md",
-   "size": 13754,
-   "sha256": "6c1918618833ba700ab691bdd73a7e9aa5e00a65364c2014b3607f1a2ad1d199"
+   "size": 14121,
+   "sha256": "044c0e270601647edaf869a04d0c845755e78bfe641ac262edd04a2fbc9c92f7"
   },
   {
    "path": "tools/whatsapp-agent/whatsapp-agent.py",
-   "size": 25365,
-   "sha256": "2d26a224b0783d05a92419e095649cec7a5b7586c5829d8366c7e91875c38aef"
+   "size": 26514,
+   "sha256": "2d4f89abacd112706935d30dd8058158efef982e6ca0ac7fe41b8d8efa5993b1"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "qwL/vbnHkutl0FRUMsSX+K6lFHbwtQ+OIDkdfmJ6ITw9rEGkSWiqKRKHQg3lfEPWAJS1rOKHMqH8oVOO62oAAQ=="
+   "sig": "cRye2hlJhbKMd4yFZbVtOtzhN50xjHLGgm4LJtNg054c4taxyuHNNSDQMogxvFJZFiqDSNWLefb5ir6ZHmuTBw=="
   }
  ],
  "module": "whatsapp"

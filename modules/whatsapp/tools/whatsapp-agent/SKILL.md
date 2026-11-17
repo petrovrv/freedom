@@ -1,7 +1,7 @@
----
+﻿---
 name: whatsapp-agent
 description: The CO agent's OWN WhatsApp account (not the owner's) as a linked device in headless Edge (whatsapp-web.js, own profile, no window) — login by QR window on the PC desktop or by pairing code, status, send a message (the agent writes as itself, owner jobs only), list chats, read a chat, saved contacts, inbox of incoming messages, voice notes transcribed through the home voice hub; incoming messages from saved contacts of the account can be forwarded to a command that answers them, everyone else is logged and ignored. Use when the owner asks to write or answer through the agent's WhatsApp; the owner's personal WhatsApp stays with whatsapp-web (drafts only).
-version: 0.5.1
+version: 0.6.2
 entry: whatsapp-agent.py
 requires: [node 22+, Edge, npm (setup installs whatsapp-web.js 1.34.8 into %LOCALAPPDATA%\AIWorkbench\wa-agent\runtime)]
 secrets: [aiwb/whatsapp-agent local-api (token of the local API, made automatically)]
@@ -71,6 +71,7 @@ send ... [--purpose "чего хочет владелец"] [--no-note]         
 
 ## История
 
+- 0.6.2 — 2026-11-17 — упоминание бота в группе узнаётся и по его lid (WhatsApp ставит в упоминание @<lid>, а client.info.lid пуст после обхода ready): свои id берутся через getContactLidAndPhone, запасная проверка по тексту «@<id>». Код: Claude.
 - 0.5.1 — 2026-11-16 — текст 🔔 владельцу: «это …, помогай с …» (представить), «можно …» (разрешить) или «нет» — под правила консьержа модуля whatsapp 0.5.0. Код: Claude.
 - 0.5.0 — 2026-11-16 — голосовые сообщения: расшифровка через голосовой хаб (`transcribe --file/--msg`, API `/voice`), порядок сообщений в чате сохраняется; служба, запущенная старым `run`, берёт команду из `--pushes`. Проверено на живом голосовом (3 с). Код: Claude.
 - 0.4.2 — 2026-11-16 — `note`/`send --purpose` с +номером: поручение хранится по номеру телефона, а не по @lid, который WhatsApp теперь отдаёт на getNumberId (иначе ходы его не видели). Код: Claude.

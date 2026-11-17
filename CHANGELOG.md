@@ -7,6 +7,7 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 - CO Web 0.108.0 + server: the agent's name in the family chat comes from the site config (`assistant_name`, default "AI Workbench"), and `assistant_calls` adds words that call it besides @co (e.g. @джарвис / @jarvis); db.php op members returns both in `install`.
 - Module whatsapp 0.5.1: pushes of the family chat (tag `family-…`) are not copied to WhatsApp; the family chat stays in CO.
+- Module whatsapp 0.5.2 (tool whatsapp-agent 0.6.2): in groups the agent also hears a mention by the bot's own @lid (WhatsApp marks @mentions with it, not the phone number), which the service now learns at start; shared contacts (vCards) in read and inbox, message ids in read, media download, send a file as a document, owner's notes for every conversation (`note --to '*'`).
 
 ## 0.5.1 (2026-11-16)
 

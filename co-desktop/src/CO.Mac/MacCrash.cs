@@ -84,26 +84,39 @@ public static class MacCrash
     }
 
     // Writes crash reports newer than the last one written before, and the resident.out tail if there was a new one.
-    // waitSec: setup waits for ReportCrash, which writes the report a few seconds after the process died.
-    public static int LogNew(DateTime sinceUtc, int waitSec = 0, int max = 2)
+    // Returns the reports newer than sinceUtc, newest first. waitSec: setup waits for ReportCrash, which writes the report a
+    // few seconds after the process died. ignoreSeen (setup): the resident that launchd restarted meanwhile may already have
+    // logged the report and moved crash-seen.txt past it; setup still gets it back (for the Terminal) but does not log it twice.
+    public static List<FileInfo> LogNew(DateTime sinceUtc, int waitSec = 0, int max = 2, bool ignoreSeen = false)
     {
-        // Only reports newer than the newest one already written (its write time is kept in crash-seen.txt).
-        try { if (File.Exists(SeenFile) && long.TryParse(File.ReadAllText(SeenFile).Trim(), out long t) && t > sinceUtc.Ticks) sinceUtc = new DateTime(t, DateTimeKind.Utc); }
-        catch (Exception) { }
         var until = DateTime.UtcNow.AddSeconds(waitSec);
         List<FileInfo> fresh;
+        DateTime seen;
         while (true)
         {
-            fresh = Reports().Where(f => f.LastWriteTimeUtc > sinceUtc).Take(max).ToList();
+            // Only reports newer than the newest one already written (its write time is kept in crash-seen.txt).
+            seen = Seen();
+            var from = ignoreSeen || seen <= sinceUtc ? sinceUtc : seen;
+            fresh = Reports().Where(f => f.LastWriteTimeUtc > from).Take(max).ToList();
             if (fresh.Count > 0 || DateTime.UtcNow >= until) break;
             Thread.Sleep(2000);
         }
-        if (fresh.Count == 0) return 0;
-        foreach (var f in fresh) Log.Write(Summarize(f));
+        var unlogged = fresh.Where(f => f.LastWriteTimeUtc > seen).ToList();
+        if (unlogged.Count == 0) return fresh;
+        foreach (var f in unlogged) Log.Write(Summarize(f));
         string tail = OutTail();
         if (tail.Length > 0) Log.Write("resident.out (last lines):\n" + tail);
-        try { File.WriteAllText(SeenFile, fresh[0].LastWriteTimeUtc.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture)); } catch (Exception) { }
-        return fresh.Count;
+        // Only forward: setup and the resident may both get here for the same report.
+        try { if (unlogged[0].LastWriteTimeUtc > Seen()) File.WriteAllText(SeenFile, unlogged[0].LastWriteTimeUtc.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture)); }
+        catch (Exception) { }
+        return fresh;
+    }
+
+    private static DateTime Seen()
+    {
+        try { if (File.Exists(SeenFile) && long.TryParse(File.ReadAllText(SeenFile).Trim(), out long t)) return new DateTime(t, DateTimeKind.Utc); }
+        catch (Exception) { }
+        return DateTime.MinValue;
     }
 
     private static string Cut(string s, int n) => s.Length <= n ? s : s[..n] + "…";

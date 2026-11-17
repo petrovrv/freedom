@@ -26,6 +26,8 @@ public static class Log
 {
     private static readonly object Sync = new();
 
+    // The resident and the CO window (two processes) write the same file: resident.log.lock (FileShare.None = an advisory
+    // flock in .NET on macOS) keeps their rotations apart, so a second rotation never moves the fresh file over the history.
     public static void Write(string line)
     {
         lock (Sync)
@@ -33,11 +35,24 @@ public static class Log
             try
             {
                 Directory.CreateDirectory(Paths.LogDir);
+                using var cross = CrossProcessLock();
                 var fi = new FileInfo(Paths.LogFile);
-                if (fi.Exists && fi.Length > 5_000_000) File.Move(Paths.LogFile, Paths.LogFile + ".1", true);
+                if (cross != null && fi.Exists && fi.Length > 5_000_000) File.Move(Paths.LogFile, Paths.LogFile + ".1", true);
                 File.AppendAllText(Paths.LogFile, $"{DateTime.UtcNow:O} {line}\n");
             }
             catch (IOException) { }
+        }
+    }
+
+    // null after 2 s: the line is written without the lock (and without rotating) rather than lost.
+    private static FileStream? CrossProcessLock()
+    {
+        var until = DateTime.UtcNow.AddSeconds(2);
+        while (true)
+        {
+            try { return new FileStream(Paths.LogFile + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+            catch (IOException) when (DateTime.UtcNow < until) { Thread.Sleep(20); }
+            catch (IOException) { return null; }
         }
     }
 }

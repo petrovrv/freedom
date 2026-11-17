@@ -84,7 +84,8 @@ internal sealed class MacCheckTool : IDeviceTool
                 return Task.FromResult(new ToolOutput { Content = "already running\n" + Status() });
             Directory.CreateDirectory(Root);
             try { File.Delete(ResultFile); } catch (IOException) { }
-            WriteState(new CheckState { State = "downloading", Version = Program.Version, StartedUtc = DateTime.UtcNow, Live = liveExe != null });
+            // Resident = this process: the download and the runner die with it (review 13.11: 'downloading' stuck after a restart)
+            WriteState(new CheckState { State = "downloading", Version = Program.Version, StartedUtc = DateTime.UtcNow, Live = liveExe != null, Resident = Environment.ProcessId });
             _job = Task.Run(() => RunAsync(sha, liveExe));
         }
         return Task.FromResult(new ToolOutput { Content = "started\n" + Status() });
@@ -119,6 +120,8 @@ internal sealed class MacCheckTool : IDeviceTool
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await _tokens.GetAccessTokenAsync(CancellationToken.None));
             using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
             using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+            if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                throw new InvalidOperationException($"the site no longer keeps the test bundle of {ver} (it keeps the last few releases); update CO Resident and run the check again");
             if (!resp.IsSuccessStatusCode) throw new InvalidOperationException($"test bundle download: HTTP {(int)resp.StatusCode}");
             await using var src = await resp.Content.ReadAsStreamAsync(cts.Token);
             var buf = new MemoryStream();
@@ -170,7 +173,8 @@ internal sealed class MacCheckTool : IDeviceTool
         Log.Write($"mac check bundle {ver} installed ({bin.Length} bytes)");
     }
 
-    // Detached: survives a restart of the resident (an update swap); the runner writes result.json itself.
+    // A child of the resident: launchd stops it together with the resident (review 13.11), so the resident does not swap an
+    // update while it runs (Busy) and AfterRestart marks a run cut by a restart as interrupted and removes its run-* folder.
     private void Start(string dir, string ver, string? liveExe)
     {
         string run = Path.Combine(Root, "run-" + Guid.NewGuid().ToString("N")[..8]);
@@ -214,7 +218,7 @@ internal sealed class MacCheckTool : IDeviceTool
     {
         var s = ReadState();
         if (s == null) return "state: idle (never run on this Mac)\nresident: " + Program.Version + (ExpectedSha256.Length == 64 ? "" : " (no Mac check bundle in this build)");
-        if (s.State == "running" && !RunnerAlive(s) && !File.Exists(ResultFile)) s.State = "interrupted";
+        if (s.State is "running" or "downloading" && !RunnerAlive(s) && !File.Exists(ResultFile)) s.State = "interrupted";
         if (s.State == "running" && File.Exists(ResultFile)) s.State = "done";
         var sb = new StringBuilder();
         sb.Append("state: ").Append(s.State).Append('\n');
@@ -228,8 +232,39 @@ internal sealed class MacCheckTool : IDeviceTool
         return sb.ToString();
     }
 
+    // A check is downloading or running now (the resident waits with an update swap).
+    public static bool Busy => ReadState() is { State: "downloading" or "running" } s && RunnerAlive(s) && !File.Exists(ResultFile);
+
+    // At the start of the resident: a run of an earlier process is over (launchd stopped the runner with it, and a download
+    // happened inside it). Marks it interrupted and removes run-* folders and a half-unpacked bundle nobody uses.
+    public static void AfterRestart()
+    {
+        try
+        {
+            if (!Directory.Exists(Root)) return;
+            var s = ReadState();
+            bool live = s is { State: "downloading" or "running" } && RunnerAlive(s);
+            if (s is { State: "downloading" or "running" } && !live && !File.Exists(ResultFile))
+            {
+                s.State = "interrupted";
+                s.Error = "the resident restarted during the check; start it again";
+                s.FinishedUtc = DateTime.UtcNow;
+                WriteState(s);
+                Log.Write("mac check: the run of an earlier resident process is marked interrupted");
+            }
+            foreach (string d in Directory.GetDirectories(Root))
+            {
+                string name = Path.GetFileName(d);
+                bool orphan = (name.StartsWith("run-", StringComparison.Ordinal) && !(live && s?.RunDir == d)) || name.EndsWith(".tmp", StringComparison.Ordinal);
+                if (orphan) try { Directory.Delete(d, true); } catch (Exception ex) { Log.Write("mac check cleanup: " + ex.Message); }
+            }
+        }
+        catch (Exception ex) { Log.Write("mac check after restart: " + ex.Message); }
+    }
+
     private static bool RunnerAlive(CheckState s)
     {
+        if (s.Resident != Environment.ProcessId) return false;   // started by an earlier resident process, stopped with it
         if (s.State == "downloading") return DateTime.UtcNow - s.StartedUtc < TimeSpan.FromMinutes(15);
         if (s.Pid is not int pid) return false;
         try { using var p = Process.GetProcessById(pid); return !p.HasExited && DateTime.UtcNow - s.StartedUtc < RunLimit + TimeSpan.FromMinutes(15); }
@@ -243,6 +278,7 @@ internal sealed class MacCheckTool : IDeviceTool
         public DateTime StartedUtc { get; set; }
         public DateTime? FinishedUtc { get; set; }
         public int? Pid { get; set; }
+        public int? Resident { get; set; }
         public int? ExitCode { get; set; }
         public string? RunDir { get; set; }
         public string? Error { get; set; }

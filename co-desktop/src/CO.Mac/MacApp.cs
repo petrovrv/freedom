@@ -17,8 +17,12 @@ namespace CO.Mac;
 public static unsafe class MacApp
 {
     private static string Origin => InstallDefaults.SiteUrl; // Freedom F1: the CO site of this install
+    // Hosts of Google's sign-in pages (exact names; accounts.google.<country> sets the cookies of country domains). Review
+    // 13.11: the old pattern let any Google page (Docs, Forms) and look-alikes such as google.xy.io stay in the window.
     private static readonly Regex GoogleSignInHost = new(
-        @"^([a-z0-9-]+\.)*(google\.[a-z]{2,3}(\.[a-z]{2})?|gstatic\.com|googleusercontent\.com|youtube\.com)$", RegexOptions.IgnoreCase);
+        @"^(accounts\.google\.(com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})|accounts\.youtube\.com|myaccount\.google\.com|www\.google\.com|(ssl|www)\.gstatic\.com)$",
+        RegexOptions.IgnoreCase);
+    private static bool _signingIn;   // the main window went to /auth/ of CO (and on to Google); cleared on any other CO page
 
     private const nuint CommandKey = 1 << 20, ShiftKey = 1 << 17;
     private const nint PolicyRegular = 0, PolicyAccessory = 1;
@@ -292,6 +296,36 @@ public static unsafe class MacApp
 
     private static bool SameOrigin(Uri u) => u.GetLeftPart(UriPartial.Authority) == Origin;
 
+    // A URL of CO itself: its pages and files, or a blob: a CO page made (file previews in their own window).
+    private static bool IsCoUrl(string? url) =>
+        url != null && (url.StartsWith("blob:" + Origin + "/", StringComparison.Ordinal)
+            || (Uri.TryCreate(url, UriKind.Absolute, out var u) && u.Scheme == "https" && SameOrigin(u)));
+
+    // Review 13.11: downloads only from the main frame of a CO page and only of CO's own files (blob:/data: made by
+    // that page), never from a module frame or a page the window shows during the Google sign-in.
+    private static bool DownloadAllowed(IntPtr web, IntPtr sourceFrame, string? url)
+    {
+        if (sourceFrame != IntPtr.Zero && !SendRetBool(sourceFrame, "isMainFrame")) return false;
+        if (!IsCoUrl(UrlOf(Send(web, "URL")))) return false;
+        return IsCoUrl(url) || (url != null && url.StartsWith("data:", StringComparison.Ordinal));
+    }
+
+    private static string Cut(string? s) => s == null ? "(none)" : s.Length <= 120 ? s : s[..120] + "…";
+
+    // Files saved from the window get the quarantine flag like Safari's downloads, so Gatekeeper checks them when opened
+    // (WebKit's network process writes them, not this app; LSFileQuarantineEnabled covers only the app's own writes).
+    private static void Quarantine(string path) => Task.Run(() =>
+    {
+        try
+        {
+            if (Proc.Run("/usr/bin/xattr", new[] { "-p", "com.apple.quarantine", path }, timeoutMs: 5000).code == 0) return;
+            string value = $"0081;{DateTimeOffset.UtcNow.ToUnixTimeSeconds():x8};CO;";
+            var (code, _, se) = Proc.Run("/usr/bin/xattr", new[] { "-w", "com.apple.quarantine", value, path }, timeoutMs: 5000);
+            if (code != 0) Log.Write($"window app: quarantine flag not set on {Path.GetFileName(path)}: {se.Trim()}");
+        }
+        catch (Exception ex) { Log.Write("window app: quarantine: " + ex.Message); }
+    });
+
     private static void OpenOutside(string url)
     {
         if (Uri.TryCreate(url, UriKind.Absolute, out var u) && u.Scheme is "https" or "http" or "mailto") Dialog.Open(url);
@@ -446,25 +480,33 @@ public static unsafe class MacApp
         nint policy = 1;   // allow
         Guard("navigation", () =>
         {
-            if (RespondsTo(action, "shouldPerformDownload") && SendRetBool(action, "shouldPerformDownload")) { policy = 2; return; }
+            string? url = UrlOf(Send(Send(action, "request"), "URL"));
+            if (RespondsTo(action, "shouldPerformDownload") && SendRetBool(action, "shouldPerformDownload"))
+            {
+                // <a download>: only from the main frame of a CO page, and only files of CO itself (its URLs, blob:, data:)
+                policy = DownloadAllowed(web, Send(action, "sourceFrame"), url) ? 2 : 0;
+                if (policy == 0) Log.Write("window app: download refused: " + Cut(url));
+                return;
+            }
             IntPtr frame = Send(action, "targetFrame");
             if (frame != IntPtr.Zero && !SendRetBool(frame, "isMainFrame")) return;   // frames inside a CO page (module pages, previews)
-            string? url = UrlOf(Send(Send(action, "request"), "URL"));
             if (url == null || !Uri.TryCreate(url, UriKind.Absolute, out var u)) return;
             if (u.Scheme is "about" or "blob" or "data") return;
             bool popup = IsPopup(web);
-            // Google hosts stay in the window only during a sign-in: it starts at accounts.google.com or from /auth/ of CO
-            // and goes on across Google's own hosts (country domains, youtube.com cookies). A link to Docs or YouTube
-            // clicked in a CO page opens in the default browser.
+            // Google hosts stay in the window only during a sign-in: it starts from /auth/ of CO and goes on across
+            // Google's sign-in hosts until the window is back on CO. A Google link clicked in a CO page (Docs, Forms, even
+            // accounts.google.com/...continue=...) opens in the default browser, where the address bar shows it.
+            if (!popup && SameOrigin(u)) _signingIn = u.AbsolutePath.StartsWith("/auth/", StringComparison.Ordinal);
             bool signIn = false;
             if (!popup && u.Scheme == "https" && GoogleSignInHost.IsMatch(u.Host))
             {
                 Uri.TryCreate(UrlOf(Send(web, "URL")) ?? "", UriKind.Absolute, out var cur);
-                signIn = u.Host == "accounts.google.com"
-                    || (cur != null && (GoogleSignInHost.IsMatch(cur.Host) || (SameOrigin(cur) && cur.AbsolutePath.StartsWith("/auth/", StringComparison.Ordinal))));
+                if (cur != null && SameOrigin(cur) && cur.AbsolutePath.StartsWith("/auth/", StringComparison.Ordinal)) _signingIn = true;
+                signIn = _signingIn;
             }
             bool inside = SameOrigin(u) || signIn;
             if (inside) return;
+            if (_signingIn && !popup) Log.Write("window app: left the sign-in for " + u.Host + " (opened in the browser)");
             policy = 0;
             OpenOutside(url);
             if (popup && UrlOf(Send(web, "URL")) is null or "about:blank") ClosePopupLater(web);
@@ -479,10 +521,15 @@ public static unsafe class MacApp
         Guard("response", () =>
         {
             // Download: "Content-Disposition: attachment", or a page of a type WebKit cannot show (not inside frames).
+            // Only files of CO itself are saved; anything else that would download is cancelled (review 13.11).
             IntPtr r = Send(response, "response");
             string? cd = IsKind(r, Cls("NSHTTPURLResponse")) ? FromStr(Send(r, "valueForHTTPHeaderField:", Str("Content-Disposition"))) : null;
-            if (cd != null && cd.TrimStart().StartsWith("attachment", StringComparison.OrdinalIgnoreCase)) policy = 2;
-            else if (SendRetBool(response, "isForMainFrame") && !SendRetBool(response, "canShowMIMEType")) policy = 2;
+            bool download = (cd != null && cd.TrimStart().StartsWith("attachment", StringComparison.OrdinalIgnoreCase))
+                || (SendRetBool(response, "isForMainFrame") && !SendRetBool(response, "canShowMIMEType"));
+            if (!download) return;
+            string? url = UrlOf(Send(r, "URL"));
+            policy = IsCoUrl(url) ? 2 : 0;
+            if (policy == 0) Log.Write("window app: download refused: " + Cut(url));
         });
         CallBlockN(handler, policy);
     }
@@ -522,7 +569,9 @@ public static unsafe class MacApp
     [UnmanagedCallersOnly]
     private static void OnDownloadFinished(IntPtr self, IntPtr sel, IntPtr download) => Guard("download done", () =>
     {
-        if (_downloads.Remove(download, out var path)) Dialog.Notify("Saved in Downloads: " + Path.GetFileName(path), "CO");
+        if (!_downloads.Remove(download, out var path)) return;
+        Quarantine(path);
+        Dialog.Notify("Saved in Downloads: " + Path.GetFileName(path), "CO");
     });
 
     [UnmanagedCallersOnly]
@@ -767,6 +816,7 @@ public static class MacAppInstall
           <key>CFBundleIconFile</key><string>CO</string>
           <key>LSMinimumSystemVersion</key><string>14.0</string>
           <key>LSUIElement</key><true/>
+          <key>LSFileQuarantineEnabled</key><true/>
           <key>NSHighResolutionCapable</key><true/>
           <key>NSMicrophoneUsageDescription</key><string>CO uses the microphone only for voice typing in the chat.</string>
         </dict>

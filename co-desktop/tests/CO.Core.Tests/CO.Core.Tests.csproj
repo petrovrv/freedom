@@ -29,6 +29,7 @@
     <Compile Include="../../../bridge/DeviceWire.cs" Link="Bridge/DeviceWire.cs" />
     <!-- Pure rules of the Mac secret tools (no process calls), so they are tested on Windows too. -->
     <Compile Include="../../src/CO.Mac/MacSecretRules.cs" Link="Mac/MacSecretRules.cs" />
+    <Compile Include="../../src/CO.Mac/MacRestartRules.cs" Link="Mac/MacRestartRules.cs" />
   </ItemGroup>
 
 </Project>

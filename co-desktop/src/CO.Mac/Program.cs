@@ -278,9 +278,11 @@ public static class Program
     private static void ReportCrash(DateTime since)
     {
         Console.WriteLine("Checking how the resident ended (up to 30 s)…");
-        if (MacCrash.LogNew(since.AddSeconds(-5), waitSec: 30) == 0) { Log.Write("setup: no crash report"); return; }
-        var f = MacCrash.Reports().First();
-        Console.WriteLine(MacCrash.Summarize(f, frames: 12));
+        // ignoreSeen: the restarted resident may have logged this report already; the list it returns cannot be emptied
+        // by a report deleted meanwhile (Summarize says so instead of throwing).
+        var fresh = MacCrash.LogNew(since.AddSeconds(-5), waitSec: 30, ignoreSeen: true);
+        if (fresh.Count == 0) { Log.Write("setup: no crash report"); return; }
+        Console.WriteLine(MacCrash.Summarize(fresh[0], frames: 12));
     }
 
     private static async Task SetupStateAsync(string env, string expected)
@@ -384,8 +386,11 @@ public static class Program
             // Several starts in a row ended within two minutes: run on the Drive mailbox only for this process, so that
             // the Mac stays reachable and the log shows whether the Pub/Sub (gRPC) start is what kills it.
             p.Runtime.UsePubSub = false;
-            Log.Write("safe start: restarted 3 times within 2 minutes; Pub/Sub off for this run, Drive mailbox only");
+            Log.Write("safe start: crashed 3 times within 2 minutes; Pub/Sub off for 30 minutes, Drive mailbox only");
         }
+        // Safe start lasts 30 quiet minutes, then a planned restart brings Pub/Sub back (that restart does not count).
+        DateTime? safeUntil = quickRestarts ? DateTime.UtcNow.AddMinutes(30) : null;
+        MacCheckTool.AfterRestart();
         File.WriteAllText(StartedFile, $"{Environment.ProcessId} {Version} {DateTime.UtcNow:O}" + "\n");
         // R4: ~/Applications/CO.app and its menu at login, refreshed when this version is new; never fatal for the device.
         _ = Task.Run(() =>
@@ -487,7 +492,15 @@ public static class Program
                         catch (Exception ex) when (!stop.IsCancellationRequested) { Log.Write("update check failed: " + ex.Message); }
                         if (updater.Status != updateStatus) Log.Write("update: " + (updateStatus = updater.Status));
                     }
-                    if (staged != null && rt.Host!.ActiveCalls == 0 && !SecretPrompts.DialogOpen)   // 0.5.2: not while a secret dialog waits
+                    // 0.5.2: not while a secret dialog waits; review 13.11: not while a Mac check runs (launchd would stop it with us)
+                    bool idle = rt.Host!.ActiveCalls == 0 && !SecretPrompts.DialogOpen && !MacCheckTool.Busy;
+                    if (safeUntil != null && DateTime.UtcNow >= safeUntil && idle)
+                    {
+                        await rt.DisposeAsync();
+                        Log.Write("safe start: 30 minutes without a crash; restarting with Pub/Sub");
+                        return 0;   // launchd (KeepAlive) starts a fresh process; exit 0 is not counted as a crash
+                    }
+                    if (staged != null && idle)
                     {
                         await rt.DisposeAsync();
                         // a secret_prompt call may have opened its dialog just before the runtime stopped: let the person finish
@@ -521,7 +534,8 @@ public static class Program
     }
 
     // How the previous process ended, as launchd saw it ("last exit code", "last terminating signal"), and when it started.
-    // Returns true when this is the 3rd start in a row less than two minutes after the previous one.
+    // Returns true when this is the 3rd start in a row less than two minutes after a previous process that crashed. Review
+    // 13.11: planned restarts (setup, sign-in, update swap, 'folders add') end with exit 0 and no signal and do not count.
     private static bool LogPreviousRun()
     {
         bool quick = false;
@@ -529,12 +543,13 @@ public static class Program
         {
             string prev = File.Exists(StartedFile) ? File.ReadAllText(StartedFile).Trim() : "-";
             var (code, so, _) = Proc.Run("/bin/launchctl", new[] { "print", $"gui/{Uid()}/{Paths.Label}" }, timeoutMs: 10_000);
-            string seen = code != 0 ? "-" : string.Join("; ", so.Split('\n').Select(l => l.Trim())
-                .Where(l => l.StartsWith("last ") || l.StartsWith("runs =")));
-            Log.Write($"previous run: {prev}; launchd: {(seen.Length > 0 ? seen : "-")}");
+            var lines = code != 0 ? new List<string>() : so.Split('\n').Select(l => l.Trim()).Where(l => l.StartsWith("last ") || l.StartsWith("runs =")).ToList();
+            string seen = lines.Count > 0 ? string.Join("; ", lines) : "-";
+            bool crashed = MacRestartRules.Crashed(lines);
+            Log.Write($"previous run: {prev}; launchd: {seen}{(crashed ? " (crashed)" : "")}");
             string streakFile = Path.Combine(Paths.DataDir, "quick-starts.txt");
             int streak = 0;
-            if (File.Exists(StartedFile) && DateTime.UtcNow - File.GetLastWriteTimeUtc(StartedFile) < TimeSpan.FromMinutes(2))
+            if (crashed && File.Exists(StartedFile) && DateTime.UtcNow - File.GetLastWriteTimeUtc(StartedFile) < TimeSpan.FromMinutes(2))
                 streak = (File.Exists(streakFile) && int.TryParse(File.ReadAllText(streakFile).Trim(), out int n) ? n : 0) + 1;
             File.WriteAllText(streakFile, streak.ToString(System.Globalization.CultureInfo.InvariantCulture));
             quick = streak >= 3;

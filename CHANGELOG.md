@@ -3,6 +3,11 @@
 Changes of all components (Bridge, CO Web, server, CO Desktop / CO Resident, installer, modules, core tools); each
 line names the component and its version. How releases are made: `docs/DEVELOPMENT.md`.
 
+## Unreleased
+
+- CO Web 0.108.0 + server: the agent's name in the family chat comes from the site config (`assistant_name`, default "AI Workbench"), and `assistant_calls` adds words that call it besides @co (e.g. @джарвис / @jarvis); db.php op members returns both in `install`.
+- Module whatsapp 0.5.1: pushes of the family chat (tag `family-…`) are not copied to WhatsApp; the family chat stays in CO.
+
 ## 0.5.1 (2026-11-16)
 
 - Installer (F2b, SPEC §4.1 step 2): one command for Windows — `install/bootstrap.ps1`, published as the release asset `freedom-bootstrap.ps1` (`release/build_installers.py`) — installs one agent CLI (Claude Code, or Codex for ChatGPT) with Git/Node through winget, downloads the release into `%USERPROFILE%\Freedom`, checks every file's sha256 against the manifest, unpacks it, lets the human sign in, then starts the user's own agent with the new playbook `install/AGENT-INSTALL.md` (Python, packages, all wizard steps, a journal with time per step; the human only for sign-ins, secrets, choices and "yes") and a pre-approved allow list `install/agent/claude-settings.json` (deploy and `report --send` still ask). Rerunning it resumes. `freedom_release.py verify --partial`: files of the manifest that were not downloaded (Linux Bridge builds on Windows) are no problem, a changed one still is. The wizard without AI stays the fallback.

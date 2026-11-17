@@ -202,9 +202,43 @@ def gate(invite: str, force: bool) -> dict | None:
     return s
 
 
-def message_for_friend(code: str, label: str, days: int) -> str:
+def repo_url(arg: str | None = None) -> str | None:
+    """https address of the Freedom repository the friend downloads from: --repo, FREEDOM_REPO, or the origin of the
+    own core tree (AIWB_FREEDOM / AIWB_SOURCE, devtree.json "repo", C:/AIWorkbench/freedom). owner/name is enough."""
+    url = arg or os.environ.get("FREEDOM_REPO")
+    if not url:
+        dirs = [os.environ.get("AIWB_FREEDOM"), os.environ.get("AIWB_SOURCE")]
+        cfg = install_path().parent / "devtree.json"
+        try:
+            dirs.append((json.loads(cfg.read_text(encoding="utf-8-sig")) or {}).get("repo"))
+        except (OSError, ValueError):
+            pass
+        dirs.append("C:/AIWorkbench/freedom")
+        for d in filter(None, dirs):
+            if not (Path(d) / "install").is_dir():
+                continue
+            try:
+                r = subprocess.run(["git", "-C", d, "remote", "get-url", "origin"],
+                                   capture_output=True, text=True, timeout=15)
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if r.returncode == 0 and r.stdout.strip():
+                url = r.stdout.strip()
+                break
+    if not url:
+        return None
+    url = url.strip().rstrip("/")
+    if url.startswith("git@github.com:"):
+        url = "https://github.com/" + url[len("git@github.com:"):]
+    elif "://" not in url:
+        url = "https://github.com/" + url            # owner/name
+    return url[:-4] if url.endswith(".git") else url
+
+
+def message_for_friend(code: str, label: str, days: int, repo: str | None = None) -> str:
+    where = f"{repo}/releases/latest" if repo else "<repository>/releases/latest on GitHub"
     return (f"Hi {label}! Here is your invite to install Freedom (valid {days} days).\n\n"
-            "1. Download the latest Freedom release (<repository>/releases/latest on GitHub)\n"
+            f"1. Download the latest Freedom release: {where}\n"
             "2. Start the setup wizard; its first question asks for an invite code. Paste this:\n\n"
             f"   {code}\n\n"
             "3. If a step fails: python install/freedom_setup.py report --send\n"
@@ -225,6 +259,8 @@ def main(argv=None) -> int:
     p.add_argument("--label", required=True)
     p.add_argument("--budget-pct", type=float, default=5.0)
     p.add_argument("--days", type=int, default=14)
+    p.add_argument("--repo", help="Freedom repository for the message (URL or owner/name); "
+                                  "default FREEDOM_REPO or origin of the own core tree")
     sp.add_parser("list")
     sp.add_parser("revoke").add_argument("id")
     p = sp.add_parser("reports")
@@ -255,8 +291,11 @@ def main(argv=None) -> int:
         print(f"invite {r['invite']['id']} for {r['invite']['label']}: budget {r['invite']['budgetPct']} % of a weekly "
               f"window in total, "
               f"until {r['invite']['expires']}\n")
+        repo = repo_url(a.repo)
+        if not repo:
+            print("note: Freedom repository not found (--repo owner/name): put its address into the message\n")
         print("---- message for the friend (send it yourself) ----")
-        print(message_for_friend(r["code"], r["invite"]["label"], a.days))
+        print(message_for_friend(r["code"], r["invite"]["label"], a.days, repo))
         return 0
     if a.cmd == "list":
         pr(call("invite_list"))

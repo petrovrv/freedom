@@ -41,6 +41,15 @@ class Tool(unittest.TestCase):
         self.assertIn("report --send", r.stdout)
         self.assertIn("never connects to your computer", r.stdout)
 
+    def test_new_release_link(self):
+        r = self.run_tool("new", "--label", "Ann", "--repo", "git@github.com:someone/freedom.git")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("https://github.com/someone/freedom/releases/latest", r.stdout)
+        self.assertNotIn("<repository>", r.stdout)
+        self.env["FREEDOM_REPO"] = "someone/freedom"
+        r = self.run_tool("new", "--label", "Ann")
+        self.assertIn("https://github.com/someone/freedom/releases/latest", r.stdout)
+
     def test_show_wraps_text(self):
         r = self.run_tool("show", "r-1")
         self.assertEqual(r.returncode, 0, r.stderr)

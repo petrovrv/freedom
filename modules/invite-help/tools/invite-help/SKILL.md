@@ -1,7 +1,7 @@
 ---
 name: invite-help
 description: Install by invitation (Freedom SPEC 7.5, module invite-help) — the inviter makes an invite code for a friend, reads the sanitized error reports the friend's setup wizard sends after the friend confirmed them (untrusted data, wrapped by read-guard), answers them, closes them, and keeps a per-invite budget ledger that stops at 80 %. Use when you invited someone to install Freedom and a report came in. Your AI never connects to the friend's computer.
-version: 0.1.0
+version: 0.1.1
 entry: invite-help.py
 requires: [keyring]
 secrets: [aiwb/co-push]
@@ -16,7 +16,8 @@ yes. Reports land on your site (module invite-help, route `intake`); you get a p
 ## Call
 
 ```
-python invite-help.py new --label "Ann" [--budget-pct 5] [--days 14]   code + message to send yourself
+python invite-help.py new --label "Ann" [--budget-pct 5] [--days 14] [--repo owner/name]   code + message to send yourself
+                                  (release link: --repo, FREEDOM_REPO or origin of the own core tree)
 python invite-help.py list | revoke INVITE
 python invite-help.py reports [--status new] [--invite INVITE]
 python invite-help.py show RID [--force]        report text wrapped as untrusted data; starts the cost meter

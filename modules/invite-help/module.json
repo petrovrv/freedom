@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "invite-help",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "title": "Install by invitation",
   "description": "Help a friend you invited to install Freedom without lending them your AI (SPEC 7.5). You make an invite code; the friend's setup wizard sends sanitized error reports to your site only after the friend sees and confirms each one; your own agent reads them as data, fixes Freedom or writes an answer, and the wizard fetches the answers. Your AI never connects to the friend's computer; after the friend signs in to their own subscription, their own AI does the rest. A per-invite budget ledger stops at 80 %.",
   "ext": ">=1 <2",
@@ -12,7 +12,7 @@
   "isolation": "host",
   "isolationReason": "the public intake route runs in the site's PHP; the home tool only calls the site with the push key",
   "provides": {
-    "tools": [{ "name": "invite-help", "minVersion": "0.1.0" }],
+    "tools": [{ "name": "invite-help", "minVersion": "0.1.1" }],
     "data": { "server": "files (invites.json, reports/)", "home": "invite-budget.jsonl next to install.json" },
     "events": ["push.send"],
     "context": [], "models": [], "deviceTools": [], "services": []

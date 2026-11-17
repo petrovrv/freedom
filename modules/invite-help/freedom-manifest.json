@@ -1,12 +1,12 @@
 {
  "format": "freedom-release/1",
- "version": "0.1.0",
- "created": "2026-11-14T11:48:07Z",
+ "version": "0.1.1",
+ "created": "2026-11-17T21:55:57Z",
  "files": [
   {
    "path": "module.json",
    "size": 1838,
-   "sha256": "2cd7965d06bd52f210784c93de7ebb69d3ce4e863efbb5c3858acafdf673100b"
+   "sha256": "799ccd8239a1c1d6f5035114d9aa2936de37e4f2a11dbb21e09bc54e3d2c4abc"
   },
   {
    "path": "README.md",
@@ -30,25 +30,25 @@
   },
   {
    "path": "tests/test_tool.py",
-   "size": 5156,
-   "sha256": "b1294b9f69f5ab1e901d883c7dcb830c7c1ce68a22cefd6675b9f9a4c5533f78"
+   "size": 5672,
+   "sha256": "00613bf49d06889adc2c0d1d739985e4daa5654ddfac0d616af240cd43ccf908"
   },
   {
    "path": "tools/invite-help/invite-help.py",
-   "size": 13764,
-   "sha256": "7413849cf1bc96d59579a13a68ea301c3e99711101975a7cb40761d9e32feeaf"
+   "size": 15712,
+   "sha256": "b97d1c778ed91e818707028531deceed03853e76eebd9c8f33db8eb604bc7cdf"
   },
   {
    "path": "tools/invite-help/SKILL.md",
-   "size": 3170,
-   "sha256": "fdff36f457d923d1caf1cf1caf929ce5b899609018f91e1a33b0c9fad9411a0d"
+   "size": 3292,
+   "sha256": "cf817e110a630d23564605d6357de8cd8d92a0919eb86bcf1f720565158816bb"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "bEP2MkKk/8wLk9dPbP+b1SQdCt91sftlRqdMPtKa+K/onEINokZCZ75bptnEnrhXjC32dYPg5SRGwRxiTG/BAw=="
+   "sig": "aHc+1Ei09IiYZsAZRiwg42ooSTeLjHg9FEpS9dR6/lYA+9i+2PXw52nFJv2rYowhBA8FBbuPUkcykf774/QgAg=="
   }
  ],
  "module": "invite-help"

@@ -5,7 +5,7 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
-- CO Mac 0.5.4 / Desktop 0.14.1 / Core 0.13.1: allow Enter in searchable dropdowns before results open, without native form submission; recheck focus before dispatch and retain final submission confirmation.
+- CO Mac 0.5.4 / Desktop 0.14.1 / Core 0.13.1: allow Enter in Workday Skills and School search inputs before results open; recheck the site and focused input before dispatch and retain final submission confirmation.
 
 - CO Web 0.108.0 + server: the agent's name in the family chat comes from the site config (`assistant_name`, default "AI Workbench"), and `assistant_calls` adds words that call it besides @co (e.g. @джарвис / @jarvis); db.php op members returns both in `install`.
 - Module whatsapp 0.5.1: pushes of the family chat (tag `family-…`) are not copied to WhatsApp; the family chat stays in CO.

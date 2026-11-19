@@ -481,8 +481,8 @@ public sealed partial class AgentPage
 
     // What pressing Enter in this field would do: classify the form's own submit button; a message-like field
     // (textarea, contenteditable, or named message/comment/reply/chat) without a submit button counts as sending.
-    // 0.9.8: JS condition on `el`: the field is a dropdown search box, including before its results open.
-    private const string OpenListJs = "(el.getAttribute('role') === 'combobox' || ['list','both'].includes((el.getAttribute('aria-autocomplete') || '').toLowerCase()) || !!el.closest('.select2-search, .select2-dropdown, .chosen-search, .chosen-drop'))";
+    // 0.9.8: Workday search inputs use Enter to fetch options even before their dropdown opens.
+    private const string OpenListJs = "(/(^|[.])myworkdayjobs[.]com$/i.test(location.hostname) && (el.getAttribute('data-automation-id') === 'searchBox' || el.id === 'skills--skills'))";
 
     public Task<string?> EnterCategoryAsync(string? reference, CancellationToken ct) => RunAsync<string?>(async s =>
     {

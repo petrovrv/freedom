@@ -125,12 +125,52 @@ class StoreTests(unittest.TestCase):
             result = sync_imap(self.store, 'owner')
             sync_imap(self.store, 'owner')
         self.assertEqual(result, {'fetched': 2, 'stored': 1, 'skipped_sensitive': 1})
-        self.assertIn(('select', 'INBOX', True), client.calls)
+        self.assertIn(('select', '"INBOX"', True), client.calls)
         self.assertTrue(all(c[2] == '(BODY.PEEK[])' for c in client.calls if c[0] == 'fetch'))
         self.assertEqual(len(self.store.list_messages()), 1)
         for path in self.root.rglob('*'):
             if path.is_file():
                 self.assertNotIn(secret.encode(), path.read_bytes())
+
+    def test_mailbox_names_on_actual_imap_command_wire(self):
+        # Exercise imaplib.select and _command; replace only transport/response.
+        class WireClient(imaplib.IMAP4):
+            def __init__(self):
+                self.state = 'AUTH'
+                self.tagged_commands = {}
+                self.untagged_responses = {}
+                self.tagpre = b'T'
+                self.tagnum = 0
+                self.literal = None
+                self.debug = 0
+                self._cmd_log = {}
+                self._cmd_log_idx = 0
+                self._cmd_log_len = 10
+                self._encoding = 'ascii'
+                self.wire = []
+            def send(self, data):
+                self.wire.append(data)
+            def _command_complete(self, name, tag):
+                return 'OK', [b'0']
+            def login(self, *args):
+                return 'OK', []
+            def response(self, key):
+                return key, [b'42']
+            def uid(self, *args):
+                return 'OK', [b'']
+            def logout(self):
+                pass
+        keyring = types.SimpleNamespace(get_password=lambda *args: 'test-only')
+        for folder, expected in [('[Gmail]/Sent Mail', b'T0 EXAMINE "[Gmail]/Sent Mail"\r\n'),
+                                 ('A"B\\C', b'T0 EXAMINE "A\\"B\\\\C"\r\n')]:
+            client = WireClient()
+            with patch.dict(sys.modules, keyring=keyring), patch('mailstore.imaplib.IMAP4_SSL', return_value=client):
+                sync_imap(self.store, 'owner', folder=folder)
+            self.assertEqual(client.wire, [expected])
+        with patch('mailstore.imaplib.IMAP4_SSL') as connect:
+            with self.assertRaises(ValueError):
+                sync_imap(self.store, 'owner', folder='INBOX\r\nEXPUNGE')
+            connect.assert_not_called()
 
     def test_login_error_is_sanitized_and_logout_runs(self):
         from unittest.mock import MagicMock

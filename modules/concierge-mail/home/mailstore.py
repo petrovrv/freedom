@@ -238,6 +238,9 @@ class Store:
 
 def sync_imap(store, account, host='imap.gmail.com', folder='INBOX', limit=100, sent=False):
     """Fetch a bounded read-only snapshot. Never STORE, EXPUNGE, CLOSE or send."""
+    if not folder or any(ord(c) < 32 or ord(c) == 127 for c in folder):
+        raise ValueError('Invalid IMAP mailbox name')
+    quoted_folder = '"' + folder.replace('\\', '\\\\').replace('"', '\\"') + '"'
     import keyring
     password = keyring.get_password('aiwb/gmail', account)
     if not password:
@@ -249,7 +252,7 @@ def sync_imap(store, account, host='imap.gmail.com', folder='INBOX', limit=100, 
         del password
         if status != 'OK':
             raise RuntimeError('IMAP login failed')
-        status, _ = client.select(folder, readonly=True)
+        status, _ = client.select(quoted_folder, readonly=True)
         if status != 'OK':
             raise RuntimeError('IMAP folder unavailable')
         _, validity = client.response('UIDVALIDITY')

@@ -161,7 +161,9 @@ class StoreTests(unittest.TestCase):
             def logout(self):
                 pass
         keyring = types.SimpleNamespace(get_password=lambda *args: 'test-only')
-        for folder, expected in [('[Gmail]/Sent Mail', b'T0 EXAMINE "[Gmail]/Sent Mail"\r\n'),
+        for folder, expected in [('台北/日本語', b'T0 EXAMINE "&U,BTFw-/&ZeVnLIqe-"\r\n'),
+                                 ('A&B', b'T0 EXAMINE "A&-B"\r\n'),
+                                 ('[Gmail]/Sent Mail', b'T0 EXAMINE "[Gmail]/Sent Mail"\r\n'),
                                  ('A"B\\C', b'T0 EXAMINE "A\\"B\\\\C"\r\n')]:
             client = WireClient()
             with patch.dict(sys.modules, keyring=keyring), patch('mailstore.imaplib.IMAP4_SSL', return_value=client):

@@ -5,6 +5,7 @@ this store. Authentication-code messages are refused before any persistence.
 """
 from __future__ import annotations
 import hashlib
+import base64
 import imaplib
 import ssl
 import os
@@ -236,11 +237,20 @@ class Store:
         return [dict(r) for r in self.db.execute('SELECT * FROM audit ORDER BY id DESC LIMIT ?', (max(0,min(int(limit),1000)),))]
 
 
-def sync_imap(store, account, host='imap.gmail.com', folder='INBOX', limit=100, sent=False):
-    """Fetch a bounded read-only snapshot. Never STORE, EXPUNGE, CLOSE or send."""
+def encode_mailbox(folder):
+    """IMAP4rev1 modified UTF-7 (RFC 3501 section 5.1.3)."""
     if not folder or any(ord(c) < 32 or ord(c) == 127 for c in folder):
         raise ValueError('Invalid IMAP mailbox name')
-    quoted_folder = '"' + folder.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    def shifted(match):
+        encoded = base64.b64encode(match.group().encode('utf-16-be')).decode('ascii')
+        return '&' + encoded.rstrip('=').replace('/', ',') + '-'
+    return re.sub(r'[^\x20-\x7e]+', shifted, folder.replace('&', '&-'))
+
+
+def sync_imap(store, account, host='imap.gmail.com', folder='INBOX', limit=100, sent=False):
+    """Fetch a bounded read-only snapshot. Never STORE, EXPUNGE, CLOSE or send."""
+    folder_wire = encode_mailbox(folder)
+    quoted_folder = '"' + folder_wire.replace('\\', '\\\\').replace('"', '\\"') + '"'
     import keyring
     password = keyring.get_password('aiwb/gmail', account)
     if not password:

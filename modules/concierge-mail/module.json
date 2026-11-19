@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "id": "concierge-mail",
+  "version": "0.2.0",
+  "title": "Mail concierge",
+  "ext": ">=1 <2",
+  "scope": "environment",
+  "platforms": ["windows", "linux", "macos"],
+  "requires": {"core": [], "modules": []},
+  "permissions": ["context", "net.outbound:imap.gmail.com", "secrets.read"],
+  "isolation": "choice",
+  "defaults": {"enabled": false},
+  "dataPolicy": {"onDisable": "keep", "onRemove": "keep", "migrations": "additive"},
+  "provides": {"context": [{"file": "context/mail.md"}]}
+}

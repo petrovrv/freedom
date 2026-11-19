@@ -5,6 +5,8 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- Module concierge-mail 0.2.0: opt-in local mail archive, guarded MIME ingest, read-only Inbox/Sent snapshots, versioned drafts and obligations, verified local checkpoints/restore and Maildir export. Production service and UI remain pending.
+
 - CO Mac 0.5.4 / Desktop 0.14.1 / Core 0.13.1: allow Enter in Workday Skills and School search inputs before results open; recheck the site and focused input before dispatch and retain final submission confirmation.
 
 - CO Web 0.108.0 + server: the agent's name in the family chat comes from the site config (`assistant_name`, default "AI Workbench"), and `assistant_calls` adds words that call it besides @co (e.g. @джарвис / @jarvis); db.php op members returns both in `install`.

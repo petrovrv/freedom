@@ -317,7 +317,7 @@ internal static class AgentPageScripts
     // events on the focused element. Synthetic events have no default action, so only keys whose effect is emulated
     // or handled by page scripts are accepted: Enter/Space click a button-like element (already classified and
     // confirmed by the caller), Enter in a dropdown search field and Escape/arrows go to the page's own handlers.
-    // Page keyboard handlers still run; only verified Workday search inputs bypass confirmation. Returns { ok: false } for everything else (Enter in an ordinary field, Tab,
+    // Page keyboard handlers still run; only recognized dropdown search inputs bypass confirmation. Returns { ok: false } for everything else (Enter in an ordinary field, Tab,
     // Backspace, Delete, paging): the caller reports tab_hidden. KEY/CODE/VK replaced.
     public const string SyntheticKey = """
         (function(key, code, vk) {
@@ -326,7 +326,7 @@ internal static class AgentPageScripts
           const t0 = (el.type || '').toLowerCase();
           const buttonLike0 = el.tagName === 'BUTTON' || el.tagName === 'A' || ['checkbox','radio','submit','button'].includes(t0)
             || ['button','option','radio','checkbox','menuitem','tab'].includes(el.getAttribute('role') || '');
-          const listField = el.tagName === 'INPUT' && (/(^|[.])myworkdayjobs[.]com$/i.test(location.hostname) && (el.getAttribute('data-automation-id') === 'searchBox' || el.id === 'skills--skills'));
+          const listField = el.tagName === 'INPUT' && ((((el.getAttribute('role') === 'combobox' || ['list','both'].includes((el.getAttribute('aria-autocomplete') || '').toLowerCase())) && el.getAttribute('aria-expanded') === 'true') || !!el.closest('.select2-search, .select2-dropdown, .chosen-search, .chosen-drop')) || (/(^|[.])myworkdayjobs[.]com$/i.test(location.hostname) && (el.getAttribute('data-automation-id') === 'searchBox' || el.id === 'skills--skills')));
           if (DROPDOWN_ONLY && (key !== 'Enter' || !listField || buttonLike0)) return { ok: false };
           if ((key === 'Enter' || key === ' ') && !buttonLike0 && !listField) return { ok: false };
           const init = { key, code, keyCode: vk, which: vk, bubbles: true, cancelable: true, composed: true };

@@ -481,19 +481,19 @@ public sealed partial class AgentPage
 
     // What pressing Enter in this field would do: classify the form's own submit button; a message-like field
     // (textarea, contenteditable, or named message/comment/reply/chat) without a submit button counts as sending.
-    // 0.9.8: JS condition on `el`: the field is the search box of a dropdown list that is open right now.
-    private const string OpenListJs = "(((el.getAttribute('role') === 'combobox' || ['list','both'].includes((el.getAttribute('aria-autocomplete') || '').toLowerCase())) && el.getAttribute('aria-expanded') === 'true') || !!el.closest('.select2-search, .select2-dropdown, .chosen-search, .chosen-drop'))";
+    // 0.9.8: JS condition on `el`: the field is a dropdown search box, including before its results open.
+    private const string OpenListJs = "(el.getAttribute('role') === 'combobox' || ['list','both'].includes((el.getAttribute('aria-autocomplete') || '').toLowerCase()) || !!el.closest('.select2-search, .select2-dropdown, .chosen-search, .chosen-drop'))";
 
     public Task<string?> EnterCategoryAsync(string? reference, CancellationToken ct) => RunAsync<string?>(async s =>
     {
         RequireNotPaused();
         await RequireAllowedPageAsync(s, ct);
-        // 0.9.8: Enter in the search field of an open dropdown list (combobox or list autocomplete with
-        // aria-expanded=true, select2/chosen search) picks an option: "choose". A message-like field never counts.
+        // Dropdown search is handled with synthetic keys to avoid native implicit form submission.
+        // Message-like fields retain the sending restriction.
         var js = "function() { const el = this; const f = el.form || el.closest('form'); " +
             "const name = ((el.name || '') + ' ' + (el.id || '') + ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.placeholder || '')).toLowerCase(); " +
             "const msg = el.isContentEditable || el.tagName === 'TEXTAREA' || /message|comment|reply|chat|bericht|reactie|сообщ|коммент|ответ/.test(name); " +
-            "if (!msg && el.tagName === 'INPUT' && " + OpenListJs + ") return 'choose'; " +
+            "if (!msg && el.tagName === 'INPUT' && " + OpenListJs + ") return 'dropdown-search'; " +
             "if (f) { const b = f.querySelector('button:not([type]), button[type=submit], input[type=submit], input[type=image]'); " +
             "if (b) { const c = (" + AgentPageScripts.Classify + ").call(b).category; return c || 'submit'; } " +
             "return msg ? 'send' : 'submit'; } return msg ? 'send' : null; }";
@@ -657,7 +657,7 @@ public sealed partial class AgentPage
         return AgentOtpRules.Classify(AttrsOf(f));
     }, ct);
 
-    public Task<PageInfo> TypeAsync(string reference, string text, bool submit, CancellationToken ct)
+    public Task<PageInfo> TypeAsync(string reference, string text, bool submit, CancellationToken ct, bool dropdownSearch = false)
     {
         RequireNotPaused();
         return RunAsync(async s =>
@@ -703,8 +703,8 @@ public sealed partial class AgentPage
                 BeginInput();
                 var navBefore = Volatile.Read(ref _navSeq);
                 // 0.9.8: a hidden or occluded tab gets synthetic key events instead of a tab_hidden error.
-                if (typeVisible) await KeyAsync(s, "Enter", ct);
-                else await SyntheticKeyAsync(s, "Enter", ct);
+                if (typeVisible && !dropdownSearch) await KeyAsync(s, "Enter", ct);
+                else await SyntheticKeyAsync(s, "Enter", ct, dropdownSearch);
                 await SettleAfterInputAsync(s, navBefore, ct);
             }
             else
@@ -782,7 +782,7 @@ public sealed partial class AgentPage
         return picked;
     }
 
-    public Task<PageInfo> PressAsync(string key, CancellationToken ct)
+    public Task<PageInfo> PressAsync(string key, CancellationToken ct, bool dropdownSearch = false)
     {
         RequireNotPaused();
         return RunAsync(async s =>
@@ -792,27 +792,28 @@ public sealed partial class AgentPage
             var visible = await EnsureVisibleAsync(s, ct);
             BeginInput();
             var navBefore = Volatile.Read(ref _navSeq);
-            if (visible) await KeyAsync(s, key, ct);
+            if (visible && !dropdownSearch) await KeyAsync(s, key, ct);
             else
             {
-                await SyntheticKeyAsync(s, key, ct);
-                Log("tab hidden: synthetic key " + key);
+                await SyntheticKeyAsync(s, key, ct, dropdownSearch);
+                Log("synthetic key " + key);
             }
             await SettleAfterInputAsync(s, navBefore, ct);
             return await AfterNavigationAsync(s, null, ct);
         }, ct);
     }
 
-    private async Task SyntheticKeyAsync(CdpSession s, string key, CancellationToken ct)
+    private async Task SyntheticKeyAsync(CdpSession s, string key, CancellationToken ct, bool dropdownSearch = false)
     {
         if (!Keys.TryGetValue(key ?? "", out var k))
             throw new ToolException("bad_key", "Supported keys: " + string.Join(", ", Keys.Keys) + ".");
         var expr = AgentPageScripts.SyntheticKey
+            .Replace("DROPDOWN_ONLY", dropdownSearch ? "true" : "false")
             .Replace("(KEY, CODE, VK)", "(" + JsonSerializer.Serialize(k.Key) + ", " + JsonSerializer.Serialize(k.Code) + ", "
                 + k.Vk.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")");
         var r = await EvalInWorldAsync(s, OpsWorld, expr, ct);
         if (r.ValueKind != JsonValueKind.Object || !r.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True)
-            throw new ToolException("tab_hidden", "The CO browser window is minimized, so the key " + key + " does not reach the page. " +
+            throw new ToolException(dropdownSearch ? "dropdown_changed" : "tab_hidden", dropdownSearch ? "The focused field is no longer a dropdown search. Inspect the page again." : "The CO browser window is minimized, so the key " + key + " does not reach the page. " +
                 "Use browser_type or browser_click instead, or ask the user to show the CO browser window.");
     }
 

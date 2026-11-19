@@ -257,14 +257,15 @@ public static class AgentBrowserTools
                     var info = await page.InspectAsync(reference, ct);
                     // Enter in a field inside a form acts like the form's submit button (classified);
                     // outside a form, Enter usually sends a chat message (forbidden).
-                    var category = info.Category ?? await page.EnterCategoryAsync(reference, ct) ?? "send";
+                    var enterCategory = await page.EnterCategoryAsync(reference, ct);
+                    var category = enterCategory == "dropdown-search" ? enterCategory : info.Category ?? enterCategory ?? "send";
                     submitCategory = category;
                     if (category == "send")
                         throw SendForbidden(info.Description);
                     // Always asks: the text being typed is not in the inspected fields yet. To submit without
                     // a question, type first and then click the button.
-                    // 0.9.8: except Enter in the search field of a dropdown list ("choose").
-                    if (category is not null && (category != "choose" || Needs("choose", null, env)))
+                    // Searchable dropdowns consume Enter without native form submission.
+                    if (category is not null && category != "dropdown-search" && (category != "choose" || Needs("choose", null, env)))
                     {
                         // co-resident 0.5.3: a one-time code is never shown (the summary reaches approvals and audit).
                         var shown = await page.FieldKindAsync(reference, ct) != FieldKind.Plain ? "(hidden: one-time code or secret field)"
@@ -275,7 +276,7 @@ public static class AgentBrowserTools
                 }
 
                 if (submit && submitCategory == "purchase") page.MarkPurchase();
-                var result = await page.TypeAsync(reference, text, submit, ct);
+                var result = await page.TypeAsync(reference, text, submit, ct, submitCategory == "dropdown-search");
                 page.MarkInput();
                 // Journal never stores the typed text itself.
                 await page.JournalAsync(env.RunId, "browser_type", new { reference, chars = text.Length, submit }, ct);
@@ -330,11 +331,12 @@ public static class AgentBrowserTools
                     string? category = focused?.Info.Category;
                     IReadOnlyList<FormField> fields = focused?.Info.Fields ?? Array.Empty<FormField>();
                     string description = focused?.Info.Description ?? "page";
-                    if (key == "Enter" && category is null)
+                    if (key == "Enter")
                     {
                         // Enter acts like the focused field's form submit button (classified); a message-like
                         // field without a submit button sends a message.
-                        category = await page.EnterCategoryAsync(null, ct);
+                        var enterCategory = await page.EnterCategoryAsync(null, ct);
+                        category = enterCategory == "dropdown-search" ? enterCategory : category ?? enterCategory;
                         // Enter in an editable field outside a form usually sends a chat message (forbidden).
                         if (category is null && focused?.Editable == true)
                             category = "send";
@@ -345,12 +347,12 @@ public static class AgentBrowserTools
                     pressCategory = category;
                     if (category == "send")
                         throw SendForbidden(description);
-                    if (category is not null && NeedsKey(category, fields, env))
+                    if (category is not null && category != "dropdown-search" && NeedsKey(category, fields, env))
                         await ConfirmAsync(env, page, "browser_press", category, "key " + key + " on " + description, fields, null, ct);
                 }
 
                 if (pressCategory == "purchase") page.MarkPurchase();
-                var result = await page.PressAsync(key, ct);
+                var result = await page.PressAsync(key, ct, pressCategory == "dropdown-search");
                 await page.JournalAsync(env.RunId, "browser_press", new { key }, ct);
                 return ActionOutput(page, "Key " + key, result);
             }));

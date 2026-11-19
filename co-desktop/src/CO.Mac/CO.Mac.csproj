@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>co-resident</AssemblyName>
     <RootNamespace>CO.Mac</RootNamespace>
-    <Version>0.5.3</Version>
+    <Version>0.5.4</Version>
     <Product>CO Resident</Product>
     <Company>Freedom contributors</Company>
     <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>

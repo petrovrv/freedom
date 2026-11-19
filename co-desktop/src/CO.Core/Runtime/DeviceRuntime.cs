@@ -78,7 +78,7 @@ public sealed class DeviceState
 
 public sealed class DeviceRuntime : IAsyncDisposable
 {
-    public const string Version = "0.13.0";
+    public const string Version = "0.13.1";
     private readonly string _dataDir;
     private readonly IDeviceKeyStore _keys;
     private readonly IDriveFiles _drive;

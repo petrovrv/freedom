@@ -326,7 +326,8 @@ internal static class AgentPageScripts
           const t0 = (el.type || '').toLowerCase();
           const buttonLike0 = el.tagName === 'BUTTON' || el.tagName === 'A' || ['checkbox','radio','submit','button'].includes(t0)
             || ['button','option','radio','checkbox','menuitem','tab'].includes(el.getAttribute('role') || '');
-          const listField = el.tagName === 'INPUT' && (((el.getAttribute('role') === 'combobox' || ['list','both'].includes((el.getAttribute('aria-autocomplete') || '').toLowerCase())) && el.getAttribute('aria-expanded') === 'true') || !!el.closest('.select2-search, .select2-dropdown, .chosen-search, .chosen-drop'));
+          const listField = el.tagName === 'INPUT' && (el.getAttribute('role') === 'combobox' || ['list','both'].includes((el.getAttribute('aria-autocomplete') || '').toLowerCase()) || !!el.closest('.select2-search, .select2-dropdown, .chosen-search, .chosen-drop'));
+          if (DROPDOWN_ONLY && (key !== 'Enter' || !listField || buttonLike0)) return { ok: false };
           if ((key === 'Enter' || key === ' ') && !buttonLike0 && !listField) return { ok: false };
           const init = { key, code, keyCode: vk, which: vk, bubbles: true, cancelable: true, composed: true };
           const down = el.dispatchEvent(new KeyboardEvent('keydown', init));

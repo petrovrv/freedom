@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
  "version": "0.3.0",
- "created": "2026-11-20T09:15:39Z",
+ "created": "2026-11-20T09:17:50Z",
  "files": [
   {
    "path": "context/mail.md",
@@ -40,13 +40,13 @@
   },
   {
    "path": "home/test_spam_rescue.py",
-   "size": 4881,
-   "sha256": "3a0dbe0cfd6dd770fc6c0685caab95a612b6520b83e163677953b944264f357b"
+   "size": 5781,
+   "sha256": "e1172ef8c8280c6b84a93359f786646ead8b9da78d439b057ceafc95a005137a"
   },
   {
    "path": "home/workflow.py",
-   "size": 18292,
-   "sha256": "31dad83c74cd43578be3077f1bf2406b18e99736b8439417251dda56acd30a23"
+   "size": 19353,
+   "sha256": "8a8b16c798e7eabea33112cdf021130e4cdded1e887aef89e48d70bed972fae8"
   },
   {
    "path": "module.json",
@@ -55,15 +55,15 @@
   },
   {
    "path": "README.md",
-   "size": 5297,
-   "sha256": "59bd451d606d5c934800f277d3347bddf5426fb90dcdff84252a0834599883b4"
+   "size": 5412,
+   "sha256": "952e6456c3d8fa5c6c38f2116b353b06049868e7f07b058ea558ac06a926d1a9"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "+finNtI+UT2DLZRgc4YNxR1wDaufuZTkt3u+goGpWL/KNYGE2NX5C+wF8cZEAah1xY15Xn8ymop1gdUhtiOICQ=="
+   "sig": "4aPBSFF5wrLsulPNFq9KtWJm82zI5u0APbDxxT5O9TQu9AG7kKzIhhMPOjnyUE6BLM4MxjvCCQ3qPg/Jsc7QCg=="
   }
  ],
  "module": "concierge-mail"

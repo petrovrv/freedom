@@ -81,6 +81,13 @@ class SpamRescueTests(unittest.TestCase):
         self.assertFalse(sender_authenticated(raw('mx.google.com; dmarc=fail header.from=acme.be'), 'acme.be'))
         self.assertFalse(sender_authenticated(raw(''), 'acme.be'))
         self.assertFalse(sender_authenticated(raw('mx.google.com; dmarc=pass header.from=notacme.be'), 'acme.be'))
+        # Untrusted authserv-id, comments and failed results never count.
+        self.assertFalse(sender_authenticated(raw('forged; dmarc=pass header.from=acme.be'), 'acme.be'))
+        self.assertFalse(sender_authenticated(raw('mx.example; dkim=fail (dmarc=pass) header.d=evil.example; dmarc=fail header.from=acme.be'), 'acme.be'))
+        self.assertFalse(sender_authenticated(raw('mx.google.com; dkim=fail (dmarc=pass header.from=acme.be) header.d=evil.example; dmarc=fail header.from=acme.be'), 'acme.be'))
+        self.assertFalse(sender_authenticated(raw('mx.google.com; spf=pass smtp.mailfrom=x@evil.example; dkim=pass header.d=evil.example'), 'acme.be'))
+        folded = b'Authentication-Results: mx.google.com;\r\n       spf=pass (google.com: domain of hr@acme.be designates 1.2.3.4) smtp.mailfrom=hr@acme.be\r\n' + raw('')
+        self.assertTrue(sender_authenticated(folded, 'acme.be'))
         # Only the topmost header (the receiving provider's) counts.
         m = message()
         m['Authentication-Results'] = 'mx.google.com; dmarc=fail header.from=acme.be'

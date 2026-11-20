@@ -42,24 +42,52 @@ def critic(body, subject='', attachments=()):
     return findings
 
 
-def sender_authenticated(raw, host):
-    """True when the provider's Authentication-Results show DMARC, aligned DKIM or SPF pass for host.
+TRUSTED_AUTHSERV = ('mx.google.com',)
 
-    Only the topmost header counts: it is added by the receiving provider, lower ones
-    may come from the sender. Without it nothing is considered authenticated.
+
+def _strip_comments(text):
+    # RFC 5322 comments may nest; drop them and quoted strings before parsing.
+    text = re.sub(r'"(?:[^"\\]|\\.)*"', ' ', text)
+    out, depth = [], 0
+    for char in text:
+        if char == '(':
+            depth += 1
+        elif char == ')' and depth:
+            depth -= 1
+        elif not depth:
+            out.append(char)
+    return ''.join(out)
+
+
+def sender_authenticated(raw, host, trusted=TRUSTED_AUTHSERV):
+    """True when the receiving provider's Authentication-Results show a pass aligned with host.
+
+    Only the topmost header counts and only when its authserv-id is a trusted
+    receiving provider (RFC 8601: it removes forged headers with its own id).
+    Each result is parsed separately: DMARC pass with header.from, DKIM pass with
+    header.d/header.i, or SPF pass with smtp.mailfrom, aligned with host.
     """
     if not host:
         return False
-    headers = BytesParser(policy=policy.default).parsebytes(raw, headersonly=True).get_all('authentication-results') or []
+    headers = BytesParser(policy=policy.compat32).parsebytes(raw, headersonly=True).get_all('authentication-results') or []
     if not headers:
         return False
-    text = str(headers[0]).lower()
+    parts = [p.strip() for p in _strip_comments(re.sub(r'\s+', ' ', str(headers[0]))).lower().split(';')]
+    if parts[0].split(' ')[0] not in trusted:
+        return False
     def aligned(domain):
-        return domain == host or domain.endswith('.' + host) or host.endswith('.' + domain)
-    if re.search(r'\bdmarc=pass\b', text) and any(aligned(d) for d in re.findall(r'header\.from=([a-z0-9.-]+)', text)):
-        return True
-    for method, domain in re.findall(r'\b(dkim|spf)=pass\b[^;]*?(?:header\.(?:i|d)=@?|smtp\.mailfrom=(?:[^@\s;]*@)?)([a-z0-9.-]+)', text):
-        if aligned(domain):
+        domain = domain.strip('.').rpartition('@')[2]
+        return bool(domain) and (domain == host or domain.endswith('.' + host) or host.endswith('.' + domain))
+    wanted = {'dmarc': ('header.from',), 'dkim': ('header.d', 'header.i'), 'spf': ('smtp.mailfrom',)}
+    for resinfo in parts[1:]:
+        tokens = resinfo.split()
+        if not tokens or '=' not in tokens[0]:
+            continue
+        method, _, result = tokens[0].partition('=')
+        if method not in wanted or result != 'pass':
+            continue
+        props = dict(t.split('=', 1) for t in tokens[1:] if '=' in t)
+        if any(aligned(props[k]) for k in wanted[method] if k in props):
             return True
     return False
 
@@ -242,7 +270,7 @@ CREATE TABLE IF NOT EXISTS wf_draft_heads(thread_id INTEGER PRIMARY KEY REFERENC
         wrote_to = set()
         for (recipients,) in self.db.execute('SELECT recipients FROM messages WHERE account=? AND is_sent=1', (account,)):
             wrote_to.update(a.lower() for _, a in getaddresses([recipients]) if a)
-        known = {address(r[0]) for r in self.db.execute('SELECT sender FROM messages WHERE account=? AND is_sent=0 AND (id IN (' + others + ') OR id NOT IN (SELECT message_id FROM message_locations))', (account, account, folder))}
+        known = {address(r[0]) for r in self.db.execute('SELECT sender FROM messages WHERE account=? AND is_sent=0 AND tainted=0 AND sensitive=0 AND (id IN (' + others + ') OR id NOT IN (SELECT message_id FROM message_locations))', (account, account, folder))}
         open_domains, awaited = set(), set()
         for row in self.db.execute("""SELECT m.sender, EXISTS(SELECT 1 FROM wf_promises p WHERE p.case_id=m.case_id AND p.owner='them' AND p.status='open') AS awaited
             FROM messages m LEFT JOIN wf_case_state s ON s.case_id=m.case_id

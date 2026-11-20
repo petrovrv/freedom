@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.4.1",
- "created": "2026-11-20T09:40:45Z",
+ "version": "0.5.0",
+ "created": "2026-11-20T10:24:18Z",
  "files": [
   {
    "path": "context/mail.md",
@@ -15,18 +15,18 @@
   },
   {
    "path": "home/briefing.py",
-   "size": 8226,
-   "sha256": "80fc1a884752af1b1146c4cf49d496c561bc2b0c3f6025ad4275bfd6f92ec306"
+   "size": 8685,
+   "sha256": "1706df0705216fdedc26a5df36c7aab76e5ad6c7968346e2ed0e6caf4f4c7632"
   },
   {
    "path": "home/mailcli.py",
-   "size": 7434,
-   "sha256": "1e657d9b6e3c51ef6aa471b68e8def4b1606e32ff795cc9e7c1f3fa856f56b57"
+   "size": 7721,
+   "sha256": "83605ab5d514cb474659508148919b1ce3c43a48600311c3f3209081193083b6"
   },
   {
    "path": "home/mailstore.py",
-   "size": 21564,
-   "sha256": "e613a47473ea42af49bd42ce13fd593c69239fe2b9d21ef4c9d6e94f62022e53"
+   "size": 29030,
+   "sha256": "90f81178080c4f3d85ef03f60f013b36227fed4d6784ed89f84391928abb760f"
   },
   {
    "path": "home/test_archive.py",
@@ -35,18 +35,18 @@
   },
   {
    "path": "home/test_briefing.py",
-   "size": 6836,
-   "sha256": "14a5c4f66bd4ac357fe80373115f341dce8af3a35de29479b6b2a3f4873148b4"
+   "size": 7746,
+   "sha256": "1bfd19f2533e3bd3317546cde6498226ec2094870e377c85b73341a417e56a28"
   },
   {
    "path": "home/test_mailstore.py",
-   "size": 9693,
-   "sha256": "db17f642008e71e9a8bac7323eaaf6e07479f969c92f7c737112122c178e7a55"
+   "size": 13079,
+   "sha256": "3ab2123753cae0ac37535b95214a716d5639cdaed5474633ac9bf6b1bd3f0d3e"
   },
   {
    "path": "home/test_regressions.py",
-   "size": 14624,
-   "sha256": "fe27a3d7934f0666edc794e890806df745338bda511b6a1b1c1802de94e8db57"
+   "size": 20868,
+   "sha256": "42e65718673c3fa03d5d94727bb3213f41458c9b11f294e6abadf48b7ea01a70"
   },
   {
    "path": "home/test_spam_rescue.py",
@@ -61,19 +61,19 @@
   {
    "path": "module.json",
    "size": 508,
-   "sha256": "fc456d7631be0a973653e2cd7a1c9528894a8629ac262163c56ddad8f0e7205d"
+   "sha256": "73bf956249ad6e7f93ce73d80f2938164a5cc8a668d461507c944b13370b35d0"
   },
   {
    "path": "README.md",
-   "size": 6128,
-   "sha256": "537207546aaa58404fb45891498a844d1c9ba81613fdf870f2b18b3731a8b536"
+   "size": 7118,
+   "sha256": "ca49c075e1d4748e253f9f93fb75259f9a1d0fab69234796d69dc54ff78b4530"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "zWad+VWSdAhgOBOQjw0uTaBFu/8f6Te0rtsk6k8KuT6ittUmS58OugIjmB89lBELT9PTjpe8tQfGaGCjkVD3BQ=="
+   "sig": "0CxI2IY+2nh3YsFkCIsBEdirCcLPqf6DctaVfLkmEV2/1XBY08mRGvcPY0xt+EfIfux2TXKBjgtTb1o5Luv4DQ=="
   }
  ],
  "module": "concierge-mail"

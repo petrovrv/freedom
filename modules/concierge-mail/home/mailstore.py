@@ -31,8 +31,28 @@ class UnsafeMessageError(ValueError):
     pass
 
 
-# Benign "<word> code <digits>" phrases (postcodes, vacancy and order numbers).
-_BENIGN_CODE = re.compile(r'(?i)\b(?:zip|post(?:al)?|vacancy|job|reference|ref|product|promo|discount|voucher|tracking|order|area|country|course|error|source|tax|vat)[ -]?code\b')
+# Benign "<word> code <digits>" phrases (postcodes, vacancy, order and pickup numbers),
+# the passcode of a Teams/Zoom/Webex meeting next to its meeting id (interview
+# invitations must stay readable) and "you can also reset your password" footers.
+_BENIGN_CODE = re.compile(r'(?i)\b(?:zip|post(?:al)?|vacancy|job|reference|ref|product|promo|discount|voucher|tracking|order|area|country|course|error|source|tax|vat|pick[ -]?up)[ -]?code\b'
+                          r'|(?:\bmeeting\s+(?:id|number)|\bbesprechungs-?id|\bvergader(?:ing)?s?-?id|\bid\s+(?:de\s+(?:la\s+)?)?r[ée]union|идентификатор\s+(?:собрания|встречи))\b[\s\d#:()-]{0,40}(?:passcode|password|access\s+code|pin|kenncode|wachtwoordcode|code\s+secret|секретный\s+код)\b\W{0,3}[^\s.]+')
+# "From this site you can also reset your password" in a welcome or application mail; never
+# exempted when the mail carries any link (a reset link may follow the phrase).
+_PASSWORD_FOOTER = re.compile(r'(?i)\b(?:can|may)\s+also\s+(?:reset|change)\s+your\s+password\b')
+_ANY_LINK = re.compile(r'(?i)://|\bwww\.|\bhref\b|\bsrc\b|\baction\b\s*=')
+# Mail nobody waits an answer to: mailing lists, auto-replies, no-reply and shop/billing robots.
+_ROBOT_SENDER = re.compile(r'(?i)(?:^|[._+-])(?:no-?reply|do-?not-?reply|mailer-daemon|postmaster|bounces?|notifications?|orders?|billing|invoices?|receipts?|confirmation|auto-[a-z]+)(?:$|[._+-])')
+
+
+def is_automated(mail):
+    if mail.get('list-unsubscribe') or mail.get('list-id'):
+        return True
+    if str(mail.get('precedence', '')).strip().lower() in ('bulk', 'list', 'junk'):
+        return True
+    if str(mail.get('auto-submitted', 'no')).strip().lower() not in ('', 'no'):
+        return True
+    local = parseaddr(str(mail.get('from', '')))[1].rpartition('@')[0]
+    return bool(_ROBOT_SENDER.search(local))
 _OTP = re.compile(r'(?i)\b(?:one[ -]?time|verification|security|authentication|confirmation|login|log[ -]?in|sign[ -]?in|access|2fa|two[ -]factor)\s+(?:code|pin|passcode|password|link|token)\b'
                   r'|\b(?:reset|change|recover)\s+(?:your\s+)?password\b|\bpassword\s+(?:reset|recovery|change)\b|\bnew\s+password\b|\bforgot\s+(?:your\s+)?password\b'
                   r'|\b(?:verify|confirm)\s+(?:your\s+)?(?:e-?mail(?:\s+address)?|account|identity|sign[ -]?in|login)\b|\b2-step\s+verification\b'
@@ -44,12 +64,18 @@ _OTP = re.compile(r'(?i)\b(?:one[ -]?time|verification|security|authentication|c
 
 
 def _normalize(text):
+    text = re.sub(r'(?is)<(style|script)\b[^>]*>.*?</\1\s*>', ' ', text)
     return re.sub(r'\s+', ' ', unescape(re.sub('<[^>]*>', ' ', text)))
 
 
 def is_authentication(text):
     """Codes, sign-in links and password resets (section 11). Heuristic."""
-    return bool(_OTP.search(_BENIGN_CODE.sub(' ', _normalize(text))))
+    # Before tags are stripped and after entities are decoded: any href or URL counts.
+    linked = bool(_ANY_LINK.search(text) or _ANY_LINK.search(unescape(text)))
+    text = _BENIGN_CODE.sub(' ', _normalize(text))
+    if not linked:
+        text = _PASSWORD_FOOTER.sub(' ', text)
+    return bool(_OTP.search(text))
 
 
 def guard_reasons(text):
@@ -93,9 +119,18 @@ class Store:
         ''')
         columns = {r[1] for r in self.db.execute('PRAGMA table_info(messages)')}
         for name, ddl in [('is_sent', 'INTEGER NOT NULL DEFAULT 0'), ('sensitive', 'INTEGER NOT NULL DEFAULT 0'),
-                          ('tainted', 'INTEGER NOT NULL DEFAULT 0'), ('taint_reasons', "TEXT NOT NULL DEFAULT '[]'")]:
+                          ('tainted', 'INTEGER NOT NULL DEFAULT 0'), ('taint_reasons', "TEXT NOT NULL DEFAULT '[]'"),
+                          ('automated', 'INTEGER')]:
             if name not in columns:
                 self.db.execute('ALTER TABLE messages ADD COLUMN ' + name + ' ' + ddl)
+        self.db.commit()
+        # Archives older than the column: classify once from the stored originals (stubs have none).
+        for row in self.db.execute('SELECT id,raw_sha256,sensitive FROM messages WHERE automated IS NULL').fetchall():
+            try:
+                value = 1 if row['sensitive'] else int(is_automated(BytesParser(policy=policy.default).parsebytes(self.read_blob(row['raw_sha256']), headersonly=True)))
+            except (OSError, ValueError):
+                continue  # a damaged blob is reported by verify; the message stays unclassified (shown)
+            self.db.execute('UPDATE messages SET automated=? WHERE id=?', (value, row['id']))
         self.db.commit()
 
     def close(self):
@@ -207,17 +242,32 @@ class Store:
             self.db.execute('INSERT OR IGNORE INTO accounts VALUES (?)', (account,))
             self.db.execute('INSERT OR IGNORE INTO threads(account,thread_key) VALUES (?,?)', (account,thread_key))
             thread = self.db.execute('SELECT id FROM threads WHERE account=? AND thread_key=?', (account,thread_key)).fetchone()[0]
-            existing = self.db.execute('SELECT id FROM messages WHERE account=? AND raw_sha256=?', (account,digest)).fetchone()
+            existing = self.db.execute('SELECT id,sensitive FROM messages WHERE account=? AND raw_sha256=?', (account,digest)).fetchone()
+            restore = None
+            if existing and existing['sensitive'] and not sensitive:
+                # A stub the improved heuristic no longer treats as a code (e.g. a meeting passcode in an
+                # interview invitation) is filled in place: its id, promises, case and sent status stay.
+                restore, existing = existing['id'], None
+                drafts = self.db.execute("SELECT name FROM sqlite_master WHERE name='wf_draft_versions'").fetchone() and                     self.db.execute('SELECT 1 FROM wf_draft_versions v JOIN messages m ON m.thread_id=v.thread_id WHERE m.id=?', (restore,)).fetchone()
+                if drafts:
+                    thread = self.db.execute('SELECT thread_id FROM messages WHERE id=?', (restore,)).fetchone()[0]  # keep draft history attached
             if existing:
                 message_id = existing[0]
             else:
-                cur = self.db.execute('INSERT INTO messages(account,thread_id,raw_sha256,message_id,subject,sender,recipients,date,body,html,sensitive,tainted,taint_reasons) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', (account,thread,digest,mid,subject,sender,recipients,date,body,html_body,int(sensitive),int(bool(reasons)),json.dumps(reasons)))
-                message_id = cur.lastrowid
+                automated = int(sensitive or is_automated(mail))
+                if restore:
+                    message_id = restore
+                    self.db.execute('UPDATE messages SET thread_id=?,message_id=?,subject=?,sender=?,recipients=?,date=?,body=?,html=?,sensitive=0,tainted=?,taint_reasons=?,automated=? WHERE id=?', (thread,mid,subject,sender,recipients,date,body,html_body,int(bool(reasons)),json.dumps(reasons),automated,message_id))
+                    self.db.execute('DELETE FROM messages_fts WHERE rowid=?', (message_id,))
+                    sent = sent or bool(self.db.execute('SELECT is_sent FROM messages WHERE id=?', (message_id,)).fetchone()[0])
+                else:
+                    cur = self.db.execute('INSERT INTO messages(account,thread_id,raw_sha256,message_id,subject,sender,recipients,date,body,html,sensitive,tainted,taint_reasons,automated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', (account,thread,digest,mid,subject,sender,recipients,date,body,html_body,int(sensitive),int(bool(reasons)),json.dumps(reasons),automated))
+                    message_id = cur.lastrowid
                 for filename, content_type, data in attachments:
                     sha = self._blob(data)
                     self.db.execute('INSERT INTO attachments(message_id,filename,content_type,sha256,size) VALUES (?,?,?,?,?)', (message_id,filename,content_type,sha,len(data)))
                 self.db.execute('INSERT INTO messages_fts(rowid,subject,sender,body) VALUES (?,?,?,?)', (message_id,subject,sender,body or re.sub('<[^>]*>', ' ', html_body)))
-                action = 'ingest.redacted' if sensitive else 'ingest.tainted' if reasons else 'ingest'
+                action = 'ingest.unredacted' if restore else 'ingest.redacted' if sensitive else 'ingest.tainted' if reasons else 'ingest'
                 self.db.execute('INSERT INTO audit(action,message_id) VALUES (?,?)', (action,message_id))
             if mid:
                 for parent_mid in parent_ids:
@@ -308,10 +358,41 @@ def encode_mailbox(folder):
     return re.sub(r'[^\x20-\x7e]+', shifted, folder.replace('&', '&-'))
 
 
-def sync_imap(store, account, host='imap.gmail.com', folder='INBOX', limit=100, sent=False):
+FETCH_BATCH = 50
+
+# Special-use mailboxes keep one canonical (English Gmail) name in the archive whatever the account language.
+SPECIAL_USE = {'[Gmail]/Sent Mail': '\\Sent', '[Gmail]/Spam': '\\Junk', '[Gmail]/Drafts': '\\Drafts',
+               '[Gmail]/Trash': '\\Trash', '[Gmail]/All Mail': '\\All'}
+FOLDER_ALIASES = {'@sent': '[Gmail]/Sent Mail', '@spam': '[Gmail]/Spam', '@drafts': '[Gmail]/Drafts',
+                  '@trash': '[Gmail]/Trash', '@all': '[Gmail]/All Mail'}
+
+
+def special_mailbox(client, flag):
+    """Wire name of the mailbox carrying an RFC 6154 special-use flag, or None."""
+    status, rows = client.list()
+    if status != 'OK':
+        return None
+    for raw in rows or []:
+        line = raw.decode('utf-8', 'replace') if isinstance(raw, bytes) else str(raw)
+        match = re.match(r'\((.*?)\) (?:"[^"]*"|NIL) (.+)$', line)
+        if not match or flag.lower() not in match.group(1).lower().split():
+            continue
+        name = match.group(2).strip()
+        if name.startswith('"') and name.endswith('"'):
+            name = re.sub(r'\\(.)', r'\1', name[1:-1])
+        return name
+    return None
+
+
+def quote_mailbox(wire):
+    return '"' + wire.replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+
+def sync_imap(store, account, host='imap.gmail.com', folder='INBOX', limit=100, sent=False, refetch=False):
     """Fetch a bounded read-only snapshot. Never STORE, EXPUNGE, CLOSE or send."""
+    folder = FOLDER_ALIASES.get(folder, folder)
     folder_wire = encode_mailbox(folder)
-    quoted_folder = '"' + folder_wire.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    quoted_folder = quote_mailbox(folder_wire)
     import keyring
     password = keyring.get_password('aiwb/gmail', account)
     if not password:
@@ -324,6 +405,11 @@ def sync_imap(store, account, host='imap.gmail.com', folder='INBOX', limit=100, 
         if status != 'OK':
             raise RuntimeError('IMAP login failed')
         status, _ = client.select(quoted_folder, readonly=True)
+        if status != 'OK' and folder in SPECIAL_USE:
+            # Localized Gmail (e.g. Russian) names special folders differently: find them by RFC 6154 flag.
+            wire = special_mailbox(client, SPECIAL_USE[folder])
+            if wire:
+                status, _ = client.select(quote_mailbox(wire), readonly=True)
         if status != 'OK':
             raise RuntimeError('IMAP folder unavailable')
         _, validity = client.response('UIDVALIDITY')
@@ -335,18 +421,38 @@ def sync_imap(store, account, host='imap.gmail.com', folder='INBOX', limit=100, 
             raise RuntimeError('IMAP search failed')
         maximum = max(0,min(int(limit),10000))
         uids = (rows[0] or b'').split()[-maximum:] if maximum else []
-        for uid in uids:
-            status, parts = client.uid('fetch',uid,'(BODY.PEEK[])')
+        if not refetch:
+            # Incremental: UIDs already archived for this UIDVALIDITY are not downloaded again
+            # (refetch=True re-reads them, e.g. to restore stubs after a better heuristic).
+            # A message archived earlier as not sent (e.g. a single-folder snapshot of Sent) is read
+            # again so that it becomes sent and its reply edges count (section 5).
+            known = {r[0] for r in store.db.execute('SELECT l.uid FROM message_locations l JOIN messages m ON m.id=l.message_id WHERE l.account=? AND l.folder=? AND l.uidvalidity=? AND (m.is_sent=1 OR ?=0)', (account, folder, uidvalidity, int(sent)))}
+            result['skipped'] = sum(1 for u in uids if u.decode('ascii') in known)
+            uids = [u for u in uids if u.decode('ascii') not in known]
+        for start in range(0, len(uids), FETCH_BATCH):
+            # One round trip per batch: a message-by-message fetch took ~7 min per 600 messages.
+            batch = uids[start:start + FETCH_BATCH]
+            status, parts = client.uid('fetch', b','.join(batch), '(UID BODY.PEEK[])')
             if status != 'OK':
                 raise RuntimeError('IMAP fetch failed')
-            chunks = [p[1] for p in parts if isinstance(p,tuple) and isinstance(p[1],bytes)]
-            if len(chunks) != 1:
+            got = {}
+            for part in parts:
+                if isinstance(part, tuple) and isinstance(part[1], bytes):
+                    found = re.search(rb'(?:^|[ (])UID (\d+)', part[0])
+                    if not found or found.group(1) in got:
+                        raise RuntimeError('Unexpected IMAP message response')
+                    got[found.group(1)] = part[1]
+            if set(got) - set(batch):
                 raise RuntimeError('Unexpected IMAP message response')
-            result['fetched'] += 1
-            row = store.ingest(account,chunks[0],folder,uid.decode('ascii'),uidvalidity, sent=sent)
-            result['stored'] += 1
-            result['redacted'] += row['sensitive']
-            result['tainted'] += row['tainted']
+            for uid in batch:
+                if uid not in got:
+                    result['vanished'] = result.get('vanished', 0) + 1  # expunged since SEARCH
+                    continue
+                result['fetched'] += 1
+                row = store.ingest(account,got[uid],folder,uid.decode('ascii'),uidvalidity, sent=sent)
+                result['stored'] += 1
+                result['redacted'] += row['sensitive']
+                result['tainted'] += row['tainted']
         return result
     except imaplib.IMAP4.error:
         raise RuntimeError('IMAP operation failed; check credentials and account access') from None
@@ -358,12 +464,12 @@ def sync_imap(store, account, host='imap.gmail.com', folder='INBOX', limit=100, 
 
 
 
-def sync_account(store, account, sent_folder='[Gmail]/Sent Mail', limit=100):
+def sync_account(store, account, sent_folder='[Gmail]/Sent Mail', limit=100, refetch=False):
     """Gmail snapshot includes Sent. Explicit override supports localized folders.
 
     Completion of both snapshots is required; an unavailable Sent folder fails.
     This bounded snapshot is not evidence that the entire mailbox was checked.
     """
-    sent = sync_imap(store, account, folder=sent_folder, limit=limit, sent=True)
-    inbox = sync_imap(store, account, limit=limit)
+    sent = sync_imap(store, account, folder=sent_folder, limit=limit, sent=True, refetch=refetch)
+    inbox = sync_imap(store, account, limit=limit, refetch=refetch)
     return dict(inbox=inbox, sent=sent, complete_mailbox=False)

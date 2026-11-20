@@ -5,6 +5,7 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- Module concierge-mail 0.5.0: checked on a real Gmail mailbox (read only) — localized Gmail folders (Sent/Spam found by their special-use flags, `--folder @spam`), incremental sync with batched fetch (`--refetch` re-reads), meeting passcodes of Teams/Zoom/Webex invitations, pickup codes and "you can reset your password" footers are no longer redacted as sign-in codes and former stubs are restored on refetch; mailing lists, auto-replies and no-reply/shop robots are marked automated and left out of "your turn"; the briefing counts codes and flagged mail of the last 24 h by the message date.
 - Module concierge-mail 0.4.1: `briefing --account` also limits promises, drafts and cases to those accounts; `--text` prints plain lines.
 - Module concierge-mail 0.4.0: morning briefing (`briefing --text`, en/ru) — overdue promises, your turn, long silences, spam rescue, flagged mail, sign-in codes of the last day, drafts; read only.
 - Module concierge-mail 0.3.0: reverse spam filter (`spam-rescue`) — spam-folder messages from people the owner wrote to, known correspondents or domains of open cases, rescued only when the sender is authenticated (DMARC/aligned DKIM/SPF), read only.

@@ -115,7 +115,10 @@ class StoreTests(unittest.TestCase):
                 if command == 'search':
                     return 'OK', [b'1 2']
                 if command == 'fetch':
-                    return 'OK', [(b'BODY[]', raw if args[0] == b'1' else sensitive), b')']
+                    out = []
+                    for uid in args[0].split(b','):
+                        out += [(b'%s (UID %s BODY[] {9}' % (uid, uid), raw if uid == b'1' else sensitive), b')']
+                    return 'OK', out
                 raise AssertionError('Mutation attempted')
             def logout(self):
                 self.calls.append(('logout',))
@@ -124,15 +127,67 @@ class StoreTests(unittest.TestCase):
         keyring = types.SimpleNamespace(get_password=lambda service, account: secret)
         with patch.dict(sys.modules, keyring=keyring), patch('mailstore.imaplib.IMAP4_SSL', return_value=client):
             result = sync_imap(self.store, 'owner')
-            sync_imap(self.store, 'owner')
-        self.assertEqual(result, {'fetched': 2, 'stored': 2, 'redacted': 1, 'tainted': 0})
+            fetches = sum(1 for c in client.calls if c[0] == 'fetch')
+            again = sync_imap(self.store, 'owner')
+            self.assertEqual(sum(1 for c in client.calls if c[0] == 'fetch'), fetches)  # incremental: nothing downloaded
+            forced = sync_imap(self.store, 'owner', refetch=True)
+            # A folder first archived as not sent is read again by a sent sync (review 20.11).
+            sent = sync_imap(self.store, 'owner', sent=True)
+            sent_again = sync_imap(self.store, 'owner', sent=True)
+        self.assertEqual(result, {'fetched': 2, 'stored': 2, 'redacted': 1, 'tainted': 0, 'skipped': 0})
+        self.assertEqual((again['skipped'], again['fetched'], forced['fetched']), (2, 0, 2))
+        self.assertEqual((sent['fetched'], sent_again['fetched'], sent_again['skipped']), (2, 0, 2))
+        self.assertEqual(self.store.db.execute('SELECT is_sent FROM messages WHERE sensitive=0').fetchone()[0], 1)
         self.assertIn(('select', '"INBOX"', True), client.calls)
-        self.assertTrue(all(c[2] == '(BODY.PEEK[])' for c in client.calls if c[0] == 'fetch'))
+        self.assertEqual([c[1:] for c in client.calls if c[0] == 'fetch'][:1], [(b'1,2', '(UID BODY.PEEK[])')])
         self.assertEqual(len(self.store.list_messages()), 2)
         self.assertNotIn(b'123456', (self.root / 'mail.sqlite3').read_bytes())
         for path in self.root.rglob('*'):
             if path.is_file():
                 self.assertNotIn(secret.encode(), path.read_bytes())
+
+    def test_localized_special_folders_found_by_flag(self):
+        # Russian Gmail: no "[Gmail]/Sent Mail"; the folder carries \Sent (RFC 6154).
+        raw = message().as_bytes()
+        sent_wire = '[Gmail]/&BB4EQgQ,BEAEMAQyBDsENQQ9BD0ESwQ1-'
+        spam_wire = '[Gmail]/&BCEEPwQwBDw-'
+        class Client:
+            def __init__(self):
+                self.selected = []
+            def login(self, *args):
+                return 'OK', []
+            def select(self, folder, readonly=False):
+                assert readonly
+                self.selected.append(folder)
+                return ('OK', [b'1']) if folder.strip('"') in (sent_wire, spam_wire, 'INBOX') else ('NO', [b'unknown'])
+            def list(self):
+                return 'OK', [b'(\\HasNoChildren) "/" "INBOX"',
+                              ('(\\HasNoChildren \\Sent) "/" "%s"' % sent_wire).encode(),
+                              ('(\\HasNoChildren \\Junk) "/" "%s"' % spam_wire).encode()]
+            def response(self, key):
+                return key, [b'7']
+            def uid(self, command, *args):
+                if command == 'search':
+                    return 'OK', [b'1']
+                if command == 'fetch':
+                    return 'OK', [(b'1 (UID 1 BODY[] {9}', raw), b')']
+                raise AssertionError('Mutation attempted')
+            def logout(self):
+                pass
+        keyring = types.SimpleNamespace(get_password=lambda *args: 'test-only')
+        for folder, wire, stored in [('[Gmail]/Sent Mail', sent_wire, '[Gmail]/Sent Mail'),
+                                     ('@spam', spam_wire, '[Gmail]/Spam')]:
+            client = Client()
+            with patch.dict(sys.modules, keyring=keyring), patch('mailstore.imaplib.IMAP4_SSL', return_value=client):
+                sync_imap(self.store, 'owner', folder=folder)
+            self.assertEqual(client.selected[-1], '"%s"' % wire)
+            folders = {r[0] for r in self.store.db.execute('SELECT folder FROM message_locations')}
+            self.assertIn(stored, folders)
+        # An ordinary folder is never redirected by flag.
+        client = Client()
+        with patch.dict(sys.modules, keyring=keyring), patch('mailstore.imaplib.IMAP4_SSL', return_value=client):
+            with self.assertRaises(RuntimeError):
+                sync_imap(self.store, 'owner', folder='Jobs')
 
     def test_mailbox_names_on_actual_imap_command_wire(self):
         # Exercise imaplib.select and _command; replace only transport/response.

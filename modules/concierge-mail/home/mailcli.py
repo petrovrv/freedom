@@ -17,9 +17,10 @@ def main():
     imp.add_argument('--account', required=True)
     sync = sub.add_parser('sync')
     sync.add_argument('--account', required=True)
-    sync.add_argument('--folder', help='Single-folder diagnostic snapshot; default includes Inbox and Sent')
-    sync.add_argument('--sent-folder', default='[Gmail]/Sent Mail')
+    sync.add_argument('--folder', help='Single-folder snapshot (@spam, @sent, @all or a name); default includes Inbox and Sent')
+    sync.add_argument('--sent-folder', default='[Gmail]/Sent Mail', help='found by its Sent special-use flag when the account uses another language')
     sync.add_argument('--limit', type=int, default=100)
+    sync.add_argument('--refetch', action='store_true', help='download already archived UIDs again (restores stubs after heuristic fixes)')
     sub.add_parser('list')
     show = sub.add_parser('show')
     show.add_argument('id', type=int)
@@ -84,7 +85,7 @@ def main():
         if command == 'import-eml':
             result = store.ingest(args.account, args.file.read_bytes())
         elif command == 'sync':
-            result = sync_imap(store, args.account, folder=args.folder, limit=args.limit) if args.folder else sync_account(store, args.account, sent_folder=args.sent_folder, limit=args.limit)
+            result = sync_imap(store, args.account, folder=args.folder, limit=args.limit, refetch=args.refetch) if args.folder else sync_account(store, args.account, sent_folder=args.sent_folder, limit=args.limit, refetch=args.refetch)
         elif command == 'checkpoint':
             result = checkpoint(store, args.path)
         elif command == 'export-maildir':

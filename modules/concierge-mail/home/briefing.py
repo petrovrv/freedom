@@ -38,12 +38,13 @@ TEXT = {
 
 def _when(row):
     """Message time: the Date header, else the ingest time (UTC)."""
-    try:
-        parsed = parsedate_to_datetime(row['date'])
-        if parsed.tzinfo is not None:
-            return parsed.astimezone(timezone.utc)
-    except (TypeError, ValueError, IndexError):
-        pass
+    for parse in (parsedate_to_datetime, datetime.fromisoformat):  # stubs keep an ISO date
+        try:
+            parsed = parse(row['date'])
+            if parsed.tzinfo is not None:
+                return parsed.astimezone(timezone.utc)
+        except (TypeError, ValueError, IndexError):
+            pass
     return datetime.fromisoformat(row['created']).replace(tzinfo=timezone.utc)
 
 
@@ -76,7 +77,7 @@ def morning(flow, now, accounts=None, days=14, stale_days=7, spam_folder='[Gmail
         if row['thread_id'] not in latest or row['when'] > latest[row['thread_id']]['when']:
             latest[row['thread_id']] = row
     spam_ids = {r[0] for r in db.execute('SELECT message_id FROM message_locations WHERE folder=?', (spam_folder,))}
-    your_turn, waiting = [], []
+    your_turn, waiting, automated = [], [], []
     for thread_id, row in latest.items():
         case_ids = {r[0] for r in db.execute('SELECT case_id FROM messages WHERE thread_id=? AND case_id IS NOT NULL', (thread_id,))}
         if any(states.get(c) == 'closed' for c in case_ids) or row['id'] in spam_ids:
@@ -85,7 +86,8 @@ def morning(flow, now, accounts=None, days=14, stale_days=7, spam_folder='[Gmail
                     at=row['when'].isoformat(), case=next((titles[c] for c in sorted(case_ids)), None), tainted=bool(row['tainted']))
         if not row['is_sent']:
             if row['when'] >= since and not flow.already_answered(thread_id):
-                your_turn.append(item)
+                # Lists, auto-replies and no-reply robots wait for nobody (counted, not listed).
+                (automated if row['automated'] else your_turn).append(item)
         elif any(states.get(c) == 'waiting_them' for c in case_ids) or not case_ids:
             # The owner wrote last: worth a line only when the silence grows long.
             if since <= row['when'] <= now_dt - timedelta(days=stale_days):
@@ -109,10 +111,11 @@ def morning(flow, now, accounts=None, days=14, stale_days=7, spam_folder='[Gmail
         spam['rescued'] += found['rescued']
         spam['unverified'] += found['unverified']
 
-    recent = 'account IN (' + slots + ') AND created>=?'
-    stamp = day_ago.strftime('%Y-%m-%d %H:%M:%S')
-    codes = [r[0] for r in db.execute('SELECT sender FROM messages WHERE sensitive=1 AND ' + recent + ' ORDER BY id', [*accounts, stamp])]
-    tainted = [dict(r) for r in db.execute('SELECT id,thread_id,sender,subject,taint_reasons FROM messages WHERE tainted=1 AND ' + recent + ' ORDER BY id', [*accounts, stamp])]
+    # The last 24 h by the message's own date: a backfill of old mail is not news.
+    recent = [dict(r) for r in db.execute('SELECT id,thread_id,sender,subject,taint_reasons,sensitive,tainted,date,created FROM messages WHERE (sensitive=1 OR tainted=1) AND account IN (' + slots + ') ORDER BY id', accounts)]
+    recent = [r for r in recent if day_ago <= _when(r) <= now_dt + timedelta(hours=1)]
+    codes = [r['sender'] for r in recent if r['sensitive']]
+    tainted = [{k: r[k] for k in ('id', 'thread_id', 'sender', 'subject', 'taint_reasons')} for r in recent if r['tainted'] and not r['sensitive']]
     drafts = [flow._draft(r) for r in db.execute('SELECT v.* FROM wf_draft_versions v JOIN wf_draft_heads h ON h.version_id=v.id JOIN threads t ON t.id=v.thread_id WHERE t.account IN (' + slots + ') ORDER BY v.id', accounts)]
 
     def label(i):
@@ -135,5 +138,5 @@ def morning(flow, now, accounts=None, days=14, stale_days=7, spam_folder='[Gmail
     if drafts:
         text.append(words['drafts'].format(n=len(drafts), items=_join([d['subject'] or '#%d' % d['thread_id'] for d in drafts], words)))
     return dict(as_of=now, accounts=accounts, overdue=overdue, promises=promises, your_turn=your_turn, waiting=waiting,
-                spam=spam, auth_messages=len(codes), tainted=tainted, drafts=drafts,
+                spam=spam, automated=len(automated), auth_messages=len(codes), tainted=tainted, drafts=drafts,
                 quiet=not text, text=text or [words['quiet']])

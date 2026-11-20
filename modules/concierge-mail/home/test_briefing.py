@@ -101,6 +101,17 @@ class BriefingTests(unittest.TestCase):
         self.assertNotIn('Other', ' '.join(result['text']))
         self.assertEqual(len(self.flow.briefing(now=NOW)['overdue']), 2)
 
+    def test_robots_do_not_wait_for_an_answer_and_codes_use_message_date(self):
+        robot = message(mid='<rb1@ex>', subject='Your order shipped'); robot['List-Unsubscribe'] = '<mailto:u@shop.example>'
+        self.put(robot.as_bytes())
+        self.put(message(mid='<hu1@ex>', subject='Interview').as_bytes())
+        # Old sign-in code imported today (a backfill) is not news; a fresh one is.
+        self.put(message(mid='<c1@ex>', subject='Login', body='Your verification code is 123456').as_bytes(), date='Mon, 02 Nov 2026 09:00:00 +0000')
+        self.put(message(mid='<c2@ex>', subject='Login', body='Your verification code is 654321').as_bytes(), date='Fri, 20 Nov 2026 06:00:00 +0000')
+        result = self.flow.briefing(now=NOW)
+        self.assertEqual([i['subject'] for i in result['your_turn']], ['Interview'])
+        self.assertEqual((result['automated'], result['auth_messages']), (1, 1))
+
     def test_cli_text_is_plain_lines(self):
         import subprocess, sys
         self.store.close()

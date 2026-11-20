@@ -40,6 +40,13 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(row['subject'], '[authentication message]')
             self.assertNotIn(b'AB12CD', (self.root/'mail.sqlite3').read_bytes())
         self.assert_stub(row)
+    def test_stub_headers_carry_no_code(self):
+        m = message(body='Your code is 482913', mid='<482913@ex.org>')
+        m.replace_header('From', 'Code 482913 <No-Reply@Ex.org>')
+        m['In-Reply-To'] = '<ref-482913@ex.org>'
+        row = self.store.ingest('owner', m.as_bytes())
+        self.assertEqual((row['sender'], row['message_id'], row['recipients']), ('@ex.org', '', 'bob@example.org'))
+        self.assertNotIn(b'482913', (self.root/'mail.sqlite3').read_bytes())
     def test_ordinary_numbers_are_not_authentication(self):
         for body in ['Our zip code 9840 changed', 'Vacancy code 74816180: HVAC engineer',
                      'Please log in to the portal with your password to see the offer',

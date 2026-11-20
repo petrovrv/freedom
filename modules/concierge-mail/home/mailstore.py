@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools" / "read-gua
 import read_guard
 from email import policy
 from email.parser import BytesParser
+from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 
 
 class SensitiveMessageError(ValueError):
@@ -178,10 +179,21 @@ class Store:
             digest = hashlib.sha256(raw).hexdigest()
         else:
             digest = self._blob(raw)
+        sender, recipients, date = str(mail.get('from', '')), str(mail.get('to', '')), str(mail.get('date', ''))
         mid = str(mail.get('message-id', ''))
         refs = re.findall(r'<[^>]+>', str(mail.get('references', '')))
         thread_key = (refs[0] if refs else str(mail.get('in-reply-to', ''))) or mid or digest
         parent_ids = re.findall(r'<[^>]+>', str(mail.get('in-reply-to', ''))) + list(reversed(refs))
+        if sensitive:
+            # Headers may carry the code too: keep the sender's domain, bare
+            # recipient addresses and a normalized date; the stub is not threaded.
+            sender = '@' + parseaddr(sender)[1].rpartition('@')[2].lower()
+            recipients = ', '.join(a for _, a in getaddresses([recipients]) if a)
+            try:
+                date = parsedate_to_datetime(date).isoformat()
+            except (TypeError, ValueError, IndexError):
+                date = ''
+            mid, parent_ids, thread_key = '', [], digest
         for parent_mid in parent_ids:
             parent = self.db.execute('SELECT t.thread_key FROM messages m JOIN threads t ON t.id=m.thread_id WHERE m.account=? AND m.message_id=?', (account, parent_mid)).fetchone()
             if parent:
@@ -195,12 +207,12 @@ class Store:
             if existing:
                 message_id = existing[0]
             else:
-                cur = self.db.execute('INSERT INTO messages(account,thread_id,raw_sha256,message_id,subject,sender,recipients,date,body,html,sensitive,tainted,taint_reasons) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', (account,thread,digest,mid,subject,str(mail.get('from','')),str(mail.get('to','')),str(mail.get('date','')),body,html_body,int(sensitive),int(bool(reasons)),json.dumps(reasons)))
+                cur = self.db.execute('INSERT INTO messages(account,thread_id,raw_sha256,message_id,subject,sender,recipients,date,body,html,sensitive,tainted,taint_reasons) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', (account,thread,digest,mid,subject,sender,recipients,date,body,html_body,int(sensitive),int(bool(reasons)),json.dumps(reasons)))
                 message_id = cur.lastrowid
                 for filename, content_type, data in attachments:
                     sha = self._blob(data)
                     self.db.execute('INSERT INTO attachments(message_id,filename,content_type,sha256,size) VALUES (?,?,?,?,?)', (message_id,filename,content_type,sha,len(data)))
-                self.db.execute('INSERT INTO messages_fts(rowid,subject,sender,body) VALUES (?,?,?,?)', (message_id,subject,str(mail.get('from','')),body or re.sub('<[^>]*>', ' ', html_body)))
+                self.db.execute('INSERT INTO messages_fts(rowid,subject,sender,body) VALUES (?,?,?,?)', (message_id,subject,sender,body or re.sub('<[^>]*>', ' ', html_body)))
                 action = 'ingest.redacted' if sensitive else 'ingest.tainted' if reasons else 'ingest'
                 self.db.execute('INSERT INTO audit(action,message_id) VALUES (?,?)', (action,message_id))
             if mid:

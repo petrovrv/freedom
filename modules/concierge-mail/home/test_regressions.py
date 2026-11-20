@@ -31,7 +31,8 @@ class RegressionTests(unittest.TestCase):
                   ('Account', 'Forgot your password? https://example.org/r?t=AB12CD'),
                   ('Wachtwoord herstellen', 'https://example.org/r?t=AB12CD'),
                   ('Сброс пароля', 'https://example.org/r?t=AB12CD'),
-                  ('Welcome', 'Confirm your email address: https://example.org/v?t=AB12CD')]
+                  ('Welcome', 'Confirm your email address: https://example.org/v?t=AB12CD'),
+                  ('Sign in to Example', 'Here is the code you need: AB12CD'),('Hello', 'Your code is AB12CD')]
         for n, (subject, body) in enumerate(resets):
             with self.subTest(subject=subject):
                 self.assert_stub(self.store.ingest('owner', message(subject=subject, body=body, mid=f'<r{n}@ex>').as_bytes()), b'AB12CD')

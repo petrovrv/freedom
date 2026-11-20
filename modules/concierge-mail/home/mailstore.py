@@ -37,7 +37,8 @@ _OTP = re.compile(r'(?i)\b(?:one[ -]?time|verification|security|authentication|c
                   r'|\b(?:reset|change|recover)\s+(?:your\s+)?password\b|\bpassword\s+(?:reset|recovery|change)\b|\bnew\s+password\b|\bforgot\s+(?:your\s+)?password\b'
                   r'|\b(?:verify|confirm)\s+(?:your\s+)?(?:e-?mail(?:\s+address)?|account|identity|sign[ -]?in|login)\b|\b2-step\s+verification\b'
                   r'|wachtwoord\s+(?:herstellen|resetten|wijzigen|vergeten)|nieuw\s+wachtwoord|(?:сброс|восстановлени|смен)\w*\s+парол|нов\w*\s+парол|\bmagic\s+link\b|\bpasscode\b'
-                  r'|\b(?:code|pin|passcode)\W{0,3}(?:is\b)?\W{0,3}\d{4,8}\b|\bclick\b.{0,40}\bsign[ -]?in\b|\b(?:sign|log)[ -]?in\b.{0,40}https?://'
+                  r'|\b(?:code|pin|passcode)\W{0,3}(?:is\b)?\W{0,3}(?:\d{4,8}\b|(?=[a-z0-9-]{4,12}\b)(?=[a-z-]*\d)(?=\d*[a-z])[a-z0-9-]{4,12}\b)'
+                  r'|\b(?:verification|authentication|login|log[ -]?in|sign[ -]?in)\b.{0,60}\bcode\b|\bclick\b.{0,40}\bsign[ -]?in\b|\b(?:sign|log)[ -]?in\b.{0,40}https?://'
                   r'|код\s+(?:подтверждения|входа|доступа)|\bкод\W{0,3}\d{4,8}\b|одноразов\w*\s+(?:код|парол)'
                   r'|verificatiecode|beveiligingscode|inlogcode|eenmalige\s+code')
 
@@ -156,16 +157,19 @@ class Store:
         visit(mail)
         # Classify every decoded text part, nested ones included. Binary parts are
         # not decoded as text: their analysis belongs to attachment extraction.
-        texts = [str(mail.get('subject', ''))]
+        texts, contents = [str(mail.get('subject', ''))], []
         for part in mail.walk():
             texts.append(' '.join(str(v) for _, v in part.items()))
             if not part.is_multipart() and part.get_content_maintype() == 'text':
                 payload = part.get_payload(decode=True) or b''
                 try:
-                    texts.append(payload.decode(part.get_content_charset() or 'utf-8', errors='replace'))
+                    contents.append(payload.decode(part.get_content_charset() or 'utf-8', errors='replace'))
                 except LookupError:
-                    texts.append(payload.decode('utf-8', errors='replace'))
-        sensitive = any(is_authentication(t) for t in texts)
+                    contents.append(payload.decode('utf-8', errors='replace'))
+        texts += contents
+        # Each part alone and all together: a keyword in the subject and the
+        # code in the body must still be recognized.
+        sensitive = any(is_authentication(t) for t in texts) or is_authentication(' '.join([texts[0], *contents]))
         # Suspicious mail is kept (evidence, nothing silently lost) but tainted:
         # actions on its thread wait for an explicit yes (section 16).
         reasons = sorted({r for t in texts for r in guard_reasons(t)})

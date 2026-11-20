@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
  "version": "0.2.1",
- "created": "2026-11-20T09:09:13Z",
+ "created": "2026-11-20T09:12:00Z",
  "files": [
   {
    "path": "context/mail.md",
@@ -20,8 +20,8 @@
   },
   {
    "path": "home/mailstore.py",
-   "size": 21160,
-   "sha256": "c79312e02f8fc7890d95922a94a8e9d5874014b8c468ab27ff5134c5f8ee0b03"
+   "size": 21564,
+   "sha256": "e613a47473ea42af49bd42ce13fd593c69239fe2b9d21ef4c9d6e94f62022e53"
   },
   {
    "path": "home/test_archive.py",
@@ -35,8 +35,8 @@
   },
   {
    "path": "home/test_regressions.py",
-   "size": 14511,
-   "sha256": "649e142312165e13f5ef82899c6ba0e12f70a3119ea93b025927b90ce6050c99"
+   "size": 14624,
+   "sha256": "fe27a3d7934f0666edc794e890806df745338bda511b6a1b1c1802de94e8db57"
   },
   {
    "path": "home/workflow.py",
@@ -58,7 +58,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "yvA34QoqtjcGB1I/tVWk6lsUfBrM8vfnyMANtUBgQB695bAbiODI0fi/T/iz7Tx44NoDSdRS50sZuw0ukfwCDA=="
+   "sig": "3m6l9bNc3sX5LwKbcFYwKHnUD6vVo+7Tq30CD9njANzYeaO1fW8zpdczgRFWb8pIfQzACeAJB9vRHuEahS3qCg=="
   }
  ],
  "module": "concierge-mail"

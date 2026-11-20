@@ -5,6 +5,9 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- Server: delivery channels of a push — push.php `op=channels {env}` lists `devices` (subscribed CO devices) and the notify hooks of enabled modules (`<module>/<id>`, ready from the optional ext/1 notify hook `status`); `op=notify` takes `channels: [...]` to send only there (without it, as before, everywhere).
+- Module whatsapp 0.5.3: notify hook `status` — ready when the WhatsApp service writes the person's pushes.
+- Module concierge-mail 0.6.0: delivery of the morning briefing to the channels the person chose (`deliver channels | set | show | send | tick`), schedule every 10 min sends once a day after the chosen time; the module names no channel and sends nothing before a choice.
 - Module concierge-mail 0.5.0: checked on a real Gmail mailbox (read only) — localized Gmail folders (Sent/Spam found by their special-use flags, `--folder @spam`), incremental sync with batched fetch (`--refetch` re-reads), meeting passcodes of Teams/Zoom/Webex invitations, pickup codes and "you can reset your password" footers are no longer redacted as sign-in codes and former stubs are restored on refetch; mailing lists, auto-replies and no-reply/shop robots are marked automated and left out of "your turn"; the briefing counts codes and flagged mail of the last 24 h by the message date.
 - Module concierge-mail 0.4.1: `briefing --account` also limits promises, drafts and cases to those accounts; `--text` prints plain lines.
 - Module concierge-mail 0.4.0: morning briefing (`briefing --text`, en/ru) — overdue promises, your turn, long silences, spam rescue, flagged mail, sign-in codes of the last day, drafts; read only.

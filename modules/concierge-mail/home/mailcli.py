@@ -6,11 +6,12 @@ from mailstore import Store, sync_imap, sync_account
 from workflow import Workflow, critic
 from archive import checkpoint, restore_checkpoint, verify_checkpoint, export_maildir
 import read_guard
+import deliver
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--root', required=True, type=Path)
+    parser.add_argument('--root', type=Path, help='archive folder; default concierge-mail/archive next to install.json')
     sub = parser.add_subparsers(dest='command', required=True)
     imp = sub.add_parser('import-eml')
     imp.add_argument('file', type=Path)
@@ -68,12 +69,28 @@ def main():
     rescue.add_argument('--account', required=True)
     rescue.add_argument('--folder', default='[Gmail]/Spam')
     sub.add_parser('audit')
+    dlv = sub.add_parser('deliver', help='send the briefing to the channels the person chose (push, messenger...)')
+    dsub = dlv.add_subparsers(dest='action', required=True)
+    dch = dsub.add_parser('channels', help='where the workbench can deliver (core push and modules), ready ones suggested')
+    dch.add_argument('--env')
+    dset = dsub.add_parser('set', help='choose channels, time, language, accounts')
+    dset.add_argument('--env')
+    dset.add_argument('--channels', help='comma separated ids from deliver channels')
+    dset.add_argument('--at', help='HH:MM local time')
+    dset.add_argument('--lang', choices=['en', 'ru'])
+    dset.add_argument('--account', action='append', help='synced before each briefing; repeat for several')
+    dset.add_argument('--off', action='store_true', help='stop the daily delivery, keep the choice')
+    dsub.add_parser('show')
+    dsend = dsub.add_parser('send', help='sync and send the briefing now')
+    dsend.add_argument('--dry-run', action='store_true', help='build it, send nothing')
+    dsub.add_parser('tick', help='what the schedule runs: send once a day after the chosen time')
     for name in ('checkpoint', 'restore', 'verify', 'export-maildir'):
         cmd = sub.add_parser(name)
         cmd.add_argument('path', type=Path)
         if name == 'export-maildir':
             cmd.add_argument('--account', required=True)
     args = parser.parse_args()
+    args.root = args.root or deliver.default_root()
     if args.command in ('restore', 'verify'):
         result = restore_checkpoint(args.path, args.root) if args.command == 'restore' else verify_checkpoint(args.path)
         print(json.dumps(result))
@@ -126,6 +143,8 @@ def main():
         elif command == 'briefing':
             result = flow.briefing(accounts=args.account, lang=args.lang, days=args.days)
             result = result['text'] if args.text else result
+        elif command == 'deliver':
+            result = run_deliver(args, store, flow)
         else:
             result = store.audit()
         guarded = read_guard.guard_obj(result, source='concierge-mail', tool='mailcli')
@@ -136,6 +155,29 @@ def main():
             print(json.dumps(guarded, ensure_ascii=False, indent=2))
     finally:
         store.close()
+
+
+def run_deliver(args, store, flow):
+    site = deliver.Site()
+    if args.action == 'channels':
+        return deliver.channels(site, args.env or deliver.load(args.root).get('env') or deliver.default_env())
+    if args.action == 'set':
+        chosen = [c.strip() for c in args.channels.split(',') if c.strip()] if args.channels is not None else None
+        return deliver.configure(args.root, site, args.env or deliver.default_env(), chosen=chosen, at=args.at, lang=args.lang,
+                                 accounts=args.account, off=args.off)
+    if args.action == 'show':
+        return deliver.load(args.root)
+
+    def briefing(accounts, lang):
+        lines = flow.briefing(accounts=accounts, lang=lang)['text']
+        return read_guard.guard_obj(lines, source='concierge-mail', tool='mailcli')
+
+    def sync(account):
+        sync_account(store, account)
+
+    if args.action == 'send':
+        return deliver.send(args.root, site, briefing, sync=sync, dry_run=args.dry_run)
+    return deliver.tick(args.root, site, briefing, sync=sync)
 
 
 if __name__ == '__main__':

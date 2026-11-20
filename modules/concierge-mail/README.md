@@ -37,4 +37,17 @@ Existing destinations are never overwritten. Checkpoints are **plaintext local r
 
 Messages from mailing lists (List-Id, List-Unsubscribe), bulk or auto-submitted mail and no-reply, order, billing or notification robots are marked `automated` at import (older archives are classified once on open); they never count as "your turn" (the briefing only reports how many). The 24 h windows for codes and flagged mail use the message date, so a backfill of old mail is not news. Meeting passcodes next to a Teams/Zoom/Webex meeting id (en/de/nl/fr/ru), pickup codes and "you can also reset your password" footers are not sign-in codes.
 
-`briefing [--account A ...] [--lang en|ru] [--days 14] [--text]` gives, most urgent first: overdue promises (yours, then theirs with a reminder hint), threads where the other side wrote last and no reply is sent (last `--days` days, closed cases and spam excluded), the spam rescue, mail flagged by read-guard and sign-in codes/links of the last 24 h (sender domain only), threads where the owner wrote last and nobody answered for 7+ days, and waiting drafts. `--text` prints only short lines for a push, WhatsApp or the voice hub; a quiet morning is one line. Read only: no drafts are created and nothing is sent or moved. Delivery on a schedule is not wired yet.
+`briefing [--account A ...] [--lang en|ru] [--days 14] [--text]` gives, most urgent first: overdue promises (yours, then theirs with a reminder hint), threads where the other side wrote last and no reply is sent (last `--days` days, closed cases and spam excluded), the spam rescue, mail flagged by read-guard and sign-in codes/links of the last 24 h (sender domain only), threads where the owner wrote last and nobody answered for 7+ days, and waiting drafts. `--text` prints only short lines for a push, WhatsApp or the voice hub; a quiet morning is one line. Read only: no drafts are created and nothing is sent or moved.
+
+## Delivery of the briefing
+
+The module names no channel. `deliver channels` asks the own site (push.php `op=channels`, push key `aiwb/co-push`)
+where a push to the person can go: `devices` (CO push to the subscribed devices) and every notify hook of an enabled
+module (`<module>/<id>`, e.g. a messenger), with `ready` when the module says so; `suggested` lists the ready ones.
+Nothing is delivered until the person chose: `deliver set --channels devices,<module>/<id> --at 07:30 --lang ru
+[--account <address> ...]` keeps the choice in `delivery.json` next to the archive (unknown channels are refused,
+channels that are not ready give a warning). The module's schedule runs `deliver tick` every 10 minutes: once a day
+from the chosen time (a PC that wakes up more than 3 h later skips the day), it syncs the chosen accounts, builds the
+briefing and pushes it only to the chosen channels (title + at most 400 characters, the rest as "… +N").
+`deliver send [--dry-run]` does it now, `deliver set --off` stops it and keeps the choice, `deliver show` prints it.
+A separate settings page is planned.

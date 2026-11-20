@@ -1,15 +1,53 @@
 {
   "schema": 1,
   "id": "concierge-mail",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "title": "Mail concierge",
   "ext": ">=1 <2",
   "scope": "environment",
-  "platforms": ["windows", "linux", "macos"],
-  "requires": {"core": [], "modules": []},
-  "permissions": ["context", "net.outbound:imap.gmail.com", "secrets.read"],
+  "platforms": [
+    "windows",
+    "linux",
+    "macos"
+  ],
+  "requires": {
+    "core": [
+      "push"
+    ],
+    "modules": []
+  },
+  "permissions": [
+    "context",
+    "net.outbound:imap.gmail.com",
+    "secrets.read",
+    "push.key"
+  ],
   "isolation": "choice",
-  "defaults": {"enabled": false},
-  "dataPolicy": {"onDisable": "keep", "onRemove": "keep", "migrations": "additive"},
-  "provides": {"context": [{"file": "context/mail.md"}]}
+  "defaults": {
+    "enabled": false
+  },
+  "dataPolicy": {
+    "onDisable": "keep",
+    "onRemove": "keep",
+    "migrations": "additive"
+  },
+  "provides": {
+    "context": [
+      {
+        "file": "context/mail.md"
+      }
+    ],
+    "services": [
+      {
+        "id": "briefing",
+        "kind": "schedule",
+        "every": "PT10M",
+        "cwd": "home",
+        "run": "python mailcli.py deliver tick"
+      }
+    ],
+    "data": {
+      "home": "concierge-mail/ next to install.json (archive, delivery.json with the person's channels and time)"
+    }
+  }
 }

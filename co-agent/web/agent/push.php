@@ -48,13 +48,29 @@ try {
             co_json(400, ['error' => 'env_required']);
         }
         // co_push_notify (push-lib.php): limits, same-origin url, [[silent]] (0.82.1 A1 observer) sends nothing;
-        // the server's own "job finished" push of site jobs goes the same way (co_push_job_finished)
+        // the server's own "job finished" push of site jobs goes the same way (co_push_job_finished).
+        // channels (optional): only these delivery channels (op=channels), else all of them
+        $channels = isset($in['channels']) ? (is_array($in['channels']) ? array_slice($in['channels'], 0, 20) : []) : null;
         $counters = co_push_notify($env, co_push_str($in['title'] ?? null), co_push_str($in['body'] ?? null),
-            co_push_str($in['url'] ?? null), co_push_str($in['tag'] ?? null));
+            co_push_str($in['url'] ?? null), co_push_str($in['tag'] ?? null), null, $channels);
         if (empty($counters['silent'])) {
             co_watch_check(); // opportunistic watchdog run; never throws
         }
         co_json(200, $counters);
+    }
+
+    // ---------- channels (home PC, same key as notify): where a push to env can go ----------
+    if ($op === 'channels') {
+        $key = co_push_notify_key();
+        $given = co_push_str($_SERVER['HTTP_X_CO_PUSH_KEY'] ?? null);
+        if ($key === '' || !hash_equals($key, $given)) {
+            co_json(403, ['error' => 'forbidden']);
+        }
+        $env = co_push_str($in['env'] ?? null);
+        if ($env === '') {
+            co_json(400, ['error' => 'env_required']);
+        }
+        co_json(200, ['channels' => co_push_channels($env)]);
     }
 
     // ---------- heartbeat (home PC, same key as notify) ----------
@@ -76,7 +92,7 @@ try {
     }
 
     // ---------- push-key ops of enabled modules (schema 27, Freedom F10; e.g. a status put of a home PC service) ----------
-    if (preg_match(CO_MODULE_OP_RE, $op) && !in_array($op, ['heartbeat', 'watch', 'key', 'notify', 'subscribe', 'unsubscribe', 'status', 'test'], true)) {
+    if (preg_match(CO_MODULE_OP_RE, $op) && !in_array($op, ['heartbeat', 'watch', 'key', 'notify', 'channels', 'subscribe', 'unsubscribe', 'status', 'test'], true)) {
         $db = null;
         try {
             $db = co_db();

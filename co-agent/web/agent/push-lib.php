@@ -400,7 +400,7 @@ function co_push_send(array $sub, array $payload, int $ttl = 86400, string $topi
  * the push to its person): the members whose devices $filter takes (filters look at the subscription's env), and the
  * payload. Runs whether or not the env has a subscribed device. Never throws, never blocks the push.
  */
-function co_push_mirror(callable $filter, array $payload): void
+function co_push_mirror(callable $filter, array $payload, ?array $channels = null): void
 {
     if (!function_exists('co_module_hooks') || !function_exists('co_members') || !function_exists('co_db')) return;
     try {
@@ -416,7 +416,7 @@ function co_push_mirror(callable $filter, array $payload): void
         $db = co_db();
         foreach (co_module_hooks($db, 'notify') as $p) {
             $fn = $p['hooks']['push'] ?? null;
-            if ($fn === null) continue;
+            if ($fn === null || ($channels !== null && !in_array($p['module']['id'] . '/' . $p['id'], $channels, true))) continue;
             try {
                 $fn(co_module_ctx($db, $p['module']), ['envs' => $envs] + $payload);
             } catch (Throwable $e) {
@@ -428,12 +428,16 @@ function co_push_mirror(callable $filter, array $payload): void
     }
 }
 
-/** @return array{sent:int, removed:int, failed:int} */
-function co_push_broadcast(callable $filter, array $payload, string $topic): array
+/**
+ * Delivery channels of a push (ext/1 notify): CO_PUSH_DEVICES = the subscribed devices (Web Push), "<module>/<id>" = a
+ * notify hook of an enabled module. $channels null = all of them (every push of the core goes everywhere).
+ * @return array{sent:int, removed:int, failed:int}
+ */
+function co_push_broadcast(callable $filter, array $payload, string $topic, ?array $channels = null): array
 {
-    co_push_mirror($filter, $payload);
+    co_push_mirror($filter, $payload, $channels);
     $results = [];
-    foreach (co_push_load() as $id => $sub) {
+    foreach ($channels === null || in_array(CO_PUSH_DEVICES, $channels, true) ? co_push_load() : [] as $id => $sub) {
         if (is_array($sub) && $filter($sub)) {
             $results[(string)$id] = co_push_send($sub, $payload, 86400, $topic);
         }
@@ -489,7 +493,7 @@ function co_push_broadcast(callable $filter, array $payload, string $topic): arr
  * One push to the devices of $env ('*' = all): what push.php op=notify does for Bridge. A body starting with [[silent]]
  * (A1 observer, 0.82.1) sends nothing. Returns the counters of co_push_broadcast, or ['sent' => 0, 'silent' => true].
  */
-function co_push_notify(string $env, string $title, string $body, string $url, string $tag, ?callable $send = null): array
+function co_push_notify(string $env, string $title, string $body, string $url, string $tag, ?callable $send = null, ?array $channels = null): array
 {
     $title = mb_substr($title, 0, 120);
     $body = mb_substr($body, 0, 400);
@@ -503,11 +507,53 @@ function co_push_notify(string $env, string $title, string $body, string $url, s
         return ['sent' => 0, 'silent' => true];
     }
     $send ??= 'co_push_broadcast';
-    return $send(
-        static fn(array $s): bool => $env === '*' || ($s['env'] ?? null) === $env,
-        ['title' => $title, 'body' => $body, 'url' => $url, 'tag' => $tag],
-        $tag
-    );
+    $filter = static fn(array $s): bool => $env === '*' || ($s['env'] ?? null) === $env;
+    $payload = ['title' => $title, 'body' => $body, 'url' => $url, 'tag' => $tag];
+    if ($channels === null) return $send($filter, $payload, $tag);
+    return $send($filter, $payload, $tag, array_values(array_unique(array_filter($channels, 'co_push_channel_ok'))));
+}
+
+const CO_PUSH_DEVICES = 'devices';
+
+function co_push_channel_ok(mixed $id): bool
+{
+    return is_string($id) && ($id === CO_PUSH_DEVICES || preg_match('~^[a-z0-9][a-z0-9-]{0,39}/[a-z0-9][a-z0-9_-]{0,39}$~', $id) === 1);
+}
+
+/**
+ * Where a push to $env can go (push.php op=channels, e.g. a module that lets its person choose where its reports go):
+ * [{id, kind: core|module, title, ready: bool|null, devices?, module?, note?}]. ready of a module channel comes from its
+ * optional notify hook 'status' (ctx, {env}) -> {ready, note?}; null when the module does not say.
+ */
+function co_push_channels(string $env): array
+{
+    $n = 0;
+    foreach (co_push_load() as $sub) if (is_array($sub) && ($sub['env'] ?? null) === $env) $n++;
+    $out = [['id' => CO_PUSH_DEVICES, 'kind' => 'core', 'title' => 'CO push (subscribed devices)', 'ready' => $n > 0, 'devices' => $n]];
+    if (!function_exists('co_module_hooks') || !function_exists('co_db')) return $out;
+    try {
+        $db = co_db();
+        foreach (co_module_hooks($db, 'notify') as $p) {
+            if (!isset($p['hooks']['push'])) continue;
+            $c = ['id' => $p['module']['id'] . '/' . $p['id'], 'kind' => 'module', 'module' => $p['module']['id'],
+                'title' => (string)($p['module']['manifest']['title'] ?? $p['module']['id']), 'ready' => null];
+            if (isset($p['hooks']['status'])) {
+                try {
+                    $st = ($p['hooks']['status'])(co_module_ctx($db, $p['module']), ['env' => $env]);
+                    if (is_array($st)) {
+                        $c['ready'] = !empty($st['ready']);
+                        if (isset($st['note'])) $c['note'] = mb_substr((string)$st['note'], 0, 200);
+                    }
+                } catch (Throwable $e) {
+                    error_log("notify status {$c['id']}: " . $e->getMessage());
+                }
+            }
+            $out[] = $c;
+        }
+    } catch (Throwable $e) {
+        error_log('co_push_channels: ' . $e->getMessage());
+    }
+    return $out;
 }
 
 // ---------- Job finished (D 12.11.2026: the server's copy of Bridge's NotifyJobFinished) ----------

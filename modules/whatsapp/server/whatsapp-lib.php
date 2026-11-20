@@ -314,6 +314,18 @@ function co_wa_push_hook(array $ctx, array $in): void
     });
 }
 
+/** notify hook 'status' {env}: ready when the WhatsApp service asked for the env's pushes within CO_WA_PUSH_SUB_S. */
+function co_wa_push_status(array $ctx, array $in): array
+{
+    $env = (string)($in['env'] ?? '');
+    $f = (string)$ctx['stateDir'] . '/pushes.json';
+    $s = is_file($f) ? json_decode((string)file_get_contents($f), true) : null;
+    $t = is_array($s) && co_db_id_ok($env) ? (int)($s['subs'][$env] ?? 0) : 0;
+    return time() - $t <= CO_WA_PUSH_SUB_S
+        ? ['ready' => true, 'note' => 'the WhatsApp service writes this person\'s pushes to their number']
+        : ['ready' => false, 'note' => 'pushes of this person are not on: whatsapp-agent config --pushes <env> on the home PC'];
+}
+
 /**
  * Host op wa_pushes {envs: [..], after?: id} (the WhatsApp service): keeps the envs subscribed and returns their copies
  * newer than `after`. Without `after` (first call) only the current position: no backlog.

@@ -1,12 +1,12 @@
 {
  "format": "freedom-release/1",
- "version": "0.5.0",
- "created": "2026-11-20T10:24:18Z",
+ "version": "0.6.0",
+ "created": "2026-11-20T12:37:24Z",
  "files": [
   {
    "path": "context/mail.md",
-   "size": 1273,
-   "sha256": "66b213765533620d856b219468c35f2254ad933bfeca93ebd595b5571654295c"
+   "size": 1767,
+   "sha256": "4b7dcc43991c251b4e9e85c7dd7cb79e67d8fd7b8d645d7c492060584fef2c13"
   },
   {
    "path": "home/archive.py",
@@ -19,9 +19,14 @@
    "sha256": "1706df0705216fdedc26a5df36c7aab76e5ad6c7968346e2ed0e6caf4f4c7632"
   },
   {
+   "path": "home/deliver.py",
+   "size": 7536,
+   "sha256": "7797a224a9a8aab12bcad7b13f96f0f06127c5f7e6709d13fc5388ce736d99eb"
+  },
+  {
    "path": "home/mailcli.py",
-   "size": 7721,
-   "sha256": "83605ab5d514cb474659508148919b1ce3c43a48600311c3f3209081193083b6"
+   "size": 10165,
+   "sha256": "2c05ac032e1f8a70785f30974c426c3e580edae34a0b6c804aae806793b0ad42"
   },
   {
    "path": "home/mailstore.py",
@@ -37,6 +42,11 @@
    "path": "home/test_briefing.py",
    "size": 7746,
    "sha256": "1bfd19f2533e3bd3317546cde6498226ec2094870e377c85b73341a417e56a28"
+  },
+  {
+   "path": "home/test_deliver.py",
+   "size": 4904,
+   "sha256": "eff72b85034e3542f3f1212dc7d35e2b147de704a13580ad0b88d334a740bb0c"
   },
   {
    "path": "home/test_mailstore.py",
@@ -60,20 +70,20 @@
   },
   {
    "path": "module.json",
-   "size": 508,
-   "sha256": "73bf956249ad6e7f93ce73d80f2938164a5cc8a668d461507c944b13370b35d0"
+   "size": 973,
+   "sha256": "96b0324291c8432293e1cd6e2d232fde7a044692792fcc55899c0cf15d08e827"
   },
   {
    "path": "README.md",
-   "size": 7118,
-   "sha256": "ca49c075e1d4748e253f9f93fb75259f9a1d0fab69234796d69dc54ff78b4530"
+   "size": 8190,
+   "sha256": "1f47db29a48cbf278d13f099259432e28a3bb897d2ea1e8dd983755892930cf6"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "0CxI2IY+2nh3YsFkCIsBEdirCcLPqf6DctaVfLkmEV2/1XBY08mRGvcPY0xt+EfIfux2TXKBjgtTb1o5Luv4DQ=="
+   "sig": "obUUImxhJIR8KRn+n0ipAMCrlRUzsS3PbfFHLU0Ku7dRpoZXyB+AOa95bpswBQjKsTH85xNA09N/v+hxzK+5BQ=="
   }
  ],
  "module": "concierge-mail"

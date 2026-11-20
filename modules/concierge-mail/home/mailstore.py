@@ -33,7 +33,9 @@ class UnsafeMessageError(ValueError):
 # Benign "<word> code <digits>" phrases (postcodes, vacancy and order numbers).
 _BENIGN_CODE = re.compile(r'(?i)\b(?:zip|post(?:al)?|vacancy|job|reference|ref|product|promo|discount|voucher|tracking|order|area|country|course|error|source|tax|vat)[ -]?code\b')
 _OTP = re.compile(r'(?i)\b(?:one[ -]?time|verification|security|authentication|confirmation|login|log[ -]?in|sign[ -]?in|access|2fa|two[ -]factor)\s+(?:code|pin|passcode|password|link|token)\b'
-                  r'|\b(?:reset|change)\s+(?:your\s+)?password\b|\bmagic\s+link\b|\bpasscode\b'
+                  r'|\b(?:reset|change|recover)\s+(?:your\s+)?password\b|\bpassword\s+(?:reset|recovery|change)\b|\bnew\s+password\b|\bforgot\s+(?:your\s+)?password\b'
+                  r'|\b(?:verify|confirm)\s+(?:your\s+)?(?:e-?mail(?:\s+address)?|account|identity|sign[ -]?in|login)\b|\b2-step\s+verification\b'
+                  r'|wachtwoord\s+(?:herstellen|resetten|wijzigen|vergeten)|nieuw\s+wachtwoord|(?:сброс|восстановлени|смен)\w*\s+парол|нов\w*\s+парол|\bmagic\s+link\b|\bpasscode\b'
                   r'|\b(?:code|pin|passcode)\W{0,3}(?:is\b)?\W{0,3}\d{4,8}\b|\bclick\b.{0,40}\bsign[ -]?in\b|\b(?:sign|log)[ -]?in\b.{0,40}https?://'
                   r'|код\s+(?:подтверждения|входа|доступа)|\bкод\W{0,3}\d{4,8}\b|одноразов\w*\s+(?:код|парол)'
                   r'|verificatiecode|beveiligingscode|inlogcode|eenmalige\s+code')

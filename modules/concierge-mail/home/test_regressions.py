@@ -27,7 +27,15 @@ class RegressionTests(unittest.TestCase):
             with self.subTest(body=body):
                 row = self.store.ingest('owner', message(body=body, mid=f'<otp{n}@ex>').as_bytes())
                 self.assert_stub(row)
-        for n, subject in enumerate(['Login code 123456', 'Your verification code: AB12CD', 'Sign in: https://ex.org/magic?t=AB12CD']):
+        resets = [('Password reset link', 'Choose a new password: https://example.org/reset?token=AB12CD'),
+                  ('Account', 'Forgot your password? https://example.org/r?t=AB12CD'),
+                  ('Wachtwoord herstellen', 'https://example.org/r?t=AB12CD'),
+                  ('Сброс пароля', 'https://example.org/r?t=AB12CD'),
+                  ('Welcome', 'Confirm your email address: https://example.org/v?t=AB12CD')]
+        for n, (subject, body) in enumerate(resets):
+            with self.subTest(subject=subject):
+                self.assert_stub(self.store.ingest('owner', message(subject=subject, body=body, mid=f'<r{n}@ex>').as_bytes()), b'AB12CD')
+        for n, subject in enumerate(['Login code 123456','Your verification code: AB12CD', 'Sign in: https://ex.org/magic?t=AB12CD']):
             row = self.store.ingest('owner', message(subject=subject, mid=f'<s{n}@ex>').as_bytes())
             self.assertEqual(row['subject'], '[authentication message]')
             self.assertNotIn(b'AB12CD', (self.root/'mail.sqlite3').read_bytes())

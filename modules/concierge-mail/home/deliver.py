@@ -164,10 +164,12 @@ def send(root, site, briefing, sync=None, dry_run=False, day=None):
     result = {'channels': cfg['channels'], 'title': TITLE.get(lang, TITLE['en']), 'body': text, 'synced': synced}
     if dry_run:
         return result | {'sent': False, 'reason': 'dry run'}
-    # module channels give no receipt: one that says it is not ready now (or is gone) would drop the briefing
+    # a module channel took it when its hook ran without an error (push result `modules`) and it does not say it is
+    # not ready now (a hook may skip a person it does not reach)
     state = {c['id']: c.get('ready') for c in site.channels(cfg['env'])}
-    modules = [c for c in cfg['channels'] if c != 'devices' and c in state and state[c] is not False]
     result['push'] = site.notify(cfg['env'], result['title'], text, cfg['channels'])
+    took = (result['push'] or {}).get('modules') or {}
+    modules = [c for c in cfg['channels'] if took.get(c) is True and state.get(c) is not False]
     if not modules and not (result['push'] or {}).get('sent'):
         # nothing took it: the next tick tries again
         return result | {'sent': False, 'reason': 'no chosen channel accepted the briefing now'}

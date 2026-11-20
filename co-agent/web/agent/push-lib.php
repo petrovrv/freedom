@@ -400,9 +400,10 @@ function co_push_send(array $sub, array $payload, int $ttl = 86400, string $topi
  * the push to its person): the members whose devices $filter takes (filters look at the subscription's env), and the
  * payload. Runs whether or not the env has a subscribed device. Never throws, never blocks the push.
  */
-function co_push_mirror(callable $filter, array $payload, ?array $channels = null): void
+function co_push_mirror(callable $filter, array $payload, ?array $channels = null): array
 {
-    if (!function_exists('co_module_hooks') || !function_exists('co_members') || !function_exists('co_db')) return;
+    $took = []; // "<module>/<id>" => the hook ran without an error
+    if (!function_exists('co_module_hooks') || !function_exists('co_members') || !function_exists('co_db')) return $took;
     try {
         $envs = [];
         foreach (co_members() as $r) {
@@ -412,30 +413,35 @@ function co_push_mirror(callable $filter, array $payload, ?array $channels = nul
             } catch (Throwable) {
             }
         }
-        if ($envs === []) return;
+        if ($envs === []) return $took;
         $db = co_db();
         foreach (co_module_hooks($db, 'notify') as $p) {
             $fn = $p['hooks']['push'] ?? null;
             if ($fn === null || ($channels !== null && !in_array($p['module']['id'] . '/' . $p['id'], $channels, true))) continue;
+            $cid = $p['module']['id'] . '/' . $p['id'];
             try {
                 $fn(co_module_ctx($db, $p['module']), ['envs' => $envs] + $payload);
+                $took[$cid] = true;
             } catch (Throwable $e) {
-                error_log("notify hook {$p['module']['id']}/{$p['id']}: " . $e->getMessage());
+                $took[$cid] = false;
+                error_log("notify hook $cid: " . $e->getMessage());
             }
         }
     } catch (Throwable $e) {
         error_log('co_push_mirror: ' . $e->getMessage());
     }
+    return $took;
 }
 
 /**
  * Delivery channels of a push (ext/1 notify): CO_PUSH_DEVICES = the subscribed devices (Web Push), "<module>/<id>" = a
  * notify hook of an enabled module. $channels null = all of them (every push of the core goes everywhere).
- * @return array{sent:int, removed:int, failed:int}
+ * modules: which notify hooks took the push without an error.
+ * @return array{sent:int, removed:int, failed:int, modules:array}
  */
 function co_push_broadcast(callable $filter, array $payload, string $topic, ?array $channels = null): array
 {
-    co_push_mirror($filter, $payload, $channels);
+    $took = co_push_mirror($filter, $payload, $channels);
     $results = [];
     foreach ($channels === null || in_array(CO_PUSH_DEVICES, $channels, true) ? co_push_load() : [] as $id => $sub) {
         if (is_array($sub) && $filter($sub)) {
@@ -447,7 +453,7 @@ function co_push_broadcast(callable $filter, array $payload, string $topic, ?arr
     $removed = 0;
     $failed = 0;
     if ($results === []) {
-        return ['sent' => 0, 'removed' => 0, 'failed' => 0];
+        return ['sent' => 0, 'removed' => 0, 'failed' => 0, 'modules' => $took];
     }
 
     $now = co_push_now();
@@ -486,7 +492,7 @@ function co_push_broadcast(callable $filter, array $payload, string $topic, ?arr
         $h = (string)parse_url((string)($all[$id]['endpoint'] ?? ''), PHP_URL_HOST);
         $by[] = ($h !== '' ? $h : '?') . ' ' . $status;
     }
-    return ['sent' => $sent, 'removed' => $removed, 'failed' => $failed, 'endpoints' => $by];
+    return ['sent' => $sent, 'removed' => $removed, 'failed' => $failed, 'endpoints' => $by, 'modules' => $took];
 }
 
 /**

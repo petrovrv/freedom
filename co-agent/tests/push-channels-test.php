@@ -62,6 +62,8 @@ $ok('no channels: every hook', array_column($seen(), 0) === ['say', 'log']);
 co_push_notify('owner', 'T2', 'b', '/', 't', null, ["$id/log"]);
 $got = $seen();
 $ok('named channel only', array_column($got, 0) === ['log'] && $got[0][1] === ['owner'] && $got[0][2] === 'T2');
+$ok('result names the hooks that took it', ($r = co_push_notify('owner', 'T2b', 'b', '/', 't', null, ["$id/say"]))['modules'] === ["$id/say" => true]);
+$seen();
 co_push_notify('owner', 'T3', 'b', '/', 't', null, ['devices']);
 $ok('devices only: no hook', $seen() === []);
 co_push_notify('owner', 'T4', 'b', '/', 't', null, ['../x', 42, "$id/say"]);

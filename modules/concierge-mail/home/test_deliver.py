@@ -98,6 +98,12 @@ class DeliverTests(unittest.TestCase):
         self.assertFalse(tick(22, 0, 15)['sent'])
         self.assertTrue(tick(22, 23, 59)['sent'])
 
+    def test_set_during_send_is_kept(self):
+        deliver.configure(self.root, self.site, 'me', chosen=['devices'], accounts=['a@example.org'])
+        off = lambda account: deliver.configure(self.root, self.site, 'me', off=True)
+        self.assertTrue(deliver.send(self.root, self.site, self.briefing, sync=off)['sent'])
+        self.assertFalse(deliver.load(self.root)['enabled'])
+
     def test_off_keeps_choice(self):
         deliver.configure(self.root, self.site, 'me', chosen=['devices'])
         cfg = deliver.configure(self.root, self.site, 'me', off=True)['config']

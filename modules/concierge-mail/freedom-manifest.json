@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
  "version": "0.6.0",
- "created": "2026-11-20T12:46:22Z",
+ "created": "2026-11-20T12:48:58Z",
  "files": [
   {
    "path": "context/mail.md",
@@ -20,8 +20,8 @@
   },
   {
    "path": "home/deliver.py",
-   "size": 8396,
-   "sha256": "495571bdb9da9873eab9405e29ceccd6510b9b0450c4e3e333a744d8299f6a3c"
+   "size": 8493,
+   "sha256": "65dadd163518af6e50021201c57003d66fd514726ebb869ac79e84fe32313d52"
   },
   {
    "path": "home/mailcli.py",
@@ -45,8 +45,8 @@
   },
   {
    "path": "home/test_deliver.py",
-   "size": 6545,
-   "sha256": "9aa022daeffa23db17b0c4198886cfddf04c570162d52312c5bc2c49e9047b91"
+   "size": 6932,
+   "sha256": "0ae1107b058dc682f9d07910c5eea2570e8502b4b2b573306d24d89b6a5a8662"
   },
   {
    "path": "home/test_mailstore.py",
@@ -83,7 +83,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "j9mHxq3i3oZCfHAZB35ZsE+eq6YHgoOndbRISvbbzONvYLqfDASElANnrv/BAFUoHHi1wZXQU0qdO9shwgC/DQ=="
+   "sig": "+59+LAmDTjUpj0LGjzzslgL+UW6lm5GndfvrQHUVadogjDM8F8RwL6Yn66hcq+J0hPGjjhiKH3DfLq6hvj36Cw=="
   }
  ],
  "module": "concierge-mail"

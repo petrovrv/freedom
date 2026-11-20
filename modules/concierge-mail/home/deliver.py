@@ -171,8 +171,9 @@ def send(root, site, briefing, sync=None, dry_run=False, day=None):
     if not modules and not (result['push'] or {}).get('sent'):
         # nothing took it: the next tick tries again
         return result | {'sent': False, 'reason': 'no chosen channel accepted the briefing now'}
-    cfg['lastSent'] = day or datetime.now().strftime('%Y-%m-%d')
-    save(root, cfg)
+    latest = load(root)  # a `set` during the sync or the push wins; only lastSent is ours
+    latest['lastSent'] = day or datetime.now().strftime('%Y-%m-%d')
+    save(root, latest)
     return result | {'sent': True}
 
 

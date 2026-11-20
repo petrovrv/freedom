@@ -2,7 +2,8 @@
 
 The core knows where a push can go (push.php op=channels): the subscribed devices of CO and every notify hook of an
 enabled module (a messenger, a speaker...). This module names none of them: it lists what the workbench has, suggests
-the ready ones and keeps the person's choice in delivery.json next to the archive. Nothing goes anywhere until the
+the ready ones and keeps the person's choice (and the archive it reads) in concierge-mail/delivery.json next to
+install.json, where the schedule finds it. Nothing goes anywhere until the
 person chose; `tick` (schedule of the module, every few minutes) sends once a day after the chosen time.
 """
 import json
@@ -29,13 +30,17 @@ def install_path():
 
 def load_install():
     try:
-        return json.loads(install_path().read_text(encoding='utf-8'))
+        return json.loads(install_path().read_text(encoding='utf-8-sig'))
     except (OSError, ValueError):
         return {}
 
 
+def config_dir():
+    return install_path().parent / 'concierge-mail'
+
+
 def default_root():
-    return install_path().parent / 'concierge-mail' / 'archive'
+    return config_dir() / 'archive'
 
 
 def default_env(install=None):
@@ -77,7 +82,7 @@ class Site:
 
 def load(root):
     try:
-        return json.loads((Path(root) / CONFIG).read_text(encoding='utf-8'))
+        return json.loads((Path(root) / CONFIG).read_text(encoding='utf-8-sig'))
     except (OSError, ValueError):
         return {}
 
@@ -97,7 +102,7 @@ def channels(site, env):
     return {'env': env, 'channels': found, 'suggested': [c['id'] for c in found if c.get('ready')]}
 
 
-def configure(root, site, env, chosen=None, at=None, lang=None, accounts=None, off=False):
+def configure(root, site, env, chosen=None, at=None, lang=None, accounts=None, off=False, archive=None):
     """Store the person's choice; channels are checked against what the workbench has now."""
     cfg = load(root)
     cfg['env'] = env or cfg.get('env') or ''
@@ -120,6 +125,8 @@ def configure(root, site, env, chosen=None, at=None, lang=None, accounts=None, o
         cfg['lang'] = lang
     if accounts is not None:
         cfg['accounts'] = accounts
+    if archive is not None:
+        cfg['archive'] = str(archive)
     cfg['enabled'] = not off and bool(cfg.get('channels'))
     cfg.setdefault('at', '07:30')
     cfg.setdefault('lang', 'en')

@@ -90,7 +90,8 @@ def main():
         if name == 'export-maildir':
             cmd.add_argument('--account', required=True)
     args = parser.parse_args()
-    args.root = args.root or deliver.default_root()
+    # the schedule passes no --root: it reads the archive the person's delivery choice names
+    args.root = args.root or Path(deliver.load(deliver.config_dir()).get('archive') or deliver.default_root())
     if args.command in ('restore', 'verify'):
         result = restore_checkpoint(args.path, args.root) if args.command == 'restore' else verify_checkpoint(args.path)
         print(json.dumps(result))
@@ -159,14 +160,15 @@ def main():
 
 def run_deliver(args, store, flow):
     site = deliver.Site()
+    home = deliver.config_dir()
     if args.action == 'channels':
-        return deliver.channels(site, args.env or deliver.load(args.root).get('env') or deliver.default_env())
+        return deliver.channels(site, args.env or deliver.load(home).get('env') or deliver.default_env())
     if args.action == 'set':
         chosen = [c.strip() for c in args.channels.split(',') if c.strip()] if args.channels is not None else None
-        return deliver.configure(args.root, site, args.env or deliver.load(args.root).get('env') or deliver.default_env(), chosen=chosen, at=args.at, lang=args.lang,
-                                 accounts=args.account, off=args.off)
+        return deliver.configure(home, site, args.env or deliver.load(home).get('env') or deliver.default_env(), chosen=chosen, at=args.at, lang=args.lang,
+                                 accounts=args.account, off=args.off, archive=Path(args.root).resolve())
     if args.action == 'show':
-        return deliver.load(args.root)
+        return deliver.load(home)
 
     def briefing(accounts, lang):
         lines = flow.briefing(accounts=accounts, lang=lang)['text']
@@ -176,8 +178,8 @@ def run_deliver(args, store, flow):
         sync_account(store, account)
 
     if args.action == 'send':
-        return deliver.send(args.root, site, briefing, sync=sync, dry_run=args.dry_run)
-    return deliver.tick(args.root, site, briefing, sync=sync)
+        return deliver.send(home, site, briefing, sync=sync, dry_run=args.dry_run)
+    return deliver.tick(home, site, briefing, sync=sync)
 
 
 if __name__ == '__main__':

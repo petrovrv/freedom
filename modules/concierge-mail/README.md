@@ -45,7 +45,7 @@ The module names no channel. `deliver channels` asks the own site (push.php `op=
 where a push to the person can go: `devices` (CO push to the subscribed devices) and every notify hook of an enabled
 module (`<module>/<id>`, e.g. a messenger), with `ready` when the module says so; `suggested` lists the ready ones.
 Nothing is delivered until the person chose: `deliver set --channels devices,<module>/<id> --at 07:30 --lang ru
-[--account <address> ...]` keeps the choice in `delivery.json` next to the archive (unknown channels are refused,
+[--account <address> ...]` keeps the choice and the archive it reads (`--root`, else the default) in `concierge-mail/delivery.json` next to install.json (unknown channels are refused,
 channels that are not ready give a warning). The module's schedule runs `deliver tick` every 10 minutes: once a day
 from the chosen time (a PC that wakes up more than 3 h later skips the day), it syncs the chosen accounts, builds the
 briefing and pushes it only to the chosen channels (title + at most 400 characters, the rest as "… +N").

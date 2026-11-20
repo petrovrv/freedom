@@ -49,6 +49,7 @@ def main():
     draft.add_argument('--subject', default='')
     draft.add_argument('--attachments-json', type=Path)
     draft.add_argument('--expected-version', required=True, type=int)
+    draft.add_argument('--confirm-untrusted', action='store_true', help='owner said yes to drafting on a thread flagged by read-guard')
     for name in ['draft-show', 'draft-history', 'draft-undo']:
         command = sub.add_parser(name)
         command.add_argument('thread_id', type=int)
@@ -103,7 +104,7 @@ def main():
             result = flow.delete_promise(args.id)
         elif command == 'draft-save':
             attachments = json.loads(args.attachments_json.read_text(encoding='utf-8-sig')) if args.attachments_json else []
-            result = flow.save_draft(args.thread_id, args.body_file.read_text(encoding='utf-8-sig'), subject=args.subject, attachments=attachments, expected_version=args.expected_version)
+            result = flow.save_draft(args.thread_id, args.body_file.read_text(encoding='utf-8-sig'), subject=args.subject, attachments=attachments, expected_version=args.expected_version, confirm_untrusted=args.confirm_untrusted)
         elif command == 'draft-show':
             result = flow.get_draft(args.thread_id)
         elif command == 'draft-history':

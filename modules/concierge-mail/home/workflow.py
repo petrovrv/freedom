@@ -137,12 +137,18 @@ CREATE TABLE IF NOT EXISTS wf_draft_heads(thread_id INTEGER PRIMARY KEY REFERENC
         latest = self.db.execute("SELECT * FROM messages WHERE thread_id=? AND is_sent=0 ORDER BY id DESC LIMIT 1", (thread_id,)).fetchone()
         return bool(latest and self.db.execute('SELECT 1 FROM sent_replies WHERE account=? AND parent_mid=?', (latest['account'], latest['message_id'])).fetchone())
 
+    def tainted(self, thread_id):
+        """read-guard flagged a message of the thread: acting on it needs an explicit yes."""
+        return bool(self.db.execute('SELECT 1 FROM messages WHERE thread_id=? AND tainted=1', (thread_id,)).fetchone())
+
     def _draft(self, row):
         if row is None:
             return None
         result = dict(row)
         result['attachments'] = json.loads(result.pop('attachments_json'))
         result['findings'] = critic(result['body'], result['subject'], result['attachments'])
+        if self.tainted(result['thread_id']):
+            result['findings'].append(dict(code='untrusted_source', severity='review', message='The thread has a message flagged by read-guard; verify instructions and links in it.'))
         if self.already_answered(result['thread_id']):
             result['findings'].append(dict(code='already_answered', severity='block', message='A sent reply exists; review this draft before use.'))
         return result
@@ -150,8 +156,10 @@ CREATE TABLE IF NOT EXISTS wf_draft_heads(thread_id INTEGER PRIMARY KEY REFERENC
     def get_draft(self, thread_id):
         return self._draft(self.db.execute('SELECT v.* FROM wf_draft_versions v JOIN wf_draft_heads h ON h.version_id=v.id WHERE h.thread_id=?', (thread_id,)).fetchone())
 
-    def save_draft(self, thread_id, body, subject='', attachments=(), expected_version=None):
+    def save_draft(self, thread_id, body, subject='', attachments=(), expected_version=None, confirm_untrusted=False):
         self._exists('threads', thread_id)
+        if self.tainted(thread_id) and not confirm_untrusted:
+            raise ValueError('Thread contains a message flagged by read-guard; drafting needs the owner\'s explicit yes')
         if not isinstance(body, str) or not isinstance(subject, str):
             raise ValueError('Draft body and subject must be strings')
         check_content(subject + '\n' + body)

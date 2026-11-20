@@ -1,10 +1,11 @@
-﻿"""Local SQLite MVP; PostgreSQL backend and authenticated-code routing are deferred.
+"""Local SQLite MVP; PostgreSQL backend and authenticated-code routing are deferred.
 
 Raw mail and MIME attachments are immutable SHA256 blobs. Credentials never enter
 this store. Authentication-code messages are refused before any persistence.
 """
 from __future__ import annotations
 import hashlib
+import json
 import base64
 import imaplib
 import ssl
@@ -29,13 +30,38 @@ class UnsafeMessageError(ValueError):
     pass
 
 
+# Benign "<word> code <digits>" phrases (postcodes, vacancy and order numbers).
+_BENIGN_CODE = re.compile(r'(?i)\b(?:zip|post(?:al)?|vacancy|job|reference|ref|product|promo|discount|voucher|tracking|order|area|country|course|error|source|tax|vat)[ -]?code\b')
+_OTP = re.compile(r'(?i)\b(?:one[ -]?time|verification|security|authentication|confirmation|login|log[ -]?in|sign[ -]?in|access|2fa|two[ -]factor)\s+(?:code|pin|passcode|password|link|token)\b'
+                  r'|\b(?:reset|change)\s+(?:your\s+)?password\b|\bmagic\s+link\b|\bpasscode\b'
+                  r'|\b(?:code|pin|passcode)\W{0,3}(?:is\b)?\W{0,3}\d{4,8}\b|\bclick\b.{0,40}\bsign[ -]?in\b'
+                  r'|код\s+(?:подтверждения|входа|доступа)|\bкод\W{0,3}\d{4,8}\b|одноразов\w*\s+(?:код|парол)'
+                  r'|verificatiecode|beveiligingscode|inlogcode|eenmalige\s+code')
+
+
+def _normalize(text):
+    return re.sub(r'\s+', ' ', unescape(re.sub('<[^>]*>', ' ', text)))
+
+
+def is_authentication(text):
+    """Codes, sign-in links and password resets (section 11). Heuristic."""
+    return bool(_OTP.search(_BENIGN_CODE.sub(' ', _normalize(text))))
+
+
+def guard_reasons(text):
+    result = read_guard.scan(text)
+    return sorted({s['rule'] for s in result.signals} or {'suspicious'}) if result.suspicious else []
+
+
 def check_content(text):
-    normalized = re.sub(r'\s+', ' ', unescape(re.sub('<[^>]*>', ' ', text)))
-    if re.search(r'(?i)\b(?:one[ -]time|verification|security|authentication|login|sign[ -]?in|reset|password)\b.{0,60}\b(?:code|link|password|token)\b|\bcode\s*(?:is|:)?.{0,8}\b\d{4,8}\b|click.{0,40}sign[ -]?in|код\s+(?:подтверждения|входа)|verificatiecode|beveiligingscode', normalized):
+    """Strict gate for text the owner's side writes (drafts, cases, promises)."""
+    if is_authentication(text):
         raise SensitiveMessageError('Authentication message requires ephemeral handling; not stored')
-    if read_guard.scan(text).suspicious:
-        # Fail closed before writing raw blobs, metadata or the search index.
-        raise UnsafeMessageError('Untrusted message requires explicit review; not stored')
+    if guard_reasons(text):
+        raise UnsafeMessageError('Untrusted text requires explicit review; not stored')
+
+
+REDACTED_BODY = '[authentication message: content not stored, see section 11]'
 
 
 class Store:
@@ -60,8 +86,11 @@ class Store:
         CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,action TEXT NOT NULL,message_id INTEGER,created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
         CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(subject,sender,body);
         ''')
-        if 'is_sent' not in {r[1] for r in self.db.execute('PRAGMA table_info(messages)')}:
-            self.db.execute('ALTER TABLE messages ADD COLUMN is_sent INTEGER NOT NULL DEFAULT 0')
+        columns = {r[1] for r in self.db.execute('PRAGMA table_info(messages)')}
+        for name, ddl in [('is_sent', 'INTEGER NOT NULL DEFAULT 0'), ('sensitive', 'INTEGER NOT NULL DEFAULT 0'),
+                          ('tainted', 'INTEGER NOT NULL DEFAULT 0'), ('taint_reasons', "TEXT NOT NULL DEFAULT '[]'")]:
+            if name not in columns:
+                self.db.execute('ALTER TABLE messages ADD COLUMN ' + name + ' ' + ddl)
         self.db.commit()
 
     def close(self):
@@ -121,20 +150,30 @@ class Store:
                     text = data.decode('utf-8', errors='replace')
                 (plain if part.get_content_type() == 'text/plain' else html).append(text)
         visit(mail)
-        # Scan decoded nested parts too, even when they are not the outer body.
+        # Classify every decoded text part, nested ones included. Binary parts are
+        # not decoded as text: their analysis belongs to attachment extraction.
+        texts = [str(mail.get('subject', ''))]
         for part in mail.walk():
-            check_content(str(part.items()))
-            if not part.is_multipart():
+            texts.append(' '.join(str(v) for _, v in part.items()))
+            if not part.is_multipart() and part.get_content_maintype() == 'text':
                 payload = part.get_payload(decode=True) or b''
                 try:
-                    check_content(payload.decode(part.get_content_charset() or 'utf-8', errors='replace'))
+                    texts.append(payload.decode(part.get_content_charset() or 'utf-8', errors='replace'))
                 except LookupError:
-                    check_content(payload.decode('utf-8', errors='replace'))
+                    texts.append(payload.decode('utf-8', errors='replace'))
+        sensitive = any(is_authentication(t) for t in texts)
+        # Suspicious mail is kept (evidence, nothing silently lost) but tainted:
+        # actions on its thread wait for an explicit yes (section 16).
+        reasons = sorted({r for t in texts for r in guard_reasons(t)})
         subject = str(mail.get('subject', ''))
         body, html_body = '\n'.join(plain), '\n'.join(html)
-        sensitive = subject + '\n' + body + '\n' + html_body
-        check_content(sensitive)
-        digest = self._blob(raw)
+        if sensitive:
+            # Section 11: the code never reaches disk. Keep a visible stub only.
+            subject = re.sub(r'\d{4,8}', '••••', subject)
+            body, html_body, attachments = REDACTED_BODY, '', []
+            digest = hashlib.sha256(raw).hexdigest()
+        else:
+            digest = self._blob(raw)
         mid = str(mail.get('message-id', ''))
         refs = re.findall(r'<[^>]+>', str(mail.get('references', '')))
         thread_key = (refs[0] if refs else str(mail.get('in-reply-to', ''))) or mid or digest
@@ -152,13 +191,14 @@ class Store:
             if existing:
                 message_id = existing[0]
             else:
-                cur = self.db.execute('INSERT INTO messages(account,thread_id,raw_sha256,message_id,subject,sender,recipients,date,body,html) VALUES (?,?,?,?,?,?,?,?,?,?)', (account,thread,digest,mid,subject,str(mail.get('from','')),str(mail.get('to','')),str(mail.get('date','')),body,html_body))
+                cur = self.db.execute('INSERT INTO messages(account,thread_id,raw_sha256,message_id,subject,sender,recipients,date,body,html,sensitive,tainted,taint_reasons) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', (account,thread,digest,mid,subject,str(mail.get('from','')),str(mail.get('to','')),str(mail.get('date','')),body,html_body,int(sensitive),int(bool(reasons)),json.dumps(reasons)))
                 message_id = cur.lastrowid
                 for filename, content_type, data in attachments:
                     sha = self._blob(data)
                     self.db.execute('INSERT INTO attachments(message_id,filename,content_type,sha256,size) VALUES (?,?,?,?,?)', (message_id,filename,content_type,sha,len(data)))
                 self.db.execute('INSERT INTO messages_fts(rowid,subject,sender,body) VALUES (?,?,?,?)', (message_id,subject,str(mail.get('from','')),body or re.sub('<[^>]*>', ' ', html_body)))
-                self.db.execute('INSERT INTO audit(action,message_id) VALUES (?,?)', ('ingest',message_id))
+                action = 'ingest.redacted' if sensitive else 'ingest.tainted' if reasons else 'ingest'
+                self.db.execute('INSERT INTO audit(action,message_id) VALUES (?,?)', (action,message_id))
             if mid:
                 for parent_mid in parent_ids:
                     self.db.execute('INSERT OR IGNORE INTO reply_edges VALUES (?,?,?)', (account, mid, parent_mid))
@@ -204,6 +244,7 @@ class Store:
             return None
         result = dict(row)
         result['attachments'] = [dict(r) for r in self.db.execute('SELECT * FROM attachments WHERE message_id=?',(message_id,))]
+        result['taint_reasons'] = json.loads(result['taint_reasons'])
         return result
 
     def list_messages(self, limit=50):
@@ -256,7 +297,7 @@ def sync_imap(store, account, host='imap.gmail.com', folder='INBOX', limit=100, 
     if not password:
         raise ValueError('Mail credential missing from keyring')
     client = imaplib.IMAP4_SSL(host, ssl_context=ssl.create_default_context(), timeout=30)
-    result = {'fetched': 0, 'stored': 0, 'skipped_sensitive': 0}
+    result = {'fetched': 0, 'stored': 0, 'redacted': 0, 'tainted': 0}
     try:
         status, _ = client.login(account,password)
         del password
@@ -282,11 +323,10 @@ def sync_imap(store, account, host='imap.gmail.com', folder='INBOX', limit=100, 
             if len(chunks) != 1:
                 raise RuntimeError('Unexpected IMAP message response')
             result['fetched'] += 1
-            try:
-                store.ingest(account,chunks[0],folder,uid.decode('ascii'),uidvalidity, sent=sent)
-                result['stored'] += 1
-            except (SensitiveMessageError, UnsafeMessageError):
-                result['skipped_sensitive'] += 1
+            row = store.ingest(account,chunks[0],folder,uid.decode('ascii'),uidvalidity, sent=sent)
+            result['stored'] += 1
+            result['redacted'] += row['sensitive']
+            result['tainted'] += row['tainted']
         return result
     except imaplib.IMAP4.error:
         raise RuntimeError('IMAP operation failed; check credentials and account access') from None

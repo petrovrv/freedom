@@ -53,7 +53,9 @@ def verify_checkpoint(root):
             raise ValueError('Checkpoint database integrity failure')
         if db.execute('PRAGMA foreign_key_check').fetchall():
             raise ValueError('Checkpoint foreign key failure')
-        refs = db.execute('SELECT raw_sha256 FROM messages UNION SELECT sha256 FROM attachments').fetchall()
+        # Redacted authentication stubs have no raw blob by design (section 11).
+        sensitive = 'sensitive' in {r[1] for r in db.execute('PRAGMA table_info(messages)')}
+        refs = db.execute('SELECT raw_sha256 FROM messages' + (' WHERE sensitive=0' if sensitive else '') + ' UNION SELECT sha256 FROM attachments').fetchall()
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='wf_draft_versions'").fetchone():
             for (payload,) in db.execute('SELECT attachments_json FROM wf_draft_versions'):
                 refs.extend((item['sha256'],) for item in json.loads(payload))
@@ -108,8 +110,9 @@ def export_maildir(store, destination, account):
     def build(stage):
         for name in ('cur', 'new', 'tmp'):
             (stage/name).mkdir()
-        rows = store.db.execute('SELECT id,raw_sha256 FROM messages WHERE account=? ORDER BY id', (account,)).fetchall()
+        rows = store.db.execute('SELECT id,raw_sha256 FROM messages WHERE account=? AND sensitive=0 ORDER BY id', (account,)).fetchall()
         for row in rows:
             (stage/'new'/f'{row[0]}.{row[1]}').write_bytes(store.read_blob(row[1]))
-        return {'exported': len(rows), 'format': 'Maildir'}
+        redacted = store.db.execute('SELECT count(*) FROM messages WHERE account=? AND sensitive=1', (account,)).fetchone()[0]
+        return {'exported': len(rows), 'skipped_redacted': redacted, 'format': 'Maildir'}
     return _publish(destination, build)

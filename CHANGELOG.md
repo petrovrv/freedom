@@ -5,6 +5,7 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- Module concierge-mail 0.2.1: mail flagged by read-guard is kept with a taint mark instead of being dropped, and drafting on its thread needs the owner's explicit yes; authentication-code mail is kept as a visible stub without the code, raw message or attachments; fewer false code detections (postcodes, vacancy numbers), binary attachments are no longer scanned as text.
 - Module concierge-mail 0.2.0: opt-in local mail archive, guarded MIME ingest, read-only Inbox/Sent snapshots, versioned drafts and obligations, verified local checkpoints/restore and Maildir export. Production service and UI remain pending.
 
 - CO Mac 0.5.4 / Desktop 0.14.1 / Core 0.13.1: allow Enter in Workday Skills and School search inputs before results open; recheck the site and focused input before dispatch and retain final submission confirmation.

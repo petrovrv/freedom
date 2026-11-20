@@ -78,9 +78,10 @@ class StoreTests(unittest.TestCase):
 
     def test_authentication_message_never_persisted(self):
         raw = message('Your verification code', 'SECRET-846291').as_bytes()
-        with self.assertRaises(SensitiveMessageError):
-            self.store.ingest('owner', raw)
-        self.assertEqual(self.store.list_messages(), [])
+        row = self.store.ingest('owner', raw)
+        # Visible stub, no content: nothing is silently lost, the secret never lands.
+        self.assertEqual((row['sensitive'], row['subject'], row['attachments']), (1, 'Your verification code', []))
+        self.assertNotIn('SECRET', row['body'])
         self.assertEqual(list((self.root / 'blobs').iterdir()), [])
         self.assertNotIn(b'SECRET-846291', (self.root / 'mail.sqlite3').read_bytes())
 
@@ -124,10 +125,11 @@ class StoreTests(unittest.TestCase):
         with patch.dict(sys.modules, keyring=keyring), patch('mailstore.imaplib.IMAP4_SSL', return_value=client):
             result = sync_imap(self.store, 'owner')
             sync_imap(self.store, 'owner')
-        self.assertEqual(result, {'fetched': 2, 'stored': 1, 'skipped_sensitive': 1})
+        self.assertEqual(result, {'fetched': 2, 'stored': 2, 'redacted': 1, 'tainted': 0})
         self.assertIn(('select', '"INBOX"', True), client.calls)
         self.assertTrue(all(c[2] == '(BODY.PEEK[])' for c in client.calls if c[0] == 'fetch'))
-        self.assertEqual(len(self.store.list_messages()), 1)
+        self.assertEqual(len(self.store.list_messages()), 2)
+        self.assertNotIn(b'123456', (self.root / 'mail.sqlite3').read_bytes())
         for path in self.root.rglob('*'):
             if path.is_file():
                 self.assertNotIn(secret.encode(), path.read_bytes())

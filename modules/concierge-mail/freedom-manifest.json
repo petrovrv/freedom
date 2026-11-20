@@ -1,27 +1,27 @@
 {
  "format": "freedom-release/1",
- "version": "0.2.0",
- "created": "2026-11-19T17:18:38Z",
+ "version": "0.2.1",
+ "created": "2026-11-20T09:00:44Z",
  "files": [
   {
    "path": "context/mail.md",
-   "size": 743,
-   "sha256": "f9c99be18ae80202200684ce15779d58b22925d4398a7f169fed8dfe880fda23"
+   "size": 905,
+   "sha256": "d584e8252f803874e71ac5dce52e9f5b44ff207a723c051f1abc54a692a9e1f1"
   },
   {
    "path": "home/archive.py",
-   "size": 5382,
-   "sha256": "7310ba3456a381fbe7e728cfc1ece2d731884f3abb4996b5353e35ec74a6a96b"
+   "size": 5783,
+   "sha256": "1725ccdbbb8fd027a5eeb12f556d5d09eb120f97b03e2450ac5fe3b195bfce29"
   },
   {
    "path": "home/mailcli.py",
-   "size": 6183,
-   "sha256": "6862bf78dd21097486dda07b17e66b01afbd666359ccc679498fbb3e1a1a48ea"
+   "size": 6362,
+   "sha256": "7821ab73f8691671ece474e98bca034b774b5a0dd3669a9de9775d28c7f7ad2d"
   },
   {
    "path": "home/mailstore.py",
-   "size": 17614,
-   "sha256": "304585378b0c65546be1e8095296336174a71ee5e03314eecc6179f5c63b0984"
+   "size": 19886,
+   "sha256": "345af1a9ded735fb201841df4148b19d8cd0d836be8a2649660a8adb68909dce"
   },
   {
    "path": "home/test_archive.py",
@@ -30,35 +30,35 @@
   },
   {
    "path": "home/test_mailstore.py",
-   "size": 9465,
-   "sha256": "a4e02b6f90b7ebcdfd9f248ef00d566532e8669dc16671699ededd4906fe1b1b"
+   "size": 9691,
+   "sha256": "3dfe79b57d2a3c2c0ea3f9a3ddc3f592185f50e5023465005a777ace42c6b3ef"
   },
   {
    "path": "home/test_regressions.py",
-   "size": 10611,
-   "sha256": "57679b92cade655c567a2cbaa9086a8cc2970b31233f342d9517e122feb28711"
+   "size": 13109,
+   "sha256": "42a8cbc8bd587a7f9e9c3b6d40af98e1dfdce1e536ae38d0eb398045071c0e8e"
   },
   {
    "path": "home/workflow.py",
-   "size": 12812,
-   "sha256": "e9d35141b303d143a0fc4fb60a5949edbfb18f05b00409b885ca0a8814bda80a"
+   "size": 13508,
+   "sha256": "701035b2dd4a1fb0be18f8212125d3e47ec5f62d460644c9a0583320b955c91a"
   },
   {
    "path": "module.json",
-   "size": 523,
-   "sha256": "9854e5bcd9b660c47b21b71fe3c6280d05776e251e47a581aa590c9ff0b85667"
+   "size": 508,
+   "sha256": "5aa0607705d53cf05170f775788a61ba15cc3405008139d30d82e59bfa0002d1"
   },
   {
    "path": "README.md",
-   "size": 4016,
-   "sha256": "d7995630dd4b1fb0a80d954dee2ff6c0b01ec96e175abc3a3865f5ec5d51d95a"
+   "size": 4433,
+   "sha256": "7550411bc4ef78a2cce05d9d97760fd8568ab8487890715ed4bc95265a8842cf"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "PKXCciecwrnYL7MYUVOYPbMLkHbDVGmlnPTfR9VtxeKLoaDwBf5ltHFICgU9ibwOudl4iOjq8wF1WoLRkK5iBQ=="
+   "sig": "YYzXATqk45jU5kr6rhZJnxO9qSToRLrhrXrcXPCcVw+2jYyQKlrwycm8k+0LIqkwmXmuCWUP7FNCOWwI0YRJCg=="
   }
  ],
  "module": "concierge-mail"

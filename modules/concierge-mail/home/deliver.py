@@ -164,10 +164,13 @@ def send(root, site, briefing, sync=None, dry_run=False, now=None):
     result = {'channels': cfg['channels'], 'title': TITLE.get(lang, TITLE['en']), 'body': text, 'synced': synced}
     if dry_run:
         return result | {'sent': False, 'reason': 'dry run'}
+    # module channels give no receipt: one that says it is not ready now (or is gone) would drop the briefing
+    state = {c['id']: c.get('ready') for c in site.channels(cfg['env'])}
+    modules = [c for c in cfg['channels'] if c != 'devices' and c in state and state[c] is not False]
     result['push'] = site.notify(cfg['env'], result['title'], text, cfg['channels'])
-    if cfg['channels'] == ['devices'] and not (result['push'] or {}).get('sent'):
-        # no device took it: the next tick tries again (module channels give no receipt, they count as delivered)
-        return result | {'sent': False, 'reason': 'no device accepted the push'}
+    if not modules and not (result['push'] or {}).get('sent'):
+        # nothing took it: the next tick tries again
+        return result | {'sent': False, 'reason': 'no chosen channel accepted the briefing now'}
     cfg['lastSent'] = (now or datetime.now()).strftime('%Y-%m-%d')
     save(root, cfg)
     return result | {'sent': True}

@@ -105,6 +105,14 @@ class DeliverTests(unittest.TestCase):
         self.site.notify = lambda *a: {'sent': 1}
         self.assertTrue(tick(50)['sent'])
 
+    def test_module_channel_not_ready_is_retried(self):
+        deliver.configure(self.root, self.site, 'me', chosen=['chatapp/say'], at='07:30')
+        self.site.notify = lambda *a: {'sent': 0}
+        tick = lambda m: deliver.tick(self.root, self.site, self.briefing, now=datetime(2026, 11, 21, 7, m))
+        self.assertFalse(tick(40)['sent'])  # chatapp/say says ready False
+        self.site.found[1]['ready'] = True
+        self.assertTrue(tick(50)['sent'])
+
     def test_set_without_env_keeps_the_recipient(self):
         deliver.configure(self.root, self.site, 'kid', chosen=['devices'])
         cfg = deliver.configure(self.root, self.site, deliver.load(self.root).get('env'), at='08:00')['config']

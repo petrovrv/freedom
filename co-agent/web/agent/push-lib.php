@@ -517,7 +517,11 @@ const CO_PUSH_DEVICES = 'devices';
 
 function co_push_channel_ok(mixed $id): bool
 {
-    return is_string($id) && ($id === CO_PUSH_DEVICES || preg_match('~^[a-z0-9][a-z0-9-]{0,39}/[a-z0-9][a-z0-9_-]{0,39}$~', $id) === 1);
+    if (!is_string($id)) return false;
+    if ($id === CO_PUSH_DEVICES) return true;
+    // "<module id>/<notify id>": the same rules as the manifests (modules-lib.php)
+    $p = explode('/', $id);
+    return count($p) === 2 && defined('CO_MODULE_ID_RE') && preg_match(CO_MODULE_ID_RE, $p[0]) === 1 && preg_match(CO_MODULE_NAME_RE, $p[1]) === 1;
 }
 
 /**

@@ -66,6 +66,8 @@ co_push_notify('owner', 'T3', 'b', '/', 't', null, ['devices']);
 $ok('devices only: no hook', $seen() === []);
 co_push_notify('owner', 'T4', 'b', '/', 't', null, ['../x', 42, "$id/say"]);
 $ok('bad ids dropped', array_column($seen(), 0) === ['say']);
+$ok('channel ids follow the manifest rules', co_push_channel_ok(str_repeat('a', 63) . '/say') && !co_push_channel_ok(str_repeat('a', 64) . '/say')
+    && !co_push_channel_ok('a/b/c') && !co_push_channel_ok('a/1x'));
 co_push_notify('owner', 'T5', 'b', '/', 't', null, []);
 $ok('empty list: nowhere', $seen() === []);
 $args = null;

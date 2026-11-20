@@ -58,7 +58,11 @@ def main():
     check = sub.add_parser('critic')
     check.add_argument('--body-file', required=True, type=Path)
     check.add_argument('--subject', default='')
-    sub.add_parser('briefing')
+    brief = sub.add_parser('briefing', help='morning briefing: overdue, your turn, spam rescue, codes, flagged mail, drafts')
+    brief.add_argument('--account', action='append', help='repeat for several; default all accounts')
+    brief.add_argument('--lang', default='en', choices=['en', 'ru'])
+    brief.add_argument('--days', type=int, default=14)
+    brief.add_argument('--text', action='store_true', help='print only the short lines')
     rescue = sub.add_parser('spam-rescue', help='list spam-folder messages the owner context says are wanted (read only)')
     rescue.add_argument('--account', required=True)
     rescue.add_argument('--folder', default='[Gmail]/Spam')
@@ -119,7 +123,8 @@ def main():
         elif command == 'spam-rescue':
             result = flow.spam_rescue(args.account, args.folder)
         elif command == 'briefing':
-            result = flow.briefing()
+            result = flow.briefing(accounts=args.account, lang=args.lang, days=args.days)
+            result = result['text'] if args.text else result
         else:
             result = store.audit()
         print(json.dumps(read_guard.guard_obj(result, source='concierge-mail', tool='mailcli'), ensure_ascii=False, indent=2))

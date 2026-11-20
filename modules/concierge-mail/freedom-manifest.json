@@ -1,12 +1,12 @@
 {
  "format": "freedom-release/1",
- "version": "0.3.0",
- "created": "2026-11-20T09:17:50Z",
+ "version": "0.4.0",
+ "created": "2026-11-20T09:39:01Z",
  "files": [
   {
    "path": "context/mail.md",
-   "size": 1132,
-   "sha256": "07831a50cdc90c35b2d0e75408bc06c59fff39cdee002cd9951fff43c5c5cd0a"
+   "size": 1273,
+   "sha256": "66b213765533620d856b219468c35f2254ad933bfeca93ebd595b5571654295c"
   },
   {
    "path": "home/archive.py",
@@ -14,9 +14,14 @@
    "sha256": "1725ccdbbb8fd027a5eeb12f556d5d09eb120f97b03e2450ac5fe3b195bfce29"
   },
   {
+   "path": "home/briefing.py",
+   "size": 7671,
+   "sha256": "ce32a44aec24f922f18c0593955f545f2552fd28b83dfa325fe59303180b3aef"
+  },
+  {
    "path": "home/mailcli.py",
-   "size": 6706,
-   "sha256": "b6118905744decd039b2c5ccfff9f4ccb4e2d135f4fe65185e80e501f181ff8e"
+   "size": 7235,
+   "sha256": "9de15c165b14f8487dbfc998c27d468ad63dbf5ac081a3cfd9038990b321ef63"
   },
   {
    "path": "home/mailstore.py",
@@ -27,6 +32,11 @@
    "path": "home/test_archive.py",
    "size": 4468,
    "sha256": "a307c4b3483ea13ca46c9debcf6afda111a0d164ff2fda8ed68f2421d2e44759"
+  },
+  {
+   "path": "home/test_briefing.py",
+   "size": 5299,
+   "sha256": "f7a5bc712b81e2647dc3011dea57e0e7bd14033a88a3135a946748c837bb3ef5"
   },
   {
    "path": "home/test_mailstore.py",
@@ -45,25 +55,25 @@
   },
   {
    "path": "home/workflow.py",
-   "size": 19353,
-   "sha256": "8a8b16c798e7eabea33112cdf021130e4cdded1e887aef89e48d70bed972fae8"
+   "size": 19269,
+   "sha256": "e2b7385d96e8fb407f3907f90a70f890bb2382fb856c12878695d685926bf58f"
   },
   {
    "path": "module.json",
    "size": 523,
-   "sha256": "585da17cfc9c5b6946c46bc1af3ce2dcf70ae14ed8146bc0debebe677a61014f"
+   "sha256": "bc7f5c5c47e9e8ce068d14e8fab4471fdb67b82cd7806b5bf79333966b75b79e"
   },
   {
    "path": "README.md",
-   "size": 5412,
-   "sha256": "952e6456c3d8fa5c6c38f2116b353b06049868e7f07b058ea558ac06a926d1a9"
+   "size": 6128,
+   "sha256": "537207546aaa58404fb45891498a844d1c9ba81613fdf870f2b18b3731a8b536"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "4aPBSFF5wrLsulPNFq9KtWJm82zI5u0APbDxxT5O9TQu9AG7kKzIhhMPOjnyUE6BLM4MxjvCCQ3qPg/Jsc7QCg=="
+   "sig": "wxvMDIDz2AC0jzKj9Gg6ONld9+7Y0FT3ay8OLiinzSxX/OFH10Pwf12GjTX/yrfiBFORx8dvkj1KXPZYfoLHCA=="
   }
  ],
  "module": "concierge-mail"

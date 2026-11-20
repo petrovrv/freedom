@@ -303,14 +303,14 @@ CREATE TABLE IF NOT EXISTS wf_draft_heads(thread_id INTEGER PRIMARY KEY REFERENC
             self._audit('workflow.spam_rescue:%d' % len(rescued))
         return dict(folder=folder, rescued=rescued, unverified=unverified, report=report)
 
-    def briefing(self, now=None):
+    def briefing(self, now=None, accounts=None, lang='en', days=14, stale_days=7, spam_folder='[Gmail]/Spam'):
+        """Morning briefing; see briefing.morning. Keeps the earlier keys (cases, promises, overdue, drafts)."""
+        from briefing import morning
         now = _date(now or datetime.now(timezone.utc))
         cases = {state: [] for state in STATES}
         for row in self.db.execute("SELECT c.*,COALESCE(s.state,'inbox') AS state FROM cases c LEFT JOIN wf_case_state s ON s.case_id=c.id ORDER BY c.id"):
             cases[row['state']].append(dict(row))
-        promises = self.list_promises()
-        for promise in promises:
-            promise['overdue'] = bool(promise['due_at'] and datetime.fromisoformat(promise['due_at']) < datetime.fromisoformat(now))
-        drafts = [self._draft(row) for row in self.db.execute('SELECT v.* FROM wf_draft_versions v JOIN wf_draft_heads h ON h.version_id=v.id ORDER BY v.id')]
-        return dict(as_of=now, cases=cases, promises=promises, overdue=[p for p in promises if p['overdue']], drafts=drafts)
+        result = morning(self, now, accounts=accounts, days=days, stale_days=stale_days, spam_folder=spam_folder, lang=lang)
+        result['cases'] = cases
+        return result
 

@@ -80,7 +80,7 @@ class StoreTests(unittest.TestCase):
         raw = message('Your verification code', 'SECRET-846291').as_bytes()
         row = self.store.ingest('owner', raw)
         # Visible stub, no content: nothing is silently lost, the secret never lands.
-        self.assertEqual((row['sensitive'], row['subject'], row['attachments']), (1, 'Your verification code', []))
+        self.assertEqual((row['sensitive'], row['subject'], row['attachments']), (1, '[authentication message]', []))
         self.assertNotIn('SECRET', row['body'])
         self.assertEqual(list((self.root / 'blobs').iterdir()), [])
         self.assertNotIn(b'SECRET-846291', (self.root / 'mail.sqlite3').read_bytes())

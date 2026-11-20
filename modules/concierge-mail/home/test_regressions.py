@@ -27,8 +27,10 @@ class RegressionTests(unittest.TestCase):
             with self.subTest(body=body):
                 row = self.store.ingest('owner', message(body=body, mid=f'<otp{n}@ex>').as_bytes())
                 self.assert_stub(row)
-        row = self.store.ingest('owner', message(subject='Login code 123456', mid='<s@ex>').as_bytes())
-        self.assertEqual(row['subject'], 'Login code ••••')
+        for n, subject in enumerate(['Login code 123456', 'Your verification code: AB12CD', 'Sign in: https://ex.org/magic?t=AB12CD']):
+            row = self.store.ingest('owner', message(subject=subject, mid=f'<s{n}@ex>').as_bytes())
+            self.assertEqual(row['subject'], '[authentication message]')
+            self.assertNotIn(b'AB12CD', (self.root/'mail.sqlite3').read_bytes())
         self.assert_stub(row)
     def test_ordinary_numbers_are_not_authentication(self):
         for body in ['Our zip code 9840 changed', 'Vacancy code 74816180: HVAC engineer',

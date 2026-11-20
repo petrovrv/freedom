@@ -34,7 +34,7 @@ class UnsafeMessageError(ValueError):
 _BENIGN_CODE = re.compile(r'(?i)\b(?:zip|post(?:al)?|vacancy|job|reference|ref|product|promo|discount|voucher|tracking|order|area|country|course|error|source|tax|vat)[ -]?code\b')
 _OTP = re.compile(r'(?i)\b(?:one[ -]?time|verification|security|authentication|confirmation|login|log[ -]?in|sign[ -]?in|access|2fa|two[ -]factor)\s+(?:code|pin|passcode|password|link|token)\b'
                   r'|\b(?:reset|change)\s+(?:your\s+)?password\b|\bmagic\s+link\b|\bpasscode\b'
-                  r'|\b(?:code|pin|passcode)\W{0,3}(?:is\b)?\W{0,3}\d{4,8}\b|\bclick\b.{0,40}\bsign[ -]?in\b'
+                  r'|\b(?:code|pin|passcode)\W{0,3}(?:is\b)?\W{0,3}\d{4,8}\b|\bclick\b.{0,40}\bsign[ -]?in\b|\b(?:sign|log)[ -]?in\b.{0,40}https?://'
                   r'|код\s+(?:подтверждения|входа|доступа)|\bкод\W{0,3}\d{4,8}\b|одноразов\w*\s+(?:код|парол)'
                   r'|verificatiecode|beveiligingscode|inlogcode|eenmalige\s+code')
 
@@ -61,7 +61,8 @@ def check_content(text):
         raise UnsafeMessageError('Untrusted text requires explicit review; not stored')
 
 
-REDACTED_BODY = '[authentication message: content not stored, see section 11]'
+REDACTED_SUBJECT = '[authentication message]'
+REDACTED_BODY ='[authentication message: content not stored, see section 11]'
 
 
 class Store:
@@ -169,7 +170,8 @@ class Store:
         body, html_body = '\n'.join(plain), '\n'.join(html)
         if sensitive:
             # Section 11: the code never reaches disk. Keep a visible stub only.
-            subject = re.sub(r'\d{4,8}', '••••', subject)
+            # Codes may be alphanumeric and links may sit in the subject: keep none of it.
+            subject = REDACTED_SUBJECT
             body, html_body, attachments = REDACTED_BODY, '', []
             digest = hashlib.sha256(raw).hexdigest()
         else:

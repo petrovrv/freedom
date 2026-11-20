@@ -17,7 +17,7 @@ public static class MacTools
         new SecretPromptTool(),   // 0.5.2: secrets in this Mac's own Keychain (MacSecrets.cs)
         new SecretListTool(),
         new SecretDeleteTool(),
-    };
+    }.Concat(MacMail.All(new MailSettings(Path.Combine(Paths.DataDir, "mail.json"))));   // 0.6.0: Gmail of this Mac (MacMail.cs)
 }
 
 // Facts about the Mac for diagnostics; read-only, no confirmation.

@@ -29,14 +29,16 @@ public static unsafe class MacApp
 
     private static IntPtr _app, _del, _statusItem, _statusLine, _shellItem, _formsItem, _otpItem, _mainWin;
     private static readonly IntPtr[] _browserItems = new IntPtr[3];
+    private static readonly IntPtr[] _mailItems = new IntPtr[4];   // 0.6.0: Gmail on this Mac (MailSettings.Modes)
     private static readonly List<IntPtr> _popups = new();
     private static readonly Dictionary<IntPtr, string> _downloads = new();
     private static volatile Snapshot _snap = new(false, "", "", "", "", false, false, false, true, "on");
     private static int _refreshing;
 
     private sealed record Snapshot(bool SetUp, string Env, string DeviceId, string Name, string Short, bool Paired,
-        bool Revoked, bool Running, bool Shell, string Browser, bool ConfirmForms = true, bool AllowOtp = false, string Role = "");
+        bool Revoked, bool Running, bool Shell, string Browser, bool ConfirmForms = true, bool AllowOtp = false, string Role = "", string Mail = "drafts");
 
+    private static string MailFile => Path.Combine(Paths.DataDir, "mail.json");
     private static string ShowFile => Path.Combine(Paths.DataDir, "app.show");
     private static string StartsFile => Path.Combine(Paths.DataDir, "app.starts");
 
@@ -100,7 +102,7 @@ public static unsafe class MacApp
             st?.Paired == true, st?.Bridge?.State == "revoked", code == 0 && so.Contains("state = running"),
             new ShellSettings(Path.Combine(Paths.DataDir, "shell.json")).Enabled,
             new BrowserSettings(Path.Combine(Paths.DataDir, "browser.json")).Mode, MacBrowser.ConfirmForms,
-            MacBrowser.AllowOtpFromChat(st?.Role), st?.Role ?? "");
+            MacBrowser.AllowOtpFromChat(st?.Role), st?.Role ?? "", new MailSettings(MailFile).Mode);
     }
 
     private static string StatusText(Snapshot s) =>
@@ -121,6 +123,7 @@ public static unsafe class MacApp
         SendN(_otpItem, "setState:", s.AllowOtp ? 1 : 0);
         string[] modes = { "on", "read", "off" };
         for (int i = 0; i < 3; i++) SendN(_browserItems[i], "setState:", s.Browser == modes[i] ? 1 : 0);
+        for (int i = 0; i < _mailItems.Length; i++) SendN(_mailItems[i], "setState:", s.Mail == MailSettings.Modes[i] ? 1 : 0);
         IntPtr button = Send(_statusItem, "button");
         IntPtr img = Send(Cls("NSImage"), "imageWithSystemSymbolName:accessibilityDescription:",
             Str(Connected(s) ? "bubble.left.and.bubble.right" : "exclamationmark.bubble"), Str("CO"));
@@ -201,12 +204,19 @@ public static unsafe class MacApp
             _browserItems[i] = Item(titles[i], "browserMode:", "", _del);
             SendN(_browserItems[i], "setTag:", i);
         }
+        string[] mailTitles = { "Off", "Read mail only", "Read + drafts and attachments (never sent)", "Also labels, read marks, archive" };
+        for (int i = 0; i < _mailItems.Length; i++)
+        {
+            _mailItems[i] = Item(mailTitles[i], "mailMode:", "", _del);
+            SendN(_mailItems[i], "setTag:", i);
+        }
         IntPtr menu = Menu("CO",
             Item("Open CO", "openWindow:", "o", _del),
             Separator(),
             _statusLine,
             _shellItem,
             Sub("Agent browser", Menu("Agent browser", _browserItems.Append(Separator()).Append(_formsItem).Append(_otpItem).ToArray())),
+            Sub("Gmail on this Mac", Menu("Gmail on this Mac", _mailItems)),
             Item("Open the CO folder", "openFolder:", "", _del),
             Item("Show the log", "openLog:", "", _del),
             Separator(),
@@ -340,6 +350,7 @@ public static unsafe class MacApp
         ("toggleShell:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnToggleShell, "v@:@"),
         ("browserMode:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnBrowserMode, "v@:@"),
         ("toggleForms:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnToggleForms, "v@:@"),
+        ("mailMode:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnMailMode, "v@:@"),
         ("toggleOtp:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnToggleOtp, "v@:@"),
         ("openFolder:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnOpenFolder, "v@:@"),
         ("openLog:", (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, void>)&OnOpenLog, "v@:@"),
@@ -405,6 +416,18 @@ public static unsafe class MacApp
         new BrowserSettings(Path.Combine(Paths.DataDir, "browser.json")).Mode = mode;
         Log.Write("window app: agent browser " + mode);
         _snap = _snap with { Browser = mode };
+        RefreshMenu();
+    });
+
+    // 0.6.0: what agents may do with the Gmail of this Mac (mail.json, read by the resident on every call).
+    [UnmanagedCallersOnly]
+    private static void OnMailMode(IntPtr self, IntPtr sel, IntPtr sender) => Guard("mail", () =>
+    {
+        nint tag = SendRetN(sender, "tag");
+        string mode = tag >= 0 && tag < MailSettings.Modes.Length ? MailSettings.Modes[(int)tag] : "off";
+        new MailSettings(MailFile).Mode = mode;
+        Log.Write("window app: gmail " + mode);
+        _snap = _snap with { Mail = mode };
         RefreshMenu();
     });
 

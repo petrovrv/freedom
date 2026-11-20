@@ -173,7 +173,8 @@ internal sealed class SecretPromptTool : IDeviceTool
                       "max 90 s) and otherwise returns 'waiting' — then poll with secret_list. Tools that run on this Mac read the value with " +
                       "keyring.get_password(\"aiwb/<name>\", \"<account>\") (macOS may ask 'Allow access' once, the person clicks Always Allow) " +
                       "or, for plain ASCII values, `security find-generic-password -s aiwb/<name> -a <account> -w` (other values print as hex). " +
-                      "Use it on a Mac instead of the home PC secret-prompt window. After 3 Cancels in 10 min no new dialog opens.",
+                      "Use it on a Mac instead of the home PC secret-prompt window. After 3 Cancels in 10 min no new dialog opens. " +
+                      "Gmail of this Mac: name=gmail-imap account=<the Gmail address> (a Google app password), then the mail_* tools (mail_status first).",
         InputSchema = Schema.Obj(
             ("name", "string", "item name, a-z 0-9 . _ - (the Keychain service is aiwb/<name>), e.g. gmail-imap", true),
             ("account", "string", "login or e-mail the secret belongs to (default \"default\")", false),

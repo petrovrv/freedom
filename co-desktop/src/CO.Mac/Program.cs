@@ -15,7 +15,7 @@ namespace CO.Mac;
 //   setup --env <environment>           sign in with Google, write the pairing request, install and start the LaunchAgent
 //   run                                   the LaunchAgent: wait for pairing, then serve agent tool calls
 //   app                                   the CO window (R4): menu-bar icon + CO Web, from ~/Applications/CO.app (MacApp.cs)
-//   status | folders [list|add <path> [id] [--read-only]|rm <id>] | shell on|off | browser on|read|off | browser forms ask|auto | browser otp on|off|default | window on|off | signin | uninstall [--purge] | version
+//   status | folders [list|add <path> [id] [--read-only]|rm <id>] | shell on|off | browser on|read|off | browser forms ask|auto | browser otp on|off|default | mail off|read|drafts|labels | window on|off | signin | uninstall [--purge] | version
 //   subs [status|install <cli>|connect <claude|codex> [--email <e-mail>]|check <cli>|register]   own CLI subscriptions (S4)
 public static class Program
 {
@@ -53,9 +53,10 @@ public static class Program
                 "browser" => argv.Length > 1 && argv[1] == "forms" ? BrowserForms(argv.Length > 2 ? argv[2] : "")
                     : argv.Length > 1 && argv[1] == "otp" ? BrowserOtp(argv.Length > 2 ? argv[2] : "")
                     : Browser(argv.Length > 1 ? argv[1] : ""),
+                "mail" => Mail(argv.Length > 1 ? argv[1] : ""),
                 "subs" => await SubsAsync(argv.Skip(1).ToArray()),
                 "uninstall" => Uninstall(argv.Contains("--purge")),
-                _ => throw new ArgumentException("Unknown command " + cmd + ". Commands: setup, run, status, folders, shell, browser, subs, window, signin, uninstall, version."),
+                _ => throw new ArgumentException("Unknown command " + cmd + ". Commands: setup, run, status, folders, shell, browser, mail, subs, window, signin, uninstall, version."),
             };
         }
         catch (Exception ex)
@@ -648,6 +649,7 @@ public static class Program
         if (!st.Paired && p.Runtime.PairingCode() is string code) Console.WriteLine($"code:     {code}");
         Console.WriteLine($"shell:    {(p.Shell.Enabled ? "on (asks before every command)" : "off")}");
         Console.WriteLine($"browser:  {new BrowserSettings(Path.Combine(Paths.DataDir, "browser.json")).Mode} ({MacBrowser.Describe()})");
+        Console.WriteLine($"gmail:    {MailSettings.Describe(new MailSettings(Path.Combine(Paths.DataDir, "mail.json")).Mode)}");
         Console.WriteLine($"window:   {MacAppInstall.Describe()} ({MacAppInstall.Bundle})");
         Console.WriteLine("folders:");
         foreach (var f in p.Runtime.Folders.All) Console.WriteLine($"  {f.Id,-12} {f.Path}  [{f.Granted}]");
@@ -745,6 +747,15 @@ public static class Program
             ? "Agent browser: the agent may type a one-time code you send in chat into the code field of its tab; passwords, card and bank fields never."
             : "Agent browser: one-time code pages pause the agent tab; you type the code yourself.")
             + (mode == "default" ? " (device default)" : ""));
+        return 0;
+    }
+
+    // 0.6.0: what agents may do with the Gmail of this Mac (app password in the login Keychain, aiwb/gmail-imap).
+    private static int Mail(string mode)
+    {
+        if (!MailSettings.Modes.Contains(mode)) throw new ArgumentException("mail off | read | drafts | labels");
+        new MailSettings(Path.Combine(Paths.DataDir, "mail.json")).Mode = mode;
+        Console.WriteLine("Gmail on this Mac: " + MailSettings.Describe(mode) + ". Nothing is ever sent or deleted.");
         return 0;
     }
 

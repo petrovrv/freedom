@@ -1,12 +1,12 @@
 {
  "format": "freedom-release/1",
- "version": "0.2.1",
- "created": "2026-11-20T09:12:00Z",
+ "version": "0.3.0",
+ "created": "2026-11-20T09:15:39Z",
  "files": [
   {
    "path": "context/mail.md",
-   "size": 905,
-   "sha256": "d584e8252f803874e71ac5dce52e9f5b44ff207a723c051f1abc54a692a9e1f1"
+   "size": 1132,
+   "sha256": "07831a50cdc90c35b2d0e75408bc06c59fff39cdee002cd9951fff43c5c5cd0a"
   },
   {
    "path": "home/archive.py",
@@ -15,8 +15,8 @@
   },
   {
    "path": "home/mailcli.py",
-   "size": 6362,
-   "sha256": "7821ab73f8691671ece474e98bca034b774b5a0dd3669a9de9775d28c7f7ad2d"
+   "size": 6706,
+   "sha256": "b6118905744decd039b2c5ccfff9f4ccb4e2d135f4fe65185e80e501f181ff8e"
   },
   {
    "path": "home/mailstore.py",
@@ -39,26 +39,31 @@
    "sha256": "fe27a3d7934f0666edc794e890806df745338bda511b6a1b1c1802de94e8db57"
   },
   {
+   "path": "home/test_spam_rescue.py",
+   "size": 4881,
+   "sha256": "3a0dbe0cfd6dd770fc6c0685caab95a612b6520b83e163677953b944264f357b"
+  },
+  {
    "path": "home/workflow.py",
-   "size": 13508,
-   "sha256": "701035b2dd4a1fb0be18f8212125d3e47ec5f62d460644c9a0583320b955c91a"
+   "size": 18292,
+   "sha256": "31dad83c74cd43578be3077f1bf2406b18e99736b8439417251dda56acd30a23"
   },
   {
    "path": "module.json",
-   "size": 508,
-   "sha256": "5aa0607705d53cf05170f775788a61ba15cc3405008139d30d82e59bfa0002d1"
+   "size": 523,
+   "sha256": "585da17cfc9c5b6946c46bc1af3ce2dcf70ae14ed8146bc0debebe677a61014f"
   },
   {
    "path": "README.md",
-   "size": 4428,
-   "sha256": "88d7d98a488402d8d8d8f855cb103b9a3f0f425cb133ac16380d3e67fb4bf071"
+   "size": 5297,
+   "sha256": "59bd451d606d5c934800f277d3347bddf5426fb90dcdff84252a0834599883b4"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "3m6l9bNc3sX5LwKbcFYwKHnUD6vVo+7Tq30CD9njANzYeaO1fW8zpdczgRFWb8pIfQzACeAJB9vRHuEahS3qCg=="
+   "sig": "+finNtI+UT2DLZRgc4YNxR1wDaufuZTkt3u+goGpWL/KNYGE2NX5C+wF8cZEAah1xY15Xn8ymop1gdUhtiOICQ=="
   }
  ],
  "module": "concierge-mail"

@@ -59,6 +59,9 @@ def main():
     check.add_argument('--body-file', required=True, type=Path)
     check.add_argument('--subject', default='')
     sub.add_parser('briefing')
+    rescue = sub.add_parser('spam-rescue', help='list spam-folder messages the owner context says are wanted (read only)')
+    rescue.add_argument('--account', required=True)
+    rescue.add_argument('--folder', default='[Gmail]/Spam')
     sub.add_parser('audit')
     for name in ('checkpoint', 'restore', 'verify', 'export-maildir'):
         cmd = sub.add_parser(name)
@@ -113,6 +116,8 @@ def main():
             result = flow.undo_draft(args.thread_id, expected_version=args.expected_version)
         elif command == 'critic':
             result = critic(args.body_file.read_text(encoding='utf-8-sig'), subject=args.subject)
+        elif command == 'spam-rescue':
+            result = flow.spam_rescue(args.account, args.folder)
         elif command == 'briefing':
             result = flow.briefing()
         else:

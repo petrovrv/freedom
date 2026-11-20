@@ -28,3 +28,7 @@ Forwarded message/rfc822 parts remain attachments, not the outer searchable body
 - `export-maildir <new-directory> --account <address>` exports exact archived RFC822 originals for one account.
 
 Existing destinations are never overwritten. Checkpoints are **plaintext local recovery copies**, not the encrypted remote backup specified for production. Hashes detect accidental corruption, not malicious replacement of both data and manifest. Use a private protected destination. No automatic backup schedule or cloud upload is included.
+
+## Reverse spam filter (section 6)
+
+`sync --folder "[Gmail]/Spam"` takes a read-only snapshot of the spam folder; `spam-rescue --account <address>` lists the messages there that the owner's context says are wanted: the owner wrote to the sender, the sender is a known correspondent, or the sender's domain belongs to an open case (also `awaited_reply` when the case has an open promise of theirs). Shared mailbox domains (gmail.com etc.) never match by domain. Only a sender authenticated by the topmost Authentication-Results header (DMARC, or DKIM/SPF aligned with the From domain) is rescued; context matches without it are listed as `unverified`. Tainted and redacted messages are never rescued. Nothing is moved at the provider; the result has a one-line `report` for the briefing. The dossier and learning from the owner's corrections are not connected yet.

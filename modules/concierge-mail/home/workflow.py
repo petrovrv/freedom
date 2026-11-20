@@ -1,8 +1,11 @@
-﻿"""Local case, promise and draft workflow. No network or sending capabilities."""
+"""Local case, promise and draft workflow. No network or sending capabilities."""
 import json
 import re
 from mailstore import check_content
 from datetime import datetime, timezone
+from email import policy
+from email.parser import BytesParser
+from email.utils import getaddresses, parseaddr
 
 STATES = ('inbox', 'waiting_them', 'your_turn', 'closed')
 _UNSET = object()
@@ -37,6 +40,28 @@ def critic(body, subject='', attachments=()):
     if re.search(r'\b(?:legal|lawyer|contract|settlement|liability|lawsuit|advocaat|rechtbank|overeenkomst)\b|юрид|адвокат|договор|обязательств|суд', text, re.I):
         add('legal', 'review', 'Legal content requires human review.')
     return findings
+
+
+def sender_authenticated(raw, host):
+    """True when the provider's Authentication-Results show DMARC, aligned DKIM or SPF pass for host.
+
+    Only the topmost header counts: it is added by the receiving provider, lower ones
+    may come from the sender. Without it nothing is considered authenticated.
+    """
+    if not host:
+        return False
+    headers = BytesParser(policy=policy.default).parsebytes(raw, headersonly=True).get_all('authentication-results') or []
+    if not headers:
+        return False
+    text = str(headers[0]).lower()
+    def aligned(domain):
+        return domain == host or domain.endswith('.' + host) or host.endswith('.' + domain)
+    if re.search(r'\bdmarc=pass\b', text) and any(aligned(d) for d in re.findall(r'header\.from=([a-z0-9.-]+)', text)):
+        return True
+    for method, domain in re.findall(r'\b(dkim|spf)=pass\b[^;]*?(?:header\.(?:i|d)=@?|smtp\.mailfrom=(?:[^@\s;]*@)?)([a-z0-9.-]+)', text):
+        if aligned(domain):
+            return True
+    return False
 
 
 class Workflow:
@@ -201,6 +226,54 @@ CREATE TABLE IF NOT EXISTS wf_draft_heads(thread_id INTEGER PRIMARY KEY REFERENC
                     self.db.execute('DELETE FROM wf_draft_heads WHERE thread_id=?', (thread_id,))
                 self._audit('workflow.draft.undo:' + str(current['id']))
         return self.get_draft(thread_id)
+
+    def spam_rescue(self, account, folder='[Gmail]/Spam'):
+        """Section 6: messages of the spam folder that the owner's context says are wanted.
+
+        Read only: nothing is moved at the provider. Tainted (read-guard) and redacted
+        authentication messages stay where they are. Context: the owner wrote to the
+        sender, the sender's domain is in an open case, or the case awaits their answer.
+        """
+        def address(value):
+            return parseaddr(value)[1].lower()
+        def domain(value):
+            return address(value).rpartition('@')[2]
+        others = 'SELECT message_id FROM message_locations WHERE account=? AND folder<>?'
+        wrote_to = set()
+        for (recipients,) in self.db.execute('SELECT recipients FROM messages WHERE account=? AND is_sent=1', (account,)):
+            wrote_to.update(a.lower() for _, a in getaddresses([recipients]) if a)
+        known = {address(r[0]) for r in self.db.execute('SELECT sender FROM messages WHERE account=? AND is_sent=0 AND (id IN (' + others + ') OR id NOT IN (SELECT message_id FROM message_locations))', (account, account, folder))}
+        open_domains, awaited = set(), set()
+        for row in self.db.execute("""SELECT m.sender, EXISTS(SELECT 1 FROM wf_promises p WHERE p.case_id=m.case_id AND p.owner='them' AND p.status='open') AS awaited
+            FROM messages m LEFT JOIN wf_case_state s ON s.case_id=m.case_id
+            WHERE m.account=? AND m.case_id IS NOT NULL AND m.is_sent=0 AND COALESCE(s.state,'inbox')<>'closed'
+              AND m.id NOT IN (SELECT message_id FROM message_locations WHERE account=? AND folder=?)""", (account, account, folder)):
+            open_domains.add(domain(row['sender']))
+            if row['awaited']:
+                awaited.add(domain(row['sender']))
+        public = {'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'yahoo.com', 'icloud.com', 'proton.me', 'protonmail.com', 'gmx.com', 'telenet.be', 'skynet.be'}
+        rescued, unverified = [], []
+        for row in self.db.execute('SELECT DISTINCT m.* FROM messages m JOIN message_locations l ON l.message_id=m.id WHERE m.account=? AND l.folder=? AND m.tainted=0 AND m.sensitive=0 AND m.is_sent=0 ORDER BY m.id', (account, folder)):
+            sender, host = address(row['sender']), domain(row['sender'])
+            reasons = []
+            if sender in wrote_to:
+                reasons.append('you_wrote_to_sender')
+            if sender in known:
+                reasons.append('known_correspondent')
+            # A shared mailbox provider says nothing about the case: match whole domains only.
+            if host and host not in public:
+                if host in awaited:
+                    reasons.append('awaited_reply')
+                if host in open_domains:
+                    reasons.append('open_case_domain')
+            if reasons:
+                item = dict(id=row['id'], thread_id=row['thread_id'], sender=row['sender'], subject=row['subject'], date=row['date'], reasons=reasons)
+                # Spoofed From is the classic spam-folder phish: rescue only an authenticated sender.
+                (rescued if sender_authenticated(self.store.read_blob(row['raw_sha256']), host) else unverified).append(item)
+        report = 'rescued %d: ' % len(rescued) + '; '.join('%s — %s' % (r['sender'], r['subject']) for r in rescued) if rescued else 'rescued 0'
+        with self.db:
+            self._audit('workflow.spam_rescue:%d' % len(rescued))
+        return dict(folder=folder, rescued=rescued, unverified=unverified, report=report)
 
     def briefing(self, now=None):
         now = _date(now or datetime.now(timezone.utc))

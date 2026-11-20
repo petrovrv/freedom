@@ -127,7 +127,12 @@ def main():
             result = result['text'] if args.text else result
         else:
             result = store.audit()
-        print(json.dumps(read_guard.guard_obj(result, source='concierge-mail', tool='mailcli'), ensure_ascii=False, indent=2))
+        guarded = read_guard.guard_obj(result, source='concierge-mail', tool='mailcli')
+        if command == 'briefing' and args.text:
+            # Plain lines for push, WhatsApp and the voice hub.
+            print('\n'.join(guarded))
+        else:
+            print(json.dumps(guarded, ensure_ascii=False, indent=2))
     finally:
         store.close()
 

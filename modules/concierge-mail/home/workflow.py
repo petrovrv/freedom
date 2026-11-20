@@ -309,7 +309,8 @@ CREATE TABLE IF NOT EXISTS wf_draft_heads(thread_id INTEGER PRIMARY KEY REFERENC
         now = _date(now or datetime.now(timezone.utc))
         cases = {state: [] for state in STATES}
         for row in self.db.execute("SELECT c.*,COALESCE(s.state,'inbox') AS state FROM cases c LEFT JOIN wf_case_state s ON s.case_id=c.id ORDER BY c.id"):
-            cases[row['state']].append(dict(row))
+            if accounts is None or self.db.execute('SELECT 1 FROM messages WHERE case_id=? AND account IN (' + ','.join('?' for _ in accounts) + ')', [row['id'], *accounts]).fetchone():
+                cases[row['state']].append(dict(row))
         result = morning(self, now, accounts=accounts, days=days, stale_days=stale_days, spam_folder=spam_folder, lang=lang)
         result['cases'] = cases
         return result

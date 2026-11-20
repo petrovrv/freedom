@@ -87,6 +87,28 @@ class BriefingTests(unittest.TestCase):
         line = self.flow.briefing(now=NOW, lang='ru')['text'][0]
         self.assertTrue(line.startswith('Ход за тобой (5): P0 — S0; P1 — S1; P2 — S2 и ещё 2'))
 
+    def test_account_scope_covers_promises_drafts_and_cases(self):
+        mine = self.put(mail('HR <hr@acme.be>', '<x1@ex>', subject='Mine'))
+        other = self.store.ingest('other', mail('Kid <k@school.example>', '<x2@ex>', subject='Other'))
+        for row, title in [(mine, 'Mine case'), (other, 'Other case')]:
+            case = self.store.assign_case(row['id'], title)
+            self.flow.create_promise(case['id'], title + ' promise', owner='me', due_at='2026-11-01')
+            self.flow.save_draft(row['thread_id'], title + ' draft')
+        result = self.flow.briefing(now=NOW, accounts=['me'])
+        self.assertEqual([p['title'] for p in result['overdue']], ['Mine case promise'])
+        self.assertEqual([d['body'] for d in result['drafts']], ['Mine case draft'])
+        self.assertEqual([c['title'] for c in result['cases']['inbox']], ['Mine case'])
+        self.assertNotIn('Other', ' '.join(result['text']))
+        self.assertEqual(len(self.flow.briefing(now=NOW)['overdue']), 2)
+
+    def test_cli_text_is_plain_lines(self):
+        import subprocess, sys
+        self.store.close()
+        out = subprocess.run([sys.executable, str(Path(__file__).with_name('mailcli.py')), '--root', self.temp.name, 'briefing', '--text', '--lang', 'ru'],
+                             capture_output=True, text=True, encoding='utf-8', check=True).stdout
+        self.store = Store(Path(self.temp.name))
+        self.assertEqual(out.strip(), 'Почта: этим утром ничего не требует внимания.')
+
 
 if __name__ == '__main__':
     unittest.main()

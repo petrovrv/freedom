@@ -5,6 +5,7 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- Module concierge-mail 0.4.1: `briefing --account` also limits promises, drafts and cases to those accounts; `--text` prints plain lines.
 - Module concierge-mail 0.4.0: morning briefing (`briefing --text`, en/ru) — overdue promises, your turn, long silences, spam rescue, flagged mail, sign-in codes of the last day, drafts; read only.
 - Module concierge-mail 0.3.0: reverse spam filter (`spam-rescue`) — spam-folder messages from people the owner wrote to, known correspondents or domains of open cases, rescued only when the sender is authenticated (DMARC/aligned DKIM/SPF), read only.
 - Module concierge-mail 0.2.1: mail flagged by read-guard is kept with a taint mark instead of being dropped, and drafting on its thread needs the owner's explicit yes; authentication-code mail is kept as a visible stub (sender and date) without subject, code, raw message or attachments; fewer false code detections (postcodes, vacancy numbers), binary attachments are no longer scanned as text.

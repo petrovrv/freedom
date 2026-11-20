@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.4.0",
- "created": "2026-11-20T09:39:01Z",
+ "version": "0.4.1",
+ "created": "2026-11-20T09:40:45Z",
  "files": [
   {
    "path": "context/mail.md",
@@ -15,13 +15,13 @@
   },
   {
    "path": "home/briefing.py",
-   "size": 7671,
-   "sha256": "ce32a44aec24f922f18c0593955f545f2552fd28b83dfa325fe59303180b3aef"
+   "size": 8226,
+   "sha256": "80fc1a884752af1b1146c4cf49d496c561bc2b0c3f6025ad4275bfd6f92ec306"
   },
   {
    "path": "home/mailcli.py",
-   "size": 7235,
-   "sha256": "9de15c165b14f8487dbfc998c27d468ad63dbf5ac081a3cfd9038990b321ef63"
+   "size": 7434,
+   "sha256": "1e657d9b6e3c51ef6aa471b68e8def4b1606e32ff795cc9e7c1f3fa856f56b57"
   },
   {
    "path": "home/mailstore.py",
@@ -35,8 +35,8 @@
   },
   {
    "path": "home/test_briefing.py",
-   "size": 5299,
-   "sha256": "f7a5bc712b81e2647dc3011dea57e0e7bd14033a88a3135a946748c837bb3ef5"
+   "size": 6836,
+   "sha256": "14a5c4f66bd4ac357fe80373115f341dce8af3a35de29479b6b2a3f4873148b4"
   },
   {
    "path": "home/test_mailstore.py",
@@ -55,13 +55,13 @@
   },
   {
    "path": "home/workflow.py",
-   "size": 19269,
-   "sha256": "e2b7385d96e8fb407f3907f90a70f890bb2382fb856c12878695d685926bf58f"
+   "size": 19460,
+   "sha256": "8c58728e2596d4a5e0fd16e2ed97ce23ceae4f24f74e0fd9b2550d9c18bf894b"
   },
   {
    "path": "module.json",
-   "size": 523,
-   "sha256": "bc7f5c5c47e9e8ce068d14e8fab4471fdb67b82cd7806b5bf79333966b75b79e"
+   "size": 508,
+   "sha256": "fc456d7631be0a973653e2cd7a1c9528894a8629ac262163c56ddad8f0e7205d"
   },
   {
    "path": "README.md",
@@ -73,7 +73,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "wxvMDIDz2AC0jzKj9Gg6ONld9+7Y0FT3ay8OLiinzSxX/OFH10Pwf12GjTX/yrfiBFORx8dvkj1KXPZYfoLHCA=="
+   "sig": "zWad+VWSdAhgOBOQjw0uTaBFu/8f6Te0rtsk6k8KuT6ittUmS58OugIjmB89lBELT9PTjpe8tQfGaGCjkVD3BQ=="
   }
  ],
  "module": "concierge-mail"

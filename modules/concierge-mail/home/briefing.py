@@ -61,6 +61,7 @@ def morning(flow, now, accounts=None, days=14, stale_days=7, spam_folder='[Gmail
     db, words = flow.db, TEXT.get(lang, TEXT['en'])
     now_dt = datetime.fromisoformat(now)
     since, day_ago = now_dt - timedelta(days=days), now_dt - timedelta(days=1)
+    scoped = accounts is not None
     if accounts is None:
         accounts = [r[0] for r in db.execute('SELECT id FROM accounts ORDER BY id')]
     slots = ','.join('?' for _ in accounts) or "''"
@@ -94,6 +95,10 @@ def morning(flow, now, accounts=None, days=14, stale_days=7, spam_folder='[Gmail
     waiting.sort(key=lambda i: (i['at'], i['message_id']))
 
     promises = flow.list_promises()
+    if scoped:
+        # A briefing for some accounts shows only their cases and drafts.
+        own = {r[0] for r in db.execute('SELECT DISTINCT case_id FROM messages WHERE case_id IS NOT NULL AND account IN (' + slots + ')', accounts)}
+        promises = [p for p in promises if p['case_id'] in own]
     for promise in promises:
         promise['overdue'] = bool(promise['due_at'] and datetime.fromisoformat(promise['due_at']) < now_dt)
     overdue = [p for p in promises if p['overdue']]
@@ -108,7 +113,7 @@ def morning(flow, now, accounts=None, days=14, stale_days=7, spam_folder='[Gmail
     stamp = day_ago.strftime('%Y-%m-%d %H:%M:%S')
     codes = [r[0] for r in db.execute('SELECT sender FROM messages WHERE sensitive=1 AND ' + recent + ' ORDER BY id', [*accounts, stamp])]
     tainted = [dict(r) for r in db.execute('SELECT id,thread_id,sender,subject,taint_reasons FROM messages WHERE tainted=1 AND ' + recent + ' ORDER BY id', [*accounts, stamp])]
-    drafts = [flow._draft(r) for r in db.execute('SELECT v.* FROM wf_draft_versions v JOIN wf_draft_heads h ON h.version_id=v.id ORDER BY v.id')]
+    drafts = [flow._draft(r) for r in db.execute('SELECT v.* FROM wf_draft_versions v JOIN wf_draft_heads h ON h.version_id=v.id JOIN threads t ON t.id=v.thread_id WHERE t.account IN (' + slots + ') ORDER BY v.id', accounts)]
 
     def label(i):
         return '%s — %s' % (i['who'], i['subject'])

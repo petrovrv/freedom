@@ -158,6 +158,9 @@ def send(root, site, briefing, sync=None, dry_run=False, now=None):
     if dry_run:
         return result | {'sent': False, 'reason': 'dry run'}
     result['push'] = site.notify(cfg['env'], result['title'], text, cfg['channels'])
+    if cfg['channels'] == ['devices'] and not (result['push'] or {}).get('sent'):
+        # no device took it: the next tick tries again (module channels give no receipt, they count as delivered)
+        return result | {'sent': False, 'reason': 'no device accepted the push'}
     cfg['lastSent'] = (now or datetime.now()).strftime('%Y-%m-%d')
     save(root, cfg)
     return result | {'sent': True}

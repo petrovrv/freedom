@@ -163,7 +163,7 @@ def run_deliver(args, store, flow):
         return deliver.channels(site, args.env or deliver.load(args.root).get('env') or deliver.default_env())
     if args.action == 'set':
         chosen = [c.strip() for c in args.channels.split(',') if c.strip()] if args.channels is not None else None
-        return deliver.configure(args.root, site, args.env or deliver.default_env(), chosen=chosen, at=args.at, lang=args.lang,
+        return deliver.configure(args.root, site, args.env or deliver.load(args.root).get('env') or deliver.default_env(), chosen=chosen, at=args.at, lang=args.lang,
                                  accounts=args.account, off=args.off)
     if args.action == 'show':
         return deliver.load(args.root)

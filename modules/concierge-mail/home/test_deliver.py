@@ -97,6 +97,19 @@ class DeliverTests(unittest.TestCase):
         self.assertFalse(cfg['enabled'])
         self.assertFalse(deliver.tick(self.root, self.site, self.briefing, now=datetime(2026, 11, 21, 7, 45))['sent'])
 
+    def test_failed_device_push_is_retried(self):
+        deliver.configure(self.root, self.site, 'me', chosen=['devices'], at='07:30')
+        self.site.notify = lambda *a: {'sent': 0, 'failed': 1}
+        tick = lambda m: deliver.tick(self.root, self.site, self.briefing, now=datetime(2026, 11, 21, 7, m))
+        self.assertFalse(tick(40)['sent'])
+        self.site.notify = lambda *a: {'sent': 1}
+        self.assertTrue(tick(50)['sent'])
+
+    def test_set_without_env_keeps_the_recipient(self):
+        deliver.configure(self.root, self.site, 'kid', chosen=['devices'])
+        cfg = deliver.configure(self.root, self.site, deliver.load(self.root).get('env'), at='08:00')['config']
+        self.assertEqual(cfg['env'], 'kid')
+
     def test_body_fits_a_push(self):
         lines = [f'line {i} ' + 'x' * 200 for i in range(6)]
         text = deliver.body(lines)

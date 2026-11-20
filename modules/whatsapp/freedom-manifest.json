@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
  "version": "0.5.3",
- "created": "2026-11-20T12:37:25Z",
+ "created": "2026-11-20T12:47:20Z",
  "files": [
   {
    "path": "context/whatsapp.md",
@@ -25,8 +25,8 @@
   },
   {
    "path": "server/whatsapp-lib.php",
-   "size": 21511,
-   "sha256": "30eb2cc1efb6c465527fd7a7d76e061c790db973efc4dcc65f7e3ae101cbeb68"
+   "size": 21716,
+   "sha256": "420f7ddeba68d744087e52a9e4fc6cd448283eb03f4c5ff88820c6ebb14079f7"
   },
   {
    "path": "tools/whatsapp-agent/service.mjs",
@@ -48,7 +48,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "mQYyPyR4kfSq1ktScGBQIc1IynlbYZCcxpHQjJNl3FUJNER2Tb0metazecVgww8Xy3wLcRRs5Wulp0sZEqyVAQ=="
+   "sig": "T07W/JsyoeoL9U+SvZUK2G/blDI/GgdwXM3i/Enl68m/lEkM5+dCXfUpT9wstZ2+StcUwhy/Lay6INRm8iwCBg=="
   }
  ],
  "module": "whatsapp"

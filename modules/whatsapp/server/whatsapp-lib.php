@@ -319,7 +319,14 @@ function co_wa_push_status(array $ctx, array $in): array
 {
     $env = (string)($in['env'] ?? '');
     $f = (string)$ctx['stateDir'] . '/pushes.json';
-    $s = is_file($f) ? json_decode((string)file_get_contents($f), true) : null;
+    $s = null;
+    $h = is_file($f) ? fopen($f, 'r') : false;
+    if ($h !== false) {
+        flock($h, LOCK_SH); // co_wa_push_state rewrites the file under LOCK_EX
+        $s = json_decode((string)stream_get_contents($h), true);
+        flock($h, LOCK_UN);
+        fclose($h);
+    }
     $t = is_array($s) && co_db_id_ok($env) ? (int)($s['subs'][$env] ?? 0) : 0;
     return time() - $t <= CO_WA_PUSH_SUB_S
         ? ['ready' => true, 'note' => 'the WhatsApp service writes this person\'s pushes to their number']

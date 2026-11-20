@@ -145,7 +145,7 @@ def body(lines, limit=BODY_MAX):
     return ''
 
 
-def send(root, site, briefing, sync=None, dry_run=False, now=None):
+def send(root, site, briefing, sync=None, dry_run=False, day=None):
     """Sync (when accounts are set), build the briefing and push it to the chosen channels."""
     cfg = load(root)
     if not cfg.get('channels'):
@@ -171,22 +171,25 @@ def send(root, site, briefing, sync=None, dry_run=False, now=None):
     if not modules and not (result['push'] or {}).get('sent'):
         # nothing took it: the next tick tries again
         return result | {'sent': False, 'reason': 'no chosen channel accepted the briefing now'}
-    cfg['lastSent'] = (now or datetime.now()).strftime('%Y-%m-%d')
+    cfg['lastSent'] = day or datetime.now().strftime('%Y-%m-%d')
     save(root, cfg)
     return result | {'sent': True}
 
 
 def due(cfg, now):
-    """Once a day, from the chosen time until LATE after it."""
+    """The date of the latest scheduled time when it is still to send (once, within LATE after it), else None."""
     if not cfg.get('enabled') or not cfg.get('channels'):
-        return False
+        return None
     at = datetime.combine(now.date(), datetime.strptime(cfg.get('at', '07:30'), '%H:%M').time())
-    return cfg.get('lastSent') != now.strftime('%Y-%m-%d') and at <= now < at + LATE
+    if at > now:
+        at -= timedelta(days=1)  # a window that crosses midnight
+    day = at.strftime('%Y-%m-%d')
+    return day if cfg.get('lastSent') != day and now < at + LATE else None
 
 
 def tick(root, site, briefing, sync=None, now=None):
     now = now or datetime.now()
-    cfg = load(root)
-    if not due(cfg, now):
+    day = due(load(root), now)
+    if day is None:
         return {'sent': False, 'reason': 'not due'}
-    return send(root, site, briefing, sync=sync, now=now)
+    return send(root, site, briefing, sync=sync, day=day)

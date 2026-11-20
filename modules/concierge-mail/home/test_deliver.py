@@ -90,6 +90,14 @@ class DeliverTests(unittest.TestCase):
         self.assertTrue(tick(7, 31, 23)['sent'])
         self.assertEqual(len(self.site.sent), 2)
 
+    def test_window_across_midnight(self):
+        deliver.configure(self.root, self.site, 'me', chosen=['devices'], at='23:59')
+        tick = lambda d, h, m: deliver.tick(self.root, self.site, self.briefing, now=datetime(2026, 11, d, h, m))
+        self.assertFalse(tick(21, 23, 55)['sent'])
+        self.assertTrue(tick(22, 0, 5)['sent'])
+        self.assertFalse(tick(22, 0, 15)['sent'])
+        self.assertTrue(tick(22, 23, 59)['sent'])
+
     def test_off_keeps_choice(self):
         deliver.configure(self.root, self.site, 'me', chosen=['devices'])
         cfg = deliver.configure(self.root, self.site, 'me', off=True)['config']

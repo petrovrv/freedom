@@ -57,16 +57,19 @@ return [
             $states = ['idle','starting','searching','interviewing','success','timeout','stopped','error','stopping'];
             if (!is_array($r) || !in_array($r['state'] ?? '', $states, true))
                 return ['error' => 'bad_report'];
+            $offset=time()-(float)($in['hostNow']??time());
             $s['report'] = [
                 'id' => substr((string)($r['id'] ?? ''),0,48),
                 'state' => $r['state'], 'connected' => ($r['connected'] ?? false) === true,
-                'until' => (int)($r['until'] ?? 0),
+                'until' => (int)(($r['until'] ?? 0)+$offset),
                 'device' => mb_substr((string)($r['device'] ?? ''),0,100),
                 'note' => mb_substr((string)($r['note'] ?? ''),0,160),
             ];
             $s['seen'] = time();
             $cmd = $s['command'] ?? null;
-            return ['command' => $cmd && $cmd['expires'] > time() ? $cmd : null];
+            $valid=$cmd && $cmd['expires'] > time();
+            if ($valid) $cmd['expires']-=$offset;
+            return ['command' => $valid ? $cmd : null];
         });
     }
  ],

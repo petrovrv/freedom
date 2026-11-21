@@ -1,12 +1,12 @@
 {
  "format": "freedom-release/1",
- "version": "0.2.0",
- "created": "2026-11-21T12:22:57Z",
+ "version": "0.2.1",
+ "created": "2026-11-21T12:27:16Z",
  "files": [
   {
    "path": "module.json",
    "size": 3485,
-   "sha256": "a05709d9983f06d452f4ef3d8dbaf0ed5bf1675634c7dbd823163b837cf8bcc9"
+   "sha256": "26861202fadf8e838c76c6696421b288c07e20a76a563dfb92427ca25fd7b712"
   },
   {
    "path": "README.md",
@@ -15,13 +15,13 @@
   },
   {
    "path": "server/home.php",
-   "size": 5244,
-   "sha256": "bbcd78f8a6e7c3a181069b10883c4329a82b060824bd75d31e95305093781105"
+   "size": 5335,
+   "sha256": "9c094f08c41c17267e26dbb201dfd09b3c9fa65784871c800cd355d9fe1d9160"
   },
   {
    "path": "server/ops.php",
-   "size": 3425,
-   "sha256": "e9994b9bc9e03e73353ad8a7955c6abb2939b335c4e7d2e1c449c4b79e7306d1"
+   "size": 3572,
+   "sha256": "7b0f776ae64c8cd7bb60dfeecd006c9a7b1eb1546fb28dd755e2feca7a5c91fa"
   },
   {
    "path": "tests/dashboard.php",
@@ -68,7 +68,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "31R/Lx9IOIZaqil7lMNRlkS60rx0KhPZdaBXN6Xa/01eGXhkBXoBgVDaFbClRoPkUzlLMyLXPAeSrAbJZT2YAA=="
+   "sig": "+BjVlSANaMP3HXkldEM/Hlzu85AUF9tvk6PkspAeGROVR4Uz7GxNH8al3jG9wcGrRPcekF7hMhvCr3ZOrM5sBg=="
   }
  ],
  "module": "smart-home"

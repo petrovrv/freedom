@@ -1,7 +1,7 @@
 {
     "schema":  1,
     "id":  "smart-home",
-    "version":  "0.2.0",
+    "version":  "0.2.1",
     "title":  "Дом",
     "description":  "Rooms, lights and sockets, sensor readings, thermostat targets and quick Zigbee pairing.",
     "ext":  "\u003e=1 \u003c2",
@@ -42,7 +42,7 @@
                      "tools":  [
                                    {
                                        "name":  "homehub",
-                                       "minVersion":  "0.3.0"
+                                       "minVersion":  "0.3.1"
                                    }
                                ],
                      "services":  [

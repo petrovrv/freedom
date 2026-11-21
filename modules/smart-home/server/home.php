@@ -66,7 +66,8 @@ function home_exchange(array $c,array $in): array {
     if (!is_array($in['entities']??null) || count($in['entities'])>500
         || !is_array($in['results']??null)) return ['error'=>'bad_report'];
     return home_locked($c,static function (&$s) use($in) {
-        $s['entities']=$in['entities'];$s['updated']=(int)($in['updated']??0);
+        $offset=time()-(float)($in['hostNow']??time());
+        $s['entities']=$in['entities'];$s['updated']=(int)(($in['updated']??0)+$offset);
         $s['online']=($in['online']??false)===true;$s['seen']=time();
         foreach (array_slice($in['results'], -200, null, true) as $id=>$r)
             if (isset($s['commands'][$id]) && is_array($r)) {
@@ -80,7 +81,7 @@ function home_exchange(array $c,array $in): array {
             if ($cmd['expires']>time()) {
                 if (!($cmd['claimed']??false)) {
                     $s['commands'][$id]['claimed']=true;
-                    $commands[]=$cmd;
+                    $cmd['expires']-=$offset;$commands[]=$cmd;
                 }
             }
             else {

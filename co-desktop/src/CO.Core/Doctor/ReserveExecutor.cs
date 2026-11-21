@@ -430,6 +430,13 @@ public sealed class ReserveExecutor
             cancelled = ct.IsCancellationRequested;
             timedOut = !cancelled;
         }
+        catch (Exception ex) when (limit.IsCancellationRequested)
+        {
+            // killing the agent on a cancel or the timeout can break its pipes first (IOException): the tokens decide
+            cancelled = ct.IsCancellationRequested;
+            timedOut = !cancelled;
+            _log($"Reserve: {jobId} stopped ({Cut(ex.Message, 80)})");
+        }
         catch (Exception ex)
         {
             error = ex.Message;

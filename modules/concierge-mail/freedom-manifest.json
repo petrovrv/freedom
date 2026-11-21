@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
  "version": "0.7.0",
- "created": "2026-11-21T08:46:55Z",
+ "created": "2026-11-21T08:48:37Z",
  "files": [
   {
    "path": "context/mail.md",
@@ -25,8 +25,8 @@
   },
   {
    "path": "home/gmailsync.py",
-   "size": 18328,
-   "sha256": "fdddc18c1d7f5400496b9b5903fa77c43eaac7f50d1596910540353f0eee656f"
+   "size": 18648,
+   "sha256": "14c8876798be156d572fa3bf8b40503154301e645d0d304799867dd79f367ccd"
   },
   {
    "path": "home/hub/concierge-mail-backup-at.service",
@@ -50,8 +50,8 @@
   },
   {
    "path": "home/hub/hubctl.py",
-   "size": 14531,
-   "sha256": "f08de19b6c4993b5c625dba4f6637b3b8f640125af1ebb14dbec60480f9017bf"
+   "size": 14790,
+   "sha256": "0bf1a918c80ed08bfc23bf42f1fe2e274551feb249525068912e5fd500bfccc1"
   },
   {
    "path": "home/hubbackup.py",
@@ -90,8 +90,8 @@
   },
   {
    "path": "home/test_gmailsync.py",
-   "size": 10796,
-   "sha256": "1dd7fc0d4e0cee631d371bb53e9075df332c0b20591d80dbf27379211595084e"
+   "size": 12164,
+   "sha256": "af027c158080b3969c0ac47ad286a8d7f6213909f8f106fc68f42f5dd4b5c5b0"
   },
   {
    "path": "home/test_hubbackup.py",
@@ -133,7 +133,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "e241e+E+dUBXczlhHSKEY0IdETqsCY8tnCGjzCzijLGLLWe4tJMzxuliVzBy05HK9eI9ZRsREdFuSLRRAwvfAw=="
+   "sig": "GNvfPg3PkKa6FQjc5xkstN2gJECxQWue71FcH+0AyQEzzpB8hRirF2qA67QQg+mAxyRz4jJKdOBZTiWl0Y7+Dg=="
   }
  ],
  "module": "concierge-mail"

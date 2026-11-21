@@ -120,6 +120,29 @@ class GmailSyncTests(unittest.TestCase):
         self.assertEqual(rows, {'g0': 1, 'g1': 0, 'g2': 0})
         self.assertEqual(json.loads(self.store.db.execute("SELECT labels FROM gmail_messages WHERE gmail_id='g1'").fetchone()[0]), ['TRASH'])
 
+    def test_gap_reconciles_backfilled_and_backfill_checks_mailbox(self):
+        self.api.add('g0', self.raw(0), record=False)
+        self.sync()
+        self.api.add('old', self.raw(5), record=False)
+        gmailsync.backfill(self.store, self.token, query='older', request=self.api)
+        self.store.db.execute("UPDATE gmail_messages SET internal_date=0 WHERE gmail_id='old'")
+        self.store.db.commit()
+        self.api.expired = True
+        del self.api.messages['old']
+        self.api.messages['g0'] = (self.api.messages['g0'][0], ['INBOX'], 'tg0')
+        original = self.api.__call__
+        def window_only(method, url, headers, body=None):
+            status, data = original(method, url, headers, body)
+            if '/messages?' in url:
+                data['messages'] = [m for m in data.get('messages', []) if m['id'] != 'old']  # outside the 2-year window
+            return status, data
+        result = gmailsync.sync_gmail(self.store, self.token, request=window_only)
+        self.assertEqual(result['deleted'], 1)
+        self.assertEqual(self.store.db.execute("SELECT gone FROM gmail_messages WHERE gmail_id='old'").fetchone()[0], 1)
+        self.api.account = 'other@example.org'
+        with self.assertRaises(PermissionError):
+            gmailsync.backfill(self.store, self.token, query='x', request=self.api)
+
     def test_interrupted_recovery_still_reconciles(self):
         for n in range(2):
             self.api.add(f'g{n}', self.raw(n), record=False)

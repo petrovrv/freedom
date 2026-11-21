@@ -255,9 +255,10 @@ def sync_gmail(store, token, years=2, request=None, progress=None, now=None):
 def _reconcile(store, gmail, account, listed, known, since, result):
     """After a history gap: deletions and label changes made meanwhile are taken from the mailbox itself."""
     floor = int(datetime.strptime(since, '%Y/%m/%d').replace(tzinfo=timezone.utc).timestamp() * 1000)
-    # Older backfilled mail is outside the listing window: its absence proves nothing.
     window = {r[0] for r in store.db.execute('SELECT gmail_id FROM gmail_messages WHERE account=? AND gone=0 AND internal_date>=?', (account, floor))}
-    present = sorted(known & listed)
+    # Older backfilled mail is outside the listing window: its absence proves nothing, so it is asked one by one.
+    older = {r[0] for r in store.db.execute('SELECT gmail_id FROM gmail_messages WHERE account=? AND gone=0', (account,))} - window - listed
+    present = sorted((known & listed) | older)
     with ThreadPoolExecutor(WORKERS) as pool:
         fresh = dict(zip(present, pool.map(gmail.labels, present)))
     with store.db:
@@ -319,6 +320,8 @@ def backfill(store, token, before=None, query=None, request=None, progress=None)
     if not before and not query:
         raise ValueError('backfill needs --before or --query')
     gmail = Gmail(token, request)
+    if gmail.profile().get('emailAddress', '').lower() != token.account:
+        raise PermissionError('Token belongs to another mailbox')
     q = query or ''
     if before:
         q = (q + ' before:' + datetime.strptime(before, '%Y-%m-%d').strftime('%Y/%m/%d')).strip()

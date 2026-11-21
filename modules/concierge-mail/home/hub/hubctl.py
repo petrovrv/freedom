@@ -193,8 +193,12 @@ def run(args):
     # An agent job reads only its own environment's mailbox. The binding check on the host comes with the relay (stage 2);
     # until then household members' jobs have no SSH identity for the hub.
     env = os.environ.get('AIWB_ENV', '')
-    if os.environ.get('AIWB_JOB_ROLE') == 'member' or (env and env != slug):
-        sys.exit(f'refused: this job belongs to environment {env or "?"}, not {slug}')
+    if os.environ.get('AIWB_JOB_ROLE') == 'member':
+        sys.exit('refused: household members read their mail through their own environment, not over SSH')
+    if env:
+        owner = re.search(r'^AIWB_ENV=(.+)$', ssh(args, f'sudo cat /etc/concierge-mail/{slug}.env'), re.M)
+        if not owner or owner.group(1).strip() != env:
+            sys.exit(f'refused: mailbox {slug} does not belong to environment {env}')
     rest = [a for a in args.rest if a != '--']
     if any(a in ('--root',) for a in rest):
         sys.exit('--root is fixed to the person directory')

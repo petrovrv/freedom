@@ -25,6 +25,8 @@ public sealed class DesktopSettings
     // 0.8.3: owner's choice to switch the managed-device profile (TZ §9.6) off on a domain/Entra-joined computer;
     // read at start (Connectors -> Managed-device profile -> Apply and restart).
     public bool ManagedProfileOff { get; set; }
+    // 0.15.0: the CO Desktop reserve executor (runs Claude Code while the Bridge of this computer takes no jobs) is off.
+    public bool ReserveExecutorOff { get; set; }
     // Keys this version does not know (settings of older versions, e.g. the switch of a module part before Freedom F10),
     // kept on save so a module part can take its old choice over (App.cs, IConnectorModule.LegacySetting).
     [System.Text.Json.Serialization.JsonExtensionData] public Dictionary<string, JsonElement>? Legacy { get; set; }

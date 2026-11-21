@@ -193,6 +193,25 @@ public sealed class Services
         {
             doctor = new CO.Core.Doctor.BridgeDoctor(layout, new WindowsDoctorProbe(http), Path.Combine(DesktopSettings.DataDir, "doctor.json"), log: Log.Write);
             doctor.Send = CO.Core.Doctor.BridgeDoctor.HostEventSender(layout, secrets.Read);
+            // 0.15.0 (21.11): while this Bridge takes no jobs for 3 min, CO Desktop runs Claude Code itself as the executor
+            // desk-<machine> (CO.Core.Doctor.ReserveExecutor); desktop.json "ReserveExecutorOff": true switches it off
+            if (!settings.ReserveExecutorOff && layout.DbUrl.Length > 0)
+            try
+            {
+                var reserve = new CO.Core.Doctor.ReserveExecutor(layout, CO.Core.Doctor.ReserveExecutor.HostCall(layout, secrets.Read),
+                    CO.Core.Doctor.ReserveExecutor.ProcessRun,
+                    // the owner only: the agent runs under this Windows account with the owner's keyring (a household member's
+                    // jobs need Bridge's member isolation); no environment = the reserve claims and runs nothing
+                    () => (runtime.State.DeviceId, runtime.State.Name,
+                        runtime.State.Account.Length > 0 && runtime.State.Account.Equals(runtime.State.OwnerEmail, StringComparison.OrdinalIgnoreCase)
+                        && (CO.Core.InstallDefaults.OwnerEnv.Length == 0 || runtime.State.EnvironmentId == CO.Core.InstallDefaults.OwnerEnv)
+                            ? runtime.State.EnvironmentId : ""),
+                    DesktopSettings.DataDir, Log.Write);
+                _ = reserve.RunAsync(CancellationToken.None);
+                if (System.Windows.Application.Current is { } wpf) wpf.Exit += (_, _) => CO.Core.Doctor.ReserveExecutor.KillAll();
+                Log.Write($"Reserve executor {reserve.Id}: standing by for Bridge {layout.HostId}");
+            }
+            catch (Exception ex) { Log.Write("Reserve executor not started: " + ex.Message); } // never stops CO Desktop
         }
 
         // S4: subscriptions. The sign-in page opens in the CO browser (the profile where the user is signed in to the

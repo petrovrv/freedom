@@ -109,6 +109,17 @@ export function routeSelfTest(): string[] {
   expectEq('auto: Bridge PC, home paused -> home (waits)', autoHost({ [HOME]: { ...pc(ONLINE), state: 'paused' }, [SITE]: owner(SITE, ONLINE, siteAgents) }, { deviceId: 'd-pc' }), HOME);
   expectEq('auto: laptop, home paused -> site', autoHost({ [HOME]: { ...pc(ONLINE), state: 'paused' }, [SITE]: owner(SITE, ONLINE, siteAgents) }, { deviceId: 'd-lap', name: 'LAPTOP' }), SITE);
   expectEq('route: hold own Bridge while paused', routeHost({ selected: HOME, agent: 'claude', wantsDevices: false, holdOwn: true, owners: { [HOME]: { ...pc(ONLINE), state: 'paused' }, [SITE]: owner(SITE, ONLINE, siteAgents) } }).hostId, HOME);
+  // CO Desktop 0.15.0: the reserve desk-<machine> takes over on the Bridge PC while it is online, is never waited for
+  const desk = (ageMs: number, state: string): OwnerInfo => ({ ...pc(ageMs), hostId: 'desk-pc', state, reserveFor: HOME }) as unknown as OwnerInfo;
+  const order4 = [HOME, SITE, 'desk-pc'];
+  expectEq('auto: Bridge PC, home offline, reserve running -> reserve',
+    autoHost({ ...withPc(OFFLINE, ONLINE), 'desk-pc': desk(ONLINE, 'running') }, { deviceId: 'd-pc', name: 'HOME-PC' }, order4), 'desk-pc');
+  expectEq('auto: Bridge PC, home paused, reserve paused -> home (waits)',
+    autoHost({ [HOME]: { ...pc(ONLINE), state: 'paused' }, [SITE]: owner(SITE, ONLINE, siteAgents), 'desk-pc': desk(ONLINE, 'paused') }, { deviceId: 'd-pc', name: 'HOME-PC' }, order4), HOME);
+  expectEq('auto: Bridge PC, home offline, reserve paused -> site',
+    autoHost({ ...withPc(OFFLINE, ONLINE), 'desk-pc': desk(ONLINE, 'paused') }, { deviceId: 'd-pc', name: 'HOME-PC' }, order4), SITE);
+  expectEq('auto: phone, home offline, reserve running -> site',
+    autoHost({ ...withPc(OFFLINE, ONLINE), 'desk-pc': desk(ONLINE, 'running') }, null, order4), SITE);
   expectEq('route: hold own Bridge ends when offline', routeHost({ selected: HOME, agent: 'claude', wantsDevices: false, holdOwn: true, owners: withPc(OFFLINE, ONLINE) }).hostId, SITE);
   expectEq('auto: site offline -> home', autoHost(owners(ONLINE, OFFLINE)), HOME);
   expectEq('auto: both offline -> site (the server can start it)', autoHost(owners(OFFLINE, OFFLINE)), SITE);

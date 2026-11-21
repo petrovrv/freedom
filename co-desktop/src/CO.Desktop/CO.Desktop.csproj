@@ -10,7 +10,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>CO.Desktop</AssemblyName>
     <RootNamespace>CO.Desktop</RootNamespace>
-    <Version>0.14.1</Version>
+    <Version>0.15.0</Version>
     <Product>CO Desktop</Product>
     <Company>Freedom contributors</Company>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

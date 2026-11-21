@@ -149,7 +149,9 @@ export function ownBridgeWaiting(
 ): string | null {
   const ids = order && order.length ? order : [HOME, SITE];
   for (const id of ids) {
-    if (id === SITE || !onBridgeHost(owners[id], local)) continue;
+    // CO Desktop 0.15.0: the reserve executor of this computer (desk-<machine>, owner.reserveFor) is never waited for;
+    // auto takes it above only while it is online, i.e. while the Bridge it stands in for takes no jobs
+    if (id === SITE || !onBridgeHost(owners[id], local) || (owners[id] as { reserveFor?: string } | null)?.reserveFor) continue;
     const h = healthOf(owners, id);
     if (h !== 'online' && hostAlive(h)) return id;
   }

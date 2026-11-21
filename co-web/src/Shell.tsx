@@ -36,7 +36,7 @@ import { ModuleFrame, ModulePage, ModuleSlots, modulePages, useModules, type Pan
 import type { Chat, ChatEvent, LimitsFile, Mode, OwnerInfo, Project } from './types';
 
 import { SAFE_ID, formatLocal } from './util';
-import { autoHost, HOME, SITE, type HostPref } from './routing';
+import { autoHost, HOME, ownBridgeWaiting, SITE, type HostPref } from './routing';
 import { applyExecutors, autoOrder, HOST_ID_RE, loadCachedExecutors } from './executors';
 import { dbExecutors } from './dbapi';
 import { HostLight } from './HostLight';
@@ -97,6 +97,8 @@ export default function Shell({ auth }: { auth: Signed }) {
   // a hand-picked executor that is gone, switched off or not serving this environment falls back to auto
   const prefOk = hostPref === 'auto' || HOSTS.some((h) => h.id === hostPref);
   const hostId = (!prefOk || hostPref === 'auto' ? autoHost(owners, localDevice, autoIds) : hostPref) as HostId;
+  // 0.110.0: CO Desktop on the Bridge PC waits for its own Bridge while it is briefly out: no handover, no failover
+  const waitOwn = (!prefOk || hostPref === 'auto') && ownBridgeWaiting(owners, localDevice, autoIds) === hostId;
   const host = hosts?.[hostId] || null;
   const owner = owners[hostId] ?? null;
   const limits = limitsByHost[hostId] ?? null;
@@ -1041,7 +1043,8 @@ export default function Shell({ auth }: { auth: Signed }) {
                 host={host}
                 hosts={hosts!}
                 owners={owners}
-                hostAuto={hostPref === 'auto'}
+                hostAuto={hostPref === 'auto' && !waitOwn}
+                holdOwn={waitOwn}
                 env={env}
                 project={project}
                 chat={chat}
@@ -1073,7 +1076,8 @@ export default function Shell({ auth }: { auth: Signed }) {
                 host={host}
                 hosts={hosts!}
                 owners={owners}
-                hostAuto={hostPref === 'auto'}
+                hostAuto={hostPref === 'auto' && !waitOwn}
+                holdOwn={waitOwn}
                 env={env}
                 project={project}
                 chat={{

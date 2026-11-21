@@ -104,7 +104,12 @@ export function routeSelfTest(): string[] {
   expectEq('auto: CO Desktop on the Bridge PC -> home', autoHost(withPc(ONLINE, ONLINE), { deviceId: 'd-pc', name: 'HOME-PC' }), HOME);
   expectEq('auto: laptop without Bridge -> home', autoHost(withPc(ONLINE, ONLINE), { deviceId: 'd-lap', name: 'LAPTOP' }), HOME);
   expectEq('auto: Bridge PC, home offline -> site', autoHost(withPc(OFFLINE, ONLINE), { deviceId: 'd-pc', name: 'HOME-PC' }), SITE);
-  expectEq('auto: Bridge PC, home updating -> site', autoHost({ [HOME]: { ...pc(ONLINE), state: 'updating' }, [SITE]: owner(SITE, ONLINE, siteAgents) }, { deviceId: 'd-pc' }), SITE);
+  // 0.110.0: CO Desktop on the Bridge PC waits for its own Bridge while it is alive; other devices go to the Site
+  expectEq('auto: Bridge PC, home updating -> home (waits)', autoHost({ [HOME]: { ...pc(ONLINE), state: 'updating' }, [SITE]: owner(SITE, ONLINE, siteAgents) }, { deviceId: 'd-pc' }), HOME);
+  expectEq('auto: Bridge PC, home paused -> home (waits)', autoHost({ [HOME]: { ...pc(ONLINE), state: 'paused' }, [SITE]: owner(SITE, ONLINE, siteAgents) }, { deviceId: 'd-pc' }), HOME);
+  expectEq('auto: laptop, home paused -> site', autoHost({ [HOME]: { ...pc(ONLINE), state: 'paused' }, [SITE]: owner(SITE, ONLINE, siteAgents) }, { deviceId: 'd-lap', name: 'LAPTOP' }), SITE);
+  expectEq('route: hold own Bridge while paused', routeHost({ selected: HOME, agent: 'claude', wantsDevices: false, holdOwn: true, owners: { [HOME]: { ...pc(ONLINE), state: 'paused' }, [SITE]: owner(SITE, ONLINE, siteAgents) } }).hostId, HOME);
+  expectEq('route: hold own Bridge ends when offline', routeHost({ selected: HOME, agent: 'claude', wantsDevices: false, holdOwn: true, owners: withPc(OFFLINE, ONLINE) }).hostId, SITE);
   expectEq('auto: site offline -> home', autoHost(owners(ONLINE, OFFLINE)), HOME);
   expectEq('auto: both offline -> site (the server can start it)', autoHost(owners(OFFLINE, OFFLINE)), SITE);
   expectEq('auto: site never seen, home offline -> home queue', autoHost({ [HOME]: owner(HOME, OFFLINE, homeAgents) }), HOME);

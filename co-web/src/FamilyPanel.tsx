@@ -72,6 +72,7 @@ export default function FamilyPanel(props: {
   // Everything shown in the open tab counts as read
   const lastRead = useRef(0);
   const seen = useRef<ChatEvent[] | null>(null);
+  useEffect(() => { if (!shown) seen.current = null; }, [shown]);
   const onEvents = useCallback((events: ChatEvent[] | null) => {
     seen.current = events;
     if (!chat || !events?.length || document.visibilityState !== 'visible') return;
@@ -84,7 +85,7 @@ export default function FamilyPanel(props: {
   // 0.109.0: ChatView no longer hands over an unchanged list, so a mark missed in a hidden tab or a failed one is
   // retried on the panel's own poll and when the tab becomes visible
   const markAgain = useCallback(() => { if (seen.current) onEvents(seen.current); }, [onEvents]);
-  useInterval(markAgain, POLL_MS, props.authOk && !!chat);
+  useInterval(markAgain, POLL_MS, props.authOk && !!chat && shown);
 
   if (!familySlot) return null;
   let body;

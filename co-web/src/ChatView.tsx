@@ -75,6 +75,7 @@ interface Props {
   owners: Record<string, OwnerInfo | null>;
   // S8: the executor came from the 'auto' preference (the server may hand an untaken job to the other one)
   hostAuto?: boolean;
+  holdOwn?: boolean; // 0.110.0: CO Desktop waits for the Bridge of its own computer (routing.ownBridgeWaiting)
   env: EnvironmentId;
   project: Project;
   chat: Chat;
@@ -649,7 +650,7 @@ export default function ChatView(props: Props) {
     const wantsDevices = !!(!shared && device?.paired && useDevice);
     const pinned = input.sel.host && props.hosts[input.sel.host] ? input.sel.host : null;
     const route = routeHost({ selected: pinned || host.hostId, agent: input.sel.agent, wantsDevices, owners: props.owners, webDevices: !shared && webPick.selected.length > 0,
-      order: autoOrder().filter((id) => props.hosts[id]) });
+      order: autoOrder().filter((id) => props.hosts[id]), holdOwn: !!props.holdOwn && !pinned });
     const target = props.hosts[route.hostId] || host;
     const tOwner = target.hostId === host.hostId ? props.owner : props.owners[target.hostId] ?? props.owner;
     const tCaps = target.hostId === host.hostId ? capabilities : tOwner?.capabilities || capabilities;

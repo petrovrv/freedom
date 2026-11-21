@@ -78,6 +78,7 @@ export function routeHost(o: {
   owners: Record<string, OwnerInfo | null>;
   webDevices?: boolean;
   order?: string[];
+  holdOwn?: boolean; // 0.110.0: CO Desktop on the machine of `selected` waits for its own Bridge (no failover)
 }): { hostId: string; note: string | null } {
   const { selected, agent, wantsDevices, owners } = o;
   const selectedOwner = owners[selected] ?? null;
@@ -105,6 +106,9 @@ export function routeHost(o: {
   // question waited 17 min behind a Bridge update while the site was online. S8: a device job of Claude may go from
   // Home to the Site (relay); other device jobs stay at Home.
   const selHealth = healthOf(owners, selected);
+  if (o.holdOwn && selected !== SITE && hostAlive(selHealth)) {
+    return { hostId: selected, note: selHealth === 'online' ? null : `Waiting for ${label(selected)} (the Bridge of this computer is ${selHealth})` };
+  }
   if (selHealth === 'offline' || selHealth === 'updating' || selHealth === 'paused') {
     const order = o.order && o.order.length ? o.order : [HOME, SITE];
     const other = order.find((h) =>
@@ -134,6 +138,24 @@ export function onBridgeHost(owner: OwnerInfo | null | undefined, local: { devic
   return !!name && name === machine;
 }
 
+// 0.110.0 (owner, 21.11): the Bridge of the machine this CO Desktop runs on while that Bridge is alive but not online
+// (updating, paused - e.g. Google Drive dropped out -, heartbeat late); null otherwise. CO Desktop waits for it instead of
+// sending the job to the Site, where the agent cannot reach this computer. A Bridge gone for 15 min (offline) is not
+// waited for.
+export function ownBridgeWaiting(
+  owners: Record<string, OwnerInfo | null>,
+  local?: { deviceId: string; name?: string } | null,
+  order?: string[],
+): string | null {
+  const ids = order && order.length ? order : [HOME, SITE];
+  for (const id of ids) {
+    if (id === SITE || !onBridgeHost(owners[id], local)) continue;
+    const h = healthOf(owners, id);
+    if (h !== 'online' && hostAlive(h)) return id;
+  }
+  return null;
+}
+
 export function autoHost(
   owners: Record<string, OwnerInfo | null>,
   local?: { deviceId: string; name?: string } | null,
@@ -146,6 +168,9 @@ export function autoHost(
   for (const id of ids) {
     if (id !== SITE && healthOf(owners, id) === 'online' && onBridgeHost(owners[id], local)) return id;
   }
+  // 0.110.0: and while that Bridge is only briefly out (updating, paused, late), CO Desktop waits for it
+  const own = ownBridgeWaiting(owners, local, ids);
+  if (own) return own;
   // 12.11 (owner): Home first from every device. A Site job reaches the PC only through the relay and runs on
   // Hostinger (~80 threads per account: Claude + relay MCP servers die with EAGAIN / exit 128), so from the phone the
   // code, builds, files and the browser of the PC felt like a seam. The Site is the fallback while Home is not online.

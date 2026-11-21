@@ -53,7 +53,7 @@
                                       }
                                   ],
                      "navigate":  [
-                                      "/x/smart-home"
+                                      "/x/smart-home/home"
                                   ]
                  },
     "server":  {

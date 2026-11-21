@@ -1,12 +1,12 @@
 {
  "format": "freedom-release/1",
  "version": "0.2.0",
- "created": "2026-11-21T12:20:41Z",
+ "created": "2026-11-21T12:22:57Z",
  "files": [
   {
    "path": "module.json",
-   "size": 3480,
-   "sha256": "9ebc7d5a2f32d32fd6a074edfbd2ee7143a2bddf39afef9b614d48135c973c89"
+   "size": 3485,
+   "sha256": "a05709d9983f06d452f4ef3d8dbaf0ed5bf1675634c7dbd823163b837cf8bcc9"
   },
   {
    "path": "README.md",
@@ -68,7 +68,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "WzGEW+4TY7clvdK4yoKpNjLTV07l9DJft78/A0lKcOA8F0WlxXuwhGgZA1CXMpgRcUZ8JbtGb8fs/BPLRf9jAg=="
+   "sig": "31R/Lx9IOIZaqil7lMNRlkS60rx0KhPZdaBXN6Xa/01eGXhkBXoBgVDaFbClRoPkUzlLMyLXPAeSrAbJZT2YAA=="
   }
  ],
  "module": "smart-home"

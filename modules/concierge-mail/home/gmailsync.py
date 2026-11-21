@@ -19,6 +19,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import Lock
 
 API = 'https://gmail.googleapis.com/gmail/v1/users/me/'
 TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -33,6 +34,7 @@ class TokenSource:
     def __init__(self, path=None, request=None, cred=None):
         self._request = request or _http
         self._token, self._until = None, 0.0
+        self._lock = Lock()
         cred = cred if cred is not None else json.loads(Path(path).read_text(encoding='utf-8'))
         # `account` is required for a mailbox; a bare Drive token (restore on the person's device) passes cred= with account ''
         needed = ('client_id', 'client_secret', 'refresh_token') + (('account',) if path else ())
@@ -42,7 +44,16 @@ class TokenSource:
         self.account = str(cred.get('account') or '').strip().lower()
         self._cred = cred
 
+    def invalidate(self, rejected_token):
+        with self._lock:
+            if self._token == rejected_token:
+                self._token, self._until = None, 0.0
+
     def __call__(self):
+        with self._lock:
+            return self._access_token()
+
+    def _access_token(self):
         if self._token and time.time() < self._until - 120:
             return self._token
         body = urllib.parse.urlencode({'client_id': self._cred['client_id'], 'client_secret': self._cred['client_secret'],
@@ -76,8 +87,17 @@ class Gmail:
 
     def get(self, path, **params):
         url = API + path + ('?' + urllib.parse.urlencode(params, doseq=True) if params else '')
+        auth_retried = False
         for attempt in range(7):
-            status, data = self._request('GET', url, {'Authorization': 'Bearer ' + self.token()})
+            access_token = self.token()
+            status, data = self._request('GET', url, {'Authorization': 'Bearer ' + access_token})
+            if status == 401 and not auth_retried:
+                auth_retried = True
+                invalidate = getattr(self.token, 'invalidate', None)
+                if callable(invalidate):
+                    invalidate(access_token)
+                access_token = self.token()
+                status, data = self._request('GET', url, {'Authorization': 'Bearer ' + access_token})
             if status == 200:
                 return data
             if status == 404:

@@ -5,7 +5,7 @@ from mailstore import check_content
 from datetime import datetime, timezone
 from email import policy
 from email.parser import BytesParser
-from email.utils import getaddresses, parseaddr
+from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 
 STATES = ('inbox', 'waiting_them', 'your_turn', 'closed')
 _UNSET = object()
@@ -187,8 +187,38 @@ CREATE TABLE IF NOT EXISTS wf_draft_heads(thread_id INTEGER PRIMARY KEY REFERENC
         return [dict(r) for r in self.db.execute(sql, params)]
 
     def already_answered(self, thread_id):
-        latest = self.db.execute("SELECT * FROM messages WHERE thread_id=? AND is_sent=0 ORDER BY id DESC LIMIT 1", (thread_id,)).fetchone()
-        return bool(latest and self.db.execute('SELECT 1 FROM sent_replies WHERE account=? AND parent_mid=?', (latest['account'], latest['message_id'])).fetchone())
+        """Use Gmail milliseconds, otherwise RFC Date (timezone-less means UTC).
+
+        Missing/invalid dates have unknown chronology: an unanswered such message
+        keeps drafting available. Equal latest timestamps also remain answerable
+        if any incoming at that timestamp is unanswered. Neither rule uses ingest id.
+        """
+        has_gmail = self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='gmail_messages'").fetchone()
+        incoming = []
+        for row in self.db.execute('SELECT * FROM messages WHERE thread_id=? AND is_sent=0', (thread_id,)):
+            stamp = None
+            if has_gmail:
+                dates = self.db.execute('SELECT internal_date FROM gmail_messages WHERE account=? AND message_id=? AND internal_date IS NOT NULL', (row['account'], row['id']))
+                # Multiple provider mappings use their greatest valid timestamp.
+                for date in dates:
+                    if re.fullmatch(r'-?\d+', str(date[0])):
+                        value = int(date[0])
+                        stamp = value if stamp is None else max(stamp, value)
+            if stamp is None:
+                try:
+                    parsed = parsedate_to_datetime(row['date'])
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=timezone.utc)
+                    delta = parsed.astimezone(timezone.utc) - datetime(1970, 1, 1, tzinfo=timezone.utc)
+                    stamp = (delta.days * 86400 + delta.seconds) * 1000 + delta.microseconds // 1000
+                except (TypeError, ValueError, IndexError, OverflowError):
+                    pass
+            answered = bool(self.db.execute('SELECT 1 FROM sent_replies WHERE account=? AND parent_mid=?', (row['account'], row['message_id'])).fetchone())
+            incoming.append((stamp, answered))
+        if not incoming or any(stamp is None and not answered for stamp, answered in incoming):
+            return False
+        latest = max((stamp for stamp, _ in incoming if stamp is not None), default=None)
+        return all(answered for stamp, answered in incoming if stamp == latest)
 
     def tainted(self, thread_id):
         """read-guard flagged a message of the thread: acting on it needs an explicit yes."""

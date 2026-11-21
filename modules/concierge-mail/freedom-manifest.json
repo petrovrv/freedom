@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.7.0",
- "created": "2026-11-21T08:48:37Z",
+ "version": "0.7.1",
+ "created": "2026-11-21T11:11:36Z",
  "files": [
   {
    "path": "context/mail.md",
@@ -25,8 +25,8 @@
   },
   {
    "path": "home/gmailsync.py",
-   "size": 18648,
-   "sha256": "14c8876798be156d572fa3bf8b40503154301e645d0d304799867dd79f367ccd"
+   "size": 19442,
+   "sha256": "aba20bcc23f20160da34044f994bfb54c8aca90a75c88e5fd9b155e25ef8cb5a"
   },
   {
    "path": "home/hub/concierge-mail-backup-at.service",
@@ -84,6 +84,11 @@
    "sha256": "1bfd19f2533e3bd3317546cde6498226ec2094870e377c85b73341a417e56a28"
   },
   {
+   "path": "home/test_coding_regressions.py",
+   "size": 8422,
+   "sha256": "b90f2c491097fd91831fca8e755e3745304f355fe3151b9dc671ac9d97892ec3"
+  },
+  {
    "path": "home/test_deliver.py",
    "size": 7401,
    "sha256": "91ee33a91f64a890ef10ba4729cb9550d13ca9b3b85d585fccc96cfbbf259111"
@@ -115,13 +120,13 @@
   },
   {
    "path": "home/workflow.py",
-   "size": 19460,
-   "sha256": "8c58728e2596d4a5e0fd16e2ed97ce23ceae4f24f74e0fd9b2550d9c18bf894b"
+   "size": 21359,
+   "sha256": "abc11f5392a99e8f91af944eb694f4caadab4880abf261700a73426adf746694"
   },
   {
    "path": "module.json",
    "size": 1192,
-   "sha256": "19906c00d4202f3395bb5542f3ec8756145c6bc25b84900f1888513262eccd66"
+   "sha256": "2a88d1187c1d7adb33b93b312e6c5e33164bef8bac3fc80d792487b3d815625d"
   },
   {
    "path": "README.md",
@@ -133,7 +138,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "GNvfPg3PkKa6FQjc5xkstN2gJECxQWue71FcH+0AyQEzzpB8hRirF2qA67QQg+mAxyRz4jJKdOBZTiWl0Y7+Dg=="
+   "sig": "bMW54wqcDLMVpaK3GeMUrR3BwwFU0UB9v6SXFhn4nc5FZyBX5goLO5Qgz6+P4c9BPk66k500BdoOcv2XLOncAw=="
   }
  ],
  "module": "concierge-mail"

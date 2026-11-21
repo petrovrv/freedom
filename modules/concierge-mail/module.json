@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "concierge-mail",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "title": "Mail concierge",
   "ext": ">=1 <2",
   "scope": "environment",

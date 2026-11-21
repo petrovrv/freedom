@@ -1,27 +1,42 @@
-# Smart home: quick Zigbee pairing
+# Smart home
 
-An owner-only header button opens joining for 300 seconds without starting an AI job.
-A rotating radar and countdown show progress; successful device interview turns the
-button green and closes joining. Click during search to stop. Timeout, unavailable
-worker and command failure have separate states.
+A responsive room dashboard at /x/smart-home/home and two header buttons: Home and
+Zigbee pairing. Sockets and lights use explicit on/off actions; thermostat targets
+respect device and installation limits. Sensors are read-only. No AI job is started.
 
-The homehub 0.2.0 tool runs the pairing worker on the owner PC (Bridge module service).
-It uses the existing SSH key to read MQTT on the home hub and publishes only permit_join.
-The CO host credential stays in the OS keyring. The PC must be online.
-No HA, Zigbee2MQTT, web core or Bridge restart is required by the implementation.
+The owner has access by default. To share the dashboard, set smartHome.members in
+install.json to an explicit comma-separated list of environment IDs and reinstall.
+Pairing remains owner-only. Other authenticated users cannot read or control the home.
 
-Installation: check and sign this module, then use freedom_modules.py install
-modules/smart-home --enable. The existing homehub tool must be updated to 0.2.0 first.
-The placeholder private home-heating module is left untouched.
-Disabling this module removes its button and stops its worker; already-issued
-coordinator permissions expire by themselves in at most 254 seconds.
+The homehub 0.3.0 tool provides home-worker, supervised by Bridge on the owner PC.
+It reads Home Assistant through its REST API and uses the existing SSH connection
+for Zigbee MQTT. Credentials stay in the PC keyring. The PC must be online.
 
-Protocol: https://www.zigbee2mqtt.io/guide/usage/mqtt_topics_and_messages.html
-A coordinator lease is at most 254 seconds, renewed only for the time remaining in
-the original five-minute window. No unlimited joining. Correlated MQTT acknowledgements
-confirm commands. Only a non-retained successful device_interview of a device seen
-joining/interviewing in this session counts as success.
+Local configuration: %LOCALAPPDATA%/AIWorkbench/homehub/dashboard.json (override
+HOMEHUB_DASHBOARD_CONFIG). Contains ha {url,keyring:[service,account]} and entities:
+an object keyed by entity ID, with name, room, actions, optional note and temperature
+limits. Only explicitly configured devices are exposed; never upload all HA attributes.
+The configuration contains no credentials and is not part of the public module.
 
-Validation: homehub/test_pairing.py (8 tests), tests/server.php (6 checks with stub
-atomic writer), headless browser idle/start/countdown/success, independent code review.
-No real device pairing has been triggered during development.
+Commands expire after 20 seconds. Server claim is persisted before delivery; a lost
+response or worker crash is reported as uncertain rather than replayed. HA acceptance
+and the device's reported state are shown separately. Stale states disable controls.
+Manual thermostat changes may be replaced by existing HA automation; the module does
+not modify schedules.
+
+Pairing opens a 300-second window (254-second finite coordinator lease, renewed only
+for the remaining time). A successful non-retained interview from this session turns
+the button green and closes joining. Click while searching to stop.
+
+Install: check/sign this folder, update homehub, then freedom_modules.py install
+modules/smart-home --enable. Disable the module to remove UI and stop its worker.
+Already-issued Zigbee leases expire by themselves in at most 254 seconds.
+
+Validation: homehub/test_home_control.py and test_pairing.py (16 tests);
+tests/dashboard.php (16 checks); headless browser rendering, filters, edit preservation,
+command payload, narrow-screen layout and stale-state disabling; independent review.
+Live verification reads states only; physical commands require a user action.
+
+API references:
+- https://developers.home-assistant.io/docs/api/rest/
+- https://www.zigbee2mqtt.io/guide/usage/mqtt_topics_and_messages.html

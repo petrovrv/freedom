@@ -10,3 +10,5 @@ button:disabled{opacity:.55;cursor:default}
 .error,.timeout{border-color:#d98529}
 @keyframes scan{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.radar{animation:none!important}}
+
+#header{display:inline-flex;gap:6px;align-items:center}[hidden]{display:none!important}

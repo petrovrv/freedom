@@ -16,7 +16,7 @@ function render(){
  b.disabled=busy||!owner||state.state==='offline'||state.state==='stopping';
  b.title=[state.device,state.note,active()?'Нажмите, чтобы остановить':'Сопряжение Zigbee · 5 минут'].filter(Boolean).join(' · ');
  b.setAttribute('aria-label',label.textContent+' — '+b.title);
- coExt.size(Math.ceil(b.getBoundingClientRect().width)+2,32,false);
+ coExt.size(Math.ceil(document.getElementById('header').getBoundingClientRect().width)+2,32,false);
 }
 async function refresh(op='home_pair_state'){
  if(busy)return;
@@ -31,7 +31,8 @@ async function refresh(op='home_pair_state'){
 b.onclick=()=>refresh(active()?'home_pair_stop':'home_pair_start');
 coExt.ready.then(ctx=>{
  owner=!!ctx.owner;
- if(!owner){b.hidden=true;coExt.size(0,0,false);return;}
+ document.getElementById('home').onclick=()=>coExt.navigate('/x/smart-home/home','self');
+ if(!owner){b.hidden=true;coExt.call('home_state',{}).then(r=>{document.getElementById('home').hidden=!!r.error;coExt.size(document.getElementById('header').getBoundingClientRect().width+2,32,false);});return;}
  refresh();setInterval(()=>{if(active())render();},1000);
 });
 })();

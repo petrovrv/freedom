@@ -1,6 +1,7 @@
 <?php
 // SPDX-License-Identifier: AGPL-3.0-or-later
 declare(strict_types=1);
+require_once __DIR__ . '/home.php';
 function home_pair_locked(array $c, callable $f): array {
     $path = $c['stateDir'] . '/pair.json';
     $lock = fopen($c['stateDir'] . '/pair.lock', 'c');
@@ -42,11 +43,14 @@ function home_pair_user(array $c, string $action): array {
 }
 return [
  'user' => [
+    'home_state' => static fn($c,$i) => home_state($c),
+    'home_control' => static fn($c,$i) => home_control($c,$i),
     'home_pair_state' => static fn($c, $i) => home_pair_user($c, 'state'),
     'home_pair_start' => static fn($c, $i) => home_pair_user($c, 'start'),
     'home_pair_stop' => static fn($c, $i) => home_pair_user($c, 'stop'),
  ],
  'host' => [
+    'home_exchange' => static fn($c,$i) => home_exchange($c,$i),
     'home_pair_exchange' => static function ($c, $in) {
         return home_pair_locked($c, static function (&$s) use ($in) {
             $r = $in['report'] ?? [];

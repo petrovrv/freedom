@@ -186,7 +186,11 @@ export default function ChatView(props: Props) {
       .finally(() => navigate(target, { replace: true, state: null }));
   }, [location.state, location.pathname, location.search, navigate, props.docked]);
 
-  const reload = useCallback(async () => {
+  // 0.109.0: one load at a time (a call during a load runs once more after it), and the list on screen is kept when
+  // the database returns the same events, so polls do not re-render the whole chat while the user types.
+  const loading = useRef<{ p: Promise<void> | null; again: boolean }>({ p: null, again: false });
+  const shown = useRef<{ list: ChatEvent[] | null; sig: string }>({ list: null, sig: '' });
+  const reloadOnce = useCallback(async () => {
     if (!authOk) return;
     if (chat.draft) {
       setEvents([]); // nothing on Drive yet
@@ -194,7 +198,13 @@ export default function ChatView(props: Props) {
     }
     try {
       const ev = await loadChatEvents(chat);
-      setEvents(ev);
+      const sig = JSON.stringify(ev);
+      if (eventsRef.current && eventsRef.current === shown.current.list && sig === shown.current.sig) {
+        // same events as on screen: no new list
+      } else {
+        shown.current = { list: ev, sig };
+        setEvents(ev);
+      }
       setLoadErr(null);
       setStaleUtc(null);
       lastLoadUtc.current = new Date().toISOString();
@@ -214,13 +224,29 @@ export default function ChatView(props: Props) {
       setLoadErr(categorize(e).message);
     }
   }, [chat, authOk]);
+  const reload = useCallback((): Promise<void> => {
+    const st = loading.current;
+    if (st.p) {
+      st.again = true;
+      return st.p;
+    }
+    st.p = (async () => {
+      do {
+        st.again = false;
+        await reloadOnce();
+      } while (st.again);
+    })().finally(() => {
+      st.p = null;
+    });
+    return st.p;
+  }, [reloadOnce]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
-  useInterval(reload, POLL_LISTS_MS, authOk);
-  // 0.106.0: while the database does not answer, try again every 10 s and at once when the network comes back
-  useInterval(reload, 10000, authOk && !!loadErr);
+  // 0.109.0: one poll of the chat (it was two or three, each with its own focus listener: doublets on Android).
+  // Family chat every 4 s; while the database does not answer, every 10 s (0.106.0); else POLL_LISTS_MS.
+  useInterval(reload, chat.family && !chat.draft ? 4000 : loadErr ? 10000 : POLL_LISTS_MS, authOk);
   useEffect(() => {
     const on = () => void reload();
     window.addEventListener('online', on);
@@ -408,7 +434,6 @@ export default function ChatView(props: Props) {
   const evById = useMemo(() => new Map((events || []).map((e) => [e.eventId, e])), [events]);
   const [famReply, setFamReply] = useState<ChatEvent | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
-  useInterval(reload, 4000, authOk && family && !chat.draft);
   const viewerCanAsk = !readOnly && (capabilities.length === 0 || capabilities.includes('attachments'));
   const { onCanAsk } = props;
   useEffect(() => onCanAsk?.(viewerCanAsk), [viewerCanAsk, onCanAsk]);
@@ -716,7 +741,7 @@ export default function ChatView(props: Props) {
   async function onFamilySend(text: string, files: File[], progress: (s: string) => void) {
     const called = wantsCo(text);
     const running = chatState.draft ? undefined : chatPending.find((u) => !cancelled.has(u.jobId!));
-    // 0.107.0: after a call the agent follows the topic for a few messages (FamilyChat.tsx followsTopic); not while it works
+    // 0.109.0: after a call the agent follows the topic for a few messages (FamilyChat.tsx followsTopic); not while it works
     const following = !called && !running && !readOnly && !chatState.draft && followsTopic(eventsRef.current || []);
     const agentTurn = called || following;
     const replyTo = famReply?.eventId;
@@ -2123,7 +2148,7 @@ interface SendForm {
   fileModes?: ('version' | 'new')[];
   returnFiles: string[];
   forceNew: boolean;
-  family?: { called: boolean; replyTo?: string; coFor?: string; following?: boolean }; // 0.89.0: an agent turn of a family chat; 0.107.0 following - no @co, the agent follows its topic
+  family?: { called: boolean; replyTo?: string; coFor?: string; following?: boolean }; // 0.89.0: an agent turn of a family chat; 0.109.0 following - no @co, the agent follows its topic
 }
 
 function Composer({

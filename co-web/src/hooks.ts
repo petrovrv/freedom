@@ -5,19 +5,41 @@ import { hostAlive, hostHealth } from './routing';
 import { gatewayState, type GatewayState } from './gateway';
 
 // setInterval that always calls the latest callback, pauses when disabled or tab hidden.
+// 0.109.0: focus and becoming visible also call it, but not within FOCUS_GAP_MS of its last call, and after a small
+// random delay. Every poll of the page used to fire at once on each window focus (about 15 database calls in one
+// burst, against the hosting limit of 20 new MySQL connections a second), and Android raises focus/visibility again
+// and again while the on-screen keyboard opens or closes: the chat reloaded in doublets while the user typed.
+const FOCUS_GAP_MS = 5000;
+const FOCUS_JITTER_MS = 1500;
 export function useInterval(fn: () => void, ms: number, enabled = true) {
   const ref = useRef(fn);
   ref.current = fn;
   useEffect(() => {
     if (!enabled) return;
+    let last = Date.now();
+    let pending: number | undefined;
+    const run = () => {
+      last = Date.now();
+      ref.current();
+    };
     const id = window.setInterval(() => {
-      if (document.visibilityState === 'visible') ref.current();
+      if (document.visibilityState === 'visible') run();
     }, ms);
-    const onFocus = () => ref.current();
+    const onFocus = () => {
+      if (pending !== undefined || document.visibilityState !== 'visible') return;
+      if (Date.now() - last < Math.min(ms, FOCUS_GAP_MS)) return;
+      pending = window.setTimeout(() => {
+        pending = undefined;
+        if (document.visibilityState === 'visible' && Date.now() - last >= Math.min(ms, FOCUS_GAP_MS)) run();
+      }, Math.random() * FOCUS_JITTER_MS);
+    };
     window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
     return () => {
       window.clearInterval(id);
+      if (pending !== undefined) window.clearTimeout(pending);
       window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
     };
   }, [ms, enabled]);
 }

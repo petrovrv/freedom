@@ -54,12 +54,7 @@ export default function FamilyPanel(props: {
     }
   }, [props.authOk, shown]);
   useEffect(() => { void poll(); }, [poll]);
-  useInterval(() => void poll(), POLL_MS, props.authOk);
-  useEffect(() => {
-    const vis = () => { if (document.visibilityState === 'visible') void poll(); };
-    document.addEventListener('visibilitychange', vis);
-    return () => document.removeEventListener('visibilitychange', vis);
-  }, [poll]);
+  useInterval(() => void poll(), POLL_MS, props.authOk); // also on focus / becoming visible (0.109.0)
 
   // The owner opens the tab before the room exists: the room is created once (Drive folder + database row)
   useEffect(() => {
@@ -76,7 +71,9 @@ export default function FamilyPanel(props: {
 
   // Everything shown in the open tab counts as read
   const lastRead = useRef(0);
+  const seen = useRef<ChatEvent[] | null>(null);
   const onEvents = useCallback((events: ChatEvent[] | null) => {
+    seen.current = events;
     if (!chat || !events?.length || document.visibilityState !== 'visible') return;
     const seq = Math.max(...events.map((e) => e.sequence || 0));
     if (seq <= lastRead.current) return;
@@ -84,6 +81,10 @@ export default function FamilyPanel(props: {
     setFamilyUnread(0);
     void dbFamilyRead(chat.chatId, seq).catch(() => { lastRead.current = 0; });
   }, [chat]);
+  // 0.109.0: ChatView no longer hands over an unchanged list, so a mark missed in a hidden tab or a failed one is
+  // retried on the panel's own poll and when the tab becomes visible
+  const markAgain = useCallback(() => { if (seen.current) onEvents(seen.current); }, [onEvents]);
+  useInterval(markAgain, POLL_MS, props.authOk && !!chat);
 
   if (!familySlot) return null;
   let body;

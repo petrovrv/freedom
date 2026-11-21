@@ -1,0 +1,50 @@
+{
+ "format": "freedom-release/1",
+ "version": "0.1.0",
+ "created": "2026-11-21T11:19:34Z",
+ "files": [
+  {
+   "path": "module.json",
+   "size": 1230,
+   "sha256": "5efa2d03843710be8efdc8179d7aee6bfdaa17a241c7d94cb373b72f0d256652"
+  },
+  {
+   "path": "README.md",
+   "size": 1670,
+   "sha256": "7f4ea99616c7b56fca3019be5e77435264768bf0bd92ae4188d7dceddc8c77a9"
+  },
+  {
+   "path": "server/ops.php",
+   "size": 3201,
+   "sha256": "1e1a268e645fc8fcd65423e5711efb7c948183c860ee5ff8b1d7f59095eca53c"
+  },
+  {
+   "path": "tests/server.php",
+   "size": 1345,
+   "sha256": "4681dc4efc8b1e87d1226a9d8204fb393b73b541825ad187f105eaaf0469dcf8"
+  },
+  {
+   "path": "ui/header.css",
+   "size": 1031,
+   "sha256": "cae692d670836c4b5cc83e5e17d7b875b0acd50e8c319eb2cc81d17ef877a2a0"
+  },
+  {
+   "path": "ui/header.html",
+   "size": 480,
+   "sha256": "00ac2ce1f3743a106ad286b3a301066afd9d7bf1970a9532fbad4adf7cd118e8"
+  },
+  {
+   "path": "ui/header.js",
+   "size": 2170,
+   "sha256": "b23bda11cd90778d1d4f816ee49de5c9adab554e0b26e18d861a29b0bac4ea5b"
+  }
+ ],
+ "signatures": [
+  {
+   "name": "maintainer-1",
+   "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
+   "sig": "T1MGne5Vvfeh3OqZ6s2ALp45xs9x3BQMF8MGt34LWye4QlILl+TpTYnQzb0d2xz9ngdgNpnlBrS6Nu0180LiCQ=="
+  }
+ ],
+ "module": "smart-home"
+}

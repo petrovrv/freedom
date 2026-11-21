@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "id": "smart-home",
+  "version": "0.1.0",
+  "title": "Smart home",
+  "description": "Quick Zigbee pairing in the header, without an AI job.",
+  "ext": ">=1 <2",
+  "scope": "household",
+  "platforms": [
+    "windows"
+  ],
+  "requires": {
+    "core": [],
+    "modules": []
+  },
+  "permissions": [
+    "ui.header",
+    "data.own"
+  ],
+  "isolation": "host",
+  "isolationReason": "The worker controls the household Zigbee coordinator",
+  "provides": {
+    "ui": [
+      {
+        "slot": "ui.header",
+        "id": "pair",
+        "entry": "ui/header.html",
+        "title": "Zigbee pairing"
+      }
+    ],
+    "tools": [
+      {
+        "name": "homehub",
+        "minVersion": "0.2.0"
+      }
+    ],
+    "services": [
+      {
+        "id": "pairing",
+        "tool": "homehub",
+        "run": "pair-worker"
+      }
+    ]
+  },
+  "server": {
+    "entry": "server/ops.php",
+    "ops": {
+      "user": [
+        "home_pair_state",
+        "home_pair_start",
+        "home_pair_stop"
+      ],
+      "host": [
+        "home_pair_exchange"
+      ],
+      "push": []
+    }
+  },
+  "dataPolicy": {
+    "onDisable": "keep",
+    "onRemove": "keep",
+    "migrations": "additive"
+  },
+  "defaults": {
+    "enabled": false
+  }
+}

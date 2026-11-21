@@ -1,0 +1,35 @@
+{
+ "format": "freedom-release/1",
+ "version": "0.1.0",
+ "created": "2026-11-21T11:07:25Z",
+ "files": [
+  {
+   "path": "context/rules.md",
+   "size": 579,
+   "sha256": "f8ee5864caf46a3247d7b8e70146687e5c60d69f656425ea1b4acd487eb3f8f9"
+  },
+  {
+   "path": "module.json",
+   "size": 825,
+   "sha256": "b90369cf1bef0a7f49c2be670d156098a37baeb0d40854506db55da484f2b7ec"
+  },
+  {
+   "path": "README.md",
+   "size": 1055,
+   "sha256": "47639ad762ff31392922760bb12a937a597b8d24ff4c9079e1d179ef572a5d54"
+  },
+  {
+   "path": "register.py",
+   "size": 3447,
+   "sha256": "c0756a6d14a79727edce43ad000f7b32a15624b44e8edd5c819e1b28fadcba43"
+  }
+ ],
+ "signatures": [
+  {
+   "name": "maintainer-1",
+   "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
+   "sig": "XQ1aWRrZaJ5YGjOz8gjji42/ZWEMfIodlPzyarNpRQL57TCi8dMvXvlo13sF/9XTwBw3LUbZODdQMFBJ3HDUDQ=="
+  }
+ ],
+ "module": "api-coding"
+}

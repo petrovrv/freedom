@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "id": "api-coding",
+  "version": "0.1.0",
+  "title": "Coding API helpers",
+  "description": "Paid API helpers for sanitized coding tasks, with account balance snapshots.",
+  "ext": ">=1 <2",
+  "scope": "household",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "requires": {
+    "core": [
+      "models"
+    ],
+    "modules": []
+  },
+  "permissions": [
+    "context"
+  ],
+  "provides": {
+    "tools": [],
+    "context": [
+      {
+        "id": "rules",
+        "file": "context/rules.md"
+      }
+    ],
+    "ui": [],
+    "services": [],
+    "models": [],
+    "deviceTools": [],
+    "events": []
+  },
+  "dataPolicy": {
+    "onDisable": "keep",
+    "onRemove": "ask",
+    "migrations": "additive"
+  },
+  "defaults": {
+    "enabled": false
+  }
+}

@@ -261,5 +261,24 @@ $q("INSERT INTO model_resources (id, env, kind, title, host_id, agent, models_js
 $o = models_all($db)['owner/old'] ?? null;
 $ok('older row of the legacy kind: gateway, confidential', $o !== null && $o['kind'] === 'gateway' && $o['confidential'] === true);
 
+
+// Local paid API helpers are callable only by their owner, never queue subscription jobs.
+$api = ['id' => 'owner/api-test', 'env' => 'owner', 'kind' => 'api', 'agent' => 'tool', 'title' => 'API test',
+    'models' => [['id' => 'test-model', 'label' => 'Test']], 'defaultModel' => 'test-model', 'slaveAllowed' => true,
+    'execution' => ['tool' => 'aiwb-modelbench', 'taskType' => 'code'],
+    'usage' => ['currency' => 'USD', 'funded' => 2, 'remaining' => 1.5, 'available' => true]];
+$saved = models_put($db, $api, 'device', null, true);
+$ok('API execution stored', $saved['resource']['execution']['taskType'] === 'code');
+$ok('API owner can call', array_column(models_list($db, 'owner')['resources'], null, 'id')['owner/api-test']['callable']);
+$ok('API never shared by slave flag', !models_visible($saved['resource'], 'sam'));
+models_put($db, ['id' => 'owner/api-test', 'usage' => ['currency' => 'USD', 'remaining' => 1.4, 'available' => true]], 'device', null, true);
+$ok('API snapshot retains funding baseline', models_all($db)['owner/api-test']['usage']['funded'] == 2.0);
+models_put($db, ['id' => 'owner/api-test', 'card' => ['summary' => 'Edited']], 'user', 'owner', false);
+$ok('API card edit retains execution', models_all($db)['owner/api-test']['execution']['tool'] === 'aiwb-modelbench');
+$badApi = $api; $badApi['execution']['taskType'] = 'mail';
+$ok('API refuses non-code execution', $throws(fn() => models_put($db, $badApi, 'device', null, true)));
+$badApi = $api; $badApi['usage']['remaining'] = -1;
+$ok('API refuses negative balance', $throws(fn() => models_put($db, $badApi, 'device', null, true)));
+
 echo $fail === 0 ? "ALL OK\n" : "$fail FAILED\n";
 exit($fail === 0 ? 0 : 1);

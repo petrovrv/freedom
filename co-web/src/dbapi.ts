@@ -1347,6 +1347,8 @@ export interface ModelResource {
   models: { id: string; label: string }[];
   defaultModel: string | null;
   card: ModelCard;
+  execution?: { tool: string; taskType: 'code' } | null;
+  usage?: { currency: string; funded: number | null; remaining: number | null; inputTokens: number | null; outputTokens: number | null; updatedUtc: string; available: boolean } | null;
   slaveAllowed: boolean;
   confidential: boolean;
   source: 'auto' | 'user' | 'device' | string;

@@ -52,6 +52,7 @@ export function openModelsSettings() {
 }
 
 function SlaveSwitch({ r, busy, onSet }: { r: ModelResource; busy: boolean; onSet: (v: boolean) => void }) {
+  if (r.kind === 'api') return <span className="mp-badge slave">coding helper · owner only</span>;
   if (!r.own) return <span className="mp-badge slave" title={`${r.env} lets your leading agent call this model as a helper`}>slave · {r.env}</span>;
   return (
     <label className={`mp-slave ${r.slaveAllowed ? 'on' : ''}`}
@@ -177,7 +178,7 @@ export function ModelPicker({ sel, env, hostId, owners, agents, disabled, onPick
             {helpers.length > 0 && (
               <>
                 <div className="mp-h">Helpers your agent may call</div>
-                <div className="muted tiny">The leading agent calls them itself as subagents (aiwb-subtask <code>spawn --resource</code>): free, no limits or confirmations.</div>
+                <div className="muted tiny">The leading agent calls them itself as subagents (aiwb-subtask <code>spawn --resource</code>): according to each resource’s access rules and pricing.</div>
                 {[...groups].map(([g, list]) => (
                   <div key={g}>
                     <div className="mp-g muted tiny">{g}</div>

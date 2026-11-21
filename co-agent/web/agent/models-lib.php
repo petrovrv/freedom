@@ -15,7 +15,7 @@ require_once __DIR__ . '/share-lib.php';
 require_once __DIR__ . '/gateway-lib.php';
 require_once __DIR__ . '/executors-lib.php';
 
-const MODELS_KINDS = ['subscription', 'site', CO_GATEWAY_KIND, 'free']; // + CO_GATEWAY_LEGACY_KIND on input (co_gateway_kind)
+const MODELS_KINDS = ['subscription', 'site', CO_GATEWAY_KIND, 'free', 'api']; // + CO_GATEWAY_LEGACY_KIND on input (co_gateway_kind)
 // Freedom F10: agents of model gateways (and their cards) come from installed modules (gateway-lib.php).
 const MODELS_CORE_AGENTS = ['claude', 'codex', 'gemini', 'agy'];
 const MODELS_CORE_JOB_AGENTS = ['claude', 'codex']; // agents a job may name today (Bridge, site agent), plus job agents of gateways
@@ -42,7 +42,7 @@ const MODELS_SITE_LIMITS = 'runs on the web server: no home devices except throu
 
 function models_agents(): array
 {
-    return array_merge(MODELS_CORE_AGENTS, array_keys(co_gateway_agents()));
+    return array_merge(['tool'], MODELS_CORE_AGENTS, array_keys(co_gateway_agents()));
 }
 
 function models_job_agents(): array
@@ -263,7 +263,9 @@ function models_all(mysqli $db): array
             'agent' => (string)$r['agent'],
             'models' => $models,
             'defaultModel' => $r['default_model'] !== null ? (string)$r['default_model'] : null,
-            'card' => $card,
+            'card' => array_filter($card, 'is_string'),
+            'execution' => $card['_execution'] ?? null,
+            'usage' => $card['_usage'] ?? null,
             'slaveAllowed' => (int)$r['slave_allowed'] === 1,
             'confidential' => (int)$r['confidential'] === 1 || co_gateway_kind((string)$r['kind']) === CO_GATEWAY_KIND
                 || models_is_gateway((string)$r['agent']),
@@ -279,7 +281,7 @@ function models_all(mysqli $db): array
 /** May a leading agent of $env call $r as a slave? Own resources yes; others only flagged and not confidential. */
 function models_visible(array $r, string $env): bool
 {
-    return $r['env'] === $env || ($r['slaveAllowed'] && !$r['confidential']);
+    return $r['env'] === $env || (($r['kind'] ?? '') !== 'api' && $r['slaveAllowed'] && !$r['confidential']);
 }
 
 /** Environment of a host call: env, else the environment of the project of chatId (aiwb-subtask models in a chat). */
@@ -309,7 +311,9 @@ function models_list(mysqli $db, string $env, bool $all = false): array
     foreach (models_all($db) as $r) {
         if ($all || models_visible($r, $env)) {
             $r['own'] = $r['env'] === $env;
-            $r['callable'] = models_visible($r, $env) && in_array($r['agent'], models_job_agents(), true) && $r['host'] !== '';
+            $r['callable'] = models_visible($r, $env) && ($r['kind'] === 'api'
+                ? is_array($r['execution'] ?? null)
+                : in_array($r['agent'], models_job_agents(), true) && $r['host'] !== '');
             $out[] = $r;
         }
     }
@@ -375,6 +379,39 @@ function models_put(mysqli $db, array $in, string $by, ?string $callerEnv, bool 
     }
     $card = array_key_exists('card', $in) ? models_card($in['card'])
         : ($cur !== null && !$cur['builtin'] ? $cur['card'] : (is_array($storedCard) ? $storedCard : []));
+    // API helpers execute through the local tool library, not the Bridge's subscription queue.
+    // Snapshots contain no credentials. Only authenticated host registrations can update them.
+    foreach (['_execution', '_usage'] as $key) {
+        if (isset($storedCard[$key])) $card[$key] = $storedCard[$key];
+    }
+    if ($row['kind'] === 'api') {
+        if ($row['agent'] !== 'tool') throw new InvalidArgumentException('api resource requires tool agent');
+        if ($by === 'device' && array_key_exists('execution', $in)) {
+            $e = $in['execution'];
+            if (!is_array($e) || ($e['taskType'] ?? '') !== 'code'
+                || !is_string($e['tool'] ?? null) || !preg_match('/^[a-z][a-z0-9-]{0,63}$/', $e['tool'])) {
+                throw new InvalidArgumentException('invalid API execution descriptor');
+            }
+            $card['_execution'] = ['tool' => $e['tool'], 'taskType' => 'code'];
+        }
+        if ($by === 'device' && array_key_exists('usage', $in)) {
+            $u = $in['usage'];
+            if (!is_array($u) || !preg_match('/^[A-Z]{3}$/', (string)($u['currency'] ?? ''))) {
+                throw new InvalidArgumentException('invalid usage currency');
+            }
+            $usage = ['currency' => $u['currency']];
+            foreach (['funded', 'remaining', 'inputTokens', 'outputTokens'] as $k) {
+                $v = array_key_exists($k, $u) ? $u[$k] : ($card['_usage'][$k] ?? null);
+                if ($v !== null && (!is_numeric($v) || !is_finite((float)$v) || (float)$v < 0)) {
+                    throw new InvalidArgumentException('invalid usage value');
+                }
+                $usage[$k] = $v === null ? null : (float)$v;
+            }
+            $usage['updatedUtc'] = gmdate('Y-m-d\TH:i:s\Z');
+            $usage['available'] = ($u['available'] ?? false) === true;
+            $card['_usage'] = $usage;
+        }
+    }
     $slave = array_key_exists('slaveAllowed', $in) ? $in['slaveAllowed'] === true : (bool)($cur['slaveAllowed'] ?? false);
     $conf = array_key_exists('confidential', $in) ? $in['confidential'] === true
         : (bool)($cur['confidential'] ?? ($row['kind'] === CO_GATEWAY_KIND));
@@ -485,6 +522,10 @@ function models_subtask_spawn(mysqli $db, array $in, callable $mkChat, callable 
         return ['ok' => false, 'error' => $r['confidential'] ? 'confidential' : 'slave_not_allowed',
             'detail' => $r['confidential'] ? 'Confidential resource: only its own environment may use it.'
                 : 'The owner of this resource has not allowed it as a slave.'];
+    }
+    if ($r['kind'] === 'api') {
+        return ['ok' => false, 'error' => 'local_api_helper',
+            'detail' => 'Use aiwb-subtask spawn on the owning device with --task-type code.'];
     }
     if (!in_array($r['agent'], models_job_agents(), true) || $r['host'] === '') {
         return ['ok' => false, 'error' => 'not_runnable', 'detail' => 'No host runs jobs of this agent yet.'];

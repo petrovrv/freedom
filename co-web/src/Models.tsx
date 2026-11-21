@@ -8,7 +8,7 @@ import { dbModelDelete, dbModels, dbModelSet, type ModelCard, type ModelResource
 import { refreshModelResources } from './ModelPicker';
 import { isGatewayKind } from './gateway';
 
-const KIND_LABEL: Record<string, string> = { subscription: 'subscription', site: 'site', free: 'free' };
+const KIND_LABEL: Record<string, string> = { subscription: 'subscription', site: 'site', free: 'free', api: 'paid API · coding helper' };
 const kindLabel = (k: string) => (isGatewayKind(k) ? 'confidential' : KIND_LABEL[k] ?? k);
 const CARD_FIELDS: [keyof ModelCard, string][] = [
   ['summary', 'Summary'],
@@ -91,6 +91,17 @@ export function ModelsSection() {
                 {r.confidential && ' · confidential'}
               </span>
             </div>
+            {r.usage && <div className="small" aria-label="API account balance">
+              <b>{r.usage.available ? 'Available' : 'Unavailable'} · balance {r.usage.remaining ?? 'unknown'} {r.usage.currency}</b>
+              {r.usage.funded != null && r.usage.funded > 0 && r.usage.remaining != null && <>
+                <progress aria-label="Account credit spent" max={r.usage.funded}
+                  value={Math.max(0, Math.min(r.usage.funded, r.usage.funded - r.usage.remaining))} style={{ width: '100%' }} />
+                <span>Spent {Math.max(0, r.usage.funded - r.usage.remaining).toFixed(4)} of {r.usage.funded} {r.usage.currency}</span>
+              </>}
+              {r.usage.funded == null && <div className="muted">Funding baseline unknown; spending percentage is unavailable.</div>}
+              {(r.usage.inputTokens != null || r.usage.outputTokens != null) && <div>Recorded tokens: {r.usage.inputTokens ?? 0} input · {r.usage.outputTokens ?? 0} output</div>}
+              <div className="muted">Account balance shared by this provider's models · updated {new Date(r.usage.updatedUtc).toLocaleString()}</div>
+            </div>}
             {edit === r.id ? (
               <div className="model-card-edit">
                 {CARD_FIELDS.map(([k, label]) => (
@@ -115,14 +126,14 @@ export function ModelsSection() {
                   <><dt>Models</dt><dd>{r.models.map((m) => m.label || m.id).join(', ')}</dd></>
                 )}
                 <dt>Call as</dt>
-                <dd><code>--resource {r.id}</code>{!r.callable && <span className="muted"> (no job queue for it yet)</span>}</dd>
+                <dd><code>--resource {r.id}{r.execution ? ' --task-type code' : ''}</code>{!r.callable && <span className="muted"> (no job queue for it yet)</span>}</dd>
               </dl>
             )}
             {mine && edit !== r.id && (
               <div className="model-actions small">
                 <label title="Leading agents of the other members may call this model as a subagent">
-                  <input type="checkbox" checked={r.slaveAllowed} disabled={busy || r.confidential}
-                    onChange={(e) => void save(r.id, { slaveAllowed: e.target.checked })} /> Slave allowed
+                  <input type="checkbox" checked={r.slaveAllowed} disabled={busy || r.confidential || r.kind === 'api'}
+                    onChange={(e) => void save(r.id, { slaveAllowed: e.target.checked })} /> {r.kind === 'api' ? 'Coding helper · owner only' : 'Slave allowed'}
                 </label>{' '}
                 <label title="Confidential: never serves another environment, even with Slave allowed">
                   <input type="checkbox" checked={r.confidential} disabled={busy}

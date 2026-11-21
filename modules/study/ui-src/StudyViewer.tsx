@@ -349,7 +349,7 @@ export default function StudyViewer({ path, events, canAsk, onAsk, onOpenAnswer,
                 picked={picked?.page === i + 1 ? picked : null}
                 onArea={(rect) => setPicked({ page: i + 1, rect, text: '', shape: 'area' })}>
                 {picked?.page === i + 1 && (
-                  <div className="study-ask" style={{ left: `${Math.min(picked.rect.x, 0.6) * 100}%`, top: `${Math.min(1, picked.rect.y + picked.rect.h) * 100}%` }}
+                  <div className="study-ask" style={{ left: `max(0px, min(${picked.rect.x * 100}%, 100% - min(340px, 90%)))`, top: `${Math.min(1, picked.rect.y + picked.rect.h) * 100}%` }}
                     onMouseUp={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
                     <textarea autoFocus rows={2} placeholder={canAsk ? 'Ask about this…' : 'The chat is busy or read-only'} value={question}
                       onChange={(e) => setQuestion(e.target.value)}

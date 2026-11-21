@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { archiveScope, buildChatTree, readTreeOpen, treeTitle, writeTreeOpen } from './chatTree';
 import { SORT_MODES, compareBy, readSortMode, ts as tsOf, writeSortMode, type SortMode } from './sidebarSort';
+import ViewerSplit from './ViewerSplit';
 import { Resizer, useColumnWidth } from './Resizer';
 import { ChatStatusIcon, ProjectRing, chatStatus, isUnread, useSeenVersion } from './status';
 import { dbActivity, dbGatewayWaiting, type ChatActivity } from './dbapi';
@@ -448,14 +449,14 @@ export default function Shell({ auth }: { auth: Signed }) {
       close: () => navigate(pathname, { replace: true }),
     };
     return (
-      <div className="viewer-split">
-        <div className="viewer-pane">
-          {/* another document starts with a clean viewer */}
+      <ViewerSplit
+        pane={
+          // another document starts with a clean viewer
           <ModuleFrame key={`${viewer.mod.id}/${viewer.ui.id}/${viewer.mod.version}/${viewer.doc}`} m={viewer.mod} ui={viewer.ui} me={auth.homeEnv} owner={!!auth.owner}
             mode="fill" extra={{ uiId: viewer.ui.id, params: { [viewer.mode.viewer!.param]: viewer.doc }, chat: link.chat }} rootId={root.id} panel={link} />
-        </div>
-        <div className="viewer-chat">{node}</div>
-      </div>
+        }
+        chat={node}
+      />
     );
   };
 
@@ -591,7 +592,8 @@ export default function Shell({ auth }: { auth: Signed }) {
   };
 
   return (
-    <div className={`shell env-${env}`}>
+    // a document viewer next to the chat takes the whole width: the side panes become drawers (☰ menu)
+    <div className={`shell env-${env}${viewer ? ' viewer-on' : ''}`}>
       <WebDevConfirmDialog />
       <MacOffer />
       {share && projects && (

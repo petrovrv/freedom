@@ -7,6 +7,9 @@ from workflow import Workflow, critic
 from archive import checkpoint, restore_checkpoint, verify_checkpoint, export_maildir
 import read_guard
 import deliver
+import os
+import sys
+import gmailsync
 
 
 def main():
@@ -84,6 +87,23 @@ def main():
     dsend = dsub.add_parser('send', help='sync and send the briefing now')
     dsend.add_argument('--dry-run', action='store_true', help='build it, send nothing')
     dsub.add_parser('tick', help='what the schedule runs: send once a day after the chosen time')
+    gs = sub.add_parser('gmail-sync', help='full mailbox via the Gmail API: last --years in full, then changes by historyId (read only)')
+    gs.add_argument('--cred', help='per-person credential JSON; default the systemd credential `gmail`')
+    gs.add_argument('--years', type=int, default=2)
+    gb = sub.add_parser('gmail-backfill', help='older mail on request')
+    gb.add_argument('--cred')
+    gb.add_argument('--before', help='YYYY-MM-DD')
+    gb.add_argument('--query', help='Gmail search query')
+    sub.add_parser('gmail-status', help='sync state and counters per mailbox (no content)')
+    sub.add_parser('backup-keygen', help='new backup key pair: the private key goes to the keyring of THIS device (aiwb/concierge-mail-backup), the public one is printed for the hub')
+    bd = sub.add_parser('backup-drive', help="encrypted incremental backup into the person's own Google Drive (public key from BACKUP_PUBLIC_KEY)")
+    bd.add_argument('--cred')
+    rd = sub.add_parser('restore-drive', help='download, decrypt and verify the newest backup into a new directory (on the person device)')
+    rd.add_argument('path', type=Path)
+    rd.add_argument('--cred', help='credential JSON with a Drive token; or --client-credman')
+    rd.add_argument('--client-credman', help='Windows Credential Manager entry with client_id/client_secret/refresh_token (Drive scope)')
+    rd.add_argument('--key-account', required=True, help='keyring account of the private backup key (aiwb/concierge-mail-backup)')
+    rd.add_argument('--manifest')
     for name in ('checkpoint', 'restore', 'verify', 'export-maildir'):
         cmd = sub.add_parser(name)
         cmd.add_argument('path', type=Path)
@@ -92,6 +112,9 @@ def main():
     args = parser.parse_args()
     # the schedule passes no --root: it reads the archive the person's delivery choice names
     args.root = args.root or Path(deliver.load(deliver.config_dir()).get('archive') or deliver.default_root())
+    if args.command in ('backup-keygen', 'restore-drive'):
+        print(json.dumps(run_keys(args)))
+        return
     if args.command in ('restore', 'verify'):
         result = restore_checkpoint(args.path, args.root) if args.command == 'restore' else verify_checkpoint(args.path)
         print(json.dumps(result))
@@ -104,6 +127,10 @@ def main():
             result = store.ingest(args.account, args.file.read_bytes())
         elif command == 'sync':
             result = sync_imap(store, args.account, folder=args.folder, limit=args.limit, refetch=args.refetch) if args.folder else sync_account(store, args.account, sent_folder=args.sent_folder, limit=args.limit, refetch=args.refetch)
+        elif command in ('gmail-sync', 'gmail-backfill', 'backup-drive'):
+            result = run_hub(args, store)
+        elif command == 'gmail-status':
+            result = gmailsync.status(store)
         elif command == 'checkpoint':
             result = checkpoint(store, args.path)
         elif command == 'export-maildir':
@@ -156,6 +183,59 @@ def main():
             print(json.dumps(guarded, ensure_ascii=False, indent=2))
     finally:
         store.close()
+
+
+def _token(args):
+    token = gmailsync.TokenSource(gmailsync.credential_path(args.cred))
+    expected = os.environ.get('ACCOUNT', '').strip().lower()
+    if expected and expected != token.account:
+        raise PermissionError('Credential belongs to another mailbox than this instance')
+    return token
+
+
+def run_hub(args, store):
+    # The sync timer and the nightly backup may meet: wait for the other writer instead of failing.
+    store.db.execute('PRAGMA busy_timeout=60000')
+    store.db.execute('PRAGMA journal_mode=WAL')
+    token = _token(args)
+    if args.command == 'backup-drive':
+        import hubbackup
+        public = os.environ.get('BACKUP_PUBLIC_KEY', '')
+        if not public:
+            raise ValueError('BACKUP_PUBLIC_KEY not set: no backup without the person key')
+        return hubbackup.backup(store, public, hubbackup.Drive(token), Path(args.root) / 'backup-state.json')
+    def progress(result):
+        print(json.dumps({k: result.get(k) for k in ('stored', 'listed', 'redacted', 'failed')}), file=sys.stderr, flush=True)
+    if args.command == 'gmail-sync':
+        return gmailsync.sync_gmail(store, token, years=args.years, progress=progress)
+    return gmailsync.backfill(store, token, before=args.before, query=args.query, progress=progress)
+
+
+def run_keys(args):
+    import keyring
+    import seal
+    if args.command == 'backup-keygen':
+        private, public = seal.generate_identity()
+        account = os.environ.get('ACCOUNT') or 'default'
+        if keyring.get_password('aiwb/concierge-mail-backup', account):
+            raise ValueError('A backup key already exists for ' + account + ': old backups need it, not replaced')
+        keyring.set_password('aiwb/concierge-mail-backup', account, private)
+        return {'keyring': 'aiwb/concierge-mail-backup', 'account': account, 'public': public}
+    import hubbackup
+    private = keyring.get_password('aiwb/concierge-mail-backup', args.key_account)
+    if not private:
+        raise ValueError('Backup key not in this device keyring')
+    if args.client_credman:
+        import importlib.util
+        script = Path(__file__).resolve().parents[3] / 'tools' / 'gsheets-bridge' / 'gsheets-bridge.py'
+        spec = importlib.util.spec_from_file_location('gsb', script)
+        gsb = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gsb)
+        data = json.loads(gsb.read_credential(args.client_credman))
+        token = gmailsync.TokenSource(cred=data)
+    else:
+        token = gmailsync.TokenSource(gmailsync.credential_path(args.cred))
+    return hubbackup.restore(hubbackup.Drive(token), private, args.path, manifest_name=args.manifest)
 
 
 def run_deliver(args, store, flow):

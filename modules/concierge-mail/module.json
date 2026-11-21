@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "concierge-mail",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "title": "Mail concierge",
   "ext": ">=1 <2",
   "scope": "environment",
@@ -19,6 +19,10 @@
   "permissions": [
     "context",
     "net.outbound:imap.gmail.com",
+    "net.outbound:gmail.googleapis.com",
+    "net.outbound:oauth2.googleapis.com",
+    "net.outbound:www.googleapis.com",
+    "net.outbound:accounts.google.com",
     "secrets.read",
     "push.key"
   ],

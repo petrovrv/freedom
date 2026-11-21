@@ -8,7 +8,7 @@ The archive stores MIME originals and attachments by SHA256 and indexes plain te
 
 The initial workflow supports cases, promises and versioned local reply drafts. Local drafts are not Gmail drafts. Publishing a draft uses the existing gmail-draft tool; sending is always performed by the owner. Security-code detection is a conservative heuristic, not the task-bound OTP vault from the specification.
 
-Not yet implemented: PostgreSQL/pgvector, Gmail history/push and Graph adapters, homehub service deployment, full mailbox reconciliation, calendar integration, channel adapters, task-bound OTP, browser UI, automatic rules and family sharing. No production mailbox has been changed by this implementation.
+Not yet implemented: PostgreSQL/pgvector, Gmail push (Pub/Sub) and Graph adapters, calendar integration, channel adapters, task-bound OTP, browser UI, automatic rules and family sharing. No production mailbox has been changed by this implementation.
 
 Validation: `python -m unittest discover -s home -p "test_*.py"`.
 
@@ -51,3 +51,28 @@ from the chosen time (a PC that wakes up more than 3 h later skips the day), it 
 briefing and pushes it only to the chosen channels (title + at most 400 characters, the rest as "… +N").
 `deliver send [--dry-run]` does it now, `deliver set --off` stops it and keeps the choice, `deliver show` prints it.
 A separate settings page is planned.
+
+## Mail store on the home server (0.7.0)
+
+The whole mailbox lives on the home server (Linux, systemd), one store per person: own system user `cmail-<slug>`,
+own directory `/srv/data/mail/<slug>` (0700), own Gmail credential `/etc/credstore.encrypted/concierge-mail.<slug>.cred`
+(systemd-creds, encrypted with the host key). One person's service cannot read another person's mail; the owner's
+keyring holds no family member's token.
+
+- `gmail-sync` (timer every 5 min): the first run fetches every message of the last `--years` (2) as raw RFC822 through
+  the Gmail API (spam and trash included, drafts left for stage 4) and keeps the mailbox `historyId` read before the
+  listing; later runs apply only the changes since it (new mail, labels, deletions marked `gone`, nothing removed from
+  the archive). An expired `historyId` falls back to a full listing that skips archived messages. A message that fails
+  to import is kept aside in `gmail_failed` and retried on every run. Same section 11 and read-guard rules as `sync`.
+- `gmail-backfill --before YYYY-MM-DD | --query Q`: older mail on request. `gmail-status`: counters, no content.
+- `backup-drive` (nightly): encrypted incremental backup into the person's own Google Drive (scope `drive.file`, folder
+  "Freedom mail backup"): a SQLite snapshot plus packs of new blobs, sealed with the person's X25519 public key
+  (`seal.py`, AES-256-GCM in 1 MiB chunks). The server holds only the public key and cannot read its own backups.
+  `backup-keygen` makes the key pair on the person's device (private key in that device's keyring
+  `aiwb/concierge-mail-backup`); `restore-drive <new-dir>` downloads, decrypts and verifies the newest backup there.
+- `hub/hubctl.py` (on a PC, over SSH): `deploy` (code + unit templates), `add <slug> --account A --env E
+  [--backup-public KEY]`, `connect <slug> --client-credman|--client-json` (installed-app OAuth with PKCE in the person's
+  browser: `gmail.readonly` + `drive.file`; the refresh token goes straight into the host credential and is checked to
+  belong to the named mailbox), `start|stop <slug>`, `status`, `run <slug> -- <mailcli args>`.
+
+Read only: the Gmail scope is `gmail.readonly`, so nothing can be marked, moved, deleted or sent from here.

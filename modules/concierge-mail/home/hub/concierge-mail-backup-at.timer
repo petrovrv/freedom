@@ -1,0 +1,10 @@
+[Unit]
+Description=Freedom concierge-mail: nightly encrypted backup to the person's own Google Drive for %i
+
+[Timer]
+OnCalendar=*-*-* 02:30
+RandomizedDelaySec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

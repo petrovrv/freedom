@@ -5,6 +5,7 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- CO Web 0.117.0: a document viewer next to the chat (study viewer) takes the whole width: the projects and the Inspector become drawers (☰ menu), a draggable divider between the document and the chat (keyboard arrows too, kept per browser; the chat keeps at least 280px), stacked only on phones. Module study 1.0.1: the Ask box stays inside the page.
 - CO Web 0.116.0: `coExt.badge(v)` — any loaded page of a module (usually its tray page) sets a count or short mark (up to 3 characters) shown on the module's app tile in ▦ and as a red dot on ▦ itself; `0`/blank clears it (SPEC §3.6a F14b). A module without an app takes the icon of any of its pages (`icon` is accepted on every slot now) for its Settings tile instead of the first letter.
 - Module geo-presence 0.5.1: icon 📍 for its Settings tile. Module chat-import 0.2.1: launcher label "Import" (was "Import…", cut on phones).
 - Installer (`freedom_modules.py install`): an update whose permissions grew is switched off by the server until the owner agrees; the installer now says so (with the enable command) also without `--enable`, when the module was on before.

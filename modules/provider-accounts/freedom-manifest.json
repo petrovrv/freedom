@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.1.1",
- "created": "2026-11-22T17:13:17Z",
+ "version": "0.1.2",
+ "created": "2026-11-22T19:49:53Z",
  "files": [
   {
    "path": "home/accounts.py",
@@ -10,8 +10,8 @@
   },
   {
    "path": "home/hub/accountctl.py",
-   "size": 18962,
-   "sha256": "8f4c939aba79b6678d69d97ced8a19f2f0de1efa995f840b425cb2537ebe6018"
+   "size": 21173,
+   "sha256": "a10be3385ac90a8fef9a58537ae1f08e5f8830c96a906f14f398960dde7673a7"
   },
   {
    "path": "home/test_accounts.py",
@@ -21,19 +21,19 @@
   {
    "path": "module.json",
    "size": 1382,
-   "sha256": "9e3f1c5179fbe565fb085f0dddbb557601ad8adc9b8e7cc301f971da7c8e2e9d"
+   "sha256": "065cb7d4ad354eb5f48106bb74c12bc5b2544f0564c395def631931867e1f9ba"
   },
   {
    "path": "README.md",
-   "size": 2777,
-   "sha256": "dd8b814952f7d50522404a7e4a1485a648420468db7957bfa10b59bdc551e0f8"
+   "size": 4132,
+   "sha256": "c76124c0f43902fe44b512e5f7eeab560f1a25febcc01e40cf63e8fe56463e02"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "Q+gKBtsIOV/ZUWkin6F3bBxjQsAyRgFWS6ibm/bBXF34gnaRpog5y10WFlgPXFfEtH5wfHtDvvbQr1DZhoy6AQ=="
+   "sig": "elzfWYCK59C+LEvPl3kUPnQ5URi2RGQqFgUYb77XM9AS6blPOuMBRmrUDo/nOeOgFd7im6ks3O/w/HZDyDKyBA=="
   }
  ],
  "module": "provider-accounts"

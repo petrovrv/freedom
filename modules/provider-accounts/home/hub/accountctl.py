@@ -69,7 +69,8 @@ def read_record(args, slug):
 
 def write_record(args, slug, record):
     body = json.dumps(record, ensure_ascii=False, indent=1).encode()
-    ssh(args, f'sudo install -d -m 0700 {RECORDS} && sudo tee {RECORDS}/{slug}.json >/dev/null && sudo chmod 0600 {RECORDS}/{slug}.json', body)
+    ssh(args, f'sudo install -d -m 0700 {RECORDS} && sudo flock /run/lock/freedom-account.{slug}.lock'
+              f' sh -c "umask 077 && tee {RECORDS}/{slug}.json.new >/dev/null && mv {RECORDS}/{slug}.json.new {RECORDS}/{slug}.json"', body)
 
 
 def client(args):
@@ -159,8 +160,10 @@ def connect(args, want=None, on_saved=None):
     server = http.server.HTTPServer(('127.0.0.1', 0), http.server.BaseHTTPRequestHandler)
     consent.server = server
     redirect = f'http://127.0.0.1:{server.server_port}/'
-    url, state, verifier = prov.auth_request(client_id, redirect, lacking, login_hint=account)
-    print(f'Open and allow ({", ".join(lacking)}) for {account}:\n' + url, flush=True)
+    # 0.1.2: ask for the whole set (granted + new) - an installed-app client does not reliably return the union of grants
+    request = sorted(set(prov.granted(have.get('scopes', []))) | set(lacking))
+    url, state, verifier = prov.auth_request(client_id, redirect, request, login_hint=account)
+    print(f'Open and allow ({", ".join(request)}) for {account}:\n' + url, flush=True)
     got = consent(url, state, args.wait, open_browser=not args.no_browser)
     if 'code' not in got:
         sys.exit('no consent received' + (f' ({got.get("error")})' if got.get('error') else ''))
@@ -174,24 +177,58 @@ def connect(args, want=None, on_saved=None):
     if have.get('scopes') and not set(have['scopes']) <= scopes:
         # include_granted_scopes should return the union; if not, keep the old credential rather than lose grants
         sys.exit('the new grant does not include the earlier ones; nothing saved (connect again and allow all)')
-    cred = json.dumps({'client_id': client_id, 'client_secret': client_secret, 'refresh_token': tok['refresh_token'],
-                       'account': account, 'provider': prov.name, 'scopes': sorted(scopes)}).encode()
     path = cred_path(slug, prov.name)
-    ssh(args, f'sudo install -d -m 0700 {CREDSTORE} && sudo systemd-creds encrypt --name={accounts.CREDENTIAL_NAME} - {path}.new'
-              f' && sudo chmod 0600 {path}.new && sudo mv {path}.new {path}', cred)
-    del cred, tok
     granted = prov.granted(scopes)
-    record = {**record, 'slug': slug, 'env': env, 'account': record.get('account') or account,
-              'providers': {**record.get('providers', {}), prov.name: {
-                  'account': account, 'credential': path, 'scopes': sorted(scopes), 'capabilities': granted,
-                  'updated': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}}}
-    write_record(args, slug, record)
+    entry = {'account': account, 'credential': path, 'scopes': sorted(scopes), 'capabilities': granted,
+             'updated': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
+    job = json.dumps({'slug': slug, 'provider': prov.name, 'path': path, 'name': accounts.CREDENTIAL_NAME, 'env': env,
+                      'account': account, 'before': have.get('scopes') or [], 'entry': entry,
+                      'cred': {'client_id': client_id, 'client_secret': client_secret, 'refresh_token': tok['refresh_token'],
+                               'account': account, 'provider': prov.name, 'scopes': sorted(scopes)}}).encode()
+    del tok
+    record = json.loads(ssh(args, 'sudo python3 -I -c ' + shlex.quote(SAVE_PY), job))
+    del job
     out = {'slug': slug, 'provider': prov.name, 'account': account, 'credential': path, 'granted': granted,
            'refused': sorted(set(caps) - set(granted))}
     print(json.dumps(out))
     if on_saved:
         on_saved(out)
     return record
+
+
+# 0.1.2: credential and record are replaced together under a lock of the person; if another connect changed the grants
+# while this consent was open, nothing is saved (compare-and-swap on the scopes read before the consent)
+SAVE_PY = r'''
+import fcntl, json, os, subprocess, sys
+job = json.loads(sys.stdin.buffer.read())
+records = "/etc/freedom-accounts"
+rec_path = records + "/" + job["slug"] + ".json"
+with open("/run/lock/freedom-account." + job["slug"] + ".lock", "w") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    record = json.load(open(rec_path)) if os.path.exists(rec_path) else {}
+    now = (record.get("providers", {}).get(job["provider"]) or {}).get("scopes") or []
+    if sorted(now) != sorted(job["before"]):
+        sys.exit("the grants of " + job["slug"] + " changed during this consent; nothing saved (connect again)")
+    if not set(now) <= set(job["entry"]["scopes"]):
+        sys.exit("the new grant does not include the earlier ones; nothing saved (connect again and allow all)")
+    if record.get("env") and record["env"] != job["env"]:
+        sys.exit(job["slug"] + " belongs to another environment; nothing saved")
+    os.makedirs("/etc/credstore.encrypted", mode=0o700, exist_ok=True)
+    os.makedirs(records, mode=0o700, exist_ok=True)
+    path = job["path"]
+    subprocess.run(["systemd-creds", "encrypt", "--name=" + job["name"], "-", path + ".new"],
+                   input=json.dumps(job["cred"]).encode(), check=True)
+    os.chmod(path + ".new", 0o600)
+    record = {**record, "slug": job["slug"], "env": record.get("env") or job["env"],
+              "account": record.get("account") or job["account"],
+              "providers": {**record.get("providers", {}), job["provider"]: job["entry"]}}
+    fd = os.open(rec_path + ".new", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(record, f, ensure_ascii=False, indent=1)
+    os.replace(path + ".new", path)
+    os.replace(rec_path + ".new", rec_path)
+print(json.dumps(record))
+'''
 
 
 MIGRATE_PY = r'''

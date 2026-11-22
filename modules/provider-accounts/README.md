@@ -5,8 +5,11 @@ One sign-in per person and provider for all modules of the person's environment 
 - **Capabilities, not scopes.** A module names what it needs: `mail.read`, `mail.modify`, `mail.compose`, `mail.send`,
   `calendar.read`, `calendar.write`, `drive.appfiles`, `contacts.read`. The provider layer (`home/accounts.py`) maps
   them to its own scopes: `google` (implemented) and `microsoft` (Graph names only; connecting is not implemented yet).
-- **One consent, then incremental.** `accountctl.py connect SLUG --want <caps>` asks only for what is still missing;
-  Google keeps the earlier grants (`include_granted_scopes`). A new grant that lost earlier scopes is not saved.
+- **One consent, then more rights later.** `accountctl.py connect SLUG --want <caps>` does nothing when everything is
+  granted; otherwise the consent asks for the whole set (granted + new), because an installed-app client does not reliably
+  return the union of grants. The account is checked, a grant without a refresh token or that lost earlier scopes is not
+  saved, and credential + record are replaced together under a lock of the person; if another connect or a disconnect
+  changed the grants while the consent was open, nothing is saved. Modules keep working on the old token meanwhile.
 - **Where the token lives.** The refresh token goes from the person's browser straight into one encrypted systemd
   credential on the home server, `/etc/credstore.encrypted/account.<slug>.<provider>.cred` (credential name `account`),
   never into a file or keyring of the PC. `/etc/freedom-accounts/<slug>.json` (root, 0600) keeps the account, the
@@ -31,3 +34,16 @@ python modules/provider-accounts/home/hub/accountctl.py --host H --user U --key 
 ```
 
 Validation: `python -m unittest discover -s modules/provider-accounts/home -p "test_*.py"`.
+
+## OAuth client of an install (distribution)
+
+Every install uses its own OAuth client in its own Google Cloud project (the agent sets it up after the base install,
+`install/GOOGLE-CLOUD.md`); there is no shared Freedom client.
+
+- Publishing status **In production**, not Testing: in Testing Google expires refresh tokens after 7 days.
+- The app stays **unverified**. `gmail.readonly` is a restricted scope and `calendar.*` sensitive: an unverified app
+  shows a warning on the consent screen ("Google hasn't verified this app" → Advanced → continue) and is limited to
+  100 users for its lifetime. For a family install that is enough; verification (and for restricted scopes a security
+  assessment) is only needed beyond that and is not planned.
+- Client type: installed app (Desktop) with a loopback redirect for consent from a PC. Consent from a phone needs a web
+  client with an HTTPS redirect through the install's own site (planned, stage 2c of the mail plan).

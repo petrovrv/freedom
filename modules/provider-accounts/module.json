@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "provider-accounts",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "title": "Accounts",
   "description": "One sign-in per person and provider (Google now; Microsoft named, not connectable yet) for the modules of their environment: modules ask for capabilities (mail.read, calendar.read, ...), missing ones are added by an incremental consent, the refresh token lives in one encrypted credential per person on the home server and every module gets access tokens narrowed to its own capabilities.",
   "ext": ">=1 <2",

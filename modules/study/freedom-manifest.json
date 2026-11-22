@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "1.0.0",
- "created": "2026-11-12T22:35:03Z",
+ "version": "1.0.1",
+ "created": "2026-11-22T19:38:10Z",
  "files": [
   {
    "path": "build.mjs",
@@ -21,7 +21,7 @@
   {
    "path": "module.json",
    "size": 3752,
-   "sha256": "2f7fbb652cf323b0b53bc5dd1a6ee9c2b215b0a83a8499195786f4ccdc2487ce"
+   "sha256": "21b3344a8a494fec9e4972faeec1c177af0cd2283dafae19f129ba7400b8aad8"
   },
   {
    "path": "README.md",
@@ -65,8 +65,8 @@
   },
   {
    "path": "ui/viewer.js",
-   "size": 1890755,
-   "sha256": "fb71d417a723adf8fcca0b29defa2a96d4e28ca9b693dd86c37fd5390aa1a5a9"
+   "size": 1890781,
+   "sha256": "582da51ad316d79086b8633f7bb0908a13464e895a42d04cc2d9e6a6233edcfe"
   },
   {
    "path": "ui-src/coExt.ts",
@@ -90,15 +90,15 @@
   },
   {
    "path": "ui-src/StudyViewer.tsx",
-   "size": 25694,
-   "sha256": "0e9515adb69a77db729f7c0f8d0ee7e32e55e58755f71fe2bc34ea3a6e46660e"
+   "size": 25718,
+   "sha256": "2e5fec5825a32afb887e66a9abbb7648eda863fedd33f5a4e179acad0cbfc347"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "2bHfH85tjURimRU8sL0z3Yd37lPYb2Z/mq0WlCaJF1qIgHgpFzB+n8nk3vtWpRLhffRcapyu3FhzgDQ4Mu8lBQ=="
+   "sig": "WLsQYcDh9Lx/VqQR713MGxncSUyNlVnFdkUAFGFPD/V8GCpGXXD+0CUeWPbw39eal28BAtIPaV6d004t0GD6Dw=="
   }
  ],
  "module": "study"

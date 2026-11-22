@@ -1,38 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// Tray of the Home app (ext/1 shell): nothing while Zigbee pairing is idle; a small chip with the countdown while it
+// runs and for a minute after its result. The button itself lives on the Home page (/x/smart-home/home).
 (() => {
 'use strict';
-const b=document.getElementById('pair'), label=document.getElementById('label');
-let state={state:'idle'}, busy=false, timer, offset=0, owner=false;
-const active=()=>['starting','searching','interviewing','stopping'].includes(state.state);
+const chip=document.getElementById('chip'),label=document.getElementById('label');
+let pair,last='';
 function render(){
- const names={idle:'Сопряжение Zigbee',starting:'Запускаем…',stopping:'Останавливаем…',
- success:'Подключено ✓',timeout:'Не найдено · повторить',stopped:'Сопряжение Zigbee',
- error:'Ошибка · повторить',offline:'Zigbee недоступен'};
- const remaining=Math.max(0,Math.ceil((state.until||0)-(Date.now()/1000+offset)));
- label.textContent=state.state==='searching'||state.state==='interviewing'
- ? (state.state==='interviewing'?'Подключаем ':'Поиск ')+Math.floor(remaining/60)+':'+String(remaining%60).padStart(2,'0')
- : names[state.state]||names.idle;
- b.className=state.state;
- b.disabled=busy||!owner||state.state==='offline'||state.state==='stopping';
- b.title=[state.device,state.note,active()?'Нажмите, чтобы остановить':'Сопряжение Zigbee · 5 минут'].filter(Boolean).join(' · ');
- b.setAttribute('aria-label',label.textContent+' — '+b.title);
- coExt.size(Math.ceil(document.getElementById('header').getBoundingClientRect().width)+2,32,false);
+ const s=pair.state,show=pair.active()||pair.recent();
+ chip.hidden=!show;chip.className=s.state;
+ const t=s.state==='success'?'✓':s.state==='timeout'||s.state==='error'?'!':(pair.text().match(/\d+:\d\d/)||['…'])[0];
+ label.textContent=t;
+ chip.title='Zigbee: '+pair.text()+(s.device?' · '+s.device:'')+' · открыть Дом';
+ chip.setAttribute('aria-label',chip.title);
+ const key=show?Math.ceil(chip.getBoundingClientRect().width)+2+'':'0';
+ if(key!==last){last=key;coExt.size(Number(key),show?32:0,false);}
 }
-async function refresh(op='home_pair_state'){
- if(busy)return;
- clearTimeout(timer);busy=true;render();
- try{
-  const r=await coExt.call(op,{},{timeoutMs:12000});
-  if(r.error)throw Error(r.error);
-  state=r; offset=(r.serverNow||Date.now()/1000)-Date.now()/1000;
- }catch(e){state={state:'offline',note:'Нет связи с Zigbee. Повторная проверка через несколько секунд.'};}
- finally{busy=false;render();timer=setTimeout(()=>refresh(),active()?2000:state.state==='offline'?5000:30000);}
-}
-b.onclick=()=>refresh(active()?'home_pair_stop':'home_pair_start');
 coExt.ready.then(ctx=>{
- owner=!!ctx.owner;
- document.getElementById('home').onclick=()=>coExt.navigate('/x/smart-home/home','self');
- if(!owner){b.hidden=true;coExt.call('home_state',{}).then(r=>{document.getElementById('home').hidden=!!r.error;coExt.size(document.getElementById('header').getBoundingClientRect().width+2,32,false);});return;}
- refresh();setInterval(()=>{if(active())render();},1000);
+ coExt.size(0,0,false);
+ if(!ctx.owner)return;
+ chip.onclick=()=>coExt.navigate('/x/smart-home/home','self');
+ pair=window.zigbeePair(render,true);pair.refresh();
 });
 })();

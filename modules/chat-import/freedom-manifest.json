@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.1.2",
- "created": "2026-11-12T22:49:29Z",
+ "version": "0.2.0",
+ "created": "2026-11-22T09:40:01Z",
  "files": [
   {
    "path": "build.mjs",
@@ -10,8 +10,8 @@
   },
   {
    "path": "module.json",
-   "size": 2459,
-   "sha256": "2f2065552464b7007645f0acb83e0cd210256ee9ea9e607c15db6c96f1396846"
+   "size": 2504,
+   "sha256": "b4cf02149e22bd17019dd89e637cacfeefe9180a2bc7f27181f594a034437cc0"
   },
   {
    "path": "README.md",
@@ -73,7 +73,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "EGmbvx7lIrJZUeP32OD4vgdxRfnykSmysx/auUFyGABICwwbgtENbRT7EIB2GNoyZ1I/87eRKw+Cx3M5ciX3Cg=="
+   "sig": "WD12M/ybqDbFD9wjsew/fWlJhKCZZoriMqizIEsHjVU1nCR1y0FlNwBPBe0ZMk0gTwmc1MAw7QCxyA2elDurDQ=="
   }
  ],
  "module": "chat-import"

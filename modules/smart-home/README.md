@@ -1,7 +1,8 @@
 # Smart home
 
-A responsive room dashboard at /x/smart-home/home and two header buttons: Home and
-Zigbee pairing. Sockets and lights use explicit on/off actions; thermostat targets
+The Home app (ext/1 shell, SPEC §3.6a): a responsive room dashboard at
+/x/smart-home/home, a tile in the launcher, with the Zigbee pairing button on the page.
+The tray shows a small chip only while pairing runs and for a minute after its result. Sockets and lights use explicit on/off actions; thermostat targets
 respect device and installation limits. Sensors are read-only. No AI job is started.
 
 The owner has access by default. To share the dashboard, set smartHome.members in
@@ -26,7 +27,7 @@ not modify schedules.
 
 Pairing opens a 300-second window (254-second finite coordinator lease, renewed only
 for the remaining time). A successful non-retained interview from this session turns
-the button green and closes joining. Click while searching to stop.
+the button (and the tray chip) green and closes joining. Click while searching to stop.
 
 Install: check/sign this folder, update homehub, then freedom_modules.py install
 modules/smart-home --enable. Disable the module to remove UI and stop its worker.

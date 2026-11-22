@@ -1,89 +1,86 @@
 {
-    "schema":  1,
-    "id":  "smart-home",
-    "version":  "0.2.1",
-    "title":  "Дом",
-    "description":  "Rooms, lights and sockets, sensor readings, thermostat targets and quick Zigbee pairing.",
-    "ext":  "\u003e=1 \u003c2",
-    "scope":  "household",
-    "platforms":  [
-                      "windows"
-                  ],
-    "requires":  {
-                     "core":  [
-
-                              ],
-                     "modules":  [
-
-                                 ]
-                 },
-    "permissions":  [
-                        "ui.header",
-                        "data.own",
-                        "ui.navigate"
-                    ],
-    "isolation":  "host",
-    "isolationReason":  "The worker controls the household Zigbee coordinator",
-    "provides":  {
-                     "ui":  [
-                                {
-                                    "slot":  "ui.header",
-                                    "id":  "pair",
-                                    "entry":  "ui/header.html",
-                                    "title":  "Zigbee pairing"
-                                },
-                                {
-                                    "slot":  "ui.page",
-                                    "id":  "home",
-                                    "entry":  "ui/home.html",
-                                    "title":  "Дом"
-                                }
-                            ],
-                     "tools":  [
-                                   {
-                                       "name":  "homehub",
-                                       "minVersion":  "0.3.1"
-                                   }
-                               ],
-                     "services":  [
-                                      {
-                                          "id":  "pairing",
-                                          "tool":  "homehub",
-                                          "run":  "home-worker"
-                                      }
-                                  ],
-                     "navigate":  [
-                                      "/x/smart-home/home"
-                                  ]
-                 },
-    "server":  {
-                   "entry":  "server/ops.php",
-                   "ops":  {
-                               "user":  [
-                                            "home_pair_state",
-                                            "home_pair_start",
-                                            "home_pair_stop",
-                                            "home_state",
-                                            "home_control"
-                                        ],
-                               "host":  [
-                                            "home_pair_exchange",
-                                            "home_exchange"
-                                        ],
-                               "push":  [
-
-                                        ]
-                           }
-               },
-    "dataPolicy":  {
-                       "onDisable":  "keep",
-                       "onRemove":  "keep",
-                       "migrations":  "additive"
-                   },
-    "defaults":  {
-                     "enabled":  false
-                 },
-    "installConfig":  {
-                          "members":  "smartHome.members"
-                      }
+  "schema": 1,
+  "id": "smart-home",
+  "version": "0.3.0",
+  "title": "Дом",
+  "description": "Home app: rooms, lights and sockets, sensor readings, thermostat targets and Zigbee pairing; a tray chip while pairing runs.",
+  "ext": ">=1 <2",
+  "scope": "household",
+  "platforms": [
+    "windows"
+  ],
+  "requires": {
+    "core": [],
+    "modules": []
+  },
+  "permissions": [
+    "ui.header",
+    "data.own",
+    "ui.navigate"
+  ],
+  "isolation": "host",
+  "isolationReason": "The worker controls the household Zigbee coordinator",
+  "provides": {
+    "ui": [
+      {
+        "slot": "ui.header",
+        "id": "pair",
+        "entry": "ui/header.html",
+        "title": "Zigbee pairing status"
+      },
+      {
+        "slot": "ui.page",
+        "id": "home",
+        "entry": "ui/home.html",
+        "title": "Дом",
+        "app": true,
+        "icon": "🏠",
+        "label": "Дом"
+      }
+    ],
+    "tools": [
+      {
+        "name": "homehub",
+        "minVersion": "0.3.1"
+      }
+    ],
+    "services": [
+      {
+        "id": "pairing",
+        "tool": "homehub",
+        "run": "home-worker"
+      }
+    ],
+    "navigate": [
+      "/x/smart-home/home"
+    ]
+  },
+  "server": {
+    "entry": "server/ops.php",
+    "ops": {
+      "user": [
+        "home_pair_state",
+        "home_pair_start",
+        "home_pair_stop",
+        "home_state",
+        "home_control"
+      ],
+      "host": [
+        "home_pair_exchange",
+        "home_exchange"
+      ],
+      "push": []
+    }
+  },
+  "dataPolicy": {
+    "onDisable": "keep",
+    "onRemove": "keep",
+    "migrations": "additive"
+  },
+  "defaults": {
+    "enabled": false
+  },
+  "installConfig": {
+    "members": "smartHome.members"
+  }
 }

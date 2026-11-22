@@ -437,6 +437,17 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
   }, [ctx, send]);
 
   // an open popover of the page closes on a click anywhere else in CO Web
+  // an open popover follows its slot when the tray scrolls sideways, the page scrolls or the window is resized
+  const [, setPlace] = useState(0);
+  useEffect(() => {
+    if (!size.overlay) return;
+    const f = () => setPlace((n) => n + 1);
+    window.addEventListener('scroll', f, true);
+    window.addEventListener('resize', f);
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(f) : null;
+    if (wrap.current) ro?.observe(wrap.current);
+    return () => { window.removeEventListener('scroll', f, true); window.removeEventListener('resize', f); ro?.disconnect(); };
+  }, [size.overlay]);
   useEffect(() => {
     if (!size.overlay) return;
     const f = (e: PointerEvent) => { if (e.target !== frame.current) send({ t: 'blur' }); };
@@ -471,10 +482,21 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
         referrerPolicy="no-referrer"
         onLoad={onLoad}
         className={size.overlay ? 'module-frame overlay' : 'module-frame'}
-        style={{ width: size.w, height: size.h || 28 }}
+        style={size.overlay ? { width: size.w, height: size.h || 28, ...overlayPos(wrap.current, size.w) } : { width: size.w, height: size.h || 28 }}
       />
     </span>
   );
+}
+
+/**
+ * An open popover of a tray page is drawn fixed over the page at the place of its slot, kept inside the window: the tray
+ * may scroll or clip sideways on a narrow screen, the popover must not be cut by it.
+ */
+function overlayPos(wrap: HTMLElement | null, w: number): { left: number; top: number } {
+  const r = wrap?.getBoundingClientRect();
+  if (!r) return { left: 4, top: 4 };
+  const vw = window.innerWidth;
+  return { left: Math.max(4, Math.min(r.right - w, vw - w - 4)), top: Math.max(0, r.top) };
 }
 
 /** The pages one module declared for `slot` (Host → Modules shows ui.settings this way). */

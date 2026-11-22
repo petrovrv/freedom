@@ -11,7 +11,7 @@ Base fields (`id`, `version`, `ext`, `scope`, `permissions`, `personal`, `server
 
 | Key | Shape | What the core does |
 |---|---|---|
-| `ui[]` | `{slot, id, entry, title, path?, window?, windowKey?}`; slot `ui.header` \| `ui.page` \| `ui.panel` \| `ui.settings` | shows `entry` (an html file of `ui/`) in a sandboxed iframe. `ui.page` opens full-window at `/x/<module>/<id>`; `path` (e.g. `/canvas`) adds an old top-level address of CO Web (never one of CO Web's own routes). The query of the address goes to the page as `ctx.params`. **ui.window**: `window: true` on a `ui.page` = a desktop app (CO Desktop; CO Resident opens every CO page a page opens in a new tab in its own window anyway) shows the page in its own window when CO Web opens it in a new tab (`fileActions` `target: blank`, `navigate(url, 'blank')`), see *Desktop windows*. `ui.panel` is a pane next to a chat (mode viewers). |
+| `ui[]` | `{slot, id, entry, title, label?, path?, window?, windowKey?, app?, icon?}`; slot `ui.header` \| `ui.page` \| `ui.panel` \| `ui.settings` | shows `entry` (an html file of `ui/`) in a sandboxed iframe. `ui.page` opens full-window at `/x/<module>/<id>`; `path` (e.g. `/canvas`) adds an old top-level address of CO Web (never one of CO Web's own routes). The query of the address goes to the page as `ctx.params`. **ui.window**: `window: true` on a `ui.page` = a desktop app (CO Desktop; CO Resident opens every CO page a page opens in a new tab in its own window anyway) shows the page in its own window when CO Web opens it in a new tab (`fileActions` `target: blank`, `navigate(url, 'blank')`), see *Desktop windows*. `ui.panel` is a pane next to a chat (mode viewers). |
 | `modes[]` | `{key, label, short, icon, rules, offNote?, hintOn?, hintOff?, projectLabel?, newProjectHint?, inherit?, viewer?}` | **chat.mode**: a switch of the chat (header button, chat and project menus, a line in the timeline at every switch). While on, every job of the chat gets the text of `rules` (a registered `context/*.md` file of the module) as instructions; after it was switched off once, the text of `offNote`. State lives in the chat document: `<key>` (bool), `<key>Log` (switches: `{on, by, utc}`), project default `<key>Default` (new chats only), `<key>Doc` (the document of a viewer chat). `inherit`: branches and side questions of a chat keep the mode. `viewer {panel, param, titlePrefix}`: `?<param>=<path>` on a project or chat address shows the module's `ui.panel` `panel` left of the chat (see *Viewer pages*). |
 | `context[]` | `"context/x.md"` | **context**: the text goes into every job of the person while the module is enabled. |
 | `fileActions[]` | `{id, label, title?, exts[], exclude?, open}` | items of the file menu of chat files and project files for files with these extensions (`exclude`: a regex of names left out). `open {page, param?, target?}` opens the module's `ui.page` `page` with `?<param>=<path relative to AI-Workbench>` (`target: blank` = new tab/window); `open {mode}` opens the viewer of mode `mode`. |
@@ -52,6 +52,23 @@ are remembered per page (`desktop.json` `PageWindows["<module>/<page>"]`). In th
 - × unloads the page first (its `pagehide`/`beforeunload` run, e.g. to send what it holds), a second × closes at once.
 
 Only pages of enabled modules (the device's `modules_list`) get a window; in a browser the page simply opens in a tab.
+
+## Shell: apps, tray, windows (SPEC §3.6a)
+
+CO Web is a small shell around module pages, the same on a phone and on a computer:
+
+- **App** — a `ui.page` with `"app": true`, `"icon"` (an emoji or up to 8 characters) and `"label"` is a tile of the
+  launcher (▦ in the header; a popover on a computer, a full-screen grid on a phone). Pages without `app` keep their
+  button in the sidebar. A desktop app (CO Desktop, CO Resident) opens an app with `window: true` in its own window;
+  everywhere else the app fills the centre of CO Web.
+- **Tray** — the `ui.header` slot is for small status indicators only (one per module, no long text, no action buttons;
+  actions live in the app). A tray page may be empty while there is nothing to show: `coExt.size(0, 0, false)`. The
+  core keeps the tray inside the width of the window (it scrolls sideways on a phone) and draws an open popover
+  (`size(..., true)`) fixed over the page, kept inside the window.
+- **Open with** — `fileActions` (above): a file of a chat opens in the app that declared its extension.
+
+Example (`smart-home`): `{ "slot": "ui.page", "id": "home", "entry": "ui/home.html", "title": "Дом", "app": true,
+"icon": "🏠", "label": "Дом" }` plus a tray page that shows a chip only while Zigbee pairing runs.
 
 ## Device parts compiled into CO Desktop
 

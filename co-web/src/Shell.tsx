@@ -32,6 +32,7 @@ import { importCalls } from './importWriter';
 import { LimitsBar } from './Limits';
 import Inspector from './Inspector';
 import FamilyPanel from './FamilyPanel';
+import Launcher from './Launcher';
 import { ModuleFrame, ModulePage, ModuleSlots, modulePages, useModules, type PanelLink } from './ModuleSlot';
 import type { Chat, ChatEvent, LimitsFile, Mode, OwnerInfo, Project } from './types';
 
@@ -664,8 +665,11 @@ export default function Shell({ auth }: { auth: Signed }) {
         </div>
         <HostLight owners={owners} ids={execOrder} env={env} pref={hostPref} effective={hostId} onAdvanced={() => openInspectorTab('host')} />
         <div className="spacer" />
-        {/* F10: pages of enabled modules for the header (family presence and others), SPEC §3.6 */}
-        <ModuleSlots slot="ui.header" modules={modules} me={auth.homeEnv} owner={!!auth.owner} />
+        {/* ext/1 shell: the tray (small ui.header status pages of enabled modules, SPEC §3.6) and the launcher of apps */}
+        <div className="module-tray">
+          <ModuleSlots slot="ui.header" modules={modules} me={auth.homeEnv} owner={!!auth.owner} />
+        </div>
+        <Launcher modules={modules} env={env} current={modulePageRoute} />
         {familyUnread > 0 && (
           <button type="button" className="fam-top" title="New messages in the family chat" onClick={() => openInspectorTab('family')}>
             👪 <span className="fam-badge">{familyUnread > 99 ? '99+' : familyUnread}</span>
@@ -778,7 +782,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                   ))}
                 </select>{' '}
                 {/* F10: pages of enabled modules (e.g. an import of chats from another service) */}
-                {modulePages(modules).map(({ m, ui }) => (
+                {modulePages(modules).filter(({ ui }) => !ui.app).map(({ m, ui }) => (
                   <span key={`${m.id}/${ui.id}`}>
                     <button className="btn tiny" onClick={() => navigate(`/e/${env}/m/${m.id}/${ui.id}`)} disabled={!root} title={ui.title || m.title}>{ui.label || ui.title || m.title}</button>{' '}
                   </span>

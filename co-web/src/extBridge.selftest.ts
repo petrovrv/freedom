@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // node src/extBridge.selftest.ts - the message checks of the ext/1 bridge (Freedom F10).
-import { callRefusal, callRoute, capabilityRefusal, moduleUrl, parseExtMessage, parseHint } from './extBridge.ts';
+import { callRefusal, callRoute, capabilityRefusal, moduleUrl, parseExtMessage, parseHint, shellApps, shellOpen, type ModuleInfo } from './extBridge.ts';
 
 let fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -100,5 +100,25 @@ ok('hint with a bad agent dropped', parseHint({ text: 'x', title: '', picks: [{ 
 ok('hint with control characters dropped', parseHint({ text: 'x', title: '', picks: [pick] }) === null);
 ok('hint text too long dropped', parseHint({ text: 'x'.repeat(200), title: '', picks: [pick] }) === null);
 
-if (fail) throw new Error(`extBridge selftest: ${fail} failed`);
 console.log('extBridge selftest OK');
+
+// ext/1 shell: the launcher lists only ui.page entries with app: true of enabled modules
+{
+  const mk = (id: string, enabled: boolean, ui: ModuleInfo['ui']): ModuleInfo => ({ id, version: '1', title: id, description: '', enabled, standard: true, permissions: [], ui, uiOps: [], personal: null });
+  const list = [
+    mk('home', true, [{ slot: 'ui.page', id: 'home', entry: 'ui/home.html', title: 'Дом', app: true, icon: '🏠' }, { slot: 'ui.header', id: 'pair', entry: 'ui/h.html', title: 'x' }]),
+    mk('imp', true, [{ slot: 'ui.page', id: 'import', entry: 'ui/i.html', title: 'Import', label: 'import…', app: true }]),
+    mk('old', true, [{ slot: 'ui.page', id: 'p', entry: 'ui/p.html', title: 'Old page' }]),
+    mk('off', false, [{ slot: 'ui.page', id: 'p', entry: 'ui/p.html', title: 'Off', app: true }]),
+    mk('win', true, [{ slot: 'ui.page', id: 'ed', entry: 'ui/e.html', title: 'Editor', app: true, window: true, path: '/ed' }]),
+  ];
+  const apps = shellApps(list);
+  ok('launcher: apps of enabled modules only', apps.map((a) => a.m.id).join() === 'home,imp,win');
+  ok('launcher: icon from the manifest', apps[0].icon === '🏠');
+  ok('launcher: icon falls back to the first letter', apps[1].icon === 'I' && apps[1].label === 'import…');
+  ok('launcher: opens in the centre', shellOpen(apps[0], 'alice', true).href === '/e/alice/m/home/home' && shellOpen(apps[0], 'alice', true).target === 'self');
+  ok('launcher: window page in its own window on a desktop app', shellOpen(apps[2], 'alice', true).target === 'blank' && shellOpen(apps[2], 'alice', true).href === '/ed');
+  ok('launcher: window page in the centre in a browser', shellOpen(apps[2], 'alice', false).target === 'self');
+}
+
+if (fail) throw new Error(`extBridge selftest: ${fail} failed`);

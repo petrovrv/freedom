@@ -297,6 +297,13 @@ function co_module_ui(array $m): array
             $row['window'] = true;
             if (is_string($u['windowKey'] ?? null) && preg_match('#^[A-Za-z][A-Za-z0-9_-]{0,30}$#', $u['windowKey'])) $row['windowKey'] = $u['windowKey'];
         }
+        // ext/1 shell: an app (a ui.page with app: true) is listed in the launcher of the header with its icon (a short
+        // emoji or text); pages without it stay buttons of the sidebar
+        if ($slot === 'ui.page' && ($u['app'] ?? false) === true) {
+            $row['app'] = true;
+            $icon = is_string($u['icon'] ?? null) ? trim($u['icon']) : '';
+            if ($icon !== '' && mb_strlen($icon) <= 8 && !preg_match('/[\x00-\x1f<>"\'&]/u', $icon)) $row['icon'] = $icon;
+        }
         $out[] = $row;
     }
     return $out;

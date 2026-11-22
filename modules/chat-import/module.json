@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "chat-import",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "title": "Import chats",
   "description": "Brings chats and projects from claude.ai and ChatGPT into the workbench: a page that reads an official data export in the browser, and tools at home that keep copying new chats every night.",
   "ext": ">=1 <2",
@@ -31,7 +31,9 @@
         "id": "import",
         "entry": "ui/import.html",
         "title": "Import chats from claude.ai or ChatGPT",
-        "label": "Import…"
+        "label": "Import…",
+        "app": true,
+        "icon": "📥"
       }
     ],
     "import": [

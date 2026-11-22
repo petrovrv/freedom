@@ -10,7 +10,13 @@
 
 import type { ModeDecl } from './moduleModes';
 
-export interface ModuleUi { slot: string; id: string; entry: string; title: string; /** short text of the sidebar button of a ui.page */ label?: string; path?: string }
+export interface ModuleUi {
+  slot: string; id: string; entry: string; title: string; /** short text of the sidebar button of a ui.page */ label?: string; path?: string;
+  /** ext/1 shell: a ui.page that is an app of the launcher, with its icon (a short emoji or text) */
+  app?: boolean; icon?: string;
+  /** ext/1 ui.window: a desktop app opens the page in its own window */
+  window?: boolean; windowKey?: string;
+}
 export interface FileAction {
   id: string; label: string; title: string; exts: string[]; exclude: string;
   open: { page: string; param: string; target: 'self' | 'blank' } | { mode: string };
@@ -391,3 +397,23 @@ export function fileActionsFor(modules: ModuleInfo[], name: string): { m: Module
 
 /** CSS variables of CO Web handed to module pages so they look like the rest of the window. */
 export const THEME_VARS = ['--bg', '--panel', '--panel-2', '--fg', '--muted', '--line', '--accent', '--accent-fg', '--ok', '--warn', '--bad', '--env', '--user', '--code'];
+
+/** ext/1 shell: one app of the launcher (a ui.page with app: true of an enabled module). */
+export interface ShellApp { m: ModuleInfo; ui: ModuleUi; icon: string; label: string }
+
+/** Apps of the launcher, in the order of the module list; the icon falls back to the first letter of the name. */
+export function shellApps(modules: ModuleInfo[]): ShellApp[] {
+  return modules.filter((m) => m.enabled).flatMap((m) => m.ui.filter((u) => u.slot === 'ui.page' && u.app === true).map((ui) => {
+    const label = ui.label || ui.title || m.title || m.id;
+    return { m, ui, label, icon: ui.icon || Array.from(label)[0]?.toUpperCase() || '▫' };
+  }));
+}
+
+/**
+ * How the launcher opens an app: a desktop app (CO Desktop, CO Resident) opens a ui.window page in its own window
+ * (blank → the module address); everywhere else the app fills the centre of CO Web like any ui.page.
+ */
+export function shellOpen(app: Pick<ShellApp, 'm' | 'ui'>, env: string, desktop: boolean): { href: string; target: 'self' | 'blank' } {
+  if (desktop && app.ui.window) return { href: app.ui.path || `/x/${app.m.id}/${app.ui.id}`, target: 'blank' };
+  return { href: `/e/${env}/m/${app.m.id}/${app.ui.id}`, target: 'self' };
+}

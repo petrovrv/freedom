@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.1.0",
- "created": "2026-11-13T01:33:44Z",
+ "version": "0.2.0",
+ "created": "2026-11-22T09:40:03Z",
  "files": [
   {
    "path": "home/community/__init__.py",
@@ -240,8 +240,8 @@
   },
   {
    "path": "module.json",
-   "size": 1914,
-   "sha256": "8409f59273a5753141d3dd6c305b51c138a2722526582a1cad2094aa464775a1"
+   "size": 1961,
+   "sha256": "5fc4783b59d1647613d900fec1cffbe513fc3e0f803a302f9608e8edea1d8ef5"
   },
   {
    "path": "README.md",
@@ -273,7 +273,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "8nE7Jvm6CCG+yz/MMnxcGLEYFVQX4kYEnfz+JFGJEZTsyILvBdxjbn37M1Cwi1MxRKhqLaAk4uUq2CnAwHDMAg=="
+   "sig": "fJCZu+TKr774LHGinVisp2bv9lBEA43C3UiHXiTBcC/Sn5p9Tpo1TKljSt4s6EfuGyGOE00+MhVx4VXynXf+Cw=="
   }
  ],
  "module": "community"

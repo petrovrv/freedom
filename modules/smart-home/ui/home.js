@@ -101,5 +101,15 @@ $('kinds').onclick=e=>{const b=e.target.closest('button');if(!b)return;kind=b.da
  for(const x of $('kinds').children)x.classList.toggle('selected',x===b);render();};
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
 window.addEventListener('focus',()=>{if(!document.hidden)refresh();});
-coExt.ready.then(()=>{coExt.title('Дом');refresh();setInterval(render,1000);});
+function renderPair(){
+ const b=$('pair'),s=pair.state;
+ $('pair-label').textContent=pair.text();b.className='secondary pair '+s.state;
+ b.disabled=pair.busy||s.state==='offline'||s.state==='stopping';
+ b.title=pair.active()?'Нажмите, чтобы остановить':'Открыть сопряжение новых Zigbee-устройств на 5 минут';
+ const note=[s.device,s.note].filter(Boolean).join(' · ');$('pair-note').textContent=note;$('pair-note').hidden=!note;
+}
+let pair;
+coExt.ready.then(ctx=>{coExt.title('Дом');refresh();setInterval(render,1000);
+ if(ctx.owner){$('pair').hidden=false;pair=window.zigbeePair(renderPair);$('pair').onclick=()=>pair.toggle();pair.refresh();}
+});
 })();

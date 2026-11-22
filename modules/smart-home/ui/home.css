@@ -19,5 +19,15 @@ input[type=search]{flex:1}nav{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 
 .small{font-size:12px;color:var(--muted);line-height:1.45}.note{margin-top:12px}.result{min-height:16px;margin-top:10px;font-size:12px;color:var(--accent)}
 .result.error{color:#a54830}footer{border-top:1px solid var(--border);padding-top:18px;color:var(--muted);font-size:12px}
 [hidden]{display:none!important}
-@media(max-width:540px){main{padding:20px 14px}header{align-items:flex-start}.secondary{padding:8px;font-size:12px}.filters{flex-direction:column}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.card{padding:13px}.card.climate{grid-column:1/-1}.card h3{font-size:12px}.value{font-size:21px}nav{gap:5px}nav button{padding:9px}}
+.actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.pair{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.radar{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;font-size:17px}
+.pair.searching .radar,.pair.interviewing .radar,.pair.starting .radar,.pair.stopping .radar{background:conic-gradient(from 0deg,transparent,#4b9bff99);animation:scan 1.6s linear infinite;box-shadow:0 0 0 3px #4b9bff22}
+.pair.searching,.pair.interviewing,.pair.starting{border-color:#4b9bff;color:#297bdc}
+.pair.success{background:#16803a;color:#fff;border-color:#16803a}
+.pair.error,.pair.timeout{border-color:#d98529}
+#pair-note{margin:-12px 0 16px;text-align:right}
+@keyframes scan{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.radar{animation:none!important}}
+@media(max-width:540px){main{padding:20px 14px}header{align-items:flex-start;flex-direction:column}.actions{justify-content:flex-start}#pair-note{text-align:left;margin-top:-8px}.secondary{padding:8px;font-size:12px}.filters{flex-direction:column}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.card{padding:13px}.card.climate{grid-column:1/-1}.card h3{font-size:12px}.value{font-size:21px}nav{gap:5px}nav button{padding:9px}}
 @media(prefers-color-scheme:dark){:root{background:#17221d;color:#e5ede6;--card:#223028;--border:#35443a;--muted:#adbdaf;--ink:#e5ede6;--accent:#37865a}.card.climate{background:linear-gradient(140deg,#28382d,#343228)}nav button.selected{color:#17221d}#connection{background:#243e2b;color:#b4d8bd}#connection.offline{background:#443721;color:#f1ce93}}

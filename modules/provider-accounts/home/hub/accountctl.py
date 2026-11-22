@@ -400,11 +400,13 @@ def disconnect(args):
     present = host(args, {'op': 'drop', 'slug': slug, 'provider': prov.name, 'revoked': bool(revoked)})['removed'] or present
     # services already running (or a oneshot run in progress, state activating) hold the credential they loaded: stop
     # every such unit that loads this file; later timer runs fail without the file until the person connects again
-    stopped = ssh(args, 'for u in $(systemctl list-units --state=active,activating,reloading --plain --no-legend --type=service | cut -d" " -f1); do'
+    # fail closed: ssh or listing the units failing stops here (check=True), not with an empty list that looks like success
+    stopped = ssh(args, 'units=$(systemctl list-units --state=active,activating,reloading --plain --no-legend --type=service) || exit 3;'
+                        ' for u in $(echo "$units" | cut -d" " -f1); do'
                         # systemctl show prints this setting as [unprintable]: read the unit text, %i = its instance
                         ' i=${u#*@}; i=${i%.service}; case "$u" in *@*) ;; *) i=; esac;'
                         f' systemctl cat "$u" 2>/dev/null | sed "s/%i/$i/g" | grep -q "^LoadCredentialEncrypted=.*:"{shlex.quote(path)}'
-                        ' && { sudo systemctl stop "$u" >/dev/null 2>&1; echo "$u"; }; done; true', check=False).split()
+                        ' && { sudo systemctl stop "$u" >/dev/null 2>&1; echo "$u"; }; done; true').split()
     # fail closed: an ssh/systemctl error or an empty answer counts as not stopped
     still = [u for u in stopped if ssh(args, f'systemctl show -p ActiveState --value {shlex.quote(u)}').strip()
              not in ('inactive', 'failed')]

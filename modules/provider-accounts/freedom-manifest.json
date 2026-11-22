@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
  "version": "0.1.2",
- "created": "2026-11-22T20:00:13Z",
+ "created": "2026-11-22T20:01:31Z",
  "files": [
   {
    "path": "home/accounts.py",
@@ -10,8 +10,8 @@
   },
   {
    "path": "home/hub/accountctl.py",
-   "size": 24424,
-   "sha256": "03d98b30b0d39c824f62c1f13d12ce822e08a6670ec4c81164525eb02083bf16"
+   "size": 24598,
+   "sha256": "9d80a4e70dc2a462b0bf69a890230a557f4e5bcdfe610f2771c07a34a3776b33"
   },
   {
    "path": "home/test_accounts.py",
@@ -33,7 +33,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "QdlTS2I38rZJi0jV5jVGqaCdwgEksBspQf1qge6gdxIlAZEvto8zyXQJ34pio0dM4HUtw/fqtKgGZTdcEpfDAg=="
+   "sig": "f6cweS+FJmlsGlRbLvwQEZ6hh6Tfd+/VQNjn5UFXqOeNzG29D284zBFAIptwNcDZuN3Fek584mvebDzz45k0Cw=="
   }
  ],
  "module": "provider-accounts"

@@ -95,6 +95,7 @@ def main():
     gb.add_argument('--before', help='YYYY-MM-DD')
     gb.add_argument('--query', help='Gmail search query')
     sub.add_parser('gmail-status', help='sync state and counters per mailbox (no content)')
+    sub.add_parser('relay-serve', help="answer the person's Mail page through the site (hub unit concierge-mail-relay@; read only)")
     sub.add_parser('backup-keygen', help='new backup key pair: the private key goes to the keyring of THIS device (aiwb/concierge-mail-backup), the public one is printed for the hub')
     bd = sub.add_parser('backup-drive', help="encrypted incremental backup into the person's own Google Drive (public key from BACKUP_PUBLIC_KEY)")
     bd.add_argument('--cred')
@@ -129,6 +130,10 @@ def main():
             result = sync_imap(store, args.account, folder=args.folder, limit=args.limit, refetch=args.refetch) if args.folder else sync_account(store, args.account, sent_folder=args.sent_folder, limit=args.limit, refetch=args.refetch)
         elif command in ('gmail-sync', 'gmail-backfill', 'backup-drive'):
             result = run_hub(args, store)
+        elif command == 'relay-serve':
+            import relay
+            relay.main(store, args.root)
+            return
         elif command == 'gmail-status':
             result = gmailsync.status(store)
         elif command == 'checkpoint':
@@ -185,8 +190,8 @@ def main():
         store.close()
 
 
-def _token(args):
-    token = gmailsync.TokenSource(gmailsync.credential_path(args.cred))
+def _token(args, capabilities):
+    token = gmailsync.TokenSource(gmailsync.credential_path(args.cred), capabilities=capabilities)
     expected = os.environ.get('ACCOUNT', '').strip().lower()
     if expected and expected != token.account:
         raise PermissionError('Credential belongs to another mailbox than this instance')
@@ -197,7 +202,7 @@ def run_hub(args, store):
     # The sync timer and the nightly backup may meet: wait for the other writer instead of failing.
     store.db.execute('PRAGMA busy_timeout=60000')
     store.db.execute('PRAGMA journal_mode=WAL')
-    token = _token(args)
+    token = _token(args, ['drive.appfiles'] if args.command == 'backup-drive' else ['mail.read'])
     if args.command == 'backup-drive':
         import hubbackup
         public = os.environ.get('BACKUP_PUBLIC_KEY', '')

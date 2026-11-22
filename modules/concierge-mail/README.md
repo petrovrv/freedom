@@ -55,8 +55,9 @@ A separate settings page is planned.
 ## Mail store on the home server (0.7.0)
 
 The whole mailbox lives on the home server (Linux, systemd), one store per person: own system user `cmail-<slug>`,
-own directory `/srv/data/mail/<slug>` (0700), own Gmail credential `/etc/credstore.encrypted/concierge-mail.<slug>.cred`
-(systemd-creds, encrypted with the host key). One person's service cannot read another person's mail; the owner's
+own directory `/srv/data/mail/<slug>` (0700). Since 0.8.0 the Google sign-in is the person's shared account of the
+module `provider-accounts` (`/etc/credstore.encrypted/account.<slug>.google.cred`, systemd-creds encrypted with the host key; one
+consent for all modules of the person): sync mints tokens with `mail.read` only, the backup with `drive.appfiles` only. One person's service cannot read another person's mail; the owner's
 keyring holds no family member's token.
 
 - `gmail-sync` (timer every 5 min): the first run fetches every message of the last `--years` (2) as raw RFC822 through
@@ -72,7 +73,39 @@ keyring holds no family member's token.
   `aiwb/concierge-mail-backup`); `restore-drive <new-dir>` downloads, decrypts and verifies the newest backup there.
 - `hub/hubctl.py` (on a PC, over SSH): `deploy` (code + unit templates), `add <slug> --account A --env E
   [--backup-public KEY]`, `connect <slug> --client-credman|--client-json` (installed-app OAuth with PKCE in the person's
-  browser: `gmail.readonly` + `drive.file`; the refresh token goes straight into the host credential and is checked to
-  belong to the named mailbox), `start|stop <slug>`, `status`, `run <slug> -- <mailcli args>`.
+  browser through `provider-accounts` with the capabilities `mail.read` + `drive.appfiles`, only the missing ones are asked; the
+  refresh token goes straight into the shared host credential and is checked to belong to the named mailbox),
+  `migrate <slug>` (re-encrypts a 0.7 `concierge-mail.<slug>.cred` as the shared one), `start|stop <slug>`, `status`,
+  `run <slug> -- <mailcli args>`. `deploy` also copies `modules/provider-accounts/home`.
 
 Read only: the Gmail scope is `gmail.readonly`, so nothing can be marked, moved, deleted or sent from here.
+
+## Mail app and the site as postman (0.8.0, stage 2)
+
+The app ✉ (`ui/mail.html`, a `ui.page` with `app: true`, its own window in CO Desktop) and the tray indicator
+(`ui/tray.html`, unread count, empty at 0) read the person's store on the home server through the site:
+
+- **Worker** (`home/relay.py`, unit `concierge-mail-relay@<slug>`, runs as `cmail-<slug>`): long-polls the module route
+  `worker` with its own token (credential `concierge-mail-relay.<slug>.cred`), takes the requests of its environment
+  only and answers them from the store. Read only: `overview`, `list`, `search`, `thread`, `attachment` (up to 4 MB).
+  HTML loses scripts, frames, forms, event handlers and `javascript:` links; `cid:` images go inline; remote images stay
+  blocked by the page CSP. Sign-in-code stubs show only sender and date.
+- **Site** (`server/ops.php`): `mail_status` (online, worker key, unread count), `mail_call` (one sealed request, waits
+  up to 12 s), push op `mail_worker_token` (the owner's PC pairs or revokes the worker of an environment; only the
+  sha256 of the token is kept), route `worker`. Requests and answers stay in `q/<env>/` only until taken, at most 60 s.
+- **Sealed, with a stated limit.** The page (`ui/relay.js`) and the worker agree a key per request (ECDH P-256 of the
+  page's session key and the worker's key `relay-key.pem`, HKDF-SHA256 with salt `<env>|<id>`, AES-256-GCM, AAD = id);
+  the request carries its time inside the sealed part, the worker answers only fresh (120 s) and never the same id
+  twice. What it protects: everything that only *reads* the site — its disk, backups, logs, database dumps, a curious
+  host — sees ids, sizes, the unread count and ciphertext, never a message or a search. What it does not protect:
+  whoever *controls* the site's code can act as a page (the worker cannot tell a forged page from the person's, and that
+  attacker could serve a forged CO Web anyway). Closing that needs a client the site does not serve: the signed shell
+  with device keys of SPEC §3.4 (F9), whose key the worker would then enroll.
+- **Limits for a shared host.** At most 4 waiting calls per environment (`busy`), one waiting worker poll per
+  environment (others get an immediate answer), the database connection is closed while the poll waits; one answer up
+  to 8 MB of ciphertext (larger: `too_large`), a thread gives its newest 100 messages, a message over 1.5 MB of HTML
+  comes as text (`truncated`), attachments up to 4 MB.
+- `hubctl.py pair <slug>` asks the site for the token (push key of this PC) and seals it straight into the host
+  credential, writes `RELAY_URL` and starts the worker; `unpair <slug>` stops it and revokes the token.
+
+Server checks: `php tests/server.php` (from the module folder; no database or web server needed).

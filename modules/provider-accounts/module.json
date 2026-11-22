@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "id": "provider-accounts",
+  "version": "0.1.0",
+  "title": "Accounts",
+  "description": "One sign-in per person and provider (Google now; Microsoft named, not connectable yet) for the modules of their environment: modules ask for capabilities (mail.read, calendar.read, ...), missing ones are added by an incremental consent, the refresh token lives in one encrypted credential per person on the home server and every module gets access tokens narrowed to its own capabilities.",
+  "ext": ">=1 <2",
+  "scope": "environment",
+  "platforms": ["linux", "windows", "macos"],
+  "requires": { "core": [], "modules": [] },
+  "permissions": [
+    "net.outbound:accounts.google.com",
+    "net.outbound:oauth2.googleapis.com",
+    "net.outbound:openidconnect.googleapis.com"
+  ],
+  "isolation": "host",
+  "isolationReason": "the credential is a systemd credential of the home server, encrypted with its host key; the consent runs in the person's browser",
+  "defaults": { "enabled": false },
+  "dataPolicy": { "onDisable": "keep", "onRemove": "keep", "migrations": "additive" },
+  "provides": {
+    "data": {
+      "home": "/etc/credstore.encrypted/account.<slug>.<provider>.cred (secret, name account) and /etc/freedom-accounts/<slug>.json (what was granted, no secrets) on the home server"
+    },
+    "context": [], "models": [], "deviceTools": [], "services": []
+  }
+}

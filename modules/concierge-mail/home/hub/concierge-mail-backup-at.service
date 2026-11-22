@@ -1,4 +1,4 @@
-# One mailbox per instance (%i = person slug): own system user, own data directory, own Gmail credential.
+# One mailbox per instance (%i = person slug): own system user, own data directory, own account credential (module provider-accounts).
 [Unit]
 Description=Freedom concierge-mail: encrypted Drive backup for %i
 After=network-online.target
@@ -9,7 +9,7 @@ Type=oneshot
 User=cmail-%i
 Group=cmail-%i
 EnvironmentFile=/etc/concierge-mail/%i.env
-LoadCredentialEncrypted=gmail:/etc/credstore.encrypted/concierge-mail.%i.cred
+LoadCredentialEncrypted=account:/etc/credstore.encrypted/account.%i.google.cred
 ExecStart=/usr/bin/python3 /opt/concierge-mail/modules/concierge-mail/home/mailcli.py --root /srv/data/mail/%i backup-drive
 TimeoutStartSec=infinity
 Nice=15

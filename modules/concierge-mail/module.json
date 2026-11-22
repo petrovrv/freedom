@@ -1,8 +1,9 @@
 {
   "schema": 1,
   "id": "concierge-mail",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "title": "Mail concierge",
+  "description": "Mail app (✉) of the person: the whole mailbox lives on the home server (one store per person, read-only Gmail sync, encrypted backup into the person's own Drive); the page reaches it through the site, which carries only end-to-end encrypted requests and answers. Plus the morning briefing and its delivery.",
   "ext": ">=1 <2",
   "scope": "environment",
   "platforms": [
@@ -14,7 +15,9 @@
     "core": [
       "push"
     ],
-    "modules": []
+    "modules": [
+      "provider-accounts"
+    ]
   },
   "permissions": [
     "context",
@@ -24,16 +27,15 @@
     "net.outbound:www.googleapis.com",
     "net.outbound:accounts.google.com",
     "secrets.read",
-    "push.key"
+    "push.key",
+    "net.outbound:openidconnect.googleapis.com",
+    "ui.header",
+    "ui.navigate",
+    "route.public"
   ],
   "isolation": "choice",
   "defaults": {
     "enabled": false
-  },
-  "dataPolicy": {
-    "onDisable": "keep",
-    "onRemove": "keep",
-    "migrations": "additive"
   },
   "provides": {
     "context": [
@@ -51,7 +53,50 @@
       }
     ],
     "data": {
-      "home": "concierge-mail/ next to install.json (archive, delivery.json with the person's channels and time)"
-    }
+      "home": "concierge-mail/ next to install.json (archive, delivery.json with the person's channels and time); on the home server /srv/data/mail/<slug> per person",
+      "server": "files: workers.json (sha256 of each environment's worker token), q/<env>/ sealed requests and answers kept only until taken (at most 60 s) and status.json (worker key, unread count)"
+    },
+    "ui": [
+      {
+        "slot": "ui.page",
+        "id": "mail",
+        "entry": "ui/mail.html",
+        "title": "Почта",
+        "app": true,
+        "icon": "✉",
+        "label": "Почта",
+        "window": true
+      },
+      {
+        "slot": "ui.header",
+        "id": "tray",
+        "entry": "ui/tray.html",
+        "title": "Почта: непрочитанные"
+      }
+    ],
+    "navigate": [
+      "/x/concierge-mail/mail"
+    ]
+  },
+  "server": {
+    "entry": "server/ops.php",
+    "ops": {
+      "user": [
+        "mail_status",
+        "mail_call"
+      ],
+      "push": [
+        "mail_worker_token"
+      ],
+      "host": []
+    },
+    "routes": [
+      "worker"
+    ]
+  },
+  "dataPolicy": {
+    "onDisable": "keep",
+    "onRemove": "keep",
+    "migrations": "additive"
   }
 }

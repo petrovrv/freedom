@@ -5,13 +5,12 @@ RFC822 into the Store; then the mailbox historyId taken BEFORE the listing is ke
 every next run applies only the changes since it (history.list). An expired historyId
 (HTTP 404) falls back to a full listing that skips messages already archived.
 Scope gmail.readonly: nothing is ever modified, sent or deleted at the provider.
-Credentials come from one JSON file per person ({client_id, client_secret, refresh_token,
-account}), never from the owner's keyring and never from arguments.
+Credentials come from the person's shared account credential (module provider-accounts: {client_id, client_secret,
+refresh_token, account, scopes}), never from the owner's keyring and never from arguments.
 """
 from __future__ import annotations
 import base64
 import json
-import os
 import time
 import urllib.error
 import urllib.parse
@@ -19,7 +18,11 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from threading import Lock
+
+# the shared account layer (module provider-accounts): next to this module in the repository and in /opt/concierge-mail on the hub
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'provider-accounts' / 'home'))
+import accounts  # noqa: E402
 
 API = 'https://gmail.googleapis.com/gmail/v1/users/me/'
 TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -28,43 +31,9 @@ WORKERS = 8
 PAGE = 500
 
 
-class TokenSource:
-    """Access tokens from a per-person credential file (systemd LoadCredentialEncrypted on the hub)."""
-
-    def __init__(self, path=None, request=None, cred=None):
-        self._request = request or _http
-        self._token, self._until = None, 0.0
-        self._lock = Lock()
-        cred = cred if cred is not None else json.loads(Path(path).read_text(encoding='utf-8'))
-        # `account` is required for a mailbox; a bare Drive token (restore on the person's device) passes cred= with account ''
-        needed = ('client_id', 'client_secret', 'refresh_token') + (('account',) if path else ())
-        missing = [k for k in needed if not cred.get(k)]
-        if missing:
-            raise ValueError('Credential file incomplete: ' + ', '.join(missing))
-        self.account = str(cred.get('account') or '').strip().lower()
-        self._cred = cred
-
-    def invalidate(self, rejected_token):
-        with self._lock:
-            if self._token == rejected_token:
-                self._token, self._until = None, 0.0
-
-    def __call__(self):
-        with self._lock:
-            return self._access_token()
-
-    def _access_token(self):
-        if self._token and time.time() < self._until - 120:
-            return self._token
-        body = urllib.parse.urlencode({'client_id': self._cred['client_id'], 'client_secret': self._cred['client_secret'],
-                                       'refresh_token': self._cred['refresh_token'], 'grant_type': 'refresh_token'}).encode()
-        status, data = self._request('POST', TOKEN_URL, {'Content-Type': 'application/x-www-form-urlencoded'}, body)
-        if status != 200 or not isinstance(data, dict) or not data.get('access_token'):
-            # invalid_grant: revoked, password change or a Testing-mode OAuth app (7-day refresh tokens)
-            reason = data.get('error') if isinstance(data, dict) else ''
-            raise PermissionError(f'Gmail token refresh failed ({status} {reason}); the person must connect again')
-        self._token, self._until = data['access_token'], time.time() + int(data.get('expires_in', 3600))
-        return self._token
+class TokenSource(accounts.TokenSource):
+    """Access tokens from the person's shared account credential (module provider-accounts; systemd LoadCredentialEncrypted on
+    the hub). With `capabilities` the token carries only those scopes (narrowed refresh)."""
 
 
 def _http(method, url, headers, body=None, timeout=60):
@@ -168,6 +137,8 @@ def _schema(store):
     CREATE INDEX IF NOT EXISTS gmail_messages_thread ON gmail_messages(account, thread_id);
     CREATE TABLE IF NOT EXISTS gmail_failed(account TEXT NOT NULL, gmail_id TEXT NOT NULL, reason TEXT NOT NULL,
         tries INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(account, gmail_id));
+    CREATE TABLE IF NOT EXISTS gmail_labels(account TEXT NOT NULL, label_id TEXT NOT NULL, name TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'user', PRIMARY KEY(account, label_id));
     ''')
     if 'reconcile' not in {r[1] for r in store.db.execute('PRAGMA table_info(gmail_state)')}:
         store.db.execute('ALTER TABLE gmail_state ADD COLUMN reconcile INTEGER NOT NULL DEFAULT 0')
@@ -243,6 +214,7 @@ def sync_gmail(store, token, years=2, request=None, progress=None, now=None):
     profile = gmail.profile()
     if profile.get('emailAddress', '').lower() != account:
         raise PermissionError('Token belongs to another mailbox')
+    _sync_labels(store, gmail, account)
     state = _state(store, account)
     if state.get('history_id'):
         try:
@@ -270,6 +242,21 @@ def sync_gmail(store, token, years=2, request=None, progress=None, now=None):
     _incremental(store, gmail, account, pending, result, progress, retry=False)
     result['mode'] = 'full'
     return result
+
+
+def _sync_labels(store, gmail, account):
+    """Names of the mailbox labels (ids in gmail_messages.labels), for the Mail page; a failure never stops the sync."""
+    try:
+        labels = gmail.get('labels').get('labels') or []
+    except Exception:
+        return
+    rows = [(account, str(l['id']), str(l.get('name') or l['id'])[:200], 'system' if l.get('type') == 'system' else 'user')
+            for l in labels if isinstance(l, dict) and l.get('id')]
+    if not rows:
+        return
+    store.db.execute('DELETE FROM gmail_labels WHERE account=?', (account,))
+    store.db.executemany('INSERT OR REPLACE INTO gmail_labels(account,label_id,name,type) VALUES (?,?,?,?)', rows)
+    store.db.commit()
 
 
 def _reconcile(store, gmail, account, listed, known, since, result):
@@ -367,10 +354,5 @@ def status(store, account=None):
 
 
 def credential_path(explicit=None):
-    """--cred, else the systemd credential `gmail`, else none."""
-    if explicit:
-        return Path(explicit)
-    directory = os.environ.get('CREDENTIALS_DIRECTORY')
-    if directory and (Path(directory) / 'gmail').is_file():
-        return Path(directory) / 'gmail'
-    raise ValueError('No Gmail credential: pass --cred or run under the hub service')
+    """--cred, else the shared systemd credential `account` (module provider-accounts), else the older `gmail` one."""
+    return accounts.credential_path(explicit, legacy=('gmail',))

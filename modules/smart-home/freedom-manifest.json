@@ -1,12 +1,12 @@
 {
  "format": "freedom-release/1",
- "version": "0.3.0",
- "created": "2026-11-22T09:49:09Z",
+ "version": "0.3.1",
+ "created": "2026-11-22T10:02:07Z",
  "files": [
   {
    "path": "module.json",
    "size": 1704,
-   "sha256": "e9089f15eb922563d050ab28633e35483531a317d4a64a17b2055964055d1368"
+   "sha256": "f1eccbd964f7bba8828d229700f08cb66774f8865e17e3302665a28cd97ab21e"
   },
   {
    "path": "README.md",
@@ -65,15 +65,15 @@
   },
   {
    "path": "ui/pair.js",
-   "size": 2502,
-   "sha256": "aae6bed90007653730246df2099f5c8893479132ad7d97f9d24b83a2ad740d2f"
+   "size": 2678,
+   "sha256": "a4858308f8de6bc01e8638dce66c7fbc4aec43656162a5392e784caa83e15070"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "qroTZ0/xKnF4GIFsl5+0M9hpt7MFhlR/783SnkmLVYjr4KqcPyGcvowdpyldaPwcegDYnU81DX3hXrLcXJlMDw=="
+   "sig": "S2iU71zdUdE8rvV54GolSgJIKwsiLnM5J2y0ozxf+0mUFsWZjZeq18zAWKB7QpKdJJgUtLpCJKSZkSDmVGMKBQ=="
   }
  ],
  "module": "smart-home"

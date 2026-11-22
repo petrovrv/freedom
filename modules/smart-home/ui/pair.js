@@ -4,7 +4,7 @@
 // while it runs (the countdown is local); the Home page polls every 2 s while pairing runs, 30 s otherwise.
 window.zigbeePair=(onChange,tray)=>{
 'use strict';
-let state={state:'idle'},busy=false,timer,offset=0,seenUtc=0;
+let state={state:'idle'},busy=false,timer,offset=0,seenUtc=0,loaded=false;
 const active=()=>['starting','searching','interviewing','stopping'].includes(state.state);
 const names={idle:'Сопряжение Zigbee',starting:'Запускаем…',stopping:'Останавливаем…',success:'Подключено ✓',
  timeout:'Не найдено · повторить',stopped:'Сопряжение Zigbee',error:'Ошибка · повторить',offline:'Zigbee недоступен'};
@@ -23,7 +23,9 @@ async function refresh(op='home_pair_state'){
   state=r;offset=(r.serverNow||Date.now()/1000)-Date.now()/1000;}
  catch(e){state={state:'offline',note:'Нет связи с Zigbee. Повторная проверка через несколько секунд.'};}
  finally{
-  if(state.state!==before)seenUtc=Date.now();
+   // a result already on the server when the page opened is old news: only a change seen here shows in the tray
+  if(loaded&&state.state!==before)seenUtc=Date.now();
+  if(state.state!=='offline')loaded=true;
   busy=false;onChange();
   timer=setTimeout(()=>refresh(),document.hidden?60000:active()?(tray?5000:2000):state.state==='offline'?(tray?30000:5000):(tray?10000:30000));
  }

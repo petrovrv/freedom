@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "smart-home",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "title": "Дом",
   "description": "Home app: rooms, lights and sockets, sensor readings, thermostat targets and Zigbee pairing; a tray chip while pairing runs.",
   "ext": ">=1 <2",

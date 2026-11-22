@@ -1,12 +1,12 @@
 {
  "format": "freedom-release/1",
- "version": "0.5.0",
- "created": "2026-11-12T23:33:13Z",
+ "version": "0.5.1",
+ "created": "2026-11-22T16:35:14Z",
  "files": [
   {
    "path": "module.json",
-   "size": 1747,
-   "sha256": "2c2ec7ddac0470f1b841e839cd41429452da20722cda49895027dc4186e62d07"
+   "size": 1763,
+   "sha256": "d100ee2ebd659621d40cd870434f4523a0f1637d4d57a7685ed9bf3bc8cb7a2e"
   },
   {
    "path": "README.md",
@@ -48,7 +48,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "mMcujIdesd5cp/UqEHeohb5w32WD4SkEGDdMs27CCWiqBIwjfrKpc0Tu2Dt4ly4ukscplO+lT+z4qd/WvRodBA=="
+   "sig": "/+AeNxaAo3n7nQNEYN63oFvJbc0JLpREoDgmREoXGtFBdIWeFO7esQQiM1PbOIJCeSNCYW6HaNb7oKP76B7QCw=="
   }
  ],
  "module": "geo-presence"

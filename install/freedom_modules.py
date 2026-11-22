@@ -1224,11 +1224,12 @@ def run(a) -> int:
     finally:
         if c:
             c.close()
-    if a.enable and not r.get("enabled"):
-        if r.get("grew"):
-            print(f"note: permissions grew ({', '.join(r['grew'])}); the module stays off until the owner turns it on", file=sys.stderr)
-        else:
-            r["enable"] = host_call({"action": "set", "id": m["id"], "enabled": True})
+    if r.get("grew") and not r.get("enabled") and (a.enable or (live and live.get("enabled"))):
+        # also without --enable: an update that was on and is now off must say so, or it looks like a broken module
+        print(f"note: permissions grew ({', '.join(r['grew'])}); the module stays off until the owner turns it on "
+              f"(freedom_modules.py enable {m['id']})", file=sys.stderr)
+    elif a.enable and not r.get("enabled"):
+        r["enable"] = host_call({"action": "set", "id": m["id"], "enabled": True})
     on = bool(r.get("enabled") or (r.get("enable") or {}).get("ok"))
     if m.get("warning") and not on:
         print(f"note: {m['warning']}", file=sys.stderr)

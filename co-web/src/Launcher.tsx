@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { openInspectorTab, type InspectorTab } from './chatPanel';
-import { shellApps, shellOpen, shellSettings, type ModuleInfo } from './extBridge';
+import { moduleBadges, onModuleBadges, shellApps, shellOpen, shellSettings, type ModuleInfo } from './extBridge';
 import { openModulesSettings } from './Modules';
 
 type Core = [InspectorTab | 'modules', string, string, string];
@@ -33,6 +33,11 @@ export default function Launcher({ modules, env, current }: { modules: ModuleInf
   const navigate = useNavigate();
   const apps = shellApps(modules);
   const settings = shellSettings(modules);
+  // coExt.badge of a module: on its app tiles, and a dot on ▦ while any app has one
+  const [, setBadgeTick] = useState(0);
+  useEffect(() => onModuleBadges(() => setBadgeTick((n) => n + 1)), []);
+  const badges = moduleBadges();
+  const anyBadge = apps.some((a) => badges.has(a.m.id));
   useEffect(() => {
     if (!open) return;
     const f = (e: KeyboardEvent) => {
@@ -51,9 +56,9 @@ export default function Launcher({ modules, env, current }: { modules: ModuleInf
     else navigate(o.href);
   };
   const core = (t: Core[0]) => { close(); if (t === 'modules') openModulesSettings(); else openInspectorTab(t); };
-  const tile = (key: string, icon: string, label: string, title: string, onClick: () => void, here = false) => (
-    <button key={key} type="button" className={`launcher-app ${here ? 'here' : ''}`} title={title} onClick={onClick}>
-      <span className="launcher-icon" aria-hidden="true">{icon}</span>
+  const tile = (key: string, icon: string, label: string, title: string, onClick: () => void, here = false, badge = '') => (
+    <button key={key} type="button" className={`launcher-app ${here ? 'here' : ''}`} title={badge ? `${title} (${badge})` : title} onClick={onClick}>
+      <span className="launcher-icon" aria-hidden="true">{icon}{badge && <span className="launcher-badge">{badge}</span>}</span>
       <span className="launcher-label">{label}</span>
     </button>
   );
@@ -62,6 +67,7 @@ export default function Launcher({ modules, env, current }: { modules: ModuleInf
       <button type="button" className={`launcher-btn ${open ? 'open' : ''}`} aria-haspopup="dialog" aria-expanded={open}
         title="Apps" aria-label="Apps" onClick={() => (open ? close() : setOpen(true))}>
         <span aria-hidden="true">▦</span>
+        {anyBadge && <span className="launcher-dot" aria-hidden="true" />}
       </button>
       {open && (
         <>
@@ -75,7 +81,7 @@ export default function Launcher({ modules, env, current }: { modules: ModuleInf
                 </div>
                 <div className="launcher-grid">
                   {apps.map((a) => tile(`${a.m.id}/${a.ui.id}`, a.icon, a.label, a.ui.title || a.m.description || a.label, () => go(a),
-                    current?.moduleId === a.m.id && current?.pageId === a.ui.id))}
+                    current?.moduleId === a.m.id && current?.pageId === a.ui.id, badges.get(a.m.id) || ''))}
                   {tile('core/settings', '⚙️', 'Settings', 'Settings of the chat, the project, the host and the modules', () => setView('settings'))}
                 </div>
               </>

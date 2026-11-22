@@ -210,7 +210,7 @@ foreach (['chat-import', 'task-hints'] as $mid) {
 }
 $byId = array_column(co_modules_list($db, 'sam', false)['modules'], null, 'id');
 $imp = $byId['chat-import'] ?? [];
-$ok('ui.page with its label', ($imp['ui'][0]['slot'] ?? '') === 'ui.page' && ($imp['ui'][0]['label'] ?? '') === 'Import…');
+$ok('ui.page with its label', ($imp['ui'][0]['slot'] ?? '') === 'ui.page' && ($imp['ui'][0]['label'] ?? '') === 'Import');
 $ok('ui.page is an app of the launcher with its icon', ($imp['ui'][0]['app'] ?? false) === true && ($imp['ui'][0]['icon'] ?? '') === '📥');
 $ok('import sources listed', array_column($imp['imports'] ?? [], 'label', 'source') === ['claude' => 'claude.ai', 'chatgpt' => 'ChatGPT']);
 $ok('no ops for a page without server code', ($imp['uiOps'] ?? null) === []);

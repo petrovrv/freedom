@@ -32,6 +32,7 @@
 //                           chat.ask, chat.reveal, panel.close; modules/EXT1.md); binary data as ArrayBuffer
 //   coExt.navigate(url, target) - the whole window ('self') or a new one ('blank') to a target of manifest navigate
 //   coExt.title(text)       - window title of a full-window page (ui.page)
+//   coExt.badge(v)          - the module's badge in the shell (count on its app tile, dot on ▦); 0/''/null clears
 //   coExt.on('chat', fn)    - a viewer panel: {events, canAsk} of its chat (permission chat.read)
 (function () {
   'use strict';
@@ -143,6 +144,11 @@
     },
     size: function (w, h, overlay) {
       post({ t: 'size', w: Math.ceil(w), h: Math.ceil(h), overlay: !!overlay });
+    },
+    // the module's badge in the shell (any slot): a count or up to 3 characters on its app tile and a dot on ▦;
+    // 0, '' or null clears it (usually set by the tray page, which stays loaded)
+    badge: function (v) {
+      post({ t: 'badge', value: v == null ? '' : String(v).slice(0, 3) });
     },
     hint: function (h) {
       post({ t: 'hint', hint: h || null });

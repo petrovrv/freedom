@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "geo-presence",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "title": "Family presence",
   "description": "Who of the household is at home, heading home or out, in the header. A service on the home PC reads OwnTracks from the phones, applies everybody's own privacy mode and sends only a short status (no coordinates).",
   "ext": ">=1 <2",
@@ -17,7 +17,7 @@
   "isolation": "host",
   "isolationReason": "the receiver takes OwnTracks points from the phones over a public HTTPS address of the home PC",
   "provides": {
-    "ui": [{ "slot": "ui.header", "id": "chips", "entry": "ui/header.html", "title": "Family presence" }],
+    "ui": [{ "slot": "ui.header", "id": "chips", "entry": "ui/header.html", "title": "Family presence", "icon": "📍" }],
     "tools": [{ "name": "geo-presence", "minVersion": "0.4.2" }],
     "services": [{ "id": "receiver", "tool": "geo-presence", "run": "serve", "windowsTask": "\\AIWorkbench\\GeoPresence" }],
     "data": { "server": "files", "home": "tool state (SQLite of geo-presence)" },

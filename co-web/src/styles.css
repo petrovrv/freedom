@@ -720,6 +720,9 @@ button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
 .topbar > .spacer { flex: 1 1 0; min-width: 0; }
 /* the launcher of apps: a popover on a computer, a full-screen grid on a phone */
 .launcher { position: relative; flex: none; }
+.launcher-btn { position: relative; } /* coExt.badge: dot on ▦, count on a tile */
+.launcher-dot { position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border-radius: 50%; background: #d93025; }
+.launcher-badge { position: absolute; top: -5px; right: -7px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #d93025; color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; box-sizing: border-box; }
 .launcher-btn { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 8px; background: none; color: inherit; cursor: pointer; font-size: 18px; line-height: 1; }
 .launcher-btn:hover, .launcher-btn.open { background: var(--panel-2); }
 .launcher-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; width: min(360px, 92vw); padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.2); }
@@ -733,6 +736,7 @@ button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
 .launcher-app { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 4px 10px; border: 1px solid transparent; border-radius: 10px; background: none; color: inherit; cursor: pointer; font: inherit; font-size: 12px; }
 .launcher-app:hover, .launcher-app:focus-visible { background: var(--panel-2); border-color: var(--line); }
 .launcher-app.here { border-color: var(--accent); }
+.launcher-icon { position: relative; }
 .launcher-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: var(--panel-2); font-size: 24px; }
 .launcher-label { text-align: center; line-height: 1.25; max-width: 100%; overflow-wrap: anywhere; }
 @media (max-width: 760px) {

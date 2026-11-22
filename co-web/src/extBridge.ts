@@ -110,6 +110,7 @@ export type ExtRequest =
   | { t: 'navigate'; url: string; target: 'self' | 'blank' }
   | { t: 'title'; text: string }
   | { t: 'size'; w: number; h: number; overlay: boolean }
+  | { t: 'badge'; value: string }
   | { t: 'input'; text: string; interim: string; done: boolean; focus: boolean }
   | { t: 'audio'; id: string; action: 'start' | 'stop' | 'cancel'; maxSeconds: number; silenceMs: number }
   | { t: 'send'; id: string; text: string }
@@ -181,6 +182,11 @@ export function parseExtMessage(data: unknown): ExtRequest | null {
     return { t: 'navigate', url: m.url, target: m.target === 'blank' ? 'blank' : 'self' };
   }
   if (m.t === 'title') return typeof m.text === 'string' ? { t: 'title', text: m.text.slice(0, 200) } : null;
+  if (m.t === 'badge') {
+    // a count or a short mark; "0" and anything blank clear it
+    const v = typeof m.value === 'string' ? m.value.trim().slice(0, 3) : '';
+    return { t: 'badge', value: v === '0' || /[\u0000-\u001f<>]/.test(v) ? '' : v };
+  }
   if (m.t === 'size') {
     const w = Number(m.w), h = Number(m.h);
     if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
@@ -417,14 +423,41 @@ export function shellApps(modules: ModuleInfo[]): ShellApp[] {
   }));
 }
 
+// badges of modules (coExt.badge): set by any loaded page of the module (usually its tray page), shown by the launcher
+// on the module's app tiles and as a dot on ▦; they live in this window only
+const badges = new Map<string, string>();
+const BADGE_EVENT = 'co-ext-badge';
+
+export function setModuleBadge(moduleId: string, value: string): void {
+  if ((badges.get(moduleId) || '') === value) return;
+  if (value) badges.set(moduleId, value); else badges.delete(moduleId);
+  window.dispatchEvent(new Event(BADGE_EVENT));
+}
+
+export function moduleBadges(): ReadonlyMap<string, string> { return badges; }
+
+/** Drops the badges of modules that are no longer enabled (called with every new module list). */
+export function pruneModuleBadges(enabled: ReadonlySet<string>): void {
+  let gone = false;
+  for (const id of [...badges.keys()]) if (!enabled.has(id)) { badges.delete(id); gone = true; }
+  if (gone) window.dispatchEvent(new Event(BADGE_EVENT));
+}
+
+/** Subscribes to badge changes; returns the unsubscribe function. */
+export function onModuleBadges(fn: () => void): () => void {
+  window.addEventListener(BADGE_EVENT, fn);
+  return () => window.removeEventListener(BADGE_EVENT, fn);
+}
+
 /** A module with own settings (ui.settings pages or a person's switch): one tile in the Settings part of the launcher. */
 export type ShellSetting = { m: ModuleInfo; label: string; icon: string };
 
-/** Settings tiles of enabled modules; the icon is the one of the module's app, else the first letter. */
+/** Settings tiles of enabled modules; the icon is the one of the module's app, else of any other page of it (a tray
+ * indicator, a settings page), else the first letter. */
 export function shellSettings(modules: ModuleInfo[]): ShellSetting[] {
   return modules.filter((m) => m.enabled && (m.personal || m.ui.some((u) => u.slot === 'ui.settings'))).map((m) => {
     const label = m.title || m.id;
-    const app = m.ui.find((u) => u.slot === 'ui.page' && u.app === true && u.icon);
+    const app = m.ui.find((u) => u.slot === 'ui.page' && u.app === true && u.icon) || m.ui.find((u) => u.icon);
     return { m, label, icon: app?.icon || Array.from(label)[0]?.toUpperCase() || '▫' };
   });
 }

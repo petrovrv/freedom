@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioCapture, audioFileName, AudioPlayback, mediaSupport, platformDictation, SpeechCapture } from './composerMedia';
 import { dbModuleCall, dbModuleList, dbModulePerson, dbModuleUpload } from './dbapi';
-import { callRoute, capabilityRefusal, deviceOpSlot, moduleUrl, navTarget, parseExtMessage, reqRefusal, SLOT_PERMISSION, THEME_VARS, type ExtRequest, type ModuleHint, type ModuleInfo, type ModuleUi } from './extBridge';
+import { callRoute, capabilityRefusal, deviceOpSlot, moduleUrl, navTarget, parseExtMessage, reqRefusal, setModuleBadge, SLOT_PERMISSION, THEME_VARS, type ExtRequest, type ModuleHint, type ModuleInfo, type ModuleUi } from './extBridge';
 import { setModuleList } from './moduleStore';
 import { fileService } from './moduleServices';
 import type { ChatEvent } from './types';
@@ -327,6 +327,8 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
     if (r.t === 'size') {
       setSize(r);
       if (!r.overlay) setClosed({ w: r.w, h: r.h });
+    } else if (r.t === 'badge') {
+      if (mod.current.enabled) setModuleBadge(mod.current.id, r.value);
     } else if (r.t === 'call') {
       if (r.error) {
         send({ t: 'result', id: r.id, ok: false, error: r.error });

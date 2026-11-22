@@ -72,7 +72,11 @@ a **service** without a screen (`services`, `deviceTools`, `context`, `tools`).
 - **Settings** — the last tile of the launcher is the core app Settings (the control panel): the core panels grouped
   as This chat (chat, session), Project and System (host and devices, modules), and one tile per enabled module with
   `ui.settings` pages or a person's switch (`personal`); the tile opens Host → Modules at that module and takes the
-  icon of the module's app. A module needs nothing extra. The ☰ menu keeps navigation only (projects, family, files).
+  icon of the module's app, else the `icon` of any other of its pages (e.g. the tray page), else the first letter.
+  A module needs nothing extra.
+- **Badge** — `coExt.badge(v)` from any loaded page of the module (usually the tray page, which is always loaded): a
+  count or a mark of up to 3 characters on the module's app tile, and a red dot on ▦ while any app has one; `0`, blank
+  or `null` clears it. Example: unread mail. The ☰ menu keeps navigation only (projects, family, files).
 - **Device apps** — a program of a computer (not a web page) is a module with an app page, `deviceOps` and
   `deviceTools` run by a `device/` script (`docs/ext1-device-tools.md`): inside CO Desktop the app page calls a device
   op that starts the program; elsewhere the page says where it runs, and agents use the program's functions as device
@@ -104,6 +108,7 @@ A page includes `/ext/ext1.js` and talks through `window.coExt`:
 - `coExt.size(w, h, overlay)` — header slots only.
 - `coExt.navigate(url, target)` — `self` (whole window) or `blank` (new tab/window).
 - `coExt.title(text)` — window title of a `ui.page`.
+- `coExt.badge(v)` — the module's badge in the shell (count on its app tile, dot on ▦); `0`/blank/`null` clears it.
 - `coExt.on('context'|'blur'|'chat', fn)`.
 
 Composer slot (`ui.composer`, a page in the action row of the message box; CO Web captures for the frame, which has an

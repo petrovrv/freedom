@@ -26,6 +26,9 @@ ok('huge args refused with an answer', huge?.t === 'call' && huge.error === 'too
 ok('bad call id refused', parseExtMessage({ ext: 1, t: 'call', id: '<script>', op: 'x', args: {} }) === null);
 const s = parseExtMessage({ ext: 1, t: 'size', w: 5000, h: -3, overlay: true });
 ok('size clamped', s?.t === 'size' && s.w === 800 && s.h === 0 && s.overlay);
+const bd = (v: unknown) => { const r = parseExtMessage({ ext: 1, t: 'badge', value: v }); return r?.t === 'badge' ? r.value : null; };
+ok('badge count', bd('12') === '12' && bd('1234') === '123');
+ok('badge cleared by 0, blank, markup', bd('0') === '' && bd('  ') === '' && bd('<b') === '' && bd(5) === '');
 
 const m = { enabled: true, uiOps: ['geo_state'], personal: null };
 ok('declared op allowed', callRefusal(m, 'geo_state') === '');
@@ -127,11 +130,13 @@ console.log('extBridge selftest OK');
     ...list,
     mk('geo', true, [{ slot: 'ui.settings', id: 's', entry: 'ui/s.html', title: 'Geo' }]),
     mk('dom', true, [{ slot: 'ui.page', id: 'd', entry: 'ui/d.html', title: 'Dom', app: true, icon: '🏠' }, { slot: 'ui.settings', id: 's', entry: 'ui/s.html', title: 'Dom' }]),
+    mk('tray', true, [{ slot: 'ui.header', id: 'h', entry: 'ui/h.html', title: 'Tray', icon: '📍' }, { slot: 'ui.settings', id: 's', entry: 'ui/s.html', title: 'Tray' }]),
     mk('offset', false, [{ slot: 'ui.settings', id: 's', entry: 'ui/s.html', title: 'Off' }]),
   ]);
-  ok('launcher settings: modules with ui.settings, enabled only', set.map((x) => x.m.id).join() === 'geo,dom');
+  ok('launcher settings: modules with ui.settings, enabled only', set.map((x) => x.m.id).join() === 'geo,dom,tray');
   ok('launcher settings: icon falls back to the first letter', set[0].icon === 'G');
   ok('launcher settings: icon of the module app', set[1].icon === '🏠');
+  ok('launcher settings: icon of another page without an app', set[2].icon === '📍');
 }
 
 if (fail) throw new Error(`extBridge selftest: ${fail} failed`);

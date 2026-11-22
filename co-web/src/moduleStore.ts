@@ -2,7 +2,7 @@
 // Freedom F10: the latest module list (db.php modules_list) for the screens that weave module declarations into their
 // own parts (chat modes, file menu items, message views, side-job rows, context). ModuleSlot.useModules fills it.
 import { useSyncExternalStore } from 'react';
-import type { MessageView, ModuleInfo, SideJob } from './extBridge';
+import { pruneModuleBadges, type MessageView, type ModuleInfo, type SideJob } from './extBridge';
 import type { ModeDecl } from './moduleModes';
 
 let list: ModuleInfo[] = [];
@@ -10,6 +10,8 @@ const subs = new Set<() => void>();
 
 export function setModuleList(next: ModuleInfo[]): void {
   list = next;
+  // a badge belongs to an enabled module: switching it off or removing it drops the badge, so it cannot come back
+  pruneModuleBadges(new Set(next.filter((m) => m.enabled).map((m) => m.id)));
   subs.forEach((f) => f());
 }
 

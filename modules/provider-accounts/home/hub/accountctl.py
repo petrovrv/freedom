@@ -63,8 +63,8 @@ def cred_path(slug, provider):
 
 
 def read_record(args, slug):
-    raw = ssh(args, f'sudo cat {RECORDS}/{slug}.json 2>/dev/null || true').strip()
-    return json.loads(raw) if raw else {}
+    """The record of a person, read under the person's lock (a change a crash left half done is settled first)."""
+    return host(args, {'op': 'read', 'slug': slug})
 
 
 def host(args, job):
@@ -195,86 +195,117 @@ def connect(args, want=None, on_saved=None):
     return record
 
 
-# 0.1.2: every change of a person's account (save after a consent, migrate, drop on disconnect) runs on the host as one
-# process under the person's lock /run/lock/freedom-account.<slug>.lock. The record carries a revision `rev` raised by each
-# change; a save whose consent started at another revision saves nothing. The credential is the source of truth (it holds
-# its own scopes; modules read only it), so it is replaced first and the record second: a crash in between leaves a newer
-# credential with an older record, which at worst asks for consent again. Staging files are removed on any failure.
+# 0.1.2: every read and change of a person's account (read, save after a consent, migrate, drop on disconnect) runs on the
+# host as one process under the person's lock /run/lock/freedom-account.<slug>.lock. The record carries a revision `rev`
+# raised by each change; a save whose consent started at another revision saves nothing. A change is journaled: first the
+# record with the raised revision and `pending` = the new provider entry + sha256 of the credential file it expects
+# (null = no file), then the credential is replaced or removed, then the record without `pending`. A crash anywhere is
+# repaired by the next locked call (also a read): the credential on disk decides whether the pending entry is applied or
+# dropped; the revision stays raised either way, so a consent open meanwhile saves nothing. Staging files are removed.
 HOST_PY = r'''
-import fcntl, json, os, subprocess, sys, time
+import fcntl, hashlib, json, os, subprocess, sys, time
 job = json.loads(sys.stdin.buffer.read())
-slug, prov, op = job["slug"], job["provider"], job["op"]
+slug, op = job["slug"], job["op"]
 RECORDS, CREDS = "/etc/freedom-accounts", "/etc/credstore.encrypted"
 rec_path = RECORDS + "/" + slug + ".json"
-path = CREDS + "/account." + slug + "." + prov + ".cred"
 staged = []
 now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def stage_cred(cred):
-    staged.append(path + ".new")
-    subprocess.run(["systemd-creds", "encrypt", "--name=account", "-", path + ".new"], input=json.dumps(cred).encode(), check=True)
-    os.chmod(path + ".new", 0o600)
+def cred_path(prov):
+    return CREDS + "/account." + slug + "." + prov + ".cred"
 
 
-def stage_record(record):
+def digest(path):
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except FileNotFoundError:
+        return None
+
+
+def put_record(record):
     staged.append(rec_path + ".new")
     fd = os.open(rec_path + ".new", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump(record, f, ensure_ascii=False, indent=1)
         f.flush()
         os.fsync(f.fileno())
+    os.replace(rec_path + ".new", rec_path)
+    staged.remove(rec_path + ".new")
+
+
+def settle(record):
+    """Finish or drop a change a crash left half done; the credential file on disk decides."""
+    pend = record.get("pending")
+    if not pend:
+        return record
+    providers = dict(record.get("providers", {}))
+    if digest(cred_path(pend["provider"])) == pend["sha256"] and pend.get("entry") is not None:
+        providers[pend["provider"]] = pend["entry"]
+    record = {k: v for k, v in record.items() if k != "pending"}
+    record["providers"] = providers
+    put_record(record)
+    return record
 
 
 os.makedirs(CREDS, mode=0o700, exist_ok=True)
 os.makedirs(RECORDS, mode=0o700, exist_ok=True)
+removed = False
 with open("/run/lock/freedom-account." + slug + ".lock", "w") as lock:
     fcntl.flock(lock, fcntl.LOCK_EX)
     try:
-        record = json.load(open(rec_path)) if os.path.exists(rec_path) else {}
+        record = settle(json.load(open(rec_path)) if os.path.exists(rec_path) else {})
+        if op == "read":
+            print(json.dumps(record))
+            sys.exit(0)
+        prov = job["provider"]
+        path = cred_path(prov)
         have = record.get("providers", {}).get(prov) or {}
         known = (have.get("account") or record.get("account") or "").strip().lower()
         if job.get("env") and record.get("env") and record["env"] != job["env"]:
             sys.exit(slug + " belongs to another environment; nothing changed")
         if op in ("save", "migrate") and known and known != job["account"]:
             sys.exit(slug + " is " + known + ", not " + job["account"] + "; nothing changed")
+        cred = None
         if op == "save":
             if record.get("rev", 0) != job["rev"]:
                 sys.exit("the account of " + slug + " changed during this consent; nothing saved (connect again)")
             if not set(have.get("scopes") or []) <= set(job["entry"]["scopes"]):
                 sys.exit("the new grant does not include the earlier ones; nothing saved (connect again and allow all)")
-            stage_cred(job["cred"])
-            entry = job["entry"]
+            cred, entry = job["cred"], job["entry"]
         elif op == "migrate":
             if os.path.exists(path):
                 sys.exit("the shared credential already exists; nothing replaced")
             raw = subprocess.run(["systemd-creds", "decrypt", "--name=" + job["from_name"], job["source"], "-"],
                                  check=True, capture_output=True).stdout
             cred = json.loads(raw)
+            del raw
             cred["provider"] = prov
             for k in ("client_id", "client_secret", "refresh_token", "account"):
                 if not cred.get(k):
                     sys.exit("old credential incomplete: " + k)
             if cred["account"].strip().lower() != job["account"]:
                 sys.exit("the old credential belongs to another account than the record")
-            stage_cred(cred)
             scopes = sorted(cred.get("scopes") or [])
             entry = {"account": job["account"], "credential": path, "scopes": scopes, "updated": now, "migratedFrom": job["source"],
                      "capabilities": sorted(c for c, s in job["capmap"].items() if s in scopes)}
-            del cred, raw
         elif op == "drop":
             entry = {**have, "scopes": [], "capabilities": [], "revoked": bool(job.get("revoked")), "disconnected": now} if have else None
         else:
             sys.exit("unknown op")
-        providers = dict(record.get("providers", {}))
-        if entry is not None:
-            providers[prov] = entry
-        record = {**record, "slug": slug, "rev": record.get("rev", 0) + 1, "providers": providers}
+        sha = None
+        if cred is not None:
+            staged.append(path + ".new")
+            subprocess.run(["systemd-creds", "encrypt", "--name=account", "-", path + ".new"], input=json.dumps(cred).encode(), check=True)
+            del cred
+            os.chmod(path + ".new", 0o600)
+            sha = digest(path + ".new")
+        record = {**record, "slug": slug, "rev": record.get("rev", 0) + 1}
         if op != "drop":
             record["env"] = record.get("env") or job["env"]
             record["account"] = record.get("account") or job["account"]
-        stage_record(record)
-        removed = False
+        put_record({**record, "pending": {"provider": prov, "entry": entry, "sha256": sha}})
         if op == "drop":
             removed = os.path.exists(path)
             if removed:
@@ -282,8 +313,9 @@ with open("/run/lock/freedom-account." + slug + ".lock", "w") as lock:
         else:
             os.replace(path + ".new", path)
             staged.remove(path + ".new")
-        os.replace(rec_path + ".new", rec_path)
-        staged.remove(rec_path + ".new")
+        if entry is not None:
+            record["providers"] = {**record.get("providers", {}), prov: entry}
+        put_record(record)
     finally:
         for f in staged:
             try:

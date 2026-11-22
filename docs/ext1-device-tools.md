@@ -56,7 +56,8 @@ module's `module.json` through `db.php modules_list`.
 
 ## Device ops from a settings page
 
-A module's `ui.settings` page calls `coExt.call(op, args)` as for its server ops (other slots cannot call device ops). CO Web (`extBridge.callRoute`) sends an op from
+A module's `ui.settings` page or its app (`ui.page` with `app: true`, e.g. a device app that starts a program)
+calls `coExt.call(op, args)` as for its server ops (other slots cannot call device ops). CO Web (`extBridge.callRoute`) sends an op from
 `provides.deviceOps` to the app it runs in (`window.coDesktop.moduleOp(module, op, args)` on CO Desktop and in the CO
 window of the Mac); in a plain browser the call fails with `device_op_unavailable`. The app checks again: module
 enabled, op declared, module on on this device; then the native part answers or the `device.ops` file runs. A `device.ops` script runs the module's own code: it is refused on a managed device, and a module not

@@ -334,6 +334,31 @@ function co_wa_push_status(array $ctx, array $in): array
 }
 
 /**
+ * User op wa_status (the tray page): when the WhatsApp service on the home PC last polled (it polls every 20 s) and
+ * whether it writes the asking person's pushes. A member only learns about their own pushes; the age of the service
+ * heartbeat goes to the owner, and to a member only while their pushes are on.
+ * -> {seen: seconds ago|null, pushes: bool}
+ */
+function co_wa_status(array $ctx): array
+{
+    $f = (string)$ctx['stateDir'] . '/pushes.json';
+    $s = null;
+    $h = is_file($f) ? fopen($f, 'r') : false;
+    if ($h !== false) {
+        flock($h, LOCK_SH);
+        $s = json_decode((string)stream_get_contents($h), true);
+        flock($h, LOCK_UN);
+        fclose($h);
+    }
+    $env = (string)($ctx['myEnv'] ?? '');
+    $now = time();
+    $pushes = is_array($s) && co_db_id_ok($env) && $now - (int)($s['subs'][$env] ?? 0) <= CO_WA_PUSH_SUB_S;
+    $seen = is_array($s) && isset($s['seen']) ? max(0, $now - (int)$s['seen']) : null;
+    if (empty($ctx['owner']) && !$pushes) $seen = null;
+    return ['seen' => $seen, 'pushes' => $pushes];
+}
+
+/**
  * Host op wa_pushes {envs: [..], after?: id} (the WhatsApp service): keeps the envs subscribed and returns their copies
  * newer than `after`. Without `after` (first call) only the current position: no backlog.
  * -> {items [{id, env, title, body, url, tag, t}], last}.
@@ -344,6 +369,7 @@ function co_wa_pushes(array $ctx, array $in): array
     $after = isset($in['after']) && is_int($in['after']) ? $in['after'] : null;
     return co_wa_push_state((string)$ctx['stateDir'], static function (array &$s) use ($envs, $after): array {
         $now = time();
+        $s['seen'] = $now; // heartbeat of the service for the tray (wa_status), every poll even without envs
         foreach ($s['subs'] as $e => $t) if (!in_array($e, $envs, true)) unset($s['subs'][$e]);
         foreach ($envs as $e) $s['subs'][$e] = $now;
         if ($after === null || $after > $s['seq']) return ['items' => [], 'last' => $s['seq']];

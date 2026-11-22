@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // node src/extBridge.selftest.ts - the message checks of the ext/1 bridge (Freedom F10).
-import { callRefusal, callRoute, capabilityRefusal, moduleUrl, parseExtMessage, parseHint, shellApps, shellOpen, shellSettings, type ModuleInfo } from './extBridge.ts';
+import { callRefusal, callRoute, capabilityRefusal, deviceOpSlot, moduleUrl, parseExtMessage, parseHint, shellApps, shellOpen, shellSettings, type ModuleInfo } from './extBridge.ts';
 
 let fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -79,6 +79,10 @@ ok('device op routed to the device', JSON.stringify(callRoute(d, 'geo_folder_add
 ok('device op outside the app refused', JSON.stringify(callRoute(d, 'geo_folder_add', false)) === '{"error":"device_op_unavailable"}');
 ok('undeclared op refused', JSON.stringify(callRoute(d, 'fs_delete', true)) === '{"error":"op_not_declared"}');
 ok('device op of a disabled module refused', JSON.stringify(callRoute({ ...d, enabled: false }, 'geo_folder_add', true)) === '{"error":"module_disabled"}');
+ok('device ops from a settings page', deviceOpSlot({ slot: 'ui.settings' }));
+ok('device ops from an app page', deviceOpSlot({ slot: 'ui.page', app: true }));
+ok('no device ops from a plain page', !deviceOpSlot({ slot: 'ui.page' }));
+ok('no device ops from the tray', !deviceOpSlot({ slot: 'ui.header', app: true }));
 ok('no device block: refused', JSON.stringify(callRoute({ ...m, device: null }, 'geo_folder_add', true)) === '{"error":"op_not_declared"}');
 
 // generic core calls: only the listed ones, only with the permission the manifest declares

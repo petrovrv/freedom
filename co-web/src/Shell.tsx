@@ -634,7 +634,7 @@ export default function Shell({ auth }: { auth: Signed }) {
 
       <header className="topbar">
         <div className="app-menu">
-          <button className="icon-btn" aria-label="Menu" data-email={auth.email} aria-expanded={menuOpen} title="Menu: panels, settings, account" onClick={() => setMenuOpen((v) => !v)}>☰</button>
+          <button className="icon-btn" aria-label="Menu" data-email={auth.email} aria-expanded={menuOpen} title="Menu: projects, family, files, account (settings are in ▦)" onClick={() => setMenuOpen((v) => !v)}>☰</button>
           {menuOpen && (
             <>
               <div className="app-menu-scrim" onClick={() => setMenuOpen(false)} />
@@ -642,11 +642,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                 <button role="menuitem" className="only-mobile" onClick={() => { setRightOpen(false); setLeftOpen((v) => !v); }}>📂 Projects and chats</button>
                 {([
                   ['family', `👪 Family${familyUnread ? ` (${familyUnread} new)` : ''}`, `Family chat of ${memberNames()}`],
-                  ['chat', '⚙ Chat settings', 'Permissions, device, modes, protocol, rename, move, delete'],
                   ['artifacts', '📁 Files and folders', 'Files of this chat and the context folders of the project'],
-                  ['project', '🗂 Project', 'Instructions, memory, schedules, sharing'],
-                  ['session', '🧾 Session', 'What the agent of this chat gets and spends'],
-                  ['host', '🖥 Host and devices', 'Bridge, agents, CO Desktop, browser devices, notifications'],
                 ] as [InspectorTab, string, string][]).map(([t, label, hint]) => (
                   <button key={t} role="menuitem" title={hint} onClick={() => openInspectorTab(t)}>{label}</button>
                 ))}

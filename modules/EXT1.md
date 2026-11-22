@@ -55,19 +55,28 @@ Only pages of enabled modules (the device's `modules_list`) get a window; in a b
 
 ## Shell: apps, tray, windows (SPEC §3.6a)
 
-CO Web is a small shell around module pages, the same on a phone and on a computer:
+CO Web is a small shell around module pages, the same on a phone and on a computer. What a module shows comes in
+four kinds (one module may give several): an **app** (a tile of ▦), a **tray** indicator (`ui.header`), an
+**extension** of the core's own screens (`ui.composer`, `fileActions`, `modes`, `ui.panel`, `ui.hint`, `search`) and
+a **service** without a screen (`services`, `deviceTools`, `context`, `tools`).
 
 - **App** — a `ui.page` with `"app": true`, `"icon"` (an emoji or up to 8 characters) and `"label"` is a tile of the
   launcher (▦ in the header; a popover on a computer, a full-screen grid on a phone). Pages without `app` keep their
   button in the sidebar. A desktop app (CO Desktop, CO Resident) opens an app with `window: true` in its own window;
   everywhere else the app fills the centre of CO Web.
 - **Tray** — the `ui.header` slot is for small status indicators only (one per module, no long text, no action buttons;
-  actions live in the app). A tray page may be empty while there is nothing to show: `coExt.size(0, 0, false)`. The
+  actions live in the app). A tray indicator belongs to a module whose service really runs and shows its state
+  (running / not answering); without a running service it stays empty. A tray page may be empty while there is nothing to show: `coExt.size(0, 0, false)`. The
   core keeps the tray inside the width of the window (it scrolls sideways on a phone) and draws an open popover
   (`size(..., true)`) fixed over the page, kept inside the window.
-- **Settings** — the lower part of the launcher is the settings menu: the core panels (chat, project, session, host
-  and devices, modules) and one tile per enabled module with `ui.settings` pages or a person's switch (`personal`);
-  the tile opens Host → Modules at that module and takes the icon of the module's app. A module needs nothing extra.
+- **Settings** — the last tile of the launcher is the core app Settings (the control panel): the core panels grouped
+  as This chat (chat, session), Project and System (host and devices, modules), and one tile per enabled module with
+  `ui.settings` pages or a person's switch (`personal`); the tile opens Host → Modules at that module and takes the
+  icon of the module's app. A module needs nothing extra. The ☰ menu keeps navigation only (projects, family, files).
+- **Device apps** — a program of a computer (not a web page) is a module with an app page, `deviceOps` and
+  `deviceTools` run by a `device/` script (`docs/ext1-device-tools.md`): inside CO Desktop the app page calls a device
+  op that starts the program; elsewhere the page says where it runs, and agents use the program's functions as device
+  tools. Example: `photostudio`.
 - **Open with** — `fileActions` (above): a file of a chat opens in the app that declared its extension.
 
 Example (`smart-home`): `{ "slot": "ui.page", "id": "home", "entry": "ui/home.html", "title": "Дом", "app": true,

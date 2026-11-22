@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.5.3",
- "created": "2026-11-20T12:47:20Z",
+ "version": "0.5.4",
+ "created": "2026-11-22T13:42:41Z",
  "files": [
   {
    "path": "context/whatsapp.md",
@@ -10,8 +10,8 @@
   },
   {
    "path": "module.json",
-   "size": 2699,
-   "sha256": "aa9063069759533dc6fd637c07454eeec021fcfe60936314dcd6d4d6dda84005"
+   "size": 2889,
+   "sha256": "2ab55a042283564bb6563ff07cf5d15589e4d29cf8533c02bd10b4416c7d30c8"
   },
   {
    "path": "README.md",
@@ -20,13 +20,13 @@
   },
   {
    "path": "server/ops.php",
-   "size": 1493,
-   "sha256": "72a2b22d37d32b05a829e704a3e6f55828ff47e2fa972043bd5ead5a5c6a16fc"
+   "size": 1682,
+   "sha256": "755ea6be0ba9505f129039b9d4e223517de5bfa25702033df60cc0a94853d697"
   },
   {
    "path": "server/whatsapp-lib.php",
-   "size": 21716,
-   "sha256": "420f7ddeba68d744087e52a9e4fc6cd448283eb03f4c5ff88820c6ebb14079f7"
+   "size": 22887,
+   "sha256": "4bb9d02bcad99d5b43d437ce299428e6ddbf18121ca11879e7586a26fc240af7"
   },
   {
    "path": "tools/whatsapp-agent/service.mjs",
@@ -42,13 +42,28 @@
    "path": "tools/whatsapp-agent/whatsapp-agent.py",
    "size": 26514,
    "sha256": "2d4f89abacd112706935d30dd8058158efef982e6ca0ac7fe41b8d8efa5993b1"
+  },
+  {
+   "path": "ui/tray.css",
+   "size": 691,
+   "sha256": "63ec572c494802fc89fd4f2994c1b8a00dbd6f9985be4e40221049c14a1fd8f9"
+  },
+  {
+   "path": "ui/tray.html",
+   "size": 484,
+   "sha256": "adeeeedd8c78e585f723bf092bc43c5fd07db6661e84b736211148f66164f31d"
+  },
+  {
+   "path": "ui/tray.js",
+   "size": 1852,
+   "sha256": "5be3f99282e3d1f3c2f510588d8e0463915ec6aa17d1339e0f40e3876c8f62da"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "T07W/JsyoeoL9U+SvZUK2G/blDI/GgdwXM3i/Enl68m/lEkM5+dCXfUpT9wstZ2+StcUwhy/Lay6INRm8iwCBg=="
+   "sig": "u8VvTmRp6LSassh5WqFbYNBTx/ynexBKK2zQjPdwSjoTLoRPVIlJe1msfnKF1xBufuMSzrBo7rRQh+ku9nOKCg=="
   }
  ],
  "module": "whatsapp"

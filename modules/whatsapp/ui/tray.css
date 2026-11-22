@@ -1,0 +1,10 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+:root{color-scheme:light dark}body{margin:0;font:12px system-ui;background:transparent;overflow:hidden}
+button{position:relative;display:flex;align-items:center;gap:5px;height:30px;border:1px solid #8291a455;border-radius:16px;padding:0 9px 0 7px;background:#8291a414;color:inherit;cursor:pointer;white-space:nowrap;font:inherit}
+button:focus-visible{outline:2px solid #5b9aff;outline-offset:-2px}
+.ico{font-size:15px;line-height:1}
+.dot{width:8px;height:8px;border-radius:50%;background:#8a8f98}
+.ok .dot{background:#22a04b}
+.bad{border-color:#d98529}.bad .dot{background:#d9534f}
+#label:empty{display:none}
+[hidden]{display:none!important}

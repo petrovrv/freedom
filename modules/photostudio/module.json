@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "id": "photostudio",
+  "version": "0.1.0",
+  "title": "PhotoStudio",
+  "description": "The PhotoStudio photo editor of this computer as an app of the workbench: the tile in ▦ and 'Open in PhotoStudio' for photos start the program on a device with CO Desktop; agents get its functions (photo info, one-click enhance, ID/passport photos) as device tools.",
+  "ext": ">=1 <2",
+  "scope": "household",
+  "platforms": ["windows"],
+  "requires": {
+    "core": [],
+    "modules": []
+  },
+  "permissions": [
+    "ui.page",
+    "device.tools"
+  ],
+  "localOnly": ["tests/"],
+  "provides": {
+    "ui": [
+      {
+        "slot": "ui.page",
+        "id": "app",
+        "entry": "ui/app.html",
+        "title": "PhotoStudio - photo editor of this computer",
+        "app": true,
+        "icon": "🖼",
+        "label": "PhotoStudio"
+      }
+    ],
+    "fileActions": [
+      {
+        "id": "open",
+        "label": "Open in PhotoStudio",
+        "title": "Edit the photo in PhotoStudio on this computer (CO Desktop)",
+        "exts": ["jpg", "jpeg", "png", "tif", "tiff", "cr2"],
+        "open": { "page": "app", "param": "path" }
+      }
+    ],
+    "deviceOps": ["ps_status", "ps_open"],
+    "deviceTools": [
+      {
+        "name": "photostudio_open",
+        "class": "W",
+        "description": "Open PhotoStudio (the photo editor of this computer) in front of the person, optionally with photos. Paths: absolute, or relative to AI-Workbench (projects/...).",
+        "input": { "type": "object", "properties": { "files": { "type": "array", "items": { "type": "string" } } } },
+        "run": "device/photostudio.py",
+        "untrusted": false
+      },
+      {
+        "name": "photostudio_info",
+        "class": "R",
+        "description": "Camera, lens, exposure and date of a photo (JPG, TIFF, Canon CR2).",
+        "input": { "type": "object", "properties": { "file": { "type": "string" } }, "required": ["file"] },
+        "run": "device/photostudio.py"
+      },
+      {
+        "name": "photostudio_enhance",
+        "class": "W",
+        "description": "One-click AI enhance of a photo (exposure, colour, contrast planned by the person's own Claude/Codex CLI); writes <name>.enhanced.jpg next to it unless 'out' is given. Takes up to a few minutes.",
+        "input": { "type": "object", "properties": { "file": { "type": "string" }, "out": { "type": "string" }, "agent": { "type": "string", "enum": ["claude", "codex"] } }, "required": ["file"] },
+        "run": "device/photostudio.py"
+      },
+      {
+        "name": "photostudio_idphoto",
+        "class": "W",
+        "description": "ID/passport photo from a portrait: crop to the spec, compliance check (local + AI), print sheet. spec e.g. be-eid (default), ua-passport, us-passport, schengen; sheet e.g. lab-10x15. Writes into 'outDir' (default: <name>.idphoto/ next to the photo) and lists the problems found.",
+        "input": { "type": "object", "properties": { "file": { "type": "string" }, "outDir": { "type": "string" }, "spec": { "type": "string" }, "sheet": { "type": "string" } }, "required": ["file"] },
+        "run": "device/photostudio.py"
+      }
+    ]
+  },
+  "device": {
+    "default": "on",
+    "warning": "PhotoStudio must be installed on this computer. Agents may open photos in it and write edited copies next to the originals.",
+    "ops": "device/photostudio.py"
+  },
+  "dataPolicy": {
+    "onDisable": "keep",
+    "onRemove": "keep",
+    "migrations": "additive"
+  },
+  "defaults": {
+    "enabled": false
+  }
+}

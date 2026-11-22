@@ -1,0 +1,15 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+:root{color-scheme:light dark;--line:#8291a455;--muted:#7b8494;--accent:#4b7bec}
+body{margin:0;font:14px/1.45 system-ui,sans-serif;background:var(--co-bg,transparent);color:var(--co-fg,inherit)}
+main{max-width:520px;margin:0 auto;padding:40px 20px;text-align:center}
+.logo{font-size:56px;line-height:1}
+h1{margin:12px 0 4px;font-size:22px}
+.sub{color:var(--muted);margin:0 0 24px}
+#file{font-weight:600;overflow-wrap:anywhere}
+button{font:inherit;font-size:15px;padding:10px 22px;border-radius:10px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
+button:disabled{opacity:.6;cursor:default}
+#msg{min-height:1.4em;margin:16px 0}
+#msg.err{color:#d9534f}
+details{text-align:left;margin-top:28px;border-top:1px solid var(--line);padding-top:12px;color:var(--muted)}
+summary{cursor:pointer}
+[hidden]{display:none!important}

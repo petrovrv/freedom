@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioCapture, audioFileName, AudioPlayback, mediaSupport, platformDictation, SpeechCapture } from './composerMedia';
 import { dbModuleCall, dbModuleList, dbModulePerson, dbModuleUpload } from './dbapi';
-import { callRoute, capabilityRefusal, moduleUrl, navTarget, parseExtMessage, reqRefusal, SLOT_PERMISSION, THEME_VARS, type ExtRequest, type ModuleHint, type ModuleInfo, type ModuleUi } from './extBridge';
+import { callRoute, capabilityRefusal, deviceOpSlot, moduleUrl, navTarget, parseExtMessage, reqRefusal, SLOT_PERMISSION, THEME_VARS, type ExtRequest, type ModuleHint, type ModuleInfo, type ModuleUi } from './extBridge';
 import { setModuleList } from './moduleStore';
 import { fileService } from './moduleServices';
 import type { ChatEvent } from './types';
@@ -333,8 +333,8 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
         return;
       }
       const dev = deviceModules();
-      // device ops only from the module's settings page, never from an always-visible slot
-      const to = callRoute(mod.current, r.op, !!dev && ui.slot === 'ui.settings');
+      // device ops only from the module's settings page or its app, never from an always-visible slot
+      const to = callRoute(mod.current, r.op, !!dev && deviceOpSlot(ui));
       if ('error' in to) {
         send({ t: 'result', id: r.id, ok: false, error: to.error });
         return;

@@ -1,0 +1,50 @@
+{
+ "format": "freedom-release/1",
+ "version": "0.1.0",
+ "created": "2026-11-22T13:45:21Z",
+ "files": [
+  {
+   "path": "device/photostudio.py",
+   "size": 8225,
+   "sha256": "e8047275b5adf39cec70ddb98a791c53a9b1238048ba9650fd2afc33b9813803"
+  },
+  {
+   "path": "module.json",
+   "size": 3516,
+   "sha256": "932d71a8c86d95b0134c94446dc699b087fc40038fbec70106f1d9561138901b"
+  },
+  {
+   "path": "README.md",
+   "size": 1913,
+   "sha256": "74d6d5d65151165198dad0199e9f826d0d06b625dd448b26db73edb70a362746"
+  },
+  {
+   "path": "tests/test_device.py",
+   "size": 4534,
+   "sha256": "d7f3d6ee4a9f57f0520ddfa7cbba7e77611ace1ccb6df1e9d623b21f8d001370"
+  },
+  {
+   "path": "ui/app.css",
+   "size": 902,
+   "sha256": "068288610430f0388c841d3d0418bba3fbf0026c6a40a8566cc67d264ed0d96c"
+  },
+  {
+   "path": "ui/app.html",
+   "size": 970,
+   "sha256": "a8cb7011b2c1377762b2ea976de09c532d128d9505146ffd650b58e5fb0bc93e"
+  },
+  {
+   "path": "ui/app.js",
+   "size": 1848,
+   "sha256": "3f27307f55cef058d585f8c2d507ee6472ac5b4f9591b9c7ee113da95a9bd0a9"
+  }
+ ],
+ "signatures": [
+  {
+   "name": "maintainer-1",
+   "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
+   "sig": "xwJbpfxqg8SlzC/jk6kO3hM8LMcLmUr9OYq3hKKOvL3pYdXBtBOdsasI59wi/+khOvH9avOFI6lLkXUe+FRLDQ=="
+  }
+ ],
+ "module": "photostudio"
+}

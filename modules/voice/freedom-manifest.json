@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.3.10",
- "created": "2026-11-14T19:10:22Z",
+ "version": "0.3.11",
+ "created": "2026-11-22T13:42:40Z",
  "files": [
   {
    "path": "context/voice.md",
@@ -10,8 +10,8 @@
   },
   {
    "path": "module.json",
-   "size": 2398,
-   "sha256": "b148d13f459a3b5ee04d49cd4b076ff7eecc31c937f0dd967cf7485b4a6d7a59"
+   "size": 2552,
+   "sha256": "5bef386b56cea20fe7f2cc941ae23346da49f853688b2ccff545de3f5d59f734"
   },
   {
    "path": "README.md",
@@ -57,13 +57,28 @@
    "path": "ui/composer.js",
    "size": 8731,
    "sha256": "234c4877eb25288ed24301fd694a43b85516fc41070e561e9558e8929382b8b4"
+  },
+  {
+   "path": "ui/tray.css",
+   "size": 691,
+   "sha256": "63ec572c494802fc89fd4f2994c1b8a00dbd6f9985be4e40221049c14a1fd8f9"
+  },
+  {
+   "path": "ui/tray.html",
+   "size": 473,
+   "sha256": "809ba94d49af95b4151497aafbe191e8d1de369ae31ab98e693f6cb4e7820293"
+  },
+  {
+   "path": "ui/tray.js",
+   "size": 1616,
+   "sha256": "4f8aa6e41da3ead0015099dfa94391bc909b5da84b741242a896a51769f9254b"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "LyijZrROwfkTtPxV9FofkC81Utoheb0/BZL+ObJrCPt5DOuH8l0jnZVnQfNmmTrMBxCo383hS5nmPRtymHzxBw=="
+   "sig": "EmQ66NXp+I2znOg+iErRIjo+DbJD30jttwZpa9K6q3e9VpF6e70SykQCn8DutCc3vvDUCjNXTTa6/hN8dd8JCA=="
   }
  ],
  "module": "voice"

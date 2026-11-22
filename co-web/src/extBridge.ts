@@ -282,6 +282,14 @@ export function callRoute(m: Pick<ModuleInfo, 'enabled' | 'uiOps' | 'personal' |
 }
 
 /**
+ * Slots whose page may call the module's device ops: its settings page and its app (a ui.page with app: true, e.g. an
+ * app that starts a program of the device); never an always-visible slot (tray, composer, hint, panel).
+ */
+export function deviceOpSlot(ui: Pick<ModuleUi, 'slot' | 'app'>): boolean {
+  return ui.slot === 'ui.settings' || (ui.slot === 'ui.page' && ui.app === true);
+}
+
+/**
  * The URL a page may send the window to, or null. Allowed: a target of the module's manifest navigate (an https origin
  * - any path under it; a path of this site - that path with any query). Everything else (javascript:, data:, other
  * sites, other paths of CO) is refused.

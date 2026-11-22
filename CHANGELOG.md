@@ -5,6 +5,7 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- CO Web 0.114.0: the launcher ▦ is also the settings menu — under the apps, tiles for the core settings (chat, project, session, host and devices, modules) and one tile per enabled module with own settings (`ui.settings` or a person's switch), opening Host → Modules at that module; ▦ shows even when no app is installed.
 - Module smart-home 0.3.1: the tray chip shows a pairing result only when it changed while the page was open (an old result on the server no longer flashes on every load).
 - CO Web 0.113.0 / server: ext/1 shell (SPEC §3.6a). A module page with `app: true` and `icon` is a tile of the launcher (▦ in the header: a popover on a computer, a full-screen grid on a phone) instead of a sidebar button; the `ui.header` slot is the tray, kept inside the window (it scrolls sideways on a phone, so the header no longer widens the page), with popovers drawn fixed over the page and following their slot. Module smart-home 0.3.0: the Zigbee pairing button moved to the Home page, the tray shows a small chip only while pairing runs and for a minute after its result. Modules chat-import 0.2.0 and community 0.2.0 are apps.
 - CO Web 0.112.0 / server: owner-only coding API helpers in the model catalog, account balance and spending progress, explicit local tool execution, and validated balance snapshots. Module api-coding 0.1.0 supplies coding-only rules and model registration; aiwb-subtask 0.7.1 runs bounded local API subtasks and refreshes usage.

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // node src/extBridge.selftest.ts - the message checks of the ext/1 bridge (Freedom F10).
-import { callRefusal, callRoute, capabilityRefusal, moduleUrl, parseExtMessage, parseHint, shellApps, shellOpen, type ModuleInfo } from './extBridge.ts';
+import { callRefusal, callRoute, capabilityRefusal, moduleUrl, parseExtMessage, parseHint, shellApps, shellOpen, shellSettings, type ModuleInfo } from './extBridge.ts';
 
 let fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -119,6 +119,15 @@ console.log('extBridge selftest OK');
   ok('launcher: opens in the centre', shellOpen(apps[0], 'alice', true).href === '/e/alice/m/home/home' && shellOpen(apps[0], 'alice', true).target === 'self');
   ok('launcher: window page in its own window on a desktop app', shellOpen(apps[2], 'alice', true).target === 'blank' && shellOpen(apps[2], 'alice', true).href === '/ed');
   ok('launcher: window page in the centre in a browser', shellOpen(apps[2], 'alice', false).target === 'self');
+  const set = shellSettings([
+    ...list,
+    mk('geo', true, [{ slot: 'ui.settings', id: 's', entry: 'ui/s.html', title: 'Geo' }]),
+    mk('dom', true, [{ slot: 'ui.page', id: 'd', entry: 'ui/d.html', title: 'Dom', app: true, icon: '🏠' }, { slot: 'ui.settings', id: 's', entry: 'ui/s.html', title: 'Dom' }]),
+    mk('offset', false, [{ slot: 'ui.settings', id: 's', entry: 'ui/s.html', title: 'Off' }]),
+  ]);
+  ok('launcher settings: modules with ui.settings, enabled only', set.map((x) => x.m.id).join() === 'geo,dom');
+  ok('launcher settings: icon falls back to the first letter', set[0].icon === 'G');
+  ok('launcher settings: icon of the module app', set[1].icon === '🏠');
 }
 
 if (fail) throw new Error(`extBridge selftest: ${fail} failed`);

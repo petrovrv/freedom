@@ -65,6 +65,9 @@ CO Web is a small shell around module pages, the same on a phone and on a comput
   actions live in the app). A tray page may be empty while there is nothing to show: `coExt.size(0, 0, false)`. The
   core keeps the tray inside the width of the window (it scrolls sideways on a phone) and draws an open popover
   (`size(..., true)`) fixed over the page, kept inside the window.
+- **Settings** — the lower part of the launcher is the settings menu: the core panels (chat, project, session, host
+  and devices, modules) and one tile per enabled module with `ui.settings` pages or a person's switch (`personal`);
+  the tile opens Host → Modules at that module and takes the icon of the module's app. A module needs nothing extra.
 - **Open with** — `fileActions` (above): a file of a chat opens in the app that declared its extension.
 
 Example (`smart-home`): `{ "slot": "ui.page", "id": "home", "entry": "ui/home.html", "title": "Дом", "app": true,

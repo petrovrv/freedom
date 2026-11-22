@@ -409,6 +409,18 @@ export function shellApps(modules: ModuleInfo[]): ShellApp[] {
   }));
 }
 
+/** A module with own settings (ui.settings pages or a person's switch): one tile in the Settings part of the launcher. */
+export type ShellSetting = { m: ModuleInfo; label: string; icon: string };
+
+/** Settings tiles of enabled modules; the icon is the one of the module's app, else the first letter. */
+export function shellSettings(modules: ModuleInfo[]): ShellSetting[] {
+  return modules.filter((m) => m.enabled && (m.personal || m.ui.some((u) => u.slot === 'ui.settings'))).map((m) => {
+    const label = m.title || m.id;
+    const app = m.ui.find((u) => u.slot === 'ui.page' && u.app === true && u.icon);
+    return { m, label, icon: app?.icon || Array.from(label)[0]?.toUpperCase() || '▫' };
+  });
+}
+
 /**
  * How the launcher opens an app: a desktop app (CO Desktop, CO Resident) opens a ui.window page in its own window
  * (blank → the module address); everywhere else the app fills the centre of CO Web like any ui.page.

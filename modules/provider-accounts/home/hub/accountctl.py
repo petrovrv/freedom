@@ -67,10 +67,9 @@ def read_record(args, slug):
     return json.loads(raw) if raw else {}
 
 
-def write_record(args, slug, record):
-    body = json.dumps(record, ensure_ascii=False, indent=1).encode()
-    ssh(args, f'sudo install -d -m 0700 {RECORDS} && sudo flock /run/lock/freedom-account.{slug}.lock'
-              f' sh -c "umask 077 && tee {RECORDS}/{slug}.json.new >/dev/null && mv {RECORDS}/{slug}.json.new {RECORDS}/{slug}.json"', body)
+def host(args, job):
+    """One change of a person's account on the host (HOST_PY) under the person's lock; returns the new record."""
+    return json.loads(ssh(args, 'sudo python3 -I -c ' + shlex.quote(HOST_PY), json.dumps(job).encode()))
 
 
 def client(args):
@@ -137,6 +136,7 @@ def connect(args, want=None, on_saved=None):
         sys.exit('--want: at least one capability, e.g. mail.read')
     prov.scopes(caps)  # unknown capability -> error before anything happens
     record = read_record(args, slug)
+    rev = record.get('rev', 0)  # 0.1.2: any change of the account on the host meanwhile -> nothing saved
     have = record.get('providers', {}).get(prov.name, {})
     given_account = (getattr(args, 'account', None) or '').strip().lower()
     given_env = getattr(args, 'env', None) or ''
@@ -181,12 +181,11 @@ def connect(args, want=None, on_saved=None):
     granted = prov.granted(scopes)
     entry = {'account': account, 'credential': path, 'scopes': sorted(scopes), 'capabilities': granted,
              'updated': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
-    job = json.dumps({'slug': slug, 'provider': prov.name, 'path': path, 'name': accounts.CREDENTIAL_NAME, 'env': env,
-                      'account': account, 'before': have.get('scopes') or [], 'entry': entry,
-                      'cred': {'client_id': client_id, 'client_secret': client_secret, 'refresh_token': tok['refresh_token'],
-                               'account': account, 'provider': prov.name, 'scopes': sorted(scopes)}}).encode()
+    job = {'op': 'save', 'slug': slug, 'provider': prov.name, 'env': env, 'account': account, 'rev': rev, 'entry': entry,
+           'cred': {'client_id': client_id, 'client_secret': client_secret, 'refresh_token': tok['refresh_token'],
+                    'account': account, 'provider': prov.name, 'scopes': sorted(scopes)}}
     del tok
-    record = json.loads(ssh(args, 'sudo python3 -I -c ' + shlex.quote(SAVE_PY), job))
+    record = host(args, job)
     del job
     out = {'slug': slug, 'provider': prov.name, 'account': account, 'credential': path, 'granted': granted,
            'refused': sorted(set(caps) - set(granted))}
@@ -196,58 +195,102 @@ def connect(args, want=None, on_saved=None):
     return record
 
 
-# 0.1.2: credential and record are replaced together under a lock of the person; if another connect changed the grants
-# while this consent was open, nothing is saved (compare-and-swap on the scopes read before the consent)
-SAVE_PY = r'''
-import fcntl, json, os, subprocess, sys
+# 0.1.2: every change of a person's account (save after a consent, migrate, drop on disconnect) runs on the host as one
+# process under the person's lock /run/lock/freedom-account.<slug>.lock. The record carries a revision `rev` raised by each
+# change; a save whose consent started at another revision saves nothing. The credential is the source of truth (it holds
+# its own scopes; modules read only it), so it is replaced first and the record second: a crash in between leaves a newer
+# credential with an older record, which at worst asks for consent again. Staging files are removed on any failure.
+HOST_PY = r'''
+import fcntl, json, os, subprocess, sys, time
 job = json.loads(sys.stdin.buffer.read())
-records = "/etc/freedom-accounts"
-rec_path = records + "/" + job["slug"] + ".json"
-with open("/run/lock/freedom-account." + job["slug"] + ".lock", "w") as lock:
-    fcntl.flock(lock, fcntl.LOCK_EX)
-    record = json.load(open(rec_path)) if os.path.exists(rec_path) else {}
-    now = (record.get("providers", {}).get(job["provider"]) or {}).get("scopes") or []
-    if sorted(now) != sorted(job["before"]):
-        sys.exit("the grants of " + job["slug"] + " changed during this consent; nothing saved (connect again)")
-    if not set(now) <= set(job["entry"]["scopes"]):
-        sys.exit("the new grant does not include the earlier ones; nothing saved (connect again and allow all)")
-    if record.get("env") and record["env"] != job["env"]:
-        sys.exit(job["slug"] + " belongs to another environment; nothing saved")
-    os.makedirs("/etc/credstore.encrypted", mode=0o700, exist_ok=True)
-    os.makedirs(records, mode=0o700, exist_ok=True)
-    path = job["path"]
-    subprocess.run(["systemd-creds", "encrypt", "--name=" + job["name"], "-", path + ".new"],
-                   input=json.dumps(job["cred"]).encode(), check=True)
+slug, prov, op = job["slug"], job["provider"], job["op"]
+RECORDS, CREDS = "/etc/freedom-accounts", "/etc/credstore.encrypted"
+rec_path = RECORDS + "/" + slug + ".json"
+path = CREDS + "/account." + slug + "." + prov + ".cred"
+staged = []
+now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def stage_cred(cred):
+    staged.append(path + ".new")
+    subprocess.run(["systemd-creds", "encrypt", "--name=account", "-", path + ".new"], input=json.dumps(cred).encode(), check=True)
     os.chmod(path + ".new", 0o600)
-    record = {**record, "slug": job["slug"], "env": record.get("env") or job["env"],
-              "account": record.get("account") or job["account"],
-              "providers": {**record.get("providers", {}), job["provider"]: job["entry"]}}
+
+
+def stage_record(record):
+    staged.append(rec_path + ".new")
     fd = os.open(rec_path + ".new", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump(record, f, ensure_ascii=False, indent=1)
-    os.replace(path + ".new", path)
-    os.replace(rec_path + ".new", rec_path)
-print(json.dumps(record))
-'''
+        f.flush()
+        os.fsync(f.fileno())
 
 
-MIGRATE_PY = r'''
-import json, os, subprocess, sys, time
-src, name, dst, provider, expect = sys.argv[1:6]
-if os.path.exists(dst):
-    sys.exit("the shared credential already exists; nothing replaced")
-raw = subprocess.run(["systemd-creds", "decrypt", "--name=" + name, src, "-"], check=True, capture_output=True).stdout
-cred = json.loads(raw)
-cred["provider"] = provider
-for k in ("client_id", "client_secret", "refresh_token", "account"):
-    if not cred.get(k):
-        sys.exit("old credential incomplete: " + k)
-if expect and cred["account"].strip().lower() != expect:
-    sys.exit("the old credential belongs to another account than the record")
-subprocess.run(["systemd-creds", "encrypt", "--name=account", "-", dst + ".new"], input=json.dumps(cred).encode(), check=True)
-subprocess.run(["chmod", "0600", dst + ".new"], check=True)
-subprocess.run(["mv", dst + ".new", dst], check=True)
-print(json.dumps({"account": cred["account"].strip().lower(), "scopes": sorted(cred.get("scopes") or [])}))
+os.makedirs(CREDS, mode=0o700, exist_ok=True)
+os.makedirs(RECORDS, mode=0o700, exist_ok=True)
+with open("/run/lock/freedom-account." + slug + ".lock", "w") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    try:
+        record = json.load(open(rec_path)) if os.path.exists(rec_path) else {}
+        have = record.get("providers", {}).get(prov) or {}
+        known = (have.get("account") or record.get("account") or "").strip().lower()
+        if job.get("env") and record.get("env") and record["env"] != job["env"]:
+            sys.exit(slug + " belongs to another environment; nothing changed")
+        if op in ("save", "migrate") and known and known != job["account"]:
+            sys.exit(slug + " is " + known + ", not " + job["account"] + "; nothing changed")
+        if op == "save":
+            if record.get("rev", 0) != job["rev"]:
+                sys.exit("the account of " + slug + " changed during this consent; nothing saved (connect again)")
+            if not set(have.get("scopes") or []) <= set(job["entry"]["scopes"]):
+                sys.exit("the new grant does not include the earlier ones; nothing saved (connect again and allow all)")
+            stage_cred(job["cred"])
+            entry = job["entry"]
+        elif op == "migrate":
+            if os.path.exists(path):
+                sys.exit("the shared credential already exists; nothing replaced")
+            raw = subprocess.run(["systemd-creds", "decrypt", "--name=" + job["from_name"], job["source"], "-"],
+                                 check=True, capture_output=True).stdout
+            cred = json.loads(raw)
+            cred["provider"] = prov
+            for k in ("client_id", "client_secret", "refresh_token", "account"):
+                if not cred.get(k):
+                    sys.exit("old credential incomplete: " + k)
+            if cred["account"].strip().lower() != job["account"]:
+                sys.exit("the old credential belongs to another account than the record")
+            stage_cred(cred)
+            scopes = sorted(cred.get("scopes") or [])
+            entry = {"account": job["account"], "credential": path, "scopes": scopes, "updated": now, "migratedFrom": job["source"],
+                     "capabilities": sorted(c for c, s in job["capmap"].items() if s in scopes)}
+            del cred, raw
+        elif op == "drop":
+            entry = {**have, "scopes": [], "capabilities": [], "revoked": bool(job.get("revoked")), "disconnected": now} if have else None
+        else:
+            sys.exit("unknown op")
+        providers = dict(record.get("providers", {}))
+        if entry is not None:
+            providers[prov] = entry
+        record = {**record, "slug": slug, "rev": record.get("rev", 0) + 1, "providers": providers}
+        if op != "drop":
+            record["env"] = record.get("env") or job["env"]
+            record["account"] = record.get("account") or job["account"]
+        stage_record(record)
+        removed = False
+        if op == "drop":
+            removed = os.path.exists(path)
+            if removed:
+                os.unlink(path)
+        else:
+            os.replace(path + ".new", path)
+            staged.remove(path + ".new")
+        os.replace(rec_path + ".new", rec_path)
+        staged.remove(rec_path + ".new")
+    finally:
+        for f in staged:
+            try:
+                os.unlink(f)
+            except FileNotFoundError:
+                pass
+print(json.dumps({**record, "removed": removed}))
 '''
 
 
@@ -269,15 +312,10 @@ def migrate(args):
     expect = expect or given
     if not EMAIL.match(expect):
         sys.exit('--account: the e-mail address the old credential must belong to')
-    out = json.loads(ssh(args, 'sudo install -d -m 0700 ' + CREDSTORE + ' && sudo python3 -I -c ' + shlex.quote(MIGRATE_PY) + ' '
-                         + ' '.join(shlex.quote(a) for a in (args.source, args.from_name, path, prov.name, expect))))
-    record = {**record, 'slug': slug, 'env': args.env, 'account': record.get('account') or out['account'],
-              'providers': {**record.get('providers', {}), prov.name: {
-                  'account': out['account'], 'credential': path, 'scopes': out['scopes'],
-                  'capabilities': prov.granted(out['scopes']), 'updated': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-                  'migratedFrom': args.source}}}
-    write_record(args, slug, record)
-    print(json.dumps({'slug': slug, 'provider': prov.name, 'credential': path, 'capabilities': prov.granted(out['scopes'])}))
+    record = host(args, {'op': 'migrate', 'slug': slug, 'provider': prov.name, 'env': args.env, 'account': expect,
+                         'source': args.source, 'from_name': args.from_name, 'capmap': prov.capabilities})
+    print(json.dumps({'slug': slug, 'provider': prov.name, 'credential': path,
+                      'capabilities': record['providers'][prov.name]['capabilities']}))
 
 
 REVOKE_PY = r'''
@@ -303,7 +341,6 @@ REVOKE_URL = {'google': 'https://oauth2.googleapis.com/revoke'}
 def disconnect(args):
     slug = slug_ok(args.slug)
     prov = accounts.provider(args.provider)
-    record = read_record(args, slug)
     path = cred_path(slug, prov.name)
     present = ssh(args, f'sudo test -f {path} && echo yes || echo no').strip() == 'yes'
     revoked = None
@@ -314,7 +351,8 @@ def disconnect(args):
                                  + shlex.quote(REVOKE_URL[prov.name])))
         if not revoked.get('revoked'):
             sys.exit(f'the provider did not confirm the revoke ({revoked}); the credential is kept, try again')
-    ssh(args, f'sudo rm -f {path}')
+    # credential removed and record changed in one locked step (revision raised: a consent open meanwhile saves nothing)
+    present = host(args, {'op': 'drop', 'slug': slug, 'provider': prov.name, 'revoked': bool(revoked)})['removed'] or present
     # services already running (or a oneshot run in progress, state activating) hold the credential they loaded: stop
     # every such unit that loads this file; later timer runs fail without the file until the person connects again
     stopped = ssh(args, 'for u in $(systemctl list-units --state=active,activating,reloading --plain --no-legend --type=service | cut -d" " -f1); do'
@@ -327,11 +365,6 @@ def disconnect(args):
              not in ('inactive', 'failed')]
     if still:
         sys.exit('credential removed, but these services did not stop: ' + ', '.join(still))
-    providers = dict(record.get('providers', {}))
-    if prov.name in providers:
-        providers[prov.name] = {**providers[prov.name], 'capabilities': [], 'scopes': [], 'disconnected':
-                                time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'revoked': bool(revoked)}
-        write_record(args, slug, {**record, 'providers': providers})
     print(json.dumps({'slug': slug, 'provider': prov.name, 'removed': present, 'revoked': bool(revoked), 'stopped': stopped}))
 
 

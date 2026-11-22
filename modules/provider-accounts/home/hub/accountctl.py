@@ -255,6 +255,7 @@ def settle(record):
         providers[pend["provider"]] = pend["entry"]
     record = {k: v for k, v in record.items() if k != "pending"}
     record["providers"] = providers
+    sync(CREDS)  # the credential state the decision rests on is made durable before the journal is cleared
     put_record(record)
     return record
 

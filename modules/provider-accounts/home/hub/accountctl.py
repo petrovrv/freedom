@@ -224,6 +224,15 @@ def digest(path):
         return None
 
 
+def sync(path):
+    """fsync a file or a directory, so a rename or unlink survives a power loss in the order it was made"""
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def put_record(record):
     staged.append(rec_path + ".new")
     fd = os.open(rec_path + ".new", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -233,6 +242,7 @@ def put_record(record):
         os.fsync(f.fileno())
     os.replace(rec_path + ".new", rec_path)
     staged.remove(rec_path + ".new")
+    sync(RECORDS)
 
 
 def settle(record):
@@ -300,6 +310,7 @@ with open("/run/lock/freedom-account." + slug + ".lock", "w") as lock:
             subprocess.run(["systemd-creds", "encrypt", "--name=account", "-", path + ".new"], input=json.dumps(cred).encode(), check=True)
             del cred
             os.chmod(path + ".new", 0o600)
+            sync(path + ".new")
             sha = digest(path + ".new")
         record = {**record, "slug": slug, "rev": record.get("rev", 0) + 1}
         if op != "drop":
@@ -313,6 +324,7 @@ with open("/run/lock/freedom-account." + slug + ".lock", "w") as lock:
         else:
             os.replace(path + ".new", path)
             staged.remove(path + ".new")
+        sync(CREDS)
         if entry is not None:
             record["providers"] = {**record.get("providers", {}), prov: entry}
         put_record(record)

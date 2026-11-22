@@ -405,7 +405,8 @@ def disconnect(args):
                         ' for u in $(echo "$units" | cut -d" " -f1); do'
                         # systemctl show prints this setting as [unprintable]: read the unit text, %i = its instance
                         ' i=${u#*@}; i=${i%.service}; case "$u" in *@*) ;; *) i=; esac;'
-                        f' systemctl cat "$u" 2>/dev/null | sed "s/%i/$i/g" | grep -q "^LoadCredentialEncrypted=.*:"{shlex.quote(path)}'
+                        ' text=$(systemctl cat "$u" 2>/dev/null) || exit 3;'
+                        f' echo "$text" | sed "s/%i/$i/g" | grep -q "^LoadCredentialEncrypted=.*:"{shlex.quote(path)}'
                         ' && { sudo systemctl stop "$u" >/dev/null 2>&1; echo "$u"; }; done; true').split()
     # fail closed: an ssh/systemctl error or an empty answer counts as not stopped
     still = [u for u in stopped if ssh(args, f'systemctl show -p ActiveState --value {shlex.quote(u)}').strip()

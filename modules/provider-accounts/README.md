@@ -18,6 +18,10 @@ One sign-in per person and provider for all modules of the person's environment 
 - **Older credentials.** `accountctl.py migrate SLUG --from /etc/credstore.encrypted/<old>.cred --from-name <name> --env E`
   re-encrypts a module-specific credential as the shared one on the host (the old file stays until it is removed by hand).
 
+- **One switch off.** `accountctl.py disconnect SLUG [--revoke]` removes the credential for all modules of the person
+  (running services that load it are stopped, later runs report that the sign-in is gone); `--revoke` also withdraws the grant at Google, from the host, so the
+  token never travels to the PC. Without `--revoke` the grant stays at Google (visible in the person's Google account).
+
 A running long-lived service keeps the token it started with; capabilities added later reach it after a restart.
 Each module still runs as its own Unix user per person; this module only shares the sign-in.
 

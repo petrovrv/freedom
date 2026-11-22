@@ -6,7 +6,9 @@ let generation = 0;
 function theme(ctx) {
   document.documentElement.dataset.theme = ['light', 'dark'].includes(ctx.theme) ? ctx.theme : '';
 }
-function hide() { chip.hidden = true; coExt.size(0, 0, false); }
+// the count also goes on the app tile ✉ (ext/1 coExt.badge, CO Web 0.116+; older shells simply lack it)
+function badge(v) { if (typeof coExt.badge === 'function') coExt.badge(v); }
+function hide() { chip.hidden = true; coExt.size(0, 0, false); badge(null); }
 async function refresh() {
   const ticket = ++generation;
   try {
@@ -15,6 +17,7 @@ async function refresh() {
     const n = Math.max(0, Number(st.unread) || 0);
     if (!st.paired || !st.online || !n) { hide(); return; }
     chip.textContent = '✉ ' + (n > 99 ? '99+' : n);
+    badge(n > 99 ? '99+' : n);
     chip.title = 'Почта: ' + n + ' непрочитанных · открыть';
     chip.setAttribute('aria-label', chip.title);
     chip.hidden = false;

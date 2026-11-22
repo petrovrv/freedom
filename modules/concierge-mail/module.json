@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "concierge-mail",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "title": "Mail concierge",
   "description": "Mail app (✉) of the person: the whole mailbox lives on the home server (one store per person, read-only Gmail sync, encrypted backup into the person's own Drive); the page reaches it through the site, which carries only end-to-end encrypted requests and answers. Plus the morning briefing and its delivery.",
   "ext": ">=1 <2",

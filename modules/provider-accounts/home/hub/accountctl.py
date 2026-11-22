@@ -7,6 +7,10 @@
         (/etc/credstore.encrypted/account.SLUG.PROVIDER.cred, name `account`), never into a file or keyring of this PC
   migrate SLUG --from PATH --from-name NAME --env E [--provider google]
         re-encrypt an older module-specific credential on the host as the shared one (the old file is kept)
+  disconnect SLUG [--provider google] [--revoke]
+        one switch for all modules of the person: the credential is removed (each module then reports that the sign-in
+        is gone); with --revoke the grant is also withdrawn at the provider (the refresh token is sent to its revoke
+        endpoint from the host, it never comes to this PC)
   status [SLUG]   who is connected, which capabilities are granted (no secrets)
 
 Modules load the credential in their units: LoadCredentialEncrypted=account:/etc/credstore.encrypted/account.%i.google.cred
@@ -239,6 +243,61 @@ def migrate(args):
     print(json.dumps({'slug': slug, 'provider': prov.name, 'credential': path, 'capabilities': prov.granted(out['scopes'])}))
 
 
+REVOKE_PY = r'''
+import json, subprocess, sys, urllib.error, urllib.parse, urllib.request
+src, url = sys.argv[1:3]
+cred = json.loads(subprocess.run(["systemd-creds", "decrypt", "--name=account", src, "-"], check=True, capture_output=True).stdout)
+req = urllib.request.Request(url, data=urllib.parse.urlencode({"token": cred["refresh_token"]}).encode(),
+                             headers={"Content-Type": "application/x-www-form-urlencoded"})
+try:
+    with urllib.request.urlopen(req, timeout=30) as r:
+        print(json.dumps({"revoked": r.status == 200}))
+except urllib.error.HTTPError as e:
+    # only 400 invalid_token means "already revoked or expired at the provider"; any other refusal keeps the credential
+    try:
+        err = json.loads(e.read() or b"{}").get("error")
+    except ValueError:
+        err = None
+    print(json.dumps({"revoked": e.code == 400 and err == "invalid_token", "status": e.code, "error": err}))
+'''
+REVOKE_URL = {'google': 'https://oauth2.googleapis.com/revoke'}
+
+
+def disconnect(args):
+    slug = slug_ok(args.slug)
+    prov = accounts.provider(args.provider)
+    record = read_record(args, slug)
+    path = cred_path(slug, prov.name)
+    present = ssh(args, f'sudo test -f {path} && echo yes || echo no').strip() == 'yes'
+    revoked = None
+    if args.revoke and present:
+        if prov.name not in REVOKE_URL:
+            sys.exit(f'{prov.name}: revoke is not implemented')
+        revoked = json.loads(ssh(args, 'sudo python3 -I -c ' + shlex.quote(REVOKE_PY) + ' ' + shlex.quote(path) + ' '
+                                 + shlex.quote(REVOKE_URL[prov.name])))
+        if not revoked.get('revoked'):
+            sys.exit(f'the provider did not confirm the revoke ({revoked}); the credential is kept, try again')
+    ssh(args, f'sudo rm -f {path}')
+    # services already running (or a oneshot run in progress, state activating) hold the credential they loaded: stop
+    # every such unit that loads this file; later timer runs fail without the file until the person connects again
+    stopped = ssh(args, 'for u in $(systemctl list-units --state=active,activating,reloading --plain --no-legend --type=service | cut -d" " -f1); do'
+                        # systemctl show prints this setting as [unprintable]: read the unit text, %i = its instance
+                        ' i=${u#*@}; i=${i%.service}; case "$u" in *@*) ;; *) i=; esac;'
+                        f' systemctl cat "$u" 2>/dev/null | sed "s/%i/$i/g" | grep -q "^LoadCredentialEncrypted=.*:"{shlex.quote(path)}'
+                        ' && { sudo systemctl stop "$u" >/dev/null 2>&1; echo "$u"; }; done; true', check=False).split()
+    # fail closed: an ssh/systemctl error or an empty answer counts as not stopped
+    still = [u for u in stopped if ssh(args, f'systemctl show -p ActiveState --value {shlex.quote(u)}').strip()
+             not in ('inactive', 'failed')]
+    if still:
+        sys.exit('credential removed, but these services did not stop: ' + ', '.join(still))
+    providers = dict(record.get('providers', {}))
+    if prov.name in providers:
+        providers[prov.name] = {**providers[prov.name], 'capabilities': [], 'scopes': [], 'disconnected':
+                                time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'revoked': bool(revoked)}
+        write_record(args, slug, {**record, 'providers': providers})
+    print(json.dumps({'slug': slug, 'provider': prov.name, 'removed': present, 'revoked': bool(revoked), 'stopped': stopped}))
+
+
 def status(args):
     names = [slug_ok(args.slug)] if args.slug else [n.removesuffix('.json') for n in
                                                      ssh(args, f'sudo ls {RECORDS} 2>/dev/null || true').split() if n.endswith('.json')]
@@ -283,10 +342,14 @@ def main():
     m.add_argument('--env', required=True)
     m.add_argument('--account', help='the e-mail address the old credential must belong to (needed when the person has no record yet)')
     m.add_argument('--provider', default='google', choices=sorted(accounts.PROVIDERS))
+    d = sub.add_parser('disconnect')
+    d.add_argument('slug')
+    d.add_argument('--provider', default='google', choices=sorted(accounts.PROVIDERS))
+    d.add_argument('--revoke', action='store_true', help='also withdraw the grant at the provider')
     s = sub.add_parser('status')
     s.add_argument('slug', nargs='?')
     args = p.parse_args()
-    {'connect': connect, 'migrate': migrate, 'status': status}[args.cmd](args)
+    {'connect': connect, 'migrate': migrate, 'disconnect': disconnect, 'status': status}[args.cmd](args)
 
 
 if __name__ == '__main__':

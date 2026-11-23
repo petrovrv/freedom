@@ -507,9 +507,11 @@ class Composer:
         return {'key': key, 'cancelled': bool(cur.rowcount), 'state': state['state'] if state else 'none'}
 
     def outbox(self, args):
-        rows = self.db.execute('SELECT key,state,error,due,updated FROM outbox WHERE account=? AND (state IN (\'wait\',\'sending\')'
+        rows = self.db.execute('SELECT key,state,error,due,updated,since FROM outbox WHERE account=? AND (state IN (\'wait\',\'sending\',\'unknown\')'
                                ' OR updated > ?) ORDER BY updated DESC LIMIT 50', (self.account, self.clock() - 3600)).fetchall()
-        return {'items': [dict(r) for r in rows]}
+        now = self.clock()
+        # ask: an unknown send the person may now settle by looking at Sent (compose_resolve)
+        return {'items': [{**dict(r), 'ask': r['state'] == 'unknown' and now - (r['since'] or 0) >= GRACE} for r in rows]}
 
     def drafts(self, args):
         """Letters being written here (newest first), so the page can go on with one."""
@@ -621,33 +623,46 @@ class Composer:
                     db.execute("UPDATE outbox SET state='failed', error=?, updated=? WHERE key=?", (str(exc)[:200], self.clock(), r['key']))
 
     def reconcile(self, db):
-        """Letters whose send outcome is unknown, asked at most every RECONCILE seconds. Sent only when the letter's own
-        Message-ID is found in Sent; not sent only when it is still not there GRACE seconds after the attempt (a send
-        that timed out has finished or failed by then) — the draft being there or gone proves nothing by itself."""
+        """Letters whose send outcome is unknown, asked at most every RECONCILE seconds: sent when the letter's own
+        Message-ID is found in Sent. Nothing else settles it automatically (neither time nor the draft being there or
+        gone): after GRACE the page asks the person, who looks at Sent and answers (`compose_resolve`)."""
         now = self.clock()
-        for r in db.execute("SELECT key, draft_id, mid, since FROM outbox WHERE state='unknown' AND updated<=? AND account=?",
+        for r in db.execute("SELECT key, mid FROM outbox WHERE state='unknown' AND updated<=? AND account=?",
                             (now - RECONCILE, self.account)).fetchall():
             try:
                 found = bool(r['mid']) and self.gmail().find_sent(r['mid'])
-                settled = not found and now - (r['since'] or 0) >= GRACE
-                there = self.gmail().draft_exists(r['draft_id']) if settled else None
             except Exception:  # noqa: BLE001 - still unclear: ask again later
-                found, settled, there = False, False, None
+                found = False
             with db:
                 if found:
                     db.execute("UPDATE outbox SET state='sent', updated=? WHERE key=? AND state='unknown'", (now, r['key']))
                     db.execute('DELETE FROM compose WHERE key=?', (r['key'],))
-                elif settled:
-                    db.execute("UPDATE outbox SET state='failed', error=?, updated=? WHERE key=? AND state='unknown'",
-                               ('not sent' if there else 'draft gone', now, r['key']))
                 else:
                     db.execute("UPDATE outbox SET updated=? WHERE key=? AND state='unknown'", (now, r['key']))
+
+    def resolve(self, args):
+        """The person's answer about a send whose outcome stayed unknown: sent (looked in Sent) or not sent (the draft
+        may be sent again). Only for an unknown send, and only after GRACE."""
+        key = str(args.get('key') or '')
+        self._row(key)
+        sent = args.get('sent')
+        if not isinstance(sent, bool):
+            raise ValueError('bad answer')
+        with self.db:
+            cur = self.db.execute("UPDATE outbox SET state=?, error=?, updated=? WHERE key=? AND account=? AND state='unknown' AND since<=?",
+                                  ('sent' if sent else 'failed', '' if sent else 'not sent', self.clock(), key, self.account,
+                                   self.clock() - GRACE))
+            if not cur.rowcount:
+                raise ValueError('not now')
+            if sent:
+                self.db.execute('DELETE FROM compose WHERE key=?', (key,))
+        return {'key': key, 'state': 'sent' if sent else 'failed'}
 
     def handle(self, action, args):
         fn = {'compose_start': self.start, 'compose_save': self.save, 'compose_upload': self.upload,
               'compose_detach': self.detach, 'compose_discard': self.discard, 'compose_send': self.send,
               'compose_unsend': self.unsend, 'compose_outbox': self.outbox, 'compose_drafts': self.drafts,
-              'compose_open': self.open_draft, 'mark': self.mark}.get(action)
+              'compose_open': self.open_draft, 'compose_resolve': self.resolve, 'mark': self.mark}.get(action)
         if not fn:
             raise ValueError('unknown action')
         try:
@@ -657,4 +672,4 @@ class Composer:
 
 
 ACTIONS = ('compose_start', 'compose_save', 'compose_upload', 'compose_detach', 'compose_discard', 'compose_send',
-           'compose_unsend', 'compose_outbox', 'compose_drafts', 'compose_open', 'mark')
+           'compose_unsend', 'compose_outbox', 'compose_drafts', 'compose_open', 'compose_resolve', 'mark')

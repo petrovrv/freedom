@@ -210,9 +210,13 @@ class ComposeTests(unittest.TestCase):
         self.now[0] += compose.RECONCILE + 1
         self.c.reconcile(self.store.db)
         self.assertEqual(self.c.handle('compose_outbox', {})['items'][0]['state'], 'unknown')  # not in Sent yet, within the grace
+        with self.assertRaises(ValueError):  # too early to ask the person
+            self.c.handle('compose_resolve', {'key': key, 'sent': False})
         self.now[0] += compose.GRACE
         self.c.reconcile(self.store.db)
-        self.assertEqual(self.c.handle('compose_outbox', {})['items'][0]['state'], 'failed')
+        item = self.c.handle('compose_outbox', {})['items'][0]
+        self.assertEqual((item['state'], item['ask']), ('unknown', True))  # time alone never settles it
+        self.assertEqual(self.c.handle('compose_resolve', {'key': key, 'sent': False})['state'], 'failed')
         self.write.fail_send = None
         self.c.handle('compose_send', {'key': key})
         self.now[0] += 11

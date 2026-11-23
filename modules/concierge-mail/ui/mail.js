@@ -219,7 +219,7 @@ const consentNote = 'Нужно разрешение Google писать и от
 function writeError(err) {
   const m = String(err && err.message || err);
   return {needs_consent: consentNote, 'already sending': 'Письмо уже отправляется', 'no recipients': 'Укажите получателя',
-    'too big': 'Вложения больше 20 МБ', upload_failed: 'Не все вложения загрузились: уберите отметку ⚠ или прикрепите файл снова', discarded: 'Черновик удалён', 'draft gone': 'черновик исчез из Gmail — проверьте «Отправленные», прежде чем отправлять снова', 'save first': 'Черновик ещё не сохранён', 'protected message': 'На защищённое письмо так не ответить'}[m]
+    'too big': 'Вложения больше 20 МБ', upload_failed: 'Не все вложения загрузились: уберите отметку ⚠ или прикрепите файл снова', discarded: 'Черновик удалён', 'not now': 'Ещё рано: подождите пару минут', 'draft gone': 'черновик исчез из Gmail — проверьте «Отправленные», прежде чем отправлять снова', 'save first': 'Черновик ещё не сохранён', 'protected message': 'На защищённое письмо так не ответить'}[m]
     || (/^bad address/.test(m) ? 'Неверный адрес: ' + m.replace(/^bad address:\s*/, '') : 'Не получилось: ' + m);
 }
 function toolbar(thread, messages) {
@@ -336,10 +336,11 @@ function edited() {
 async function closeComposer() {
   const d = draft; if (!d) return true;
   sync(); clearTimeout(saveTimer);
-  if (!(isEmpty(d) && !d.draft) && !d.discarded) {
-    $('composer-state').textContent = 'Сохранение…';
+  $('composer-state').textContent = 'Сохранение…';
+  await d.ops;  // uploads and saves of this letter finish first, also for a letter that looks empty
+  sync();
+  if (!(isEmpty(d) && !d.draft && !(d.uploadFailed || []).length) && !d.discarded) {
     try {
-      await d.ops;  // uploads of this letter finish first
       await flush(d);
       if ((d.uploadFailed || []).length) throw new Error('upload_failed');
     } catch (err) { if (d === draft) cstate(writeError(err) + ' — окно не закрыто, чтобы ничего не потерять', true); return false; }
@@ -401,7 +402,7 @@ function undo(d, seconds) {
   const gen = ++undoGen;
   let left = seconds, timer = 0;
   const bar = $('undo-bar'), btn = $('undo');
-  bar.hidden = false; btn.hidden = false; btn.textContent = 'Отменить';
+  bar.hidden = false; btn.hidden = false; btn.textContent = 'Отменить'; bar.querySelectorAll('.undo-extra').forEach(n => n.remove());
   const text = t => { if (gen === undoGen) $('undo-text').textContent = t; };
   const tick = () => { text(left > 0 ? `Отправка через ${left} с` : 'Отправляется…'); left--; };
   tick(); timer = setInterval(() => { tick(); if (left < 0) { clearInterval(timer); if (gen === undoGen) btn.hidden = true; result(d, gen, Date.now()); } }, 1000);
@@ -431,10 +432,25 @@ async function result(d, gen, started) {
     return;
   }
   if (it && it.state === 'cancelled') { $('undo-bar').hidden = true; return; }
-  if (it && it.state === 'unknown') text('Проверяю, ушло ли письмо…');
-  else text('Отправляется…');
-  if (Date.now() - started < 180000) setTimeout(() => result(d, gen, started), 2000);
-  else text('Статус отправки неизвестен — проверьте «Отправленные»');
+  if (it && it.state === 'unknown' && it.ask) {
+    // nothing settles an unclear send by itself: the person looks at Sent and answers
+    text('Неясно, ушло ли письмо. Посмотрите «Отправленные»: оно там?');
+    btn.hidden = false; btn.textContent = 'Да, ушло';
+    const no = button('Нет — открыть черновик', () => answer(false));
+    no.className = 'undo-extra'; $('undo-bar').querySelectorAll('.undo-extra').forEach(n => n.remove()); btn.after(no);
+    const answer = async sent => {
+      try {
+        await call('compose_resolve', {key: d.key, sent});
+        $('undo-bar').querySelectorAll('.undo-extra').forEach(n => n.remove());
+        if (sent) { text('Отмечено как отправленное'); btn.hidden = true; refreshList(); }
+        else { $('undo-bar').hidden = true; d.sending = false; if (await closeComposer()) showComposer(d); }
+      } catch (err) { text(writeError(err)); }
+    };
+    btn.onclick = () => answer(true);
+    return;
+  }
+  text(it && it.state === 'unknown' ? 'Проверяю в «Отправленных», ушло ли письмо…' : 'Отправляется…');
+  setTimeout(() => result(d, gen, started), it && it.state === 'unknown' ? 10000 : 2000);
 }
 $('compose-new').addEventListener('click', () => compose('new'));
 $('composer-close').addEventListener('click', closeComposer);

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // node src/extBridge.selftest.ts - the message checks of the ext/1 bridge (Freedom F10).
-import { callRefusal, callRoute, capabilityRefusal, deviceOpSlot, moduleUrl, parseExtMessage, parseHint, shellApps, shellOpen, shellSettings, type ModuleInfo } from './extBridge.ts';
+import { callRefusal, callRoute, capabilityRefusal, deviceOpSlot, moduleUrl, parseExtMessage, parseHint, reqRefusal, shellApps, shellOpen, shellSettings, type ModuleInfo } from './extBridge.ts';
 
 let fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -137,6 +137,15 @@ console.log('extBridge selftest OK');
   ok('launcher settings: icon falls back to the first letter', set[0].icon === 'G');
   ok('launcher settings: icon of the module app', set[1].icon === '🏠');
   ok('launcher settings: icon of another page without an app', set[2].icon === '📍');
+  // F14b-3: a module whose only setting is the switch of its notifications gets a tile too
+  const noti = { ...mk('mail', true, [{ slot: 'ui.page', id: 'm', entry: 'ui/m.html', title: 'Mail', app: true, icon: '✉' }]), notify: { on: true } };
+  ok('launcher settings: a module that may notify', shellSettings([noti]).map((x) => x.m.id).join() === 'mail');
+  ok('notify.push needs its permission', reqRefusal({ enabled: true, permissions: [] }, 'notify.push', 'ui.header') === 'permission_not_declared');
+  ok('notify.push from any slot', reqRefusal({ enabled: true, permissions: ['notify.push'] }, 'notify.push', 'ui.header') === ''
+    && reqRefusal({ enabled: true, permissions: ['notify.push'] }, 'notify.push', 'ui.page') === '');
+  ok('notify.push of a disabled module', reqRefusal({ enabled: false, permissions: ['notify.push'] }, 'notify.push', 'ui.page') === 'module_disabled');
+  const nm = parseExtMessage({ ext: 1, t: 'req', id: 'n1', name: 'notify.push', args: { title: 'x', open: { page: 'm' } } });
+  ok('notify request parsed', nm?.t === 'req' && nm.name === 'notify.push');
 }
 
 if (fail) throw new Error(`extBridge selftest: ${fail} failed`);

@@ -997,7 +997,7 @@ try {
             'inbox', 'inbox_mark', 'action_decide', 'autoswitch', 'tool_candidates', 'tool_decide', 'executors', 'executor_set',
             'related', 'dossier_context', 'dossier_get', 'dossier_put', 'browser_defaults', 'family_state', 'family_read', 'members',
             'models_list', 'model_set', 'model_delete', 'subs_put', 'modules_list', 'module_set', 'module_person',
-            'app_list', 'app_action', 'app_action_status', 'app_events', 'app_request_decide'];
+            'app_list', 'app_action', 'app_action_status', 'app_events', 'app_request_decide', 'app_notify', 'app_notify_set'];
     // Schema 27 (modules-lib.php, Freedom F10): an op the core does not know may belong to an enabled module (manifest
     // server.ops.user); core names always win
     $moduleOp = !in_array($op, $coreOps, true);
@@ -1081,6 +1081,19 @@ try {
     // F14b-2: Run / Decline of an outward card in "Waiting for you"; only cards of the caller's own env exist for them
     if ($op === 'app_request_decide') {
         co_json(200, co_app_request_decide($db, $myEnv, $owner, $email, $in));
+    }
+    // F14b-3: a module page notifies its own person (ext/1 coExt.notify; CO Web checks notify.push, so does the server);
+    // the person switches a module's notifications on and off (Settings -> the module)
+    if ($op === 'app_notify') {
+        try {
+            co_json(200, co_app_notify($db, co_module_in_str($in, 'module', 64), $myEnv,
+                ['title' => $in['title'] ?? null, 'body' => $in['body'] ?? null, 'tag' => $in['tag'] ?? '', 'open' => $in['open'] ?? null], 'page'));
+        } catch (InvalidArgumentException $e) {
+            co_json(400, ['ok' => false, 'error' => 'bad_request', 'message' => $e->getMessage()]);
+        }
+    }
+    if ($op === 'app_notify_set') {
+        co_json(200, co_app_notify_set($db, $myEnv, co_module_in_str($in, 'id', 64), !empty($in['on'])));
     }
     if ($moduleOp) {
         co_json(200, co_module_call($db, 'user', $op, $in, $myEnv, $owner, $email) ?? ['error' => 'unknown_op']);

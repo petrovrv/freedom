@@ -34,6 +34,8 @@
 //   coExt.title(text)       - window title of a full-window page (ui.page)
 //   (Esc that no handler of the page prevented leaves an app page; ctx.visible is false while the app is hidden)
 //   coExt.badge(v)          - the module's badge in the shell (count on its app tile, dot on ▦); 0/''/null clears
+//   coExt.notify({title, body, tag, open: {page, params}}) - a push to the signed-in person (permission notify.push);
+//                           -> Promise of {ok, sent} or {ok: false, error: notify_off|rate_limited|person_off|..., retryAfter?}
 //   coExt.on('chat', fn)    - a viewer panel: {events, canAsk} of its chat (permission chat.read)
 (function () {
   'use strict';
@@ -150,6 +152,13 @@
     // 0, '' or null clears it (usually set by the tray page, which stays loaded)
     badge: function (v) {
       post({ t: 'badge', value: v == null ? '' : String(v).slice(0, 3) });
+    },
+    // a push of the module to the signed-in person (permission notify.push): title (80), body (300), tag (repeats of
+    // one tag replace each other; the same text again within 10 min is not sent), open {page, params} (default: the app)
+    notify: function (n) {
+      n = n || {};
+      return request({ t: 'req', name: 'notify.push', args: { title: String(n.title == null ? '' : n.title),
+        body: n.body == null ? '' : String(n.body), tag: n.tag == null ? '' : String(n.tag), open: n.open || null } }, 30000);
     },
     hint: function (h) {
       post({ t: 'hint', hint: h || null });

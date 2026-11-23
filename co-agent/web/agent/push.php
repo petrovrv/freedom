@@ -6,6 +6,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/lib.php';
 require_once __DIR__ . '/push-lib.php';
 require_once __DIR__ . '/modules-lib.php';
+require_once __DIR__ . '/apps-lib.php';
 
 header('Cache-Control: no-store');
 
@@ -59,6 +60,22 @@ try {
         co_json(200, $counters);
     }
 
+    // ---------- app_notify (home PC service of a module, same key): F14b-3 notification of an app (apps-lib.php) ----------
+    // the module must be enabled and declare notify.push; limits, the person's switch and the journal as for its pages
+    if ($op === 'app_notify') {
+        $key = co_push_notify_key();
+        $given = co_push_str($_SERVER['HTTP_X_CO_PUSH_KEY'] ?? null);
+        if ($key === '' || !hash_equals($key, $given)) {
+            co_json(403, ['error' => 'forbidden']);
+        }
+        try {
+            co_json(200, co_app_notify(co_db(), co_push_str($in['module'] ?? null), co_push_str($in['env'] ?? null),
+                ['title' => $in['title'] ?? null, 'body' => $in['body'] ?? null, 'tag' => $in['tag'] ?? '', 'open' => $in['open'] ?? null], 'service'));
+        } catch (InvalidArgumentException $e) {
+            co_json(400, ['ok' => false, 'error' => 'bad_request', 'message' => $e->getMessage()]);
+        }
+    }
+
     // ---------- channels (home PC, same key as notify): where a push to env can go ----------
     if ($op === 'channels') {
         $key = co_push_notify_key();
@@ -92,7 +109,7 @@ try {
     }
 
     // ---------- push-key ops of enabled modules (schema 27, Freedom F10; e.g. a status put of a home PC service) ----------
-    if (preg_match(CO_MODULE_OP_RE, $op) && !in_array($op, ['heartbeat', 'watch', 'key', 'notify', 'channels', 'subscribe', 'unsubscribe', 'status', 'test'], true)) {
+    if (preg_match(CO_MODULE_OP_RE, $op) && !in_array($op, ['heartbeat', 'watch', 'key', 'notify', 'app_notify', 'channels', 'subscribe', 'unsubscribe', 'status', 'test'], true)) {
         $db = null;
         try {
             $db = co_db();

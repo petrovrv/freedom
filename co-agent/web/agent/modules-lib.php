@@ -19,6 +19,8 @@
 //            'text' (indexed text of a project file); manifest provides.search [{id, hooks}]
 //   notify - copies of pushes (push-lib.php co_push_mirror): hook 'push' gets {envs, title, body, url, tag} of every push
 //            the server sends, e.g. to write it to the person in a messenger; manifest provides.notify [{id, hooks}]
+// A handler's context has $ctx['notify']({title, body?, tag?, open?, env?}) (F14b-3, apps-lib.php co_app_notify): a push
+// of the module to its person, with the permission notify.push.
 // Core op names always win: a module cannot take over an op of the core.
 declare(strict_types=1);
 
@@ -173,7 +175,12 @@ function co_module_ctx(mysqli $db, array $m, string $myEnv = '', bool $owner = f
     $id = $m['id'];
     return ['db' => $db, 'module' => $id, 'version' => $m['version'], 'myEnv' => $myEnv, 'owner' => $owner, 'email' => $email,
         'stateDir' => co_module_state_dir($id), 'home' => co_module_home($id), 'config' => co_module_config($id),
-        'person' => static fn(string $env): string => co_module_person_mode($db, $m, $env)];
+        'person' => static fn(string $env): string => co_module_person_mode($db, $m, $env),
+        // F14b-3 (apps-lib.php co_app_notify): a push to the person, permission notify.push; a user op only to its caller
+        'notify' => static function (array $n) use ($db, $id, $myEnv): array {
+            require_once __DIR__ . '/apps-lib.php';
+            return co_app_notify_ctx($db, $id, $myEnv)($n);
+        }];
 }
 
 /**
@@ -535,6 +542,7 @@ function co_modules_list(mysqli $db, string $myEnv, bool $owner, array $coreOps 
 {
     $out = [];
     $labels = [];
+    $notifyOff = null;
     foreach (co_modules($db) as $m) {
         // names of import sources of every installed module: chats imported earlier keep their label while it is off
         foreach (co_module_imports($m) as $x) $labels[$x['source']] ??= $x;
@@ -556,6 +564,11 @@ function co_modules_list(mysqli $db, string $myEnv, bool $owner, array $coreOps 
             'sideJobs' => co_module_side_jobs($m), 'navigate' => $on ? co_module_navigate($m) : [],
             // F14b-2: ops agents may call (apps-lib.php); CO Web listens for their refresh while the module's tray is shown
             'actions' => $on && function_exists('co_app_actions') ? array_keys(co_app_actions($m)) : []];
+        // F14b-3: the person's switch of the module's notifications (only modules that may notify)
+        if ($on && function_exists('co_app_notify_allowed') && co_app_notify_allowed($m)) {
+            $notifyOff ??= co_app_notify_off($db, $myEnv);
+            $row['notify'] = ['on' => empty($notifyOff[$m['id']])];
+        }
         if ($owner) {
             $people = co_module_people($db, $m['id']);
             $row['people'] = co_module_personal($m) ? array_map(static fn(string $env): array => ['env' => $env,

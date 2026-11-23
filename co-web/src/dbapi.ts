@@ -1333,6 +1333,21 @@ export async function dbModulePerson(id: string, mode: 'auto' | 'ask' | 'off', e
   const r = await rawCall('module_person', env ? { id, mode, env } : { id, mode });
   if (!r.ok) throw new Error(String(r.error || 'module_person failed'));
 }
+/** F14b-3: a push of a module page to the signed-in person (ext/1 coExt.notify); the server applies limits and switches. */
+export async function dbAppNotify(module: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const n = args as { title?: unknown; body?: unknown; tag?: unknown; open?: unknown };
+  const res = await post({ op: 'app_notify', module, title: n.title ?? null, body: n.body ?? null, tag: n.tag ?? '', open: n.open ?? null }, false);
+  if (!res) throw new Error('Database is not reachable.');
+  const j = await res.json().catch(() => ({}));
+  // a refused notification (off, rate_limited, ...) is an answer for the page; a malformed one is an error
+  if (!res.ok) throw new Error(String(j.message || j.error || res.status));
+  return j;
+}
+/** F14b-3: the person's own switch of a module's notifications. */
+export async function dbAppNotifySet(id: string, on: boolean): Promise<void> {
+  const r = await rawCall('app_notify_set', { id, on });
+  if (!r.ok) throw new Error(String(r.error || 'app_notify_set failed'));
+}
 /** A user op of a module (already checked by the bridge against the module's declared ops). */
 export async function dbModuleCall(op: string, args: Record<string, unknown>, timeoutMs = TIMEOUT_MS): Promise<Record<string, unknown>> {
   const { op: _op, gz: _gz, ...rest } = args; // rawCall spreads params after op: an "op" key there would replace it

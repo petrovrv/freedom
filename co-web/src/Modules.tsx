@@ -4,7 +4,7 @@
 // keeps data about people (auto = show me without asking, ask, off). Installing, updating and removing are done by
 // install/freedom_modules.py on the home PC (signature check, upload, migration); this section shows what it did.
 import { useEffect, useState } from 'react';
-import { dbModulePerson, dbModules, dbModuleSet } from './dbapi';
+import { dbAppNotifySet, dbModulePerson, dbModules, dbModuleSet } from './dbapi';
 import type { ModuleInfo } from './extBridge';
 import { deviceModules, ModulePages, MODULES_CHANGED } from './ModuleSlot';
 import { ENVIRONMENTS } from './config';
@@ -106,6 +106,14 @@ export function ModulesSection({ me, owner }: { me?: string; owner: boolean }) {
             })()}
             {m.enabled && m.ui.some((u) => u.slot === 'ui.settings') && (
               <div className="module-settings"><ModulePages slot="ui.settings" m={m} me={me} owner={owner} /></div>
+            )}
+            {m.enabled && m.notify && (
+              <div className="small">
+                <label title="Pushes of this app to your devices (at most 10 an hour). Off: the app keeps working, it just does not notify you.">
+                  <input type="checkbox" checked={m.notify.on} disabled={busy}
+                    onChange={(e) => { const on = e.target.checked; void act(() => dbAppNotifySet(m.id, on)); }} /> Notifications
+                </label>
+              </div>
             )}
             {m.personal && mine && (
               <div className="small">

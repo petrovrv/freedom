@@ -41,6 +41,8 @@ export interface ModuleInfo {
   navigate?: string[];
   /** F14b-2: ops of the module agents may call (manifest provides.actions); its tray chip listens for their refresh */
   actions?: string[];
+  /** F14b-3: the module may notify (permission notify.push); on = the person has not switched its notifications off */
+  notify?: { on: boolean };
 }
 
 export const EXT_VERSION = 1;
@@ -324,6 +326,8 @@ export function navTarget(m: Pick<ModuleInfo, 'enabled' | 'permissions' | 'navig
 export const REQ_PERMISSION: Record<string, string> = {
   'file.get': 'files.read', 'file.pdf': 'files.read', 'file.sibling': 'files.read', 'file.putSibling': 'files.write',
   'chat.ask': 'chat.post', 'chat.reveal': 'chat.read', 'panel.close': '',
+  // F14b-3: a push of the module to its own person (any slot; db.php app_notify checks again and applies the limits)
+  'notify.push': 'notify.push',
 };
 const PANEL_ONLY = new Set(['chat.ask', 'chat.reveal', 'panel.close']);
 
@@ -457,10 +461,10 @@ export function onModuleBadges(fn: () => void): () => void {
 /** A module with own settings (ui.settings pages or a person's switch): one tile in the Settings part of the launcher. */
 export type ShellSetting = { m: ModuleInfo; label: string; icon: string };
 
-/** Settings tiles of enabled modules; the icon is the one of the module's app, else of any other page of it (a tray
+/** Settings tiles of enabled modules (also one whose only setting is the switch of its notifications); the icon is the one of the module's app, else of any other page of it (a tray
  * indicator, a settings page), else the first letter. */
 export function shellSettings(modules: ModuleInfo[]): ShellSetting[] {
-  return modules.filter((m) => m.enabled && (m.personal || m.ui.some((u) => u.slot === 'ui.settings'))).map((m) => {
+  return modules.filter((m) => m.enabled && (m.personal || m.notify || m.ui.some((u) => u.slot === 'ui.settings'))).map((m) => {
     const label = m.title || m.id;
     const app = m.ui.find((u) => u.slot === 'ui.page' && u.app === true && u.icon) || m.ui.find((u) => u.icon);
     return { m, label, icon: app?.icon || Array.from(label)[0]?.toUpperCase() || '▫' };

@@ -477,3 +477,199 @@ function co_app_events(mysqli $db, string $env, int $since): array
         static fn($e): bool => is_array($e) && (int)($e['seq'] ?? 0) > $since));
     return ['seq' => $seq, 'events' => $ev];
 }
+
+// ---------- F14b-3: notifications of apps through the core's push (kv scope env/<env>, name app-notify) ----------
+// A module with the permission notify.push sends its person a push: from a page (ext/1 coExt.notify -> user op
+// app_notify, the session's env), from its server code ($ctx['notify'], user ops: only the caller's env) or from a home
+// service (push.php op app_notify with the push key, any member env). Limits per module and env, the person's own switch
+// (user op app_notify_set, Settings -> the module), `tag` collapses repeats; every push is a `notify` row of the journal.
+// Copies go to the notify hooks of the other modules like any push of the core, never to the sender's own hooks.
+const CO_APP_NOTIFY_PERMISSION = 'notify.push';
+const CO_APP_NOTIFY_HOUR = 10;      // pushes per module and env in any hour
+const CO_APP_NOTIFY_DAY = 50;       // ... and in any 24 hours
+const CO_APP_NOTIFY_SAME_SEC = 600; // the same tag with the same text again within this time is not sent
+
+/** Whether a module may notify at all (enabled and its manifest declares notify.push). */
+function co_app_notify_allowed(array $m): bool
+{
+    return $m['enabled'] && in_array(CO_APP_NOTIFY_PERMISSION, (array)($m['manifest']['permissions'] ?? []), true);
+}
+
+/** The env's notify state under a row lock; $f gets it by reference and returns the answer. */
+function co_app_notify_locked(mysqli $db, string $env, callable $f): mixed
+{
+    $scope = 'env/' . $env;
+    $db->begin_transaction();
+    try {
+        $st = $db->prepare("INSERT IGNORE INTO kv (scope, name, data, sha, updated_utc) VALUES (?, 'app-notify', '{}', '', UTC_TIMESTAMP(3))");
+        $st->execute([$scope]);
+        $st->close();
+        $st = $db->prepare("SELECT data FROM kv WHERE scope = ? AND name = 'app-notify' FOR UPDATE");
+        $st->execute([$scope]);
+        $row = $st->get_result()->fetch_row();
+        $st->close();
+        $d = $row ? json_decode((string)$row[0], true) : null;
+        $d = is_array($d) ? $d : [];
+        foreach (['off', 'sent', 'last'] as $k) $d[$k] = is_array($d[$k] ?? null) ? $d[$k] : [];
+        $out = $f($d);
+        $data = json_encode(['off' => (object)$d['off'], 'sent' => (object)$d['sent'], 'last' => (object)$d['last']],
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        $st = $db->prepare("UPDATE kv SET data = ?, sha = ?, updated_utc = UTC_TIMESTAMP(3) WHERE scope = ? AND name = 'app-notify'");
+        $st->execute([$data, hash('sha256', $data), $scope]);
+        $st->close();
+        $db->commit();
+        return $out;
+    } catch (Throwable $e) {
+        $db->rollback();
+        throw $e;
+    }
+}
+
+/** Modules whose notifications the person of $env switched off: [module id => true]. */
+function co_app_notify_off(mysqli $db, string $env): array
+{
+    $st = $db->prepare("SELECT data FROM kv WHERE scope = ? AND name = 'app-notify'");
+    $st->execute(['env/' . $env]);
+    $row = $st->get_result()->fetch_row();
+    $st->close();
+    $d = $row ? json_decode((string)$row[0], true) : null;
+    return is_array($d['off'] ?? null) ? array_filter($d['off']) : [];
+}
+
+/** db.php user op app_notify_set {id, on}: the person's own switch of a module's notifications. */
+function co_app_notify_set(mysqli $db, string $env, string $id, bool $on): array
+{
+    $m = co_modules($db)[$id] ?? null;
+    if ($m === null || !in_array(CO_APP_NOTIFY_PERMISSION, (array)($m['manifest']['permissions'] ?? []), true)) {
+        return ['ok' => false, 'error' => 'not_found'];
+    }
+    co_app_notify_locked($db, $env, static function (array &$d) use ($id, $on): void {
+        if ($on) unset($d['off'][$id]);
+        else $d['off'][$id] = true;
+    });
+    co_module_log($db, $id, 'notify-switch', $m['version'], $env, ['on' => $on]);
+    return ['ok' => true, 'on' => $on];
+}
+
+/** Where a click on the push goes: the module's page (default its app page) in the shell; with params the bare page. */
+function co_app_notify_url(array $m, string $env, mixed $open): string
+{
+    $open = is_array($open) ? $open : [];
+    $pages = [];
+    $app = '';
+    foreach (co_module_ui($m) as $u) {
+        if ($u['slot'] !== 'ui.page') continue;
+        $pages[] = $u['id'];
+        if ($app === '' && !empty($u['app'])) $app = $u['id'];
+    }
+    $given = array_key_exists('page', $open);
+    $page = $given ? $open['page'] : ($app !== '' ? $app : ($pages[0] ?? ''));
+    if (!is_string($page) || !in_array($page, $pages, true) || !preg_match('/^[A-Za-z0-9._-]{1,40}$/', $page)) {
+        if ($given) throw new InvalidArgumentException('open.page is not a ui.page of the module');
+        return '/';
+    }
+    $params = $open['params'] ?? [];
+    if (!is_array($params) || ($params !== [] && array_is_list($params)) || count($params) > 8) {
+        throw new InvalidArgumentException('open.params must be an object of at most 8 strings');
+    }
+    foreach ($params as $k => $v) {
+        if (!is_string($k) || !preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,30}$/', $k) || !is_string($v) || mb_strlen($v) > 300
+            || preg_match('/[\x00-\x1f]/', $v)) {
+            throw new InvalidArgumentException('open.params: names [A-Za-z][A-Za-z0-9_-]*, values short strings');
+        }
+    }
+    // the shell address has no query; a page that needs its params opens bare at /x/ (ctx.params), as fileActions do
+    if ($params === []) return '/e/' . rawurlencode($env) . '/m/' . $m['id'] . '/' . $page;
+    return '/x/' . $m['id'] . '/' . $page . '?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986);
+}
+
+/** A text field of a notification: one line, trimmed, cut to $max with an ellipsis. */
+function co_app_notify_text(mixed $v, int $max, string $name, bool $need): string
+{
+    if ($v === null) $v = '';
+    if (!is_string($v)) throw new InvalidArgumentException("$name must be a string");
+    $v = trim((string)preg_replace('/[\s\x00-\x1f\x7f]+/u', ' ', $v));
+    if ($need && $v === '') throw new InvalidArgumentException("$name must not be empty");
+    return mb_strlen($v) > $max ? rtrim(mb_substr($v, 0, $max - 1)) . '…' : $v;
+}
+
+/**
+ * One notification of module $id to the person of $env ($by: page | server | service, for the journal).
+ * $n = {title, body?, tag?, open?: {page?, params?}}. Returns {ok: true, sent, modules} (sent = devices reached),
+ * {ok: true, sent: 0, duplicate: true}, or {ok: false, error, message}. Throws InvalidArgumentException for bad fields.
+ */
+function co_app_notify(mysqli $db, string $id, string $env, array $n, string $by): array
+{
+    $m = co_modules($db)[$id] ?? null;
+    if ($m === null || !$m['enabled']) return ['ok' => false, 'error' => 'module_disabled', 'message' => "Module $id is not enabled."];
+    if (!co_app_notify_allowed($m)) {
+        return ['ok' => false, 'error' => 'permission_not_declared', 'message' => "Module $id does not declare the permission " . CO_APP_NOTIFY_PERMISSION . '.'];
+    }
+    if (!in_array($env, co_member_envs(), true)) return ['ok' => false, 'error' => 'bad_env', 'message' => 'Not a member environment.'];
+    if (co_module_person_mode($db, $m, $env) === 'off') {
+        return ['ok' => false, 'error' => 'person_off', 'message' => 'The person switched this module off for themselves.'];
+    }
+    $title = co_app_notify_text($n['title'] ?? null, 80, 'title', true);
+    $body = co_app_notify_text($n['body'] ?? null, 300, 'body', false);
+    $tag = $n['tag'] ?? '';
+    if (!is_string($tag) || ($tag !== '' && !preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,40}$/', $tag))) {
+        throw new InvalidArgumentException('tag must match [A-Za-z0-9][A-Za-z0-9._-]{0,40}');
+    }
+    $url = co_app_notify_url($m, $env, $n['open'] ?? null);
+    $face = co_app_face($m);
+    // the app's name in front: a module cannot pass its push off as one of the core ("Confirm: ...")
+    $head = trim($face['icon'] . ' ' . $face['title']) . ' · ' . $title;
+    // the push tag (and Web Push topic): per module and tag, so modules never replace each other's or the core's
+    $ptag = 'app-' . substr(hash('sha256', $id . '/' . ($tag !== '' ? $tag : bin2hex(random_bytes(8)))), 0, 20);
+    $same = hash('sha256', co_db_json([$title, $body, $url]));
+    $now = time();
+    $gate = co_app_notify_locked($db, $env, static function (array &$d) use ($id, $tag, $same, $now): array {
+        if (!empty($d['off'][$id])) return ['ok' => false, 'error' => 'notify_off', 'message' => 'The person switched off the notifications of this app.'];
+        $last = array_filter(is_array($d['last'][$id] ?? null) ? $d['last'][$id] : [],
+            static fn($x): bool => is_array($x) && (int)($x[1] ?? 0) > $now - CO_APP_NOTIFY_SAME_SEC);
+        $d['last'][$id] = (object)$last;
+        if ($tag !== '' && isset($last[$tag]) && hash_equals((string)$last[$tag][0], $same)) {
+            return ['ok' => true, 'sent' => 0, 'duplicate' => true];
+        }
+        $sent = array_values(array_filter(is_array($d['sent'][$id] ?? null) ? $d['sent'][$id] : [],
+            static fn($t): bool => is_int($t) && $t > $now - 86400));
+        $hour = array_values(array_filter($sent, static fn(int $t): bool => $t > $now - 3600));
+        $d['sent'][$id] = $sent;
+        if (count($hour) >= CO_APP_NOTIFY_HOUR || count($sent) >= CO_APP_NOTIFY_DAY) {
+            $retry = count($sent) >= CO_APP_NOTIFY_DAY ? $sent[count($sent) - CO_APP_NOTIFY_DAY] + 86400 : $hour[count($hour) - CO_APP_NOTIFY_HOUR] + 3600;
+            return ['ok' => false, 'error' => 'rate_limited', 'retryAfter' => max(1, $retry - $now),
+                'message' => 'At most ' . CO_APP_NOTIFY_HOUR . ' notifications an hour and ' . CO_APP_NOTIFY_DAY . ' a day per app.'];
+        }
+        $d['sent'][$id][] = $now;
+        if ($tag !== '') {
+            $last[$tag] = [$same, $now];
+            $d['last'][$id] = (object)$last;
+        }
+        return ['ok' => true];
+    });
+    if (!$gate['ok'] || isset($gate['duplicate'])) return $gate;
+    // every channel of the core except the sender's own notify hooks (a messenger module notifying must not loop)
+    $channels = [CO_PUSH_DEVICES];
+    foreach (co_module_hooks($db, 'notify') as $p) {
+        if ($p['module']['id'] !== $id && isset($p['hooks']['push'])) $channels[] = $p['module']['id'] . '/' . $p['id'];
+    }
+    $r = co_push_notify($env, $head, $body, $url, $ptag, null, $channels);
+    $mods = array_keys(array_filter((array)($r['modules'] ?? [])));
+    co_module_log($db, $id, 'notify', $m['version'], $env, ['by' => $by, 'tag' => $tag, 'sent' => (int)($r['sent'] ?? 0), 'modules' => $mods]);
+    return ['ok' => true, 'sent' => (int)($r['sent'] ?? 0), 'modules' => $mods];
+}
+
+/** $ctx['notify'] of a module handler: a user op (myEnv set) notifies only its caller; push/host ops name the env. */
+function co_app_notify_ctx(mysqli $db, string $id, string $myEnv): Closure
+{
+    return static function (array $n) use ($db, $id, $myEnv): array {
+        $env = is_string($n['env'] ?? null) ? $n['env'] : $myEnv;
+        if ($env === '') return ['ok' => false, 'error' => 'env_required', 'message' => 'A push or host op names the env of the person.'];
+        if ($myEnv !== '' && $env !== $myEnv) return ['ok' => false, 'error' => 'not_your_env', 'message' => 'A user op notifies only its caller.'];
+        try {
+            return co_app_notify($db, $id, $env, $n, 'server');
+        } catch (InvalidArgumentException $e) {
+            return ['ok' => false, 'error' => 'bad_request', 'message' => $e->getMessage()];
+        }
+    };
+}

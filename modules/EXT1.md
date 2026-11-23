@@ -37,6 +37,7 @@ Files the core reads itself (`context/*.md|txt`) must be registered files of the
 | `media.play` | `coExt.play` (composer slot) |
 | `chat.post` | `chat.ask` |
 | `ui.navigate` | `navigate` (only to targets of `provides.navigate`) |
+| `notify.push` | `coExt.notify` from any page and `$ctx['notify']` of server code: pushes of the app to its person (see *Notifications*) |
 
 ### Desktop windows (`ui.window`)
 
@@ -135,6 +136,49 @@ person of the job's environment, as if the person pressed the button in the app.
 Example (`smart-home` 0.4.0): `home_state` (read the house, `outward: false`) and `home_control` (switch a device,
 `outward: true` — the agent's call becomes a card; the house switches only after the person's Run).
 
+## Notifications of apps (F14b-3, SPEC §3.6a item 8)
+
+An app tells its person about something while it is closed (an important letter, a reminder) through the core's push.
+Permission `notify.push` in `permissions` (an update that adds it switches the module off until the owner agrees, as any
+grown permission: `freedom_modules.py enable <id>`).
+
+- **From a page** (any slot, e.g. the tray page that stays loaded): `coExt.notify({title, body?, tag?, open?})` →
+  `{ok: true, sent}` or `{ok: false, error, message, retryAfter?}`; it goes to the signed-in person only (user op
+  `app_notify`, env of the session).
+- **From server code** (standard modules): `$ctx['notify']([...])` in any handler. A user op notifies only its caller
+  (`env` defaults to `myEnv`, another env is refused `not_your_env`); a push or host op (a service) names `env` (a
+  member). A service on the home PC without PHP: push.php `op=app_notify {module, env, title, body?, tag?, open?}` with
+  the push key (`X-CO-Push-Key`).
+- **Fields**: `title` (required, 80 characters), `body` (300; whitespace folds into one line), `tag`
+  (`[A-Za-z0-9][A-Za-z0-9._-]{0,40}`: a new push with the same tag replaces the shown one; the same tag with the same
+  title, body and address within 10 minutes is not sent at all, answer `{duplicate: true}`), `open {page?, params?}`
+  (a `ui.page` id of the module, default its app page; the click opens `/e/<env>/m/<module>/<page>` in the shell, with
+  `params` (up to 8 short strings) the bare page `/x/<module>/<page>?…` that gets them as `ctx.params`; in CO Desktop
+  the app's window).
+- **What the person sees**: the push title is "<app icon> <app name> · <title>" (a module cannot pass its push off as
+  one of the core). It goes through `co_push_notify` to the person's subscribed devices and to the notify hooks of the
+  other enabled modules (e.g. WhatsApp), never to the sender's own hooks (no loop).
+- **Limits and switches**: at most 10 an hour and 50 a day per app and person (`rate_limited` with `retryAfter` in
+  seconds); no quiet hours (the core has none). The person switches an app's notifications off for themselves in
+  Settings → the module ("Notifications", user op `app_notify_set {id, on}`; `modules_list` gives `notify: {on}` for
+  modules with the permission); `personal` mode `off` stops them too (`person_off`).
+- **Journal**: every push sent is a `notify` row of `module_log` (`by` page | server | service, `tag`, devices reached,
+  hooks that took it); the switch is a `notify-switch` row.
+
+Minimal example — a module that tells its person when a long import finished (server code of a user op):
+
+```php
+'import_done' => static function (array $ctx, array $in): array {
+    // ... the work ...
+    $ctx['notify'](['title' => 'Import finished', 'body' => count($in['chats'] ?? []) . ' chats imported', 'tag' => 'import',
+        'open' => ['page' => 'import']]);
+    return ['ok' => true];
+},
+```
+
+and in `module.json`: `"permissions": ["notify.push"]`. A page does the same with
+`coExt.notify({title: 'Import finished', tag: 'import'})`. Test: `co-agent/tests/notify-test.php`.
+
 ## Device parts compiled into CO Desktop
 
 Most device work of a module is `provides.deviceTools` with a `run` script (`device/`, sha256-checked before each run).
@@ -158,6 +202,7 @@ A page includes `/ext/ext1.js` and talks through `window.coExt`:
 - `coExt.navigate(url, target)` — `self` (whole window) or `blank` (new tab/window).
 - `coExt.title(text)` — window title of a `ui.page` (applied while the app is shown).
 - `coExt.badge(v)` — the module's badge in the shell (count on its app tile, dot on ▦); `0`/blank/`null` clears it.
+- `coExt.notify({title, body, tag, open})` — a push to the signed-in person (`notify.push`, *Notifications of apps*).
 - `coExt.on('context'|'blur'|'chat'|'refresh', fn)` — `refresh`: an action an agent asked for ran in this app (F14b-1; also the person's Run on its card, F14b-2).
 
 Composer slot (`ui.composer`, a page in the action row of the message box; CO Web captures for the frame, which has an

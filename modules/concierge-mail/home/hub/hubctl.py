@@ -145,7 +145,9 @@ def keep_old_relay(args):
         return
     unit = f'/etc/systemd/system/{OLD_RELAY}.service'
     ssh(args, f'set -e; if [ ! -d {LEGACY_CODE} ]; then grep -q relay-serve /opt/concierge-mail/modules/concierge-mail/home/mailcli.py;'
-              f' sudo cp -a /opt/concierge-mail {LEGACY_CODE}.new; sudo mv {LEGACY_CODE}.new {LEGACY_CODE}; fi; sudo mkdir -p {unit}.d')
+              f' sudo rm -rf {LEGACY_CODE}.new; sudo cp -a /opt/concierge-mail {LEGACY_CODE}.new;'  # a copy left by an interrupted run goes first
+              f' grep -q relay-serve {LEGACY_CODE}.new/modules/concierge-mail/home/mailcli.py; sudo mv -T {LEGACY_CODE}.new {LEGACY_CODE}; fi;'
+              f' sudo mkdir -p {unit}.d')
     # the person user of 0.9 (an 0.8 template names cmail-%i); a person not renamed yet gets 10-person-user.conf from
     # _units(), which comes later in the drop-in order and wins
     ssh(args, f'sudo tee {unit}.d/05-legacy-code.conf >/dev/null',

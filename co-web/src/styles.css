@@ -863,3 +863,54 @@ button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
   .app-bar-back-label { display: none; }
   .recent-apps.hide-mobile { display: none; }
 }
+
+/* F15.1: Explorer view of the left panel (Explorer.tsx) */
+.explorer { display: flex; flex-direction: column; gap: 6px; }
+.ex-bar { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.ex-up { flex: none; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 6px; background: none; color: inherit; cursor: pointer; font-size: 15px; }
+.ex-up:disabled { opacity: .35; cursor: default; }
+.ex-up:not(:disabled):hover { background: var(--panel-2); }
+.ex-crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 0 2px; min-width: 0; font-size: 13px; }
+.ex-crumb { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; }
+.ex-crumb button, .ex-here { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 4px; border-radius: 4px; }
+.ex-crumb button { border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; }
+.ex-crumb button:hover { background: var(--panel-2); }
+.ex-here { font-weight: 600; }
+.ex-sep { color: var(--muted); padding: 0 1px; }
+.ex-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ex-tools kbd { font: inherit; font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; margin-left: 2px; }
+.ex-views { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.ex-views button { border: 0; background: none; color: inherit; cursor: pointer; padding: 2px 8px; font-size: 13px; }
+.ex-views button.on { background: var(--user); }
+.ex-items { list-style: none; margin: 0; padding: 0; }
+.ex-item { position: relative; display: flex; align-items: center; gap: 6px; width: 100%; border: 1px solid transparent; border-radius: 8px; background: none; color: inherit; font: inherit; cursor: pointer; text-align: left; user-select: none; -webkit-tap-highlight-color: transparent; }
+.ex-item:hover { background: var(--panel-2); }
+.ex-item.sel { border-color: var(--line); }
+.ex-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ex-item.active { background: var(--user); font-weight: 600; }
+.ex-item.self .ex-title { font-style: italic; }
+.ex-icon { position: relative; flex: none; line-height: 1; }
+.ex-status { position: absolute; right: -6px; bottom: -4px; display: inline-flex; }
+.ex-status:empty { display: none; }
+.ex-title { min-width: 0; overflow: hidden; }
+.ex-date, .ex-sub { color: var(--muted); font-size: 11px; font-weight: 400; white-space: nowrap; }
+.ex-list .ex-item { padding: 6px 8px; }
+.ex-list .ex-icon { font-size: 17px; width: 22px; text-align: center; }
+.ex-list .ex-title { flex: 1; text-overflow: ellipsis; white-space: nowrap; }
+.ex-icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 4px; }
+.ex-icons .ex-item { flex-direction: column; justify-content: flex-start; gap: 4px; padding: 8px 4px; height: 100%; text-align: center; font-size: 12px; }
+.ex-icons .ex-icon { font-size: 30px; }
+.ex-icons .ex-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.25; word-break: break-word; }
+.ex-jump-scrim { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,.35); display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; }
+.ex-jump { width: min(560px, 94vw); max-height: 70vh; display: flex; flex-direction: column; padding: 10px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.3); }
+.ex-jump .search { margin-bottom: 6px; font-size: 15px; padding: 9px 11px; }
+.ex-jump-list { list-style: none; margin: 0; padding: 0; overflow: auto; }
+.ex-jump-list li { display: flex; align-items: baseline; gap: 8px; padding: 7px 9px; border-radius: 7px; cursor: pointer; }
+.ex-jump-list li.sel { background: var(--user); }
+.ex-jump-list .ex-title { flex: 1; text-overflow: ellipsis; white-space: nowrap; }
+.ex-where { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+@media (max-width: 760px) {
+  .ex-jump-scrim { padding-top: 6vh; }
+  .ex-list .ex-item { padding: 10px 8px; }
+  .ex-tools kbd { display: none; }
+}

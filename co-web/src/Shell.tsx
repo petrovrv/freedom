@@ -34,6 +34,8 @@ import { LimitsBar } from './Limits';
 import Inspector from './Inspector';
 import FamilyPanel from './FamilyPanel';
 import Launcher from './Launcher';
+import Explorer from './Explorer';
+import { readExplorerOn, writeExplorerOn } from './explorerTree';
 import AppHost, { RecentApps, useAppEvents } from './AppHost';
 import { trayWantsRefresh } from './appEvents';
 import { appKey, exitTarget, findApp, findPage, liveLimit, loadRecent, pruneApps, RECENT_MAX, saveRecent, touchApp, type AppRef } from './appStack';
@@ -41,7 +43,7 @@ import { shellOpen, type ShellApp } from './extBridge';
 import { ModuleFrame, ModuleSlots, modulePages, useModules, type PanelLink } from './ModuleSlot';
 import type { Chat, ChatEvent, LimitsFile, Mode, OwnerInfo, Project } from './types';
 
-import { SAFE_ID, formatLocal } from './util';
+import { SAFE_ID, formatLocal, mapLimit } from './util';
 import { autoHost, HOME, ownBridgeWaiting, SITE, type HostPref } from './routing';
 import { applyExecutors, autoOrder, HOST_ID_RE, loadCachedExecutors } from './executors';
 import { dbExecutors } from './dbapi';
@@ -111,6 +113,16 @@ export default function Shell({ auth }: { auth: Signed }) {
   const [fatal, setFatal] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [chats, setChats] = useState<Chat[] | null>(null);
+  // F15.1: the project whose chats `chats` holds (null while the open project's list loads)
+  const [chatsPid, setChatsPid] = useState<string | null>(null);
+  // F15.1: Explorer view of the left panel (off by default, ☰ menu) and the chats of the other projects it shows
+  const [explorerOn, setExplorerOnState] = useState(readExplorerOn);
+  const setExplorerOn = (on: boolean) => {
+    writeExplorerOn(on);
+    setExplorerOnState(on);
+  };
+  const [exChats, setExChats] = useState<Record<string, { at: number; list: Chat[] }>>({});
+  const exLoading = useRef(new Set<string>());
   // 0.40.0: rerender after a tree node is collapsed/expanded (state lives in localStorage)
   const [, setTreeOpenTick] = useState(0);
   // 0.50.0: the active project's chat list collapses on a click on the project; reset when the project changes
@@ -467,17 +479,50 @@ export default function Shell({ auth }: { auth: Signed }) {
     if (!project || !authOk) return;
     try {
       setChats(await listChats(project, env)); // 0.48.0: preview-aware
+      setChatsPid(project.projectId);
     } catch (e) {
       console.warn(e);
     }
   }, [project, authOk, env]);
   useEffect(() => {
     setChats(null);
+    setChatsPid(null);
     void refreshChats();
   }, [project?.folderId]); // eslint-disable-line react-hooks/exhaustive-deps
   useInterval(refreshChats, POLL_LISTS_MS, !!project && authOk);
 
   const chat = useMemo(() => chats?.find((c) => c.chatId === chatId) || null, [chats, chatId]);
+
+  // F15.1: the Explorer browses any project; chats of the open project come from `chats`, the others load on demand
+  useEffect(() => {
+    setExChats({});
+    exLoading.current.clear();
+  }, [env]);
+  const exLoad = useCallback(async (pid: string) => {
+    const p = projects?.find((x) => x.projectId === pid);
+    if (!p || !authOk || exLoading.current.has(pid)) return;
+    exLoading.current.add(pid);
+    try {
+      const list = await listChats(p, env);
+      setExChats((m) => ({ ...m, [pid]: { at: Date.now(), list } }));
+    } catch (e) {
+      console.warn('explorer chats', e);
+    } finally {
+      exLoading.current.delete(pid);
+    }
+  }, [projects, authOk, env]);
+  const exFresh = (pid: string) => Date.now() - (exChats[pid]?.at ?? 0) < POLL_LISTS_MS;
+  const exLoadOne = (pid: string) => {
+    if (pid !== projectId && !exFresh(pid)) void exLoad(pid);
+  };
+  const exLoadAll = () => {
+    const todo = (projects || []).filter((p) => !p.family && !p.archived && p.projectId !== projectId && !exFresh(p.projectId));
+    void mapLimit(todo, 4, (p) => exLoad(p.projectId));
+  };
+  const exChatsOf = useCallback(
+    (pid: string): Chat[] | null => (pid === projectId && chatsPid === pid ? chats : exChats[pid]?.list ?? null),
+    [projectId, chatsPid, chats, exChats],
+  );
 
   // F10 (ext/1 chat.mode viewer): "?<param>=<path relative to AI-Workbench>" of a mode with a viewer shows the module's
   // viewer (ui.panel) left of the chat of that document. On a project URL the chat of the document (chat[<key>Doc])
@@ -583,6 +628,9 @@ export default function Shell({ auth }: { auth: Signed }) {
     if (e.key === 'Enter' || e.key === ' ') toggleTree(e, id, open);
   };
   const archivedProjects = visibleProjects.filter((p) => p.archived);
+  // F15.1: the Explorer view sorts projects like the tree (newest chat activity, waiting items)
+  const exProjectFresh = (p: Project) => projectFreshness(p, activity);
+  const exProjectWait = (p: Project) => inboxByProject.get(p.projectId) || 0;
 
   async function pickProjectAction(action: ProjectAction, p: Project) {
     // F10: a chat mode of a module for new chats of the project (<key>Default)
@@ -722,6 +770,10 @@ export default function Shell({ auth }: { auth: Signed }) {
                 ] as [InspectorTab, string, string][]).map(([t, label, hint]) => (
                   <button key={t} role="menuitem" title={hint} onClick={() => openInspectorTab(t)}>{label}</button>
                 ))}
+                {/* F15.1: Explorer view of the left panel instead of the tree, remembered in this browser */}
+                <button role="menuitemcheckbox" aria-checked={explorerOn} title="Projects and chats as folders with a path bar and Ctrl+K; off: the tree" onClick={() => setExplorerOn(!explorerOn)}>
+                  🗂 Explorer view{explorerOn ? ' ✓' : ''}
+                </button>
                 <div className="app-menu-sep" />
                 <div className="app-menu-who small muted">{envName} · {auth.email}</div>
                 <button role="menuitem" onClick={signOut}>Sign out</button>
@@ -865,6 +917,28 @@ export default function Shell({ auth }: { auth: Signed }) {
             </div>
             {projects === null && <div className="muted small pad">Loading…</div>}
             {projects?.length === 0 && <div className="muted small pad">No projects in {envName}.</div>}
+            {/* F15.1: the Explorer view (☰ → Explorer view); the tree below stays the default */}
+            {explorerOn && projects && (
+              <Explorer
+                rootLabel={envName}
+                projects={projects}
+                chatsOf={exChatsOf}
+                loadChats={exLoadOne}
+                loadAll={exLoadAll}
+                routeProjectId={projectId}
+                routeChatId={chatId}
+                sort={sortMode}
+                filter={filter}
+                statusOf={statusOf}
+                workingOf={(pid) => workingByProject.get(pid) || 0}
+                projectFresh={exProjectFresh}
+                projectWait={exProjectWait}
+                chatWait={chatWaitRank}
+                onOpenChat={(pid, cid) => { navigate(`/e/${env}/p/${pid}/c/${cid}`); setLeftOpen(false); }}
+                onOpenProject={(pid) => { navigate(`/e/${env}/p/${pid}`); setLeftOpen(false); }}
+              />
+            )}
+            {!explorerOn && (<>
             <ul className="nav-list">
               {visibleProjects.filter((p) => !p.archived || p.projectId === projectId).map((p) => (
                 <li key={p.folderId}>
@@ -1077,6 +1151,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                 )}
               </div>
             )}
+            </>)}
             {pendingBridge.length > 0 && (
               <div className="pending-bridge">
                 <div className="section-head"><span>On home agent, not in Drive</span></div>

@@ -1,0 +1,328 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// F15.1 (SPEC §3.6b п. 1): the Explorer view of the left panel over today's projects and chats. Projects and chats are
+// folders (child chats are nested folders), a path bar leads back up, Ctrl+K jumps to any project or chat by its title.
+// Pure logic here (Explorer.tsx draws it); the tree view of the panel stays the default (co.explorer, off).
+import type { Chat, Project } from './types';
+import { compareBy, sortTitle, ts, type SortMode } from './sidebarSort.ts';
+
+/** Where the Explorer is: the root (projects), a project (its top chats) or a chat with child chats (chain of chat ids). */
+export interface ExplorerPath {
+  projectId?: string;
+  chatIds: string[];
+}
+
+export const ROOT_PATH: ExplorerPath = { chatIds: [] };
+
+export type ExplorerItem =
+  | { kind: 'project'; key: string; project: Project; title: string }
+  | { kind: 'chat'; key: string; chat: Chat; title: string; folder: boolean; count: number }
+  // the chat whose folder is open: its own conversation, first in the folder
+  | { kind: 'self'; key: string; chat: Chat; title: string };
+
+export interface Crumb {
+  label: string;
+  path: ExplorerPath;
+}
+
+export type ExplorerView = 'icons' | 'list';
+
+const ON_KEY = 'co.explorer';
+const VIEW_KEY = 'co.explorer.view';
+
+function readKey(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function writeKey(key: string, v: string): void {
+  try {
+    localStorage.setItem(key, v);
+  } catch {
+    /* storage unavailable or full */
+  }
+}
+
+/** The Explorer view is off unless switched on in this browser. */
+export const readExplorerOn = (): boolean => readKey(ON_KEY) === '1';
+export const writeExplorerOn = (on: boolean): void => writeKey(ON_KEY, on ? '1' : '0');
+export const readExplorerView = (): ExplorerView => (readKey(VIEW_KEY) === 'list' ? 'list' : 'icons');
+export const writeExplorerView = (v: ExplorerView): void => writeKey(VIEW_KEY, v);
+
+const SUBTASK_PREFIX = '⤷ ';
+/** Shown title: no ⏰ of scheduled chats, no ⤷ of subtasks (the folder already says where it belongs). */
+export function itemTitle(title: string): string {
+  let t = (title || '').replace(/^⏰\s*/u, '');
+  if (t.startsWith(SUBTASK_PREFIX)) t = t.slice(SUBTASK_PREFIX.length);
+  return t || '(untitled)';
+}
+
+/** Parent chat of each chat, only when the parent is in the list; a chat that is its own ancestor stays on top. */
+export function chatParents(chats: Chat[]): Map<string, string> {
+  const byId = new Map<string, Chat>();
+  for (const c of chats) if (c?.chatId && !byId.has(c.chatId)) byId.set(c.chatId, c);
+  const raw = (c: Chat): string | undefined => {
+    const pid = c.parent?.chatId;
+    return pid && pid !== c.chatId && byId.has(pid) ? pid : undefined;
+  };
+  const out = new Map<string, string>();
+  for (const c of byId.values()) {
+    const pid = raw(c);
+    if (!pid) continue;
+    const seen = new Set<string>([c.chatId]);
+    let cur: string | undefined = pid;
+    let cyclic = false;
+    while (cur) {
+      if (seen.has(cur)) {
+        cyclic = cur === c.chatId;
+        break;
+      }
+      seen.add(cur);
+      const next = byId.get(cur);
+      cur = next ? raw(next) : undefined;
+    }
+    if (!cyclic) out.set(c.chatId, pid);
+  }
+  return out;
+}
+
+/** The folder a chat lives in: its project and the chain of its parent chats (top first). */
+export function pathOfChat(projectId: string, chatId: string, chats: Chat[]): ExplorerPath {
+  const parents = chatParents(chats.filter((c) => !c.archived));
+  const chain: string[] = [];
+  for (let cur = parents.get(chatId); cur && !chain.includes(cur); cur = parents.get(cur)) chain.unshift(cur);
+  return { projectId, chatIds: chain };
+}
+
+export function samePath(a: ExplorerPath, b: ExplorerPath): boolean {
+  return (a.projectId || '') === (b.projectId || '') && a.chatIds.join('/') === b.chatIds.join('/');
+}
+
+export function parentPath(p: ExplorerPath): ExplorerPath {
+  if (p.chatIds.length) return { projectId: p.projectId, chatIds: p.chatIds.slice(0, -1) };
+  return ROOT_PATH;
+}
+
+/** The folder of a chat that has children; a chat without children is opened, not entered. */
+export function childPath(p: ExplorerPath, item: ExplorerItem): ExplorerPath | null {
+  if (item.kind === 'project') return { projectId: item.project.projectId, chatIds: [] };
+  if (item.kind === 'chat' && item.folder && p.projectId) return { projectId: p.projectId, chatIds: [...p.chatIds, item.chat.chatId] };
+  return null;
+}
+
+/**
+ * The path that still exists: a project that is gone leads to the root, a chat folder that is gone or has no children
+ * any more leads to the nearest folder above it. `chats` are the chats of the path's project (null: not loaded yet,
+ * the path is kept).
+ */
+export function validPath(p: ExplorerPath, projects: Project[], chats: Chat[] | null): ExplorerPath {
+  if (!p.projectId) return ROOT_PATH;
+  if (!projects.some((x) => x.projectId === p.projectId)) return ROOT_PATH;
+  if (!chats) return p;
+  const live = chats.filter((c) => !c.archived);
+  const parents = chatParents(live);
+  const kids = new Set(parents.values());
+  const ids = new Set(live.map((c) => c.chatId));
+  const keep: string[] = [];
+  for (const id of p.chatIds) {
+    const above = keep.length ? keep[keep.length - 1] : undefined;
+    if (!ids.has(id) || !kids.has(id) || parents.get(id) !== above) break;
+    keep.push(id);
+  }
+  return keep.length === p.chatIds.length ? p : { projectId: p.projectId, chatIds: keep };
+}
+
+export interface ItemOpts {
+  sort: SortMode;
+  filter?: string;
+  /** newest activity of a project (search.projectFreshness) */
+  projectFresh?: (p: Project) => string;
+  /** waiting rank of a project or a chat (higher waits more), for the 'waiting' sort */
+  projectWait?: (p: Project) => number;
+  chatWait?: (c: Chat) => number;
+}
+
+const fresh = (c: Chat): number => ts(c.updatedUtc) || ts(c.createdUtc);
+const norm = (s: string) => sortTitle(s || '').toLowerCase();
+
+/**
+ * Items of one folder in display order. Root: projects (no family room, no archived ones). A project: its top chats.
+ * A chat folder: the chat itself first, then its child chats. Archived chats are not shown (F15.2: the archive).
+ * A filter keeps the items whose title contains it.
+ */
+export function explorerItems(p: ExplorerPath, projects: Project[], chats: Chat[] | null, o: ItemOpts): ExplorerItem[] {
+  const f = (o.filter || '').trim().toLowerCase();
+  const match = (title: string, extra = '') => !f || title.toLowerCase().includes(f) || extra.toLowerCase().includes(f);
+  const cmp = compareBy(o.sort);
+  if (!p.projectId) {
+    return projects
+      .filter((x) => !x.family && !x.archived && match(x.title, x.projectId))
+      .map((x) => ({
+        x,
+        k: {
+          id: x.projectId,
+          title: x.title,
+          created: ts(x.createdUtc),
+          fresh: ts(o.projectFresh ? o.projectFresh(x) : x.updatedUtc),
+          waiting: o.projectWait?.(x) ?? 0,
+        },
+      }))
+      .sort((a, b) => cmp(a.k, b.k))
+      .map(({ x }): ExplorerItem => ({ kind: 'project', key: 'p:' + x.projectId, project: x, title: x.title || x.projectId }));
+  }
+  if (!chats) return [];
+  const live = chats.filter((c) => !c.archived);
+  const parents = chatParents(live);
+  const kids = new Map<string, Chat[]>();
+  for (const c of live) {
+    const pid = parents.get(c.chatId);
+    if (!pid) continue;
+    const arr = kids.get(pid);
+    if (arr) arr.push(c);
+    else kids.set(pid, [c]);
+  }
+  // subtree freshness and waiting, so an active subchat lifts its folder
+  const treeFresh = new Map<string, number>();
+  const treeWait = new Map<string, number>();
+  const size = new Map<string, number>();
+  const visit = (c: Chat, depth: number): void => {
+    let fr = fresh(c);
+    let w = o.chatWait?.(c) ?? 0;
+    let n = 0;
+    if (depth < 64) {
+      for (const k of kids.get(c.chatId) ?? []) {
+        visit(k, depth + 1);
+        fr = Math.max(fr, treeFresh.get(k.chatId) ?? 0);
+        w = Math.max(w, treeWait.get(k.chatId) ?? 0);
+        n += 1 + (size.get(k.chatId) ?? 0);
+      }
+    }
+    treeFresh.set(c.chatId, fr);
+    treeWait.set(c.chatId, w);
+    size.set(c.chatId, n);
+  };
+  const here = p.chatIds.length ? p.chatIds[p.chatIds.length - 1] : undefined;
+  const list = here ? kids.get(here) ?? [] : live.filter((c) => !parents.has(c.chatId));
+  list.forEach((c) => visit(c, 0));
+  const sorted = list
+    .filter((c) => match(itemTitle(c.title)))
+    .map((c) => ({
+      c,
+      k: { id: c.chatId, title: c.title || '', created: ts(c.createdUtc), fresh: treeFresh.get(c.chatId) ?? 0, waiting: treeWait.get(c.chatId) ?? 0 },
+    }))
+    .sort((a, b) => cmp(a.k, b.k))
+    .map(({ c }): ExplorerItem => {
+      const n = (kids.get(c.chatId) ?? []).length;
+      return { kind: 'chat', key: 'c:' + c.chatId, chat: c, title: itemTitle(c.title), folder: n > 0, count: size.get(c.chatId) ?? 0 };
+    });
+  const self = here ? live.find((c) => c.chatId === here) : undefined;
+  return self ? [{ kind: 'self', key: 's:' + self.chatId, chat: self, title: itemTitle(self.title) }, ...sorted] : sorted;
+}
+
+/** Path bar: the environment, then the project, then each chat folder; the last one is where the Explorer is. */
+export function crumbs(p: ExplorerPath, rootLabel: string, projects: Project[], chats: Chat[] | null): Crumb[] {
+  const out: Crumb[] = [{ label: rootLabel, path: ROOT_PATH }];
+  if (!p.projectId) return out;
+  const proj = projects.find((x) => x.projectId === p.projectId);
+  out.push({ label: proj?.title || p.projectId, path: { projectId: p.projectId, chatIds: [] } });
+  p.chatIds.forEach((id, i) => {
+    const c = chats?.find((x) => x.chatId === id);
+    out.push({ label: c ? itemTitle(c.title) : '…', path: { projectId: p.projectId, chatIds: p.chatIds.slice(0, i + 1) } });
+  });
+  return out;
+}
+
+export interface JumpHit {
+  kind: 'project' | 'chat';
+  projectId: string;
+  chatId?: string;
+  title: string;
+  where: string; // project title of a chat, '' for a project
+  score: number;
+}
+
+// Russian / Ukrainian keys of the same place as the Latin ones: "ghjtrn" finds "проект" and back
+const LAT = "qwertyuiop[]asdfghjkl;'zxcvbnm,.`";
+const CYR = 'йцукенгшщзхъфывапролджэячсмитьбюё';
+function swapLayout(s: string): string {
+  let out = '';
+  for (const ch of s) {
+    const i = LAT.indexOf(ch);
+    const j = CYR.indexOf(ch);
+    out += i >= 0 ? CYR[i] : j >= 0 ? LAT[j] : ch;
+  }
+  return out;
+}
+
+/** 3 = title starts with the query, 2 = a word starts with it, 1 = contains it, 0 = no match. */
+function matchScore(title: string, q: string): number {
+  const t = norm(title);
+  if (!q || !t) return 0;
+  if (t.startsWith(q)) return 3;
+  if (t.split(/[^\p{L}\p{N}]+/u).some((w) => w.startsWith(q))) return 2;
+  return t.includes(q) ? 1 : 0;
+}
+
+/**
+ * Ctrl+K: projects and chats whose title matches the query (also typed in the other keyboard layout), best first:
+ * start of the title, start of a word, anywhere; projects before chats of the same rank, then the newest.
+ * Archived projects and chats and the family room are left out.
+ */
+export function quickJump(
+  query: string,
+  projects: Project[],
+  chatsOf: (projectId: string) => Chat[] | null | undefined,
+  limit = 20,
+): JumpHit[] {
+  const q = norm(query.trim());
+  if (!q) return [];
+  const alt = swapLayout(q);
+  const score = (title: string) => Math.max(matchScore(title, q), alt !== q ? matchScore(title, alt) - 0.5 : 0);
+  const hits: Array<JumpHit & { fresh: number }> = [];
+  for (const p of projects) {
+    if (p.family || p.archived) continue;
+    const s = Math.max(score(p.title), norm(p.projectId) === q ? 3 : 0);
+    if (s > 0) hits.push({ kind: 'project', projectId: p.projectId, title: p.title || p.projectId, where: '', score: s + 0.25, fresh: ts(p.updatedUtc) });
+    for (const c of chatsOf(p.projectId) || []) {
+      if (c.archived) continue;
+      const t = itemTitle(c.title);
+      const cs = score(t);
+      if (cs > 0) hits.push({ kind: 'chat', projectId: p.projectId, chatId: c.chatId, title: t, where: p.title || p.projectId, score: cs, fresh: fresh(c) });
+    }
+  }
+  hits.sort((a, b) => b.score - a.score || b.fresh - a.fresh || a.title.localeCompare(b.title));
+  return hits.slice(0, limit).map(({ fresh: _f, ...h }) => h);
+}
+
+/** Next focused index of a grid/list for a key, or null when the key does not move the focus. */
+export function moveFocus(key: string, index: number, count: number, columns: number): number | null {
+  if (count <= 0) return null;
+  const cols = Math.max(1, columns);
+  const clamp = (i: number) => Math.min(count - 1, Math.max(0, i));
+  switch (key) {
+    case 'ArrowRight':
+      return clamp(index + 1);
+    case 'ArrowLeft':
+      return clamp(index - 1);
+    case 'ArrowDown':
+      return clamp(index + cols);
+    case 'ArrowUp':
+      return clamp(index - cols);
+    case 'Home':
+      return 0;
+    case 'End':
+      return count - 1;
+    default:
+      return null;
+  }
+}
+
+/** Short date of the list view: the time today, day and month this year, else the date with the year. */
+export function shortDate(utc: string | undefined | null, now = new Date()): string {
+  const d = utc ? new Date(utc) : null;
+  if (!d || isNaN(d.getTime())) return '';
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}

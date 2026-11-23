@@ -19,6 +19,7 @@ import json
 import re
 import secrets
 import sqlite3
+import sys
 import threading
 import time
 import urllib.parse
@@ -145,15 +146,16 @@ class GmailWrite:
         except LookupError:
             return False
 
-    def drafts(self):
-        out, page = [], None
-        while True:
-            q = {'maxResults': 500, **({'pageToken': page} if page else {})}
-            data = self.call('GET', 'drafts?' + urllib.parse.urlencode(q))
-            out += data.get('drafts') or []
-            page = data.get('nextPageToken')
-            if not page or len(out) >= 5000:
-                return out
+    def drafts(self, limit=50):
+        data = self.call('GET', 'drafts?' + urllib.parse.urlencode({'maxResults': max(1, min(int(limit), 100))}))
+        return data.get('drafts') or []
+
+    def draft_meta(self, draft_id):
+        q = urllib.parse.urlencode([('format', 'metadata'), ('metadataHeaders', 'To'), ('metadataHeaders', 'Subject')])
+        return self.call('GET', f'drafts/{draft_id}?' + q).get('message') or {}
+
+    def draft_raw(self, draft_id):
+        return self.call('GET', f'drafts/{draft_id}?format=raw')
 
     def modify(self, thread_id, add, remove):
         return self.call('POST', f'threads/{thread_id}/modify', {'addLabelIds': add, 'removeLabelIds': remove})
@@ -180,6 +182,11 @@ def _addresses(value, field):
     if len(out) > RCPT_MAX:
         raise ValueError('too many recipients')
     return out
+
+
+def _page(fields):
+    """The fields the page sees and sends back (the base* of a draft written elsewhere stay on the home server)."""
+    return {k: v for k, v in fields.items() if not k.startswith('base')}
 
 
 def _text_of_html(html):
@@ -257,7 +264,15 @@ class Composer:
     # -- building the letter
 
     def build(self, fields, attachments):
-        """MIME bytes of the letter: text/plain + text/html (the text, the account's Gmail signature, the quote)."""
+        """(MIME bytes, own Message-ID) of the letter: text/plain + text/html (the text, the account's Gmail signature,
+        the quote) — or, for a draft written elsewhere whose text and files are untouched, its original MIME with new
+        address lines, subject, date and Message-ID."""
+        if fields.get('base') and fields.get('text') == fields.get('base_text') and \
+                sorted(a['sha'] for a in attachments) == sorted(fields.get('base_atts') or []):
+            try:
+                return self._rebuild_base(fields)
+            except (OSError, ValueError):
+                pass  # the original is unreadable: build anew from the text
         msg = EmailMessage(policy=policy.SMTP)
         name, sig = self.identity()
         msg['From'] = formataddr((name, self.account)) if name else self.account
@@ -304,6 +319,25 @@ class Composer:
             maintype, _, subtype = (att.get('type') or 'application/octet-stream').partition('/')
             msg.add_attachment(data, maintype=maintype or 'application', subtype=subtype or 'octet-stream',
                                filename=att.get('name') or 'file')
+        return msg.as_bytes(), mid
+
+    def _rebuild_base(self, fields):
+        msg = BytesParser(policy=policy.SMTP).parsebytes(self.store.read_blob(fields['base']))
+        name, _ = self.identity()
+        for h in ('From', 'To', 'Cc', 'Bcc', 'Subject', 'Date', 'Message-ID'):
+            del msg[h]
+        msg['From'] = formataddr((name, self.account)) if name else self.account
+        for field in ('to', 'cc', 'bcc'):
+            addrs = _addresses(fields.get(field), field)
+            if addrs:
+                msg[field.capitalize()] = ', '.join(addrs)
+        subject = str(fields.get('subject') or '')
+        if re.search(r'[\r\n\x00]', subject):
+            raise ValueError('bad subject')
+        msg['Subject'] = subject[:500]
+        msg['Date'] = formatdate(localtime=True)
+        mid = make_msgid(domain=self.account.split('@')[-1])
+        msg['Message-ID'] = mid
         return msg.as_bytes(), mid
 
     def _save(self, key, row, fields, attachments):
@@ -518,34 +552,61 @@ class Composer:
         rows = self.db.execute('SELECT c.key, c.fields, c.attachments, c.draft_id, c.message_id, c.updated FROM compose c'
                                ' LEFT JOIN outbox o ON o.key=c.key WHERE c.account=? AND (o.state IS NULL OR o.state IN'
                                " ('cancelled','failed')) ORDER BY c.updated DESC LIMIT 100", (self.account,)).fetchall()
-        return {'drafts': [{'key': r['key'], 'fields': json.loads(r['fields']), 'attachments': self._public(json.loads(r['attachments'])),
+        return {'drafts': [{'key': r['key'], 'fields': _page(json.loads(r['fields'])), 'attachments': self._public(json.loads(r['attachments'])),
                             'draft': r['draft_id'], 'message': r['message_id'], 'saved': r['updated']} for r in rows]}
 
+    def gmail_drafts(self, args):
+        """The Drafts folder (drafts are not synced into the store): the newest drafts at the provider with their
+        subject, recipients and snippet; `key` when the letter is being written here."""
+        ours = {r['draft_id']: r['key'] for r in self.db.execute('SELECT draft_id, key FROM compose WHERE account=?', (self.account,))}
+        items = []
+        for d in self.gmail().drafts(limit=int(args.get('limit') or 50)):
+            try:
+                m = self.gmail().draft_meta(d['id'])
+            except LookupError:
+                continue
+            head = {h.get('name', '').lower(): h.get('value', '') for h in (m.get('payload') or {}).get('headers') or []}
+            items.append({'draft': d['id'], 'key': ours.get(d['id'], ''), 'subject': head.get('subject', ''), 'to': head.get('to', ''),
+                          'snippet': htmllib.unescape(m.get('snippet') or ''), 'date': int(m.get('internalDate') or 0),
+                          'thread': m.get('threadId') or ''})
+        return {'drafts': items}
+
     def open_draft(self, args):
-        """A draft from Gmail's Drafts (also one written elsewhere): its fields, to go on writing it here."""
-        gid = str(args.get('id') or '')
-        if not ID_RE.fullmatch(gid):
-            raise ValueError('bad message')
-        row = self.db.execute('SELECT * FROM compose WHERE account=? AND message_id=?', (self.account, gid)).fetchone()
+        """A draft from Gmail's Drafts (also one written elsewhere): its fields, to go on writing it here. While its text
+        and files stay untouched, the original MIME (html, links, inline pictures) is what is saved and sent."""
+        did = str(args.get('draft') or '')
+        if not ID_RE.fullmatch(did):
+            raise ValueError('bad draft')
+        row = self.db.execute('SELECT * FROM compose WHERE account=? AND draft_id=?', (self.account, did)).fetchone()
         if row:
-            return {'key': row['key'], 'fields': json.loads(row['fields']), 'attachments': self._public(json.loads(row['attachments'])),
+            return {'key': row['key'], 'fields': _page(json.loads(row['fields'])), 'attachments': self._public(json.loads(row['attachments'])),
                     'draft': row['draft_id'], 'saved': row['updated']}
-        draft = next((d for d in self.gmail().drafts() if (d.get('message') or {}).get('id') == gid), None)
-        if not draft:
+        data = self.gmail().draft_raw(did)
+        message = data.get('message') or {}
+        raw = base64.urlsafe_b64decode((message.get('raw') or '') + '==')
+        if not raw:
             raise LookupError('no draft')
-        msg = self._original(gid)
-        head = self._headers_of(msg)
-        fields = {'kind': 'new', 'to': str(head.get('To') or ''), 'cc': str(head.get('Cc') or ''), 'bcc': str(head.get('Bcc') or ''),
-                  'subject': msg['subject'], 'text': msg['body'] or _text_of_html(msg['html']), 'quote': False, 'signature': False}
-        attachments = [{'sha': a['sha256'], 'name': a['filename'], 'type': a['content_type'], 'size': a['size']}
-                       for a in self.db.execute('SELECT sha256,filename,content_type,size FROM attachments WHERE message_id=?', (msg['id'],))]
+        mail = BytesParser(policy=policy.default).parsebytes(raw)
+        base = self.store._blob(raw)
+        attachments = []
+        for part in mail.iter_attachments():
+            payload = part.get_payload(decode=True) or b''
+            attachments.append({'sha': self.store._blob(payload), 'name': part.get_filename() or 'file',
+                                'type': part.get_content_type(), 'size': len(payload)})
+        body = mail.get_body(('plain', 'html'))
+        text = ''
+        if body is not None:
+            text = body.get_content() if body.get_content_type() == 'text/plain' else _text_of_html(body.get_content())
+        # base*: kept here only (never sent to the page)
+        fields = {'kind': 'new', 'to': str(mail.get('To') or ''), 'cc': str(mail.get('Cc') or ''), 'bcc': str(mail.get('Bcc') or ''),
+                  'subject': str(mail.get('Subject') or ''), 'text': text, 'quote': False, 'signature': False,
+                  'base': base, 'base_text': text, 'base_atts': sorted(a['sha'] for a in attachments)}
         key = secrets.token_hex(16)
         with self.db:
             self.db.execute('INSERT INTO compose(key,account,draft_id,message_id,thread_id,fields,attachments,updated) VALUES(?,?,?,?,?,?,?,?)',
-                            (key, self.account, draft['id'], gid, msg['thread_id'], json.dumps(fields, ensure_ascii=False),
-                             json.dumps(attachments), self.clock()))
-        return {'key': key, 'fields': fields, 'attachments': self._public(attachments), 'draft': draft['id'], 'saved': self.clock()}
-
+                            (key, self.account, did, message.get('id') or '', message.get('threadId') or '',
+                             json.dumps(fields, ensure_ascii=False), json.dumps(attachments), self.clock()))
+        return {'key': key, 'fields': _page(fields), 'attachments': self._public(attachments), 'draft': did, 'saved': self.clock()}
     def mark(self, args):
         """read / unread / archive / inbox / star / unstar / spam / notspam / trash / untrash of a whole thread."""
         tid, what = str(args.get('thread') or ''), str(args.get('mark') or '')
@@ -578,17 +639,34 @@ class Composer:
         db.row_factory = sqlite3.Row
         db.execute('PRAGMA busy_timeout=10000')
         stop = stop or threading.Event()
-        # a letter caught mid-send by a restart is not sent twice blindly: its fate is asked from the provider first
-        with db:
-            db.execute("UPDATE outbox SET state='unknown', error='interrupted', since=updated, updated=0 WHERE state='sending' AND account=?",
-                       (self.account,))
+
+        def recover():
+            # a letter caught mid-send (a restart, or a database error after the claim) is never sent again blindly:
+            # only this thread sends, so any 'sending' row here is stale and its fate is asked first
+            with db:
+                db.execute("UPDATE outbox SET state='unknown', error='interrupted', since=updated, updated=0"
+                           " WHERE state='sending' AND account=?", (self.account,))
+        try:
+            recover()
+            stale = False
+        except Exception:  # noqa: BLE001 - tried again in the loop
+            stale = True
         while not stop.is_set():
-            self.send_due(db)
-            self.reconcile(db)
-            nxt = db.execute("SELECT MIN(due) FROM outbox WHERE state='wait' AND account=?", (self.account,)).fetchone()[0]
-            if db.execute("SELECT 1 FROM outbox WHERE state='unknown' AND account=? LIMIT 1", (self.account,)).fetchone():
-                nxt = min(nxt or 1e18, self.clock() + RECONCILE)
-            self._wake.wait(max(0.2, min(30.0, (nxt - self.clock()) if nxt else 30.0)))
+            wait = 30.0
+            try:
+                if stale:
+                    recover()
+                    stale = False
+                self.send_due(db)
+                self.reconcile(db)
+                nxt = db.execute("SELECT MIN(due) FROM outbox WHERE state='wait' AND account=?", (self.account,)).fetchone()[0]
+                if db.execute("SELECT 1 FROM outbox WHERE state='unknown' AND account=? LIMIT 1", (self.account,)).fetchone():
+                    nxt = min(nxt or 1e18, self.clock() + RECONCILE)
+                wait = max(0.2, min(30.0, (nxt - self.clock()) if nxt else 30.0))
+            except Exception as exc:  # noqa: BLE001 - a locked or busy database: the sender lives on and tries again
+                print(f'compose sender: {type(exc).__name__}: {exc}', file=sys.stderr, flush=True)
+                stale, wait = True, 5.0
+            self._wake.wait(wait)
             self._wake.clear()
         db.close()
 
@@ -664,7 +742,7 @@ class Composer:
         fn = {'compose_start': self.start, 'compose_save': self.save, 'compose_upload': self.upload,
               'compose_detach': self.detach, 'compose_discard': self.discard, 'compose_send': self.send,
               'compose_unsend': self.unsend, 'compose_outbox': self.outbox, 'compose_drafts': self.drafts,
-              'compose_open': self.open_draft, 'compose_resolve': self.resolve, 'mark': self.mark}.get(action)
+              'compose_open': self.open_draft, 'compose_gmail_drafts': self.gmail_drafts, 'compose_resolve': self.resolve, 'mark': self.mark}.get(action)
         if not fn:
             raise ValueError('unknown action')
         try:
@@ -674,4 +752,4 @@ class Composer:
 
 
 ACTIONS = ('compose_start', 'compose_save', 'compose_upload', 'compose_detach', 'compose_discard', 'compose_send',
-           'compose_unsend', 'compose_outbox', 'compose_drafts', 'compose_open', 'compose_resolve', 'mark')
+           'compose_unsend', 'compose_outbox', 'compose_drafts', 'compose_open', 'compose_gmail_drafts', 'compose_resolve', 'mark')

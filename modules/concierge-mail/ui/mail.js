@@ -90,6 +90,23 @@ function date(value, full = false) {
   return d.toLocaleDateString('ru-RU', {day:'numeric', month:'short', ...(d.getFullYear() !== today.getFullYear() ? {year:'numeric'} : {})});
 }
 function sender(raw) { return String(raw).replace(/\s*<[^>]*>\s*$/, '').replace(/^"(.*)"$/, '$1').trim() || String(raw); }
+// Drafts are not synced into the store: the folder lists the drafts at the provider (needs the writing consent)
+async function loadDrafts(ticket) {
+  try {
+    const data = await call('compose_gmail_drafts', {limit: 50});
+    if (ticket !== listTicket) return;
+    $('threads').replaceChildren();
+    for (const d of data.drafts || []) {
+      const b = button('', () => openDraft(d.draft)); b.className = 'thread';
+      const row = el('span', 'row');
+      row.append(el('span', 'sender', d.to ? 'Кому: ' + d.to : '(без получателя)'), el('span', 'date', date(d.date)));
+      b.append(row, el('span', 'subject', d.subject || '(без темы)'), el('span', 'snippet', d.snippet || ''));
+      $('threads').append(b);
+    }
+    $('list-note').textContent = (data.drafts || []).length ? '' : 'Черновиков нет';
+  } catch (err) { if (ticket === listTicket) $('list-note').textContent = writeError(err); }
+  finally { if (ticket === listTicket) { listBusy = false; $('more').hidden = true; } }
+}
 function renderThreads() {
   $('threads').replaceChildren();
   threads.forEach((t, index) => {
@@ -110,6 +127,7 @@ async function loadList(append = false) {
   $('list-title').textContent = query ? 'Поиск: ' + query : names[label] || labels.find(l => l.id === label)?.name || label;
   const args = query ? {q:query, limit:50} : {label, limit:50};
   if (append) args.before = next;
+  if (!query && label === 'DRAFT') return loadDrafts(ticket);
   try {
     const data = await call(query ? 'search' : 'list', args);
     if (ticket !== listTicket) return;
@@ -257,9 +275,7 @@ async function openThread(index, markRead = true) {
     const messages = data.messages || [];
     $('reading').replaceChildren(el('h2', '', messages.find(m => !m.sensitive && m.subject)?.subject || 'Переписка'));
     messages.forEach((msg, i) => {
-      const card = message(msg, i === messages.length - 1);
-      if ((msg.labels || []).includes('DRAFT') && !msg.sensitive) card.querySelector('.message-content').prepend(button('✏ Продолжить черновик', () => openDraft(msg.id)));
-      $('reading').append(card);
+      $('reading').append(message(msg, i === messages.length - 1));
     });
     if (!messages.length) $('reading').append(el('p', 'empty', 'Писем нет'));
     toolbar(thread, messages);
@@ -353,9 +369,9 @@ async function compose(kind, of) {
   try { showComposer(await call('compose_start', {kind, of})); }
   catch (err) { note(writeError(err)); }
 }
-async function openDraft(id) {
+async function openDraft(draftId) {
   if (!(await closeComposer())) return;
-  try { showComposer(await call('compose_open', {id})); }
+  try { showComposer(await call('compose_open', {draft: draftId})); }
   catch (err) { note(writeError(err)); }
 }
 function attach(files) {

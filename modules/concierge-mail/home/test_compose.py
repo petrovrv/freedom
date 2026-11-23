@@ -1,5 +1,6 @@
 import base64
 import json
+import sqlite3
 import tempfile
 import threading
 import unittest
@@ -8,6 +9,7 @@ from email import policy
 from email.message import EmailMessage
 from email.parser import BytesParser
 from pathlib import Path
+from unittest import mock
 
 import compose
 import gmailsync
@@ -62,7 +64,13 @@ class FakeWrite:
         if path.startswith('threads/'):
             return 200, {}
         if path.startswith('drafts/') and method == 'GET':
-            return (200, {'id': path.split('/')[1]}) if path.split('/')[1] in self.drafts else (404, {})
+            did = path.split('/')[1]
+            if did not in self.drafts:
+                return 404, {}
+            m = self.drafts[did]
+            return 200, {'id': did, 'message': {'id': 'm' + did, 'threadId': m.get('threadId', 't' + did), 'raw': m.get('raw', ''),
+                                                'snippet': 'snip &amp; more', 'internalDate': '5',
+                                                'payload': {'headers': [{'name': 'Subject', 'value': 'S ' + did}]}}}
         if path.startswith('drafts'):
             return 200, {'drafts': [{'id': k, 'message': {'id': 'm' + k}} for k in self.drafts]}
         return 400, {}
@@ -79,7 +87,8 @@ class ComposeTests(unittest.TestCase):
         self.store = Store(self.root / 'store')
         cred = self.root / 'cred.json'
         cred.write_text(json.dumps({'client_id': 'c', 'client_secret': 's', 'refresh_token': 'r', 'account': 'me@example.org'}))
-        api = FakeGmail()
+        self.api = api = FakeGmail()
+        self.cred = cred
         m = EmailMessage()
         m['From'], m['To'], m['Cc'] = 'Alice <alice@example.org>', 'me@example.org, bob@example.org', 'carol@example.org'
         m['Subject'], m['Message-ID'], m['References'] = 'Pump offer', '<a1@x>', '<a0@x>'
@@ -245,6 +254,49 @@ class ComposeTests(unittest.TestCase):
         self.c.handle('compose_send', {'key': key})  # a new 10 s window from now
         self.c.send_due(self.store.db)
         self.assertEqual(self.write.send_calls, 0)
+
+    def test_draft_written_elsewhere_keeps_its_html_until_the_text_changes(self):
+        d = EmailMessage()
+        d['From'], d['To'], d['Subject'], d['Message-ID'] = 'me@example.org', 'eve@example.org', 'Plan', '<dx@x>'
+        d.set_content('See the plan')
+        d.add_alternative('<p>See <a href="https://plan.example/p">the plan</a></p>', subtype='html')
+        d.add_attachment(b'GIF89a...', maintype='image', subtype='gif', filename='p.gif')
+        self.write.drafts['dx'] = {'raw': base64.urlsafe_b64encode(d.as_bytes()).decode()}
+        listed = self.c.handle('compose_gmail_drafts', {})['drafts']
+        self.assertEqual([(x['draft'], x['subject'], x['snippet'], x['key']) for x in listed], [('dx', 'S dx', 'snip & more', '')])
+        opened = self.c.handle('compose_open', {'draft': 'dx'})
+        self.assertNotIn('base', opened['fields'])  # the original stays on the home server
+        self.assertEqual((opened['fields']['to'], opened['fields']['text'].strip()), ('eve@example.org', 'See the plan'))
+        self.assertEqual([a['name'] for a in opened['attachments']], ['p.gif'])
+        key = opened['key']
+        self.assertEqual(self.c.handle('compose_open', {'draft': 'dx'})['key'], key)
+        self.c.handle('compose_save', {'key': key, 'fields': {**opened['fields'], 'to': 'eve@example.org, dan@example.org'}})
+        mail = raw_of(self.write.drafts['dx'])
+        self.assertIn('href="https://plan.example/p"', mail.get_body(('html',)).get_content())
+        self.assertEqual(mail['To'], 'eve@example.org, dan@example.org')
+        self.assertNotEqual(mail['Message-ID'], '<dx@x>')
+        self.c.handle('compose_save', {'key': key, 'fields': {**opened['fields'], 'text': 'New plan'}})
+        mail = raw_of(self.write.drafts['dx'])
+        self.assertIn('New plan', mail.get_body(('plain',)).get_content())
+        self.assertNotIn('plan.example', mail.get_body(('html',)).get_content())
+        self.assertEqual([p.get_filename() for p in mail.iter_attachments()], ['p.gif'])
+    def test_sender_survives_a_database_error(self):
+        key = self.queue()
+        calls = {'n': 0}
+        real = self.c.send_due
+
+        def flaky(db):
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise sqlite3.OperationalError('database is locked')
+            real(db)
+            stop.set()
+        self.c.send_due = flaky
+        stop = threading.Event()
+        self.now[0] += 11
+        with mock.patch.object(self.c._wake, 'wait', lambda t: None):
+            self.c.run_sender(self.store.root / 'mail.sqlite3', stop)
+        self.assertEqual((calls['n'], len(self.write.sent)), (2, 1))
 
     def test_header_injection_and_bad_addresses_refused(self):
         key = self.c.handle('compose_start', {'kind': 'new'})['key']

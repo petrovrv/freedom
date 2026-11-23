@@ -716,14 +716,16 @@ function render() {{
     const box = document.createElement('input');
     box.type = 'checkbox';
     box.checked = !!it.done;
-    box.onchange = () => {{ it.done = box.checked; save(); }};
+    box.disabled = !loaded;
+    box.onchange = () => {{ if (!loaded) return; it.done = box.checked; save(); }};
     const text = document.createElement('span');
     text.textContent = it.text;
     const del = document.createElement('button');
     del.type = 'button';
     del.textContent = '×';
     del.title = 'Delete';
-    del.onclick = () => {{ items = items.filter((x) => x !== it); save(); }};
+    del.disabled = !loaded;
+    del.onclick = () => {{ if (!loaded) return; items = items.filter((x) => x !== it); save(); }};
     li.append(box, text, del);
     ul.append(li);
   }}
@@ -732,27 +734,30 @@ function render() {{
 
 // editing waits for a good load: a change made before it (or after a failed one) would overwrite the saved list
 let loaded = false;
+let gen = 0;   // the newest reload: an older one that finishes first leaves editing off
 function editable(on) {{
   loaded = on;
   $('text').disabled = !on;
   $('add').querySelector('button').disabled = !on;
+  render();
 }}
 
-async function load() {{
+async function load(n) {{
   const r = await coExt.data.get(KEY);
+  if (n !== gen) return;
   if (!r || !r.ok) throw new Error((r && (r.message || r.error)) || 'no answer');
   const v = r.value ? JSON.parse(r.value) : [];   // data it cannot read is an error, never overwritten
   if (!Array.isArray(v)) throw new Error('unexpected data');
   items = v.filter((x) => x && typeof x.text === 'string');
-  render();
   editable(true);
   $('status').textContent = '';
 }}
 
 // (re)load after the writes already queued, never in between
 function reload() {{
+  const n = ++gen;
   editable(false);
-  saving = saving.then(load).catch((e) => {{ $('status').textContent = 'Not loaded: ' + e.message; }});
+  saving = saving.then(() => load(n)).catch((e) => {{ $('status').textContent = 'Not loaded: ' + e.message; }});
   return saving;
 }}
 
@@ -767,6 +772,7 @@ function save() {{
 
 $('add').onsubmit = (e) => {{
   e.preventDefault();
+  if (!loaded) return;
   const t = $('text').value.trim();
   if (!t) return;
   items.push({{ text: t.slice(0, 300), done: false }});

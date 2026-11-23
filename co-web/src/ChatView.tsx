@@ -607,8 +607,12 @@ export default function ChatView(props: Props) {
       return;
     }
     setEvents([...current, ev]);
+    // F15.2: writing in a trashed chat takes it out of the trash (the 30-day clean-up would delete the new work)
+    const untrash = chat.trashedUtc ? { trashedUtc: '', archived: !!chat.trashedArchived, trashedArchived: false } : {};
     if (wantsTitle(chat, current)) {
-      setChat(await updateChatMeta(chat, { title: heuristicTitle(input.text), titleAuto: true }));
+      setChat(await updateChatMeta(chat, { title: heuristicTitle(input.text), titleAuto: true, ...untrash }));
+    } else if (chat.trashedUtc) {
+      setChat(await updateChatMeta(chat, untrash));
     } else {
       await updateChatMeta(chat, {});
     }

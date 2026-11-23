@@ -26,7 +26,7 @@ function chatActionsFor(p: { shareRole?: string }, c: { shareRole?: string }): C
   if (p.shareRole === 'editor' || c.shareRole === 'editor') return ['rename', 'title', 'archive'];
   return [];
 }
-import { allProjectChats, deleteChat, latestChats, moveChatGroup, restoreChat, saveProjectMeta, trashChat, updateChatMeta } from './workbench';
+import { allProjectChats, latestChats, moveChatGroup, purgeTrashedChat, restoreChat, saveProjectMeta, trashChat, updateChatMeta } from './workbench';
 import { projectModeDefault, type ModeDecl } from './moduleModes';
 import { modesOf } from './moduleStore';
 import { importCalls } from './importWriter';
@@ -491,12 +491,10 @@ export default function Shell({ auth }: { auth: Signed }) {
       const done = new Set<string>();
       for (const c of due) {
         try {
-          // re-checked right before: restored here (state) or elsewhere (newest copy) since the list was read
+          // re-checked right before: restored here since the list was read; a restore elsewhere is caught by the server
           const here = (chatsNow.current || []).find((x) => x.folderId === c.folderId);
-          const [fresh] = await latestChats(project, [here || c]);
-          if (!here || !fresh || trashDue([here, fresh], Date.now()).length < 2) continue;
-          await deleteChat(root, fresh, hosts);
-          done.add(c.folderId);
+          if (!here || !trashDue([here], Date.now()).length) continue;
+          if (await purgeTrashedChat(root, here)) done.add(c.folderId);
         } catch (e) {
           console.warn('trash clean-up', c.chatId, e);
         }

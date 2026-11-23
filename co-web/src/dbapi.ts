@@ -279,6 +279,15 @@ export function dbDeleteChat(chatId: string): Promise<boolean> {
   return postGz({ op: 'delete_chat', chatId });
 }
 
+// F15.2: deletes the chat only while it is still in the trash since trashedUtc (one transaction on the server):
+// 'deleted', 'kept' (restored or trashed again since) or null (no answer)
+export async function dbDeleteTrashedChat(chatId: string, trashedUtc: string): Promise<'deleted' | 'kept' | null> {
+  const res = await post({ op: 'delete_chat', chatId, ifTrashedUtc: trashedUtc }, false);
+  if (!res?.ok) return null;
+  const j = (await res.json().catch(() => null)) as { deleted?: number; kept?: number } | null;
+  return j?.deleted ? 'deleted' : j?.kept ? 'kept' : null;
+}
+
 // ---------- 0.19.0: job queue in the database (Bridge 1.3.0 "db-queue") ----------
 
 const QUEUE_KEY = 'co.dbQueue';

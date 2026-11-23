@@ -21,7 +21,7 @@ import { mapLimit, newChatId, newEventId, newJobId, nowUtc, safeFileName, sha256
 import { md5Hex } from './md5';
 import { importSpeaker } from './importPoint';
 import { gatewayBlocked, gatewayBlockedFields } from './gateway';
-import { dbChats, dbCooldownLeft, dbDeleteChat, dbEvents, dbJobCancel, dbJobEvents, dbJobGet, dbJobSubmit, dbProjects, dbPut, dbReadsPrimary, dbGetProfile, dbSharedProjects } from './dbapi';
+import { dbChats, dbCooldownLeft, dbDeleteChat, dbDeleteTrashedChat, dbEvents, dbJobCancel, dbJobEvents, dbJobGet, dbJobSubmit, dbProjects, dbPut, dbReadsPrimary, dbGetProfile, dbSharedProjects } from './dbapi';
 import { cachedChatEvents, saveChatEvents } from './eventCache';
 import { memoryIndex } from './memoryIndex';
 import { callsAssistant, drivePath, ownerEnv } from './members';
@@ -1416,6 +1416,20 @@ export async function deleteChat(root: Root, chat: Chat, hosts: Record<string, H
   const chatsId = await resolvePath(projectsId, [chat.projectId, 'chats']);
   if (chatsId) forgetFolder(chatsId, chat.chatId);
   await updateImportIndex(root, chat, null);
+}
+
+// F15.2: the 30-day clean-up of one trashed chat. The database deletes it only while it is still trashed since the
+// same moment (a restore elsewhere wins); the folder goes to the Google Drive trash after that. True when deleted.
+export async function purgeTrashedChat(root: Root, chat: Chat): Promise<boolean> {
+  if (chat.legacy || !chat.trashedUtc) return false;
+  if ((await dbDeleteTrashedChat(chat.chatId, chat.trashedUtc)) !== 'deleted') return false;
+  await trashFile(chat.folderId);
+  localChats.delete(chat.chatId);
+  const projectsId = await ensurePath(root.id, ['projects']);
+  const chatsId = await resolvePath(projectsId, [chat.projectId, 'chats']);
+  if (chatsId) forgetFolder(chatsId, chat.chatId);
+  await updateImportIndex(root, chat, null);
+  return true;
 }
 
 // Artifact paths recorded before a move point at the old project; map them to the current one.

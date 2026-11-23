@@ -1462,6 +1462,17 @@ try {
                 co_json(403, ['error' => 'forbidden']);
             }
             $db->begin_transaction();
+            // F15.2: the 30-day trash clean-up deletes only a chat still trashed at the same moment (not restored since)
+            if (array_key_exists('ifTrashedUtc', $in)) {
+                $st = $db->prepare('SELECT data FROM chats WHERE chat_id = ? FOR UPDATE');
+                $st->execute([$chatId]);
+                $data = json_decode((string)($st->get_result()->fetch_assoc()['data'] ?? ''), true);
+                $want = (string)$in['ifTrashedUtc'];
+                if ($want === '' || !is_array($data) || (string)($data['trashedUtc'] ?? '') !== $want) {
+                    $db->rollback();
+                    co_json(200, ['deleted' => 0, 'kept' => 1]);
+                }
+            }
             $db->prepare("DELETE FROM shares WHERE kind = 'chat' AND target_id = ?")->execute([$chatId]);
             $db->prepare('DELETE FROM events WHERE chat_id = ?')->execute([$chatId]);
             $db->prepare('DELETE FROM protocol WHERE chat_id = ?')->execute([$chatId]);

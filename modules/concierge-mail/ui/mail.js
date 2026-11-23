@@ -145,10 +145,12 @@ function renderThreads() {
     $('threads').append(b);
   });
 }
-async function loadList(append = false) {
+async function loadList(append = false, keep = '') {
+  // keep: the thread open in the reader stays open (a mark on it), the list is refreshed around it
   if (append && (listBusy || next === null)) return;
+  if (keep && !query && label === 'DRAFT') return;
   const ticket = ++listTicket;
-  if (!append) { readTicket++; threads = []; next = null; selected = -1; renderThreads(); $('reading').replaceChildren(el('p', 'empty', 'Выберите письмо')); }
+  if (!append && !keep) { readTicket++; threads = []; next = null; selected = -1; renderThreads(); $('reading').replaceChildren(el('p', 'empty', 'Выберите письмо')); }
   listBusy = true; $('more').hidden = true; $('list-note').textContent = 'Загрузка…';
   $('list-title').textContent = query ? 'Поиск: ' + query : names[label] || labels.find(l => l.id === label)?.name || label;
   const args = query ? {q:query, limit:50} : {label, limit:50};
@@ -157,8 +159,10 @@ async function loadList(append = false) {
   try {
     const data = await call(query ? 'search' : 'list', args);
     if (ticket !== listTicket) return;
+    if (keep) threads = [];
     const known = new Set(threads.map(t => t.thread));
     threads.push(...(data.threads || []).filter(t => !known.has(t.thread))); next = data.next ?? null;
+    if (keep) selected = threads.findIndex(t => t.thread === keep);
     renderThreads(); $('list-note').textContent = threads.length ? '' : 'Писем нет';
   } catch (err) { if (ticket === listTicket) error($('list-note'), err, () => loadList(append)); }
   finally { if (ticket === listTicket) { listBusy = false; $('more').hidden = next === null; } }
@@ -280,10 +284,17 @@ function toolbar(thread, messages) {
     try { await call('mark', {thread: thread.thread, mark: what}); done && done(); refreshList(); }
     catch (err) { note(writeError(err)); }
   };
+  // a mark that keeps the letter open: refresh the list around it, then redraw the letter with its new labels
+  const markOpen = what => async () => {
+    try { await call('mark', {thread: thread.thread, mark: what}); }
+    catch (err) { note(writeError(err)); return; }
+    overview(); await loadList(false, thread.thread);
+    if (selected >= 0) openThread(selected, false); else pane('list');
+  };
   if (labels.has('INBOX')) act('📥 В архив', mark('archive', () => pane('list')));
   else if (!labels.has('TRASH') && !labels.has('SPAM')) act('📥 Во входящие', mark('inbox'));
-  act(labels.has('UNREAD') ? '✉ Прочитано' : '✉ Не прочитано', mark(labels.has('UNREAD') ? 'read' : 'unread', () => openThread(selected, false)));
-  act(labels.has('STARRED') ? '★ Снять' : '☆ Пометить', mark(labels.has('STARRED') ? 'unstar' : 'star', () => openThread(selected, false)));
+  act(labels.has('UNREAD') ? '✉ Прочитано' : '✉ Не прочитано', markOpen(labels.has('UNREAD') ? 'read' : 'unread'));
+  act(labels.has('STARRED') ? '★ Снять' : '☆ Пометить', markOpen(labels.has('STARRED') ? 'unstar' : 'star'));
   if (labels.has('TRASH')) act('↺ Восстановить', mark('untrash', () => pane('list')));
   else act('🗑 Удалить', mark('trash', () => pane('list')));
 }

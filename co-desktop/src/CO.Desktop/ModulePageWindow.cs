@@ -11,8 +11,10 @@ namespace CO.Desktop;
 // window when CO Web opens it in a new tab (the generic form of the 0.9.2 window of one module's editor). The page is
 // the same as in a browser; window.coDesktop answers only getAccessToken and status there. The page may move the window
 // to the https origins of the module's navigate list (e.g. an editor on the home PC) and to Google sign-in; other links
-// and new tabs open in the system browser. One window per value of windowKey (else per address); position and size
+// and new tabs open in the system browser. One window per value of windowKey (else one per app); position and size
 // are remembered per page in desktop.json (PageWindows).
+// F14e.2 (SPEC §3.6a п. 9): every app window is an app of its own for Windows - own taskbar button with the app's icon
+// (AppUserModelID per app, WindowAppId), Alt+Tab, Snap, any monitor; a pinned button starts it again (--app).
 public sealed class ModulePageWindow : Window
 {
     private static readonly Dictionary<string, ModulePageWindow> Windows = new(StringComparer.Ordinal);
@@ -23,16 +25,26 @@ public sealed class ModulePageWindow : Window
     private readonly string _key;
     private readonly string _page;                // "<module>/<page>": key of the remembered bounds
     private readonly HashSet<string> _origins;    // https origins of the module's navigate list
+    private readonly string _appId, _relaunch, _label, _iconPath;
+    private string _query;                        // the query the window was opened with (without window=1)
     private readonly WebView2 _web = new();
     private bool _closing;   // close asked: the page is being unloaded first (it may still send what it holds)
     private bool _unloaded;  // the page is gone, the window may close
 
     public static void Open(MainWindow main, CoreWebView2Environment env, Uri url, CO.Core.Modules.ModuleEntry m, CO.Core.Modules.ModuleUiEntry ui)
     {
-        string value = ui.WindowKey.Length > 0 ? System.Web.HttpUtility.ParseQueryString(url.Query).Get(ui.WindowKey) ?? "" : url.PathAndQuery;
+        // F14e.2: one window per app; a page with windowKey has one window per value of that parameter (a file)
+        string value = ui.WindowKey.Length > 0 ? System.Web.HttpUtility.ParseQueryString(url.Query).Get(ui.WindowKey) ?? "" : "";
         string key = m.Id + "/" + ui.Id + " " + value;
         if (Windows.TryGetValue(key, out var open))
         {
+            // the app asked again with other parameters (a link to one letter): the open window goes there
+            string q = PageQuery(url);
+            if (q.Length > 0 && q != open._query && open._web.CoreWebView2 != null && !open._closing)
+            {
+                open._query = q;
+                open._web.CoreWebView2.Navigate(url.AbsoluteUri);
+            }
             if (open.WindowState == WindowState.Minimized) open.WindowState = WindowState.Normal;
             open.Activate();
             return;
@@ -54,16 +66,39 @@ public sealed class ModulePageWindow : Window
         // a file-like window key names the window by its last part until the page sets its own title
         string name = ui.WindowKey.Length > 0 ? value.Split('/').LastOrDefault(p => p.Length > 0) ?? "" : "";
         Title = (name.Length > 0 ? name + " · " : "") + (ui.Title.Length > 0 ? ui.Title : m.Title) + " · CO";
-        Icon = LoadIcon();
+        _query = PageQuery(url);
+        _label = ui.Label.Length > 0 ? ui.Label : ui.Title.Length > 0 ? ui.Title : m.Title;
+        _appId = Platform.WindowAppId.For(m.Id, ui.Id);
+        _relaunch = "\"" + (Environment.ProcessPath ?? "CO.Desktop.exe") + "\" --app " + m.Id + "/" + ui.Id;
+        _iconPath = "";
+        try
+        {
+            // the app's own icon (its glyph of the module list); the page icon of CO when that fails
+            var app = CO.Core.Modules.ModuleList.Apps(new[] { m }).FirstOrDefault(a => a.Page.Id == ui.Id);
+            var (path, image) = AppIcons.For(m.Id + "/" + ui.Id, app?.Icon ?? (ui.Icon.Length > 0 ? ui.Icon : (_label.Length > 0 ? System.Globalization.StringInfo.GetNextTextElement(_label).ToUpperInvariant() : "")));
+            _iconPath = path;
+            Icon = image;
+        }
+        catch (Exception ex) { Log.Write("page window icon: " + ex.Message); Icon = LoadIcon(); }
+        SourceInitialized += (_, _) => Platform.WindowAppId.Set(new WindowInteropHelper(this).Handle, _appId, _relaunch, _label, _iconPath);
         Content = _web;
         PlaceFromSettings();
         Loaded += async (_, _) => await InitAsync();
         Closing += OnClosing;
         Closed += (_, _) =>
         {
+            Platform.WindowAppId.Clear(new WindowInteropHelper(this).Handle);
             Windows.Remove(_key);
             _web.Dispose();
         };
+    }
+
+    // the parameters of the page address, without the window=1 of a desktop window
+    private static string PageQuery(Uri url)
+    {
+        var q = System.Web.HttpUtility.ParseQueryString(url.Query);
+        q.Remove("window");
+        return q.Count == 0 ? "" : q.ToString() ?? "";
     }
 
     private static BitmapFrame LoadIcon()

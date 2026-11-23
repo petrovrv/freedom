@@ -15,6 +15,14 @@ export function trayWantsRefresh(modules: { enabled: boolean; actions?: unknown;
   return modules.some((m) => m.enabled && Array.isArray(m.actions) && m.actions.length > 0 && m.ui.some((u) => u.slot === 'ui.header'));
 }
 
+/**
+ * F14e.2: the bare page of an app (/x/<module>/<page>?window=1, the own window of a desktop app) polls app_events itself
+ * when its module has actions, so the window loads its data again after an agent's action (only the event, never data).
+ */
+export function pageWantsRefresh(m: { enabled: boolean; actions?: unknown } | null | undefined): boolean {
+  return !!m && m.enabled && Array.isArray(m.actions) && m.actions.length > 0;
+}
+
 export type AppEvent = { seq: number; app: string; action: string; utc?: string };
 export type AppRefresh = { module: string; actions: string[] };
 

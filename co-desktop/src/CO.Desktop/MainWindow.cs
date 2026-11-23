@@ -194,7 +194,12 @@ public sealed class MainWindow : Window
         ConnectorHooks.Notice = n => Dispatcher.BeginInvoke(() =>
             _tray.ShowBalloonTip(n.Seconds * 1000, n.Title, n.Text,
                 n.Warning ? System.Windows.Forms.ToolTipIcon.Warning : System.Windows.Forms.ToolTipIcon.Info));
-        _tray.DoubleClick += (_, _) => { Show(); WindowState = WindowState.Normal; Activate(); };
+        _tray.DoubleClick += (_, _) => ShowMain();
+        // F14e.2: the apps of the launcher in the tray menu and in the jump list of the CO button; a later start of
+        // CO Desktop (a jump list task, a pinned app window) hands its request over the instance pipe
+        RefreshApps();
+        s.ModuleLoader.Applied += () => Dispatcher.BeginInvoke(RefreshApps);
+        _ = Platform.InstancePipe.ListenAsync(line => Dispatcher.BeginInvoke(() => OnInstanceRequest(line)), _cts.Token);
 
         s.Approvals.Pending += _ => Dispatcher.BeginInvoke(() =>
         {
@@ -342,6 +347,7 @@ public sealed class MainWindow : Window
             await _web.EnsureCoreWebView2Async(env);
             var origin = new Uri(_s.Settings.WebUrl).GetLeftPart(UriPartial.Authority);
             _webOrigin = origin;
+            _webEnv = env;
             await _web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(DesktopShimScript(origin));
             _web.CoreWebView2.WebMessageReceived += async (_, e) => await OnWebMessageAsync(_web.CoreWebView2, e, origin, pageWindow: false);
             // Freedom F10 (ext/1 ui.window): a module page CO Web opens in a new tab gets its own window when the module
@@ -371,6 +377,7 @@ public sealed class MainWindow : Window
                 }
             };
             _web.Source = new Uri(_s.Settings.WebUrl);
+            if (_pendingApp != null) OpenApp(_pendingApp);   // started with --app
         }
         catch (Exception ex)
         {
@@ -381,6 +388,89 @@ public sealed class MainWindow : Window
     }
 
     private string _webOrigin = "";
+    private CoreWebView2Environment? _webEnv;
+
+    // ------------------------------------------------------------------ apps (F14e.2)
+
+    private string? _pendingApp = App.StartupApp;   // an app asked for before the web view or the module list was ready
+    private string _appsShown = "\0";               // what the tray menu and the jump list show now
+
+    private void ShowMain()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
+    }
+
+    private void OnInstanceRequest(string line)
+    {
+        if (line == "show") ShowMain();
+        else if (line.StartsWith("app ", StringComparison.Ordinal)) OpenApp(line[4..].Trim());
+    }
+
+    /// <summary>Opens an app of the launcher ("module/page"): a ui.window page in its own window, another app in the
+    /// shell of the main window (CO Web takes the bare /x/ address into the shell).</summary>
+    internal void OpenApp(string key)
+    {
+        if (CO.Core.Modules.ModuleList.ParseAppKey(key) is not { } k) { Log.Write("open app: bad key"); return; }
+        var app = CO.Core.Modules.ModuleList.Apps(_s.ModuleLoader.Modules).FirstOrDefault(a => a.Key == key);
+        if (_webEnv == null || _webOrigin.Length == 0 || app == null)
+        {
+            // the web view or the module list is not there yet: opened when it comes; an app no longer in the list is dropped
+            _pendingApp = _webEnv == null || _s.ModuleLoader.Modules.Count == 0 ? key : null;
+            if (_pendingApp == null) { Log.Write("open app: " + key + " is not an app of this workbench"); ShowMain(); }
+            return;
+        }
+        _pendingApp = null;
+        string path = app.Page.Path.Length > 0 ? app.Page.Path : "/x/" + k.Module + "/" + k.Page;
+        if (app.Page.Window)
+        {
+            ModulePageWindow.Open(this, _webEnv, new Uri(_webOrigin + path + "?window=1"), app.Module, app.Page);
+            return;
+        }
+        _web.CoreWebView2?.Navigate(_webOrigin + "/x/" + k.Module + "/" + k.Page);
+        ShowMain();
+    }
+
+    private void RefreshApps()
+    {
+        var apps = CO.Core.Modules.ModuleList.Apps(_s.ModuleLoader.Modules);
+        if (_pendingApp != null && _webEnv != null && apps.Count > 0) OpenApp(_pendingApp);   // the list came after --app
+        string shown = string.Join("\n", apps.Select(a => a.Key + "\t" + a.Label + "\t" + a.Icon + "\t" + a.Page.Window));
+        if (shown == _appsShown) return;
+        _appsShown = shown;
+        var menu = new System.Windows.Forms.ContextMenuStrip();
+        var open = new System.Windows.Forms.ToolStripMenuItem("Open CO Desktop", null, (_, _) => ShowMain());
+        open.Font = new System.Drawing.Font(open.Font, System.Drawing.FontStyle.Bold);
+        menu.Items.Add(open);
+        if (apps.Count > 0) menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        var jump = new System.Windows.Shell.JumpList { ShowFrequentCategory = false, ShowRecentCategory = false };
+        string exe = Environment.ProcessPath ?? "";
+        foreach (var a in apps)
+        {
+            string key = a.Key;
+            System.Drawing.Image? image = null;
+            string icon = "";
+            try { image = AppIcons.MenuImage(key, a.Icon); icon = AppIcons.For(key, a.Icon).Path; }
+            catch (Exception ex) { Log.Write("app icon " + key + ": " + ex.Message); }
+            menu.Items.Add(new System.Windows.Forms.ToolStripMenuItem(a.Label, image, (_, _) => OpenApp(key)));
+            if (exe.Length > 0)
+                jump.JumpItems.Add(new System.Windows.Shell.JumpTask
+                {
+                    Title = a.Label, Description = a.Page.Title.Length > 0 ? a.Page.Title : a.Label, CustomCategory = "Apps",
+                    ApplicationPath = exe, Arguments = "--app " + key, IconResourcePath = icon.Length > 0 ? icon : exe, IconResourceIndex = 0,
+                });
+        }
+        var old = _tray.ContextMenuStrip;
+        _tray.ContextMenuStrip = menu;
+        old?.Dispose();
+        try
+        {
+            System.Windows.Shell.JumpList.SetJumpList(Application.Current, jump);
+            jump.Apply();
+        }
+        catch (Exception ex) { Log.Write("jump list: " + ex.Message); }
+    }
 
     // window.coDesktop: device identity (TZ §8.3) and the desktop Google token for CO Web (TZ-CO-WEB §5.1).
     // 0.9.2: also injected into module page windows (ModulePageWindow), which answer only getAccessToken and status.

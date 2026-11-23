@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // node src/appEvents.selftest.ts - refresh of app pages after an agent's action (F14b-1).
-import { takeAppEvents, trayWantsRefresh } from './appEvents.ts';
+import { pageWantsRefresh, takeAppEvents, trayWantsRefresh } from './appEvents.ts';
 
 let fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -27,6 +27,11 @@ const mod = (enabled: boolean, actions: unknown, slots: string[]) => ({ enabled,
 ok('tray of a module with actions listens', trayWantsRefresh([mod(true, ['home_state'], ['ui.page', 'ui.header'])]));
 ok('no tray, no actions or switched off: no poll', !trayWantsRefresh([mod(true, ['home_state'], ['ui.page']), mod(true, [], ['ui.header']),
   mod(false, ['x'], ['ui.header']), mod(true, undefined, ['ui.header'])]));
+
+// F14e.2: the bare page of an app (a desktop window) polls itself when its module has actions
+ok('bare page of a module with actions listens', pageWantsRefresh({ enabled: true, actions: ['home_state'] }));
+ok('bare page without actions or switched off: no poll', !pageWantsRefresh({ enabled: true, actions: [] })
+  && !pageWantsRefresh({ enabled: false, actions: ['x'] }) && !pageWantsRefresh({ enabled: true }) && !pageWantsRefresh(null));
 
 if (fail) throw new Error(`appEvents selftest: ${fail} failed`);
 console.log('appEvents selftest OK');

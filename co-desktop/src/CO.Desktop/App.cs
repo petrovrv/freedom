@@ -16,12 +16,21 @@ public sealed class App : Application
 {
     private static Mutex? _single;
 
+    /// <summary>F14e.2: the app asked for on the command line (--app &lt;module&gt;/&lt;page&gt;, a jump list task or a
+    /// pinned app window), opened once the web view is ready.</summary>
+    public static string? StartupApp { get; private set; }
+
     [STAThread]
     public static void Main()
     {
+        var args = Environment.GetCommandLineArgs();
+        int at = Array.IndexOf(args, "--app");
+        StartupApp = at > 0 && at + 1 < args.Length && CO.Core.Modules.ModuleList.ParseAppKey(args[at + 1]) != null ? args[at + 1] : null;
         _single = new Mutex(true, "CO.Desktop.SingleInstance", out bool created);
         if (!created)
         {
+            // F14e.2: the running copy opens the app (or shows its window); the message only when it does not answer
+            if (InstancePipe.Send(StartupApp != null ? "app " + StartupApp : "show")) return;
             MessageBox.Show("CO Desktop is already running.", "CO Desktop");
             return;
         }

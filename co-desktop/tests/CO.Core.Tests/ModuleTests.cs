@@ -143,6 +143,31 @@ public class ModuleTests
     }
 
     [Fact]
+    public void AppsComeFromTheListLikeTheLauncher()
+    {
+        // ext/1 shell F14e.2: ui.page with app: true of enabled modules, in list order; label/title/module name; icon or
+        // the first letter; the jump list key and its parse
+        var list = ModuleList.Parse("""
+            {"ext":1,"modules":[
+              {"id":"mail","title":"Mail concierge","enabled":true,
+               "ui":[{"slot":"ui.page","id":"mail","entry":"ui/mail.html","title":"Mail","label":"Почта","app":true,"icon":"✉","window":true},
+                     {"slot":"ui.header","id":"tray","entry":"ui/tray.html","app":true}]},
+              {"id":"home","title":"дом","enabled":true,"ui":[{"slot":"ui.page","id":"home","entry":"ui/home.html","app":true,"icon":"bad\u0007"}]},
+              {"id":"off","enabled":false,"ui":[{"slot":"ui.page","id":"x","entry":"ui/x.html","app":true}]},
+              {"id":"plain","enabled":true,"ui":[{"slot":"ui.page","id":"p","entry":"ui/p.html"}]}]}
+            """)!;
+        var apps = ModuleList.Apps(list);
+        Assert.Equal(new[] { "mail/mail", "home/home" }, apps.Select(a => a.Key));
+        Assert.Equal(("Почта", "✉"), (apps[0].Label, apps[0].Icon));
+        Assert.True(apps[0].Page.Window);
+        Assert.Equal(("дом", "Д"), (apps[1].Label, apps[1].Icon));   // a control character drops the icon
+        Assert.Equal(("mail", "mail"), ModuleList.ParseAppKey("mail/mail"));
+        Assert.Equal(("ed", "file.v2"), ModuleList.ParseAppKey("ed/file.v2"));
+        foreach (var bad in new[] { null, "", "mail", "/mail", "mail/", "Mail/x", "m/../x", "m/a b", "m/x/y", "m/.." })
+            Assert.Null(ModuleList.ParseAppKey(bad));
+    }
+
+    [Fact]
     public void SeedSwitchNeverOverridesAChoice()
     {
         using var f = new Fixture();

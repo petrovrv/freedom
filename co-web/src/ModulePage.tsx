@@ -9,6 +9,8 @@ import type { ModuleInfo, ModuleUi } from './extBridge';
 import { ModuleFrame } from './ModuleSlot';
 import { shellRoute } from './appStack';
 import { setModuleList } from './moduleStore';
+import { useAppEvents } from './AppHost';
+import { pageWantsRefresh } from './appEvents';
 
 export function modulePageFor(modules: ModuleInfo[], pathname: string): { m: ModuleInfo; ui: ModuleUi } | null {
   const x = /^\/x\/([a-z0-9][a-z0-9-]{0,62})\/([A-Za-z0-9._-]{1,40})\/?$/.exec(pathname);
@@ -41,13 +43,15 @@ export default function ModulePage({ home, me, owner }: { home: string; me?: str
     );
     return () => { gone = true; };
   }, [root]);
-  if (root) return <Navigate to={home} replace />;
-  if (modules === null) return <div className="login"><p className="muted">Opening…</p></div>;
-  const hit = modulePageFor(modules, pathname);
-  if (!hit) return <Navigate to={home} replace />;
+  const hit = !root && modules ? modulePageFor(modules, pathname) : null;
   // F14e.1: a page the shell can show opens inside it (app bar, Back/Esc, "← Chats"); the bare page stays for a query
   // and for a desktop app's own window (?window=1)
-  const inShell = shellRoute(`/x/${hit.m.id}/${hit.ui.id}`, search, me || '');
+  const inShell = hit ? shellRoute(`/x/${hit.m.id}/${hit.ui.id}`, search, me || '') : null;
+  // F14e.2: the bare page (a desktop window) gets the refresh after an agent's action itself, as the shell does
+  useAppEvents(!!hit && !inShell && pageWantsRefresh(hit.m));
+  if (root) return <Navigate to={home} replace />;
+  if (modules === null) return <div className="login"><p className="muted">Opening…</p></div>;
+  if (!hit) return <Navigate to={home} replace />;
   if (inShell) return <Navigate to={inShell} replace />;
   const params = Object.fromEntries(new URLSearchParams(search));
   return (

@@ -8,6 +8,8 @@
                               added incrementally); the token goes straight into the encrypted systemd credential
                               /etc/credstore.encrypted/account.SLUG.google.cred (never into a file or keyring of this PC)
   migrate SLUG                re-encrypt the older concierge-mail.SLUG.cred as the shared account credential
+  retire-old-relay SLUG --checked   remove the Mail page worker of 0.8-0.9 (concierge-mail-relay@SLUG, kept running on a
+                              frozen copy of its code by deploy) once ✉ of SLUG works through the home relay
   (the Mail page reaches a mailbox through the person's home-relay worker: modules/home-relay/home/hub/relayctl.py pair SLUG)
   start SLUG / stop SLUG      enable/disable the sync timer (and the backup timer when a backup key is set)
   status [SLUG]               timers, last run, per-mailbox counters (no message content)
@@ -59,23 +61,9 @@ def slug_ok(slug):
 def deploy(args):
     import io
     import tarfile
-    # 0.8-0.9 -> 0.10: the old Mail page worker goes away (the new code has no relay-serve). A person paired with it (its
-    # credential is there) must first run as aiwb-SLUG (0.9 renames cmail-SLUG) and be paired with the home relay, whose
-    # worker runs. Checked before anything changes; an unclear answer counts as "not ready".
-    blocked = {}
-    for slug in slugs(args):
-        got = ssh(args, f'if sudo test -f /etc/credstore.encrypted/{OLD_RELAY[:-1]}.{slug}.cred; then echo old; elif sudo true; then echo none; fi',
-                  check=False).strip()
-        if got == 'none':
-            continue
-        if got != 'old':  # no clear answer: change nothing
-            sys.exit(f'deploy: could not check the old worker of {slug}; nothing was changed')
-        if ssh(args, f'id -u {LEGACY_USER + slug} >/dev/null 2>&1 && echo legacy || echo moved', check=False).strip() != 'moved':
-            blocked[slug] = 'deploy concierge-mail 0.9.0 first (it moves the person to aiwb-' + slug + ')'
-        elif not relayctl.serving(args, slug):
-            blocked[slug] = f'relayctl.py deploy; relayctl.py pair {slug}'
-    if blocked:
-        sys.exit(json.dumps({'refused': "these persons' Mail page still runs on the old worker; nothing was changed", 'do': blocked}))
+    # 0.8-0.9 -> 0.10: the code below has no relay-serve; a person's old Mail page worker keeps a frozen copy of the code it
+    # runs (taken before the replacement) until `retire-old-relay` after the home relay is checked through the site
+    keep_old_relay(args)
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode='w:gz') as tar:
         def add(src, arc):
@@ -114,10 +102,10 @@ def deploy(args):
         for slug in people:
             if ssh(args, f'id -u {LEGACY_USER + slug} >/dev/null 2>&1 && echo yes || echo no').strip() == 'yes':
                 # also what runs without being enabled (started by hand) comes back below
-                was_active += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:2]) + '; do'
+                was_active += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:2]) + f' {OLD_RELAY}{slug}.service; do'
                                         ' case $(systemctl is-active "$u") in active|activating|reloading) echo "$u";; esac; done').split()
                 ssh(args, 'sudo systemctl stop ' + ' '.join(unit_names(slug)))  # a rename is refused while the old user runs
-                ssh(args, f'sudo systemctl stop {OLD_RELAY}{slug}.service', check=False)  # the 0.8-0.9 worker, removed below
+                ssh(args, f'sudo systemctl stop {OLD_RELAY}{slug}.service', check=False)  # the 0.8-0.9 worker (frozen code), restarted below
             try:
                 users[slug] = accountctl.ensure_person(args, slug, adopt=[LEGACY_USER + slug])
                 legacy.remove(slug)
@@ -127,33 +115,60 @@ def deploy(args):
         _units(args, people, legacy)
         # what a person has enabled runs again (also when an earlier deploy stopped it and failed half way), and what ran before
         for slug in people:
-            failed += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:2]) + '; do'
+            failed += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:2]) + f' {OLD_RELAY}{slug}.service; do'
                                 ' if systemctl is-enabled -q "$u"; then sudo systemctl start "$u" || echo "$u"; fi; done', check=False).split()
         if was_active:
             failed += ssh(args, 'for u in ' + ' '.join(was_active) + '; do sudo systemctl start "$u" || echo "$u"; done', check=False).split()
-    # the Mail page handler of the home relay (every person whose mailbox is set up here); the older own worker goes
+    # the Mail page handler of the home relay (every person whose mailbox is set up here)
     failed += relayctl.register(args, 'concierge-mail', HANDLER, env_file='/etc/concierge-mail/{slug}.env',
                                 write=['/srv/data/mail/{slug}'], only_if='/etc/concierge-mail/{slug}.env')
-    # the old worker of a person goes only when that person's relay worker is verified running with the new handler
-    removed = []
-    for slug in people:
-        if ssh(args, f'systemctl cat {OLD_RELAY}{slug}.service >/dev/null 2>&1 || sudo test -f /etc/credstore.encrypted/{OLD_RELAY[:-1]}.{slug}.cred'
-                     ' && echo old || echo none', check=False).strip() != 'old':
-            continue
-        if f'home-relay@{slug}.service' in failed or not relayctl.serving(args, slug) or not handler_bound(args, slug):
-            failed.append(f'{OLD_RELAY}{slug}.service (kept: home-relay@{slug} not running)')
-            continue
-        ssh(args, f'sudo systemctl disable --now {OLD_RELAY}{slug}.service; sudo rm -rf /etc/systemd/system/{OLD_RELAY}{slug}.service.d'
-                  f' /etc/credstore.encrypted/{OLD_RELAY[:-1]}.{slug}.cred; sudo sed -i "/^RELAY_URL=/d" /etc/concierge-mail/{slug}.env', check=False)
-        removed.append(slug)
-    if ssh(args, f"if sudo sh -c 'ls /etc/credstore.encrypted/{OLD_RELAY[:-1]}.*.cred' >/dev/null 2>&1; then echo some; elif sudo true; then echo none; fi",
-           check=False).strip() == 'none':
-        ssh(args, f'sudo rm -f /etc/systemd/system/{OLD_RELAY}.service; sudo systemctl daemon-reload', check=False)
     if failed or legacy:
         sys.exit(json.dumps({'deployed': '/opt/concierge-mail', 'users': users, 'notStarted': sorted(set(failed)),
                              'hint': 'persons in "kept" still run as their old user; fix the reason and deploy again'}, ensure_ascii=False))
     print(json.dumps({'deployed': '/opt/concierge-mail', 'units': UNITS, 'users': users, 'relayHandler': 'concierge-mail',
-                      'oldWorkerRemoved': removed}))
+                      'oldWorkers': old_relays(args)}))
+
+
+LEGACY_CODE = '/opt/concierge-mail-relay-legacy'
+
+
+def old_relays(args):
+    """Persons that still have the 0.8-0.9 Mail page worker (its credential); a failed check ends the command."""
+    out = ssh(args, 'sudo ls /etc/credstore.encrypted')
+    names = [n[len(OLD_RELAY):-len('.cred')] for n in out.split() if n.startswith(OLD_RELAY[:-1] + '.') and n.endswith('.cred')]
+    return [n for n in names if SLUG.match(n)]
+
+
+def keep_old_relay(args):
+    """Before the code is replaced: the old workers get a frozen copy of the code that has relay-serve."""
+    if not old_relays(args):
+        return
+    unit = f'/etc/systemd/system/{OLD_RELAY}.service'
+    ssh(args, f'set -e; if [ ! -d {LEGACY_CODE} ]; then grep -q relay-serve /opt/concierge-mail/modules/concierge-mail/home/mailcli.py;'
+              f' sudo cp -a /opt/concierge-mail {LEGACY_CODE}.new; sudo mv {LEGACY_CODE}.new {LEGACY_CODE}; fi; sudo mkdir -p {unit}.d')
+    ssh(args, f'sudo tee {unit}.d/20-legacy-code.conf >/dev/null',
+        ('[Service]\nExecStart=\nExecStart=/usr/bin/python3 ' + LEGACY_CODE +
+         '/modules/concierge-mail/home/mailcli.py --root /srv/data/mail/%i relay-serve\n').encode())
+    ssh(args, 'sudo systemctl daemon-reload')
+
+
+def retire_old_relay(args):
+    """The 0.8-0.9 Mail page worker of a person goes, after the person's ✉ was checked through the home relay."""
+    slug = slug_ok(args.slug)
+    if slug not in old_relays(args):
+        sys.exit(f'{slug} has no old worker')
+    if not args.checked:
+        sys.exit('first open ✉ of this person on the site (CO Web, after concierge-mail 0.10 is installed there) and read a '
+                 'message; then run again with --checked')
+    if not relayctl.serving(args, slug) or not handler_bound(args, slug):
+        sys.exit(f'refused: home-relay@{slug} is not running or its Mail handler is not bound to the environment')
+    ssh(args, f'sudo systemctl disable --now {OLD_RELAY}{slug}.service; sudo rm -rf /etc/systemd/system/{OLD_RELAY}{slug}.service.d'
+              f' /etc/credstore.encrypted/{OLD_RELAY[:-1]}.{slug}.cred; sudo sed -i "/^RELAY_URL=/d" /etc/concierge-mail/{slug}.env')
+    left = old_relays(args)
+    if not left:
+        ssh(args, f'sudo rm -rf /etc/systemd/system/{OLD_RELAY}.service /etc/systemd/system/{OLD_RELAY}.service.d {LEGACY_CODE};'
+                  ' sudo systemctl daemon-reload')
+    print(json.dumps({'retired': slug, 'oldWorkersLeft': left}))
 
 
 def handler_bound(args, slug):
@@ -310,6 +325,9 @@ def main():
     accountctl.add_connect_args(c)
     c.add_argument('--start', action='store_true', help='enable the timers right after the credential is saved')
     sub.add_parser('migrate').add_argument('slug')
+    ro = sub.add_parser('retire-old-relay', help='remove the 0.8-0.9 Mail page worker of SLUG (after checking ✉ through home-relay)')
+    ro.add_argument('slug')
+    ro.add_argument('--checked', action='store_true', help='✉ of this person works through the home relay (checked on the site)')
     for name in ('start', 'stop'):
         sub.add_parser(name).add_argument('slug')
     s = sub.add_parser('status')
@@ -318,7 +336,7 @@ def main():
     r.add_argument('slug')
     r.add_argument('rest', nargs=argparse.REMAINDER)
     args = p.parse_args()
-    {'deploy': deploy, 'add': add, 'connect': connect, 'migrate': migrate, 'start': start, 'stop': lambda a: start(a, False),
+    {'deploy': deploy, 'add': add, 'connect': connect, 'migrate': migrate, 'retire-old-relay': retire_old_relay, 'start': start, 'stop': lambda a: start(a, False),
      'status': status, 'run': run}[args.cmd](args)
 
 

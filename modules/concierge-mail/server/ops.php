@@ -17,7 +17,11 @@ function co_mail_relay(array $c): ?array
     if ($m === null || !$m['enabled']) return null;
     $lib = co_module_load($m)['relay'] ?? null;
     if (!is_array($lib)) return null;
-    return [$lib, co_module_ctx($c['db'], $m, (string)$c['myEnv'], (bool)($c['owner'] ?? false), (string)($c['email'] ?? ''))];
+    $rc = co_module_ctx($c['db'], $m, (string)$c['myEnv'], (bool)($c['owner'] ?? false), (string)($c['email'] ?? ''));
+    // a page's call answers right after the relay (db.php: co_json), so its database connection may close while it waits
+    // (the shared host limits connections); an agent's app action writes its log after the handler and keeps it
+    if (!isset($c['actor'])) $rc['release'] = static function () use ($c): void { try { $c['db']?->close(); } catch (Throwable) {} };
+    return [$lib, $rc];
 }
 
 function co_mail_status(array $c): array

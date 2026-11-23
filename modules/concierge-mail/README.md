@@ -95,7 +95,7 @@ The app ✉ (`ui/mail.html`, a `ui.page` with `app: true`, its own window in CO 
 - **Site** (`server/ops.php`): `mail_status` (flat: paired, online, worker key, unread count) and `mail_call` (one
   sealed request) delegate to the home-relay lib with the module name `concierge-mail`.
 - `hubctl.py deploy` registers the handler (`/etc/home-relay/modules.d/concierge-mail.json`, write access to
-  `/srv/data/mail/<slug>` only) and removes the worker of 0.8-0.9 (`concierge-mail-relay@`); pairing a person is
+  `/srv/data/mail/<slug>` only); the worker of 0.8-0.9 (`concierge-mail-relay@`) keeps running on a frozen copy of its code until `hubctl.py retire-old-relay <slug> --checked` (after ✉ was checked through the home relay); pairing a person is
   `modules/home-relay/home/hub/relayctl.py pair <slug>`.
 - A thread gives its newest 100 messages, a message over 1.5 MB of HTML comes as text (`truncated`).
 

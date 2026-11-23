@@ -100,10 +100,17 @@ class Keys:
 
 
 class Seen:
-    """Ids of requests already answered (kept for twice the freshness window): a copied request is not answered again."""
+    """Ids of requests already accepted (kept for twice the freshness window): a copied request is not answered again,
+    also after a restart of the worker (with a path, the ids are on disk before the request is handled)."""
 
-    def __init__(self):
-        self.ids = {}
+    def __init__(self, path=None):
+        self.path, self.ids = (Path(path) if path else None), {}
+        if self.path and self.path.is_file():
+            try:
+                data = json.loads(self.path.read_text(encoding='utf-8'))
+                self.ids = {str(k): float(v) for k, v in data.items()} if isinstance(data, dict) else {}
+            except (OSError, ValueError, TypeError, AttributeError):
+                self.ids = {}
 
     def first(self, rid, now):
         for k in [k for k, t in self.ids.items() if t < now - 2 * FRESH]:
@@ -111,6 +118,13 @@ class Seen:
         if rid in self.ids:
             return False
         self.ids[rid] = now
+        if self.path:
+            tmp = self.path.with_suffix('.tmp')
+            with open(tmp, 'w', encoding='utf-8') as fh:
+                json.dump(self.ids, fh)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, self.path)
         return True
 
 
@@ -144,10 +158,22 @@ class Handler:
     def ask(self, obj, timeout):
         if not self.proc or self.proc.poll() is not None:
             self._start()
+        deadline = time.monotonic() + timeout
+        data, proc, failed = json.dumps(obj, separators=(',', ':')).encode() + b'\n', self.proc, []
+
+        def write():  # a handler that stops reading its stdin must not block the worker: one deadline for write + read
+            try:
+                proc.stdin.write(data)
+                proc.stdin.flush()
+            except OSError:
+                failed.append(1)
+        writer = threading.Thread(target=write, daemon=True)
+        writer.start()
+        writer.join(timeout)
         try:
-            self.proc.stdin.write(json.dumps(obj, separators=(',', ':')).encode() + b'\n')
-            self.proc.stdin.flush()
-            line = self.lines.get(timeout=timeout)
+            if writer.is_alive() or failed:
+                raise OSError('write')
+            line = self.lines.get(timeout=max(0.01, deadline - time.monotonic()))
         except (OSError, queue.Empty):
             self.stop()
             raise RuntimeError('handler_down')
@@ -253,10 +279,10 @@ def batches(replies):
     return out
 
 
-def serve(keys, handlers, env, url, token, request=None, stop=None, log=None):
+def serve(keys, handlers, env, url, token, request=None, stop=None, log=None, seen=None):
     """Long-poll loop; returns when `stop()` is true (tests) or never."""
     post = request or _post
-    seen, waiting, delay = Seen(), [], 1
+    seen, waiting, delay = seen or Seen(), [], 1
     while not (stop and stop()):
         status = {'pub': keys.public, 'modules': {m: h.status() for m, h in handlers.items()}}
         parts = batches(waiting) or [[]]
@@ -317,7 +343,8 @@ def main():
     handlers = load_handlers(os.environ.get('HOME_RELAY_CONFIG', CONFIG_DIR), slug, env, log)
     log(f'serving {sorted(handlers)} for {slug}')
     try:
-        serve(Keys(Path(state.split(':')[0]) / 'relay-key.pem'), handlers, env, url, token, log=log)
+        home = Path(state.split(':')[0])
+        serve(Keys(home / 'relay-key.pem'), handlers, env, url, token, log=log, seen=Seen(home / 'seen.json'))
     finally:
         for h in handlers.values():
             h.stop()

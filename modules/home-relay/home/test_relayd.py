@@ -146,6 +146,25 @@ class RelaydTests(unittest.TestCase):
         self.assertNotIn('error', relayd.answer(self.keys, self.handlers, 'enva', fresh, seen))
         self.assertEqual(relayd.answer(self.keys, self.handlers, 'enva', fresh, seen)['error'], 'replay')
 
+    def test_replay_is_refused_after_a_restart(self):
+        page, path = Page('enva', 'mail', self.keys.public), self.root / 'seen.json'
+        req = page.seal('8' * 32, {'action': 'x'})
+        self.assertNotIn('error', relayd.answer(self.keys, self.handlers, 'enva', req, relayd.Seen(path)))
+        self.assertEqual(relayd.answer(self.keys, self.handlers, 'enva', req, relayd.Seen(path))['error'], 'replay')
+        path.write_text('not json')
+        self.assertNotIn('error', relayd.answer(self.keys, self.handlers, 'enva', page.seal('9' * 32, {'action': 'x'}), relayd.Seen(path)))
+
+    def test_handler_that_stops_reading_does_not_block(self):
+        with unittest.mock.patch.object(relayd, 'CALL_TIMEOUT', 2):
+            t0 = time.time()
+            self.assertEqual(self.ask('hang'), {'ok': False, 'error': 'handler_down'})  # child busy, not reading stdin
+            self.assertLess(time.time() - t0, 10)
+        h = self.handlers['mail']
+        h._start()
+        h.proc.stdin.close()  # a write that cannot succeed is an error, not a hang
+        with self.assertRaises(RuntimeError):
+            h.ask({'op': 'call', 'action': 'x', 'args': {'big': 'y' * 10_000_000}}, 2)
+
     def test_big_answers_are_refused_and_batches_split(self):
         page = Page('enva', 'mail', self.keys.public)
         with unittest.mock.patch.object(relayd, 'REPLY_MAX', 50):

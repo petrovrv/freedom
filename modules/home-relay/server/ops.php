@@ -58,7 +58,8 @@ function co_relay_sweep(string $dir): void
     foreach (glob($dir . '/*.{req,taken,res}', GLOB_BRACE) ?: [] as $f) {
         if (@filemtime($f) < time() - CO_RELAY_TTL) @unlink($f);
     }
-    foreach (glob($dir . '/.[0-9a-f]*') ?: [] as $f) {  // temp files of a call that died between write and link
+    // temp files of a call that died between write and link/rename (own ".<id>.<rand>", co_push_write_atomic "*.tmp.<rand>")
+    foreach (array_merge(glob($dir . '/.[0-9a-f]*') ?: [], glob($dir . '/*.tmp.*') ?: []) as $f) {
         if (@filemtime($f) < time() - CO_RELAY_TTL) @unlink($f);
     }
 }

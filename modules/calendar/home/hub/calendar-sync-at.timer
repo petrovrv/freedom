@@ -1,0 +1,10 @@
+[Unit]
+Description=Freedom calendar: provider sync every 5 minutes for %i
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=5min
+RandomizedDelaySec=30s
+
+[Install]
+WantedBy=timers.target

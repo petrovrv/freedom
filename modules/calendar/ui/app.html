@@ -1,0 +1,11 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Календарь</title><link rel="stylesheet" href="?m=calendar&amp;f=ui/app.css"></head>
+<body data-view="week"><header class="topbar"><button id="cals-toggle" type="button" aria-label="Календари" aria-expanded="false">☰</button>
+<button id="today" type="button">Сегодня</button><button id="prev" type="button" aria-label="Назад">‹</button><button id="next" type="button" aria-label="Вперёд">›</button>
+<h1 id="period"></h1><div class="views" role="tablist" aria-label="Вид"><button type="button" role="tab" data-view="day">День</button><button type="button" role="tab" data-view="week">Неделя</button><button type="button" role="tab" data-view="agenda">Повестка</button></div></header>
+<div id="connection" role="status" aria-live="polite">Подключение…</div>
+<main><nav id="cals" aria-label="Календари"></nav><section id="grid" aria-label="Сетка"></section></main>
+<section id="card" role="dialog" aria-modal="false" aria-labelledby="card-title" hidden><header><h2 id="card-title"></h2><button id="card-close" type="button" aria-label="Закрыть">×</button></header><div id="card-body"></div></section>
+<script src="/ext/ext1.js"></script><script src="?m=home-relay&amp;f=ui/relay.js"></script><script src="?m=calendar&amp;f=ui/app.js"></script></body></html>

@@ -1,0 +1,30 @@
+# One calendar per instance (%i = person slug): the person user, own data directory, the shared account credential
+# (module provider-accounts) narrowed to calendar.read by calcli.py.
+[Unit]
+Description=Freedom calendar: provider sync for %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=aiwb-%i
+Group=aiwb-%i
+EnvironmentFile=/etc/calendar/%i.env
+LoadCredentialEncrypted=account:/etc/credstore.encrypted/account.%i.google.cred
+ExecStart=/usr/bin/python3 /opt/calendar/modules/calendar/home/calcli.py --root /srv/data/calendar/%i sync
+TimeoutStartSec=15min
+Nice=10
+IOSchedulingClass=idle
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/srv/data/calendar/%i
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryMax=512M

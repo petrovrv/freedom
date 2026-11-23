@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.11.2",
- "created": "2026-11-23T18:15:08Z",
+ "version": "0.11.3",
+ "created": "2026-11-23T19:37:31Z",
  "files": [
   {
    "path": "context/mail.md",
@@ -156,7 +156,7 @@
   {
    "path": "module.json",
    "size": 2388,
-   "sha256": "a123e94276b5e0f2ac937460e13979c7e95b55cc77004074e51362e813c0b74e"
+   "sha256": "c2fbf7ff3ddfebdfee053a945eaaea568c879922944f7863059a83bf2ddded5e"
   },
   {
    "path": "README.md",
@@ -185,8 +185,8 @@
   },
   {
    "path": "ui/mail.js",
-   "size": 38775,
-   "sha256": "9fcbed82f93c2a89b941e3f6793f2636dbdcb7c1d4aab3b941e9a7764c8f2c06"
+   "size": 38475,
+   "sha256": "d183f41b346f032d8b57846076d9f5d937be9ef4803f9800563d32b1b7ed58ad"
   },
   {
    "path": "ui/tray.css",
@@ -208,7 +208,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "Q/BM2SGh95QhfgeN85wd/ChDBj4ne63wd6907KFjQHooWUSwKRwZg6hbiVXdHYarhLXVik5yVXNUcXm0ZBhSDQ=="
+   "sig": "IsH3TVKmGrOLlFVk5+NYqwBAKcZ9FEUNM3zbcTR4i/qUrjTw81w13dVQIthAUjD3QZ6EmByFbw2LinaJg9dlBw=="
   }
  ],
  "module": "concierge-mail"

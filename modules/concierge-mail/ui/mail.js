@@ -15,27 +15,17 @@ function el(tag, cls, text) {
 function button(text, action) { const b = el('button', '', text); b.type = 'button'; b.addEventListener('click', action); return b; }
 function theme(ctx) { document.documentElement.dataset.theme = ['dark','light'].includes(ctx.theme) ? ctx.theme : ''; }
 function title(n) { coExt.title('Почта' + (n > 0 ? ' (' + n + ')' : '')); }
-// The open letter is one step of history inside the app: Back of Android or the browser returns to the list, and only
-// the next Back leaves the app (the shell's own entry). The header button is "←" only in a letter; in the list it shows
-// the folders (🗂) — leaving the app is the shell's "← Chats".
-let readerEntry = false, popping = false;
+// The letter and the list are panes of one page, not steps of history: the page runs in a sandboxed frame (opaque
+// origin) where a history traversal reloads the frame, and the shell closes a frame that reloaded itself (0.11.1 put
+// the letter into history - "← ", Esc and "В архив" closed the whole app). "←", Esc and "u" return to the list; Back of
+// the browser or of Android leaves the app (the shell's own entry). The header button is "←" only in a letter; in the
+// list it shows the folders (🗂) - leaving the app is the shell's "← Chats".
 function pane(name) {
   document.body.dataset.pane = name; $('link-bar').hidden = true;
-  if (name === 'reader' && !readerEntry) { history.pushState({mail: 'reader'}, ''); readerEntry = true; }
-  else if (name !== 'reader' && readerEntry) {
-    readerEntry = false;
-    if (!popping && history.state && history.state.mail === 'reader') history.back();  // drop our entry, nothing else
-  }
   const b = $('back');
   b.textContent = name === 'reader' ? '←' : '🗂';
   b.setAttribute('aria-label', name === 'reader' ? 'К списку писем' : name === 'labels' ? 'Скрыть папки' : 'Папки');
 }
-window.addEventListener('popstate', () => {
-  if (!readerEntry) return;
-  readerEntry = false; popping = true;
-  try { pane('list'); } finally { popping = false; }
-  $('threads').children[selected]?.focus();
-});
 // Esc in a letter (outside a text field) goes to the list; in the list it is left to the shell (= leave the app)
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape' || document.body.dataset.pane !== 'reader' || !$('composer').hidden || !$('link-bar').hidden) return;

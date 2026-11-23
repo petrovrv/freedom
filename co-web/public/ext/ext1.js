@@ -32,6 +32,7 @@
 //                           chat.ask, chat.reveal, panel.close; modules/EXT1.md); binary data as ArrayBuffer
 //   coExt.navigate(url, target) - the whole window ('self') or a new one ('blank') to a target of manifest navigate
 //   coExt.title(text)       - window title of a full-window page (ui.page)
+//   (Esc that no handler of the page prevented leaves an app page; ctx.visible is false while the app is hidden)
 //   coExt.badge(v)          - the module's badge in the shell (count on its app tile, dot on ▦); 0/''/null clears
 //   coExt.on('chat', fn)    - a viewer panel: {events, canAsk} of its chat (permission chat.read)
 (function () {
@@ -199,6 +200,15 @@
       return s;
     },
   };
+  // Esc the page did not use itself (no preventDefault by any of its handlers) goes to the shell: on a full-window
+  // page (ui.page) it leaves the app like Back (F14e.1); a page that wants Esc for itself calls preventDefault
+  window.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape' || e.isComposing) return;
+    var t = e.target;
+    // Esc in a text field belongs to the field (clears or cancels), not to the shell
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
+    setTimeout(function () { if (!e.defaultPrevented) post({ t: 'key', key: 'Escape' }); }, 0);
+  });
   // the parent is CO Web; this page has an opaque origin and sends nothing secret by '*'
   parentWin.postMessage({ ext: 1, t: 'hello' }, '*');
 })();

@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { openInspectorTab, type InspectorTab } from './chatPanel';
 import { moduleBadges, onModuleBadges, shellApps, shellOpen, shellSettings, type ModuleInfo } from './extBridge';
 import { openModulesSettings } from './Modules';
+import { LAUNCHER_OPEN } from './appStack';
 
 type Core = [InspectorTab | 'modules', string, string, string];
 // the control panel: core settings panels of the inspector, grouped
@@ -38,10 +39,17 @@ export default function Launcher({ modules, env, current }: { modules: ModuleInf
   useEffect(() => onModuleBadges(() => setBadgeTick((n) => n + 1)), []);
   const badges = moduleBadges();
   const anyBadge = apps.some((a) => badges.has(a.m.id));
+  // ▦ of the app bar (F14e.1) opens this launcher
+  useEffect(() => {
+    const f = () => { setView('apps'); setOpen(true); };
+    window.addEventListener(LAUNCHER_OPEN, f);
+    return () => window.removeEventListener(LAUNCHER_OPEN, f);
+  }, []);
   useEffect(() => {
     if (!open) return;
     const f = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      e.preventDefault(); // Esc closes the launcher, not the app under it
       if (view === 'settings') setView('apps'); else setOpen(false);
     };
     window.addEventListener('keydown', f);
@@ -53,7 +61,8 @@ export default function Launcher({ modules, env, current }: { modules: ModuleInf
     close();
     const o = shellOpen(a, env, desktop);
     if (o.target === 'blank') window.open(o.href, '_blank', 'noopener');
-    else navigate(o.href);
+    // app to app replaces the entry: Back leaves the apps for the page they were opened from (F14e.1)
+    else navigate(o.href, { replace: !!current });
   };
   const core = (t: Core[0]) => { close(); if (t === 'modules') openModulesSettings(); else openInspectorTab(t); };
   const tile = (key: string, icon: string, label: string, title: string, onClick: () => void, here = false, badge = '') => (

@@ -77,6 +77,13 @@ a **service** without a screen (`services`, `deviceTools`, `context`, `tools`).
 - **Badge** — `coExt.badge(v)` from any loaded page of the module (usually the tray page, which is always loaded): a
   count or a mark of up to 3 characters on the module's app tile, and a red dot on ▦ while any app has one; `0`, blank
   or `null` clears it. Example: unread mail. The ☰ menu keeps navigation only (projects, family, files).
+- **Navigation** (F14e.1) — an open app has a bar on top: "← Chats | ▦ | its icon and name" and the other recent
+  apps. Back of the browser or of Android, Esc and "← Chats" leave it for the page it was opened from; app to app
+  replaces the history entry. A left app is not destroyed: its iframe is hidden and keeps its state (the last 3 on a
+  phone, 5 on a computer stay alive, the oldest is unloaded and loads again on the next open); `ctx.visible` is false
+  while it is hidden (a page may pause its polling). Esc that no handler of the page prevented (`preventDefault`) and
+  that was not typed in a text field leaves the app — a page that uses Esc itself calls `preventDefault`. Recent apps
+  are icons in the header on a computer.
 - **Device apps** — a program of a computer (not a web page) is a module with an app page, `deviceOps` and
   `deviceTools` run by a `device/` script (`docs/ext1-device-tools.md`): inside CO Desktop the app page calls a device
   op that starts the program; elsewhere the page says where it runs, and agents use the program's functions as device
@@ -107,7 +114,7 @@ A page includes `/ext/ext1.js` and talks through `window.coExt`:
 - `coExt.req(name, args, transfer?)` → a service of the core (below); binary data travels as `ArrayBuffer`.
 - `coExt.size(w, h, overlay)` — header slots only.
 - `coExt.navigate(url, target)` — `self` (whole window) or `blank` (new tab/window).
-- `coExt.title(text)` — window title of a `ui.page`.
+- `coExt.title(text)` — window title of a `ui.page` (applied while the app is shown).
 - `coExt.badge(v)` — the module's badge in the shell (count on its app tile, dot on ▦); `0`/blank/`null` clears it.
 - `coExt.on('context'|'blur'|'chat', fn)`.
 

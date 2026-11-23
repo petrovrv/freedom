@@ -8,7 +8,7 @@ import { ChatStatusIcon, ProjectRing, chatStatus, isUnread, useSeenVersion } fro
 import { dbActivity, dbGatewayWaiting, type ChatActivity } from './dbapi';
 import { InboxView, useInbox } from './Inbox';
 import { configureFast, fastConfigFromOwner } from './pubsub';
-import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useNavigationType, useParams } from 'react-router-dom';
 import { refresh, signIn, signOut, type AuthState } from './auth';
 import ChatView from './ChatView';
 import { WebDevConfirmDialog, useWebDeviceRunner } from './WebDevice';
@@ -34,7 +34,10 @@ import { LimitsBar } from './Limits';
 import Inspector from './Inspector';
 import FamilyPanel from './FamilyPanel';
 import Launcher from './Launcher';
-import { ModuleFrame, ModulePage, ModuleSlots, modulePages, useModules, type PanelLink } from './ModuleSlot';
+import AppHost, { RecentApps } from './AppHost';
+import { appKey, exitTarget, findApp, findPage, liveLimit, loadRecent, pruneApps, RECENT_MAX, saveRecent, touchApp, type AppRef } from './appStack';
+import { shellOpen, type ShellApp } from './extBridge';
+import { ModuleFrame, ModuleSlots, modulePages, useModules, type PanelLink } from './ModuleSlot';
 import type { Chat, ChatEvent, LimitsFile, Mode, OwnerInfo, Project } from './types';
 
 import { SAFE_ID, formatLocal } from './util';
@@ -156,6 +159,69 @@ export default function Shell({ auth }: { auth: Signed }) {
   const [jobActivity, setJobActivity] = useState<{ running: ChatActivity[]; asking: string[]; gatewayWaiting: string[] } | null>(null);
   // F10: modules (modules_list); their header pages render in ModuleSlots
   const modules = useModules(authOk);
+
+  // F14e.1 (SPEC §3.6a п. 9): apps stay alive while hidden (the last 3 on a phone, 5 on a computer), recent ones are
+  // icons in the header and the app bar; Back, Esc and "← Chats" leave an app for the page it was opened from
+  const navType = useNavigationType();
+  const appNow: AppRef | null = useMemo(() => (modulePageRoute ? { env, ...modulePageRoute } : null),
+    [env, modulePageRoute?.moduleId, modulePageRoute?.pageId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [liveApps, setLiveApps] = useState<AppRef[]>([]);
+  const [recentApps, setRecentApps] = useState<AppRef[]>(loadRecent);
+  const lastShellPath = useRef<string | null>(null);
+  const openedFromShell = useRef(false);
+  const wasApp = useRef(false);
+  const { search: locSearch } = useLocation();
+  useEffect(() => {
+    if (!appNow) {
+      lastShellPath.current = pathname + locSearch;
+      wasApp.current = false;
+      return;
+    }
+    // a new push from a page of the shell: Back returns there; app to app (replace) keeps where the first came from
+    if (!wasApp.current) openedFromShell.current = navType === 'PUSH' && lastShellPath.current !== null;
+    wasApp.current = true;
+    setLiveApps((l) => touchApp(l, appNow, liveLimit(window.matchMedia('(max-width: 760px)').matches)));
+  }, [appNow, pathname, locSearch, navType]);
+  // recent icons are apps of the launcher only (a page of the side panel has its link there); waits for the module list
+  const appNowIsApp = !!appNow && !!findApp(modules, appNow);
+  useEffect(() => {
+    if (appNow && appNowIsApp) setRecentApps((l) => { const n = touchApp(l, appNow, RECENT_MAX); saveRecent(n); return n; });
+  }, [appNow, appNowIsApp]);
+  // a page whose module was switched off or removed is unloaded (it stays out of the recent icons by itself); pages of
+  // another environment too: the core calls of the shell act in the current one
+  // the page shown now comes back when its module is switched on again
+  useEffect(() => {
+    if (!modules.length) return;
+    setLiveApps((l) => {
+      const n = pruneApps(l, (a) => a.env === env && !!findPage(modules, a));
+      if (!appNow || !findPage(modules, appNow) || n.some((x) => appKey(x) === appKey(appNow))) return n;
+      return touchApp(n, appNow, liveLimit(window.matchMedia('(max-width: 760px)').matches));
+    });
+  }, [modules, env, appNow]);
+  const exitApp = useCallback(() => {
+    const t = exitTarget(openedFromShell.current, lastShellPath.current, env);
+    // the fallback replaces the app's entry: Back must not open the app again
+    if (t === -1) navigate(-1); else navigate(t, { replace: true });
+  }, [env, navigate]);
+  const openApp = useCallback((a: ShellApp) => {
+    const desktop = !!(window as unknown as { coDesktop?: unknown }).coDesktop;
+    const o = shellOpen(a, env, desktop);
+    if (o.target === 'blank') window.open(o.href, '_blank', 'noopener');
+    else if (!appNow || appKey(appNow) !== appKey({ env, moduleId: a.m.id, pageId: a.ui.id })) navigate(o.href, { replace: !!appNow });
+  }, [env, navigate, appNow]);
+  useEffect(() => {
+    if (!appNow) return;
+    const f = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      // a menu, popover or dialog of the shell takes Esc first
+      if (document.querySelector('.app-menu-scrim, .modal, .launcher-pop')) return;
+      exitApp();
+    };
+    window.addEventListener('keydown', f);
+    return () => window.removeEventListener('keydown', f);
+  }, [appNow, exitApp]);
   useSeenVersion();
   useColumnWidth('--left-w', 'co.leftW', 270, 180, 560);
   useColumnWidth('--right-w', 'co.rightW', 300, 220, 640);
@@ -269,13 +335,14 @@ export default function Shell({ auth }: { auth: Signed }) {
   // F10: generic core calls a module page may use (each refused unless its manifest declares the point's permission)
   const projectsRef = useRef<Project[] | null>(null);
   projectsRef.current = projects;
-  const pageCalls = useMemo(() => (root ? importCalls({
+  // a factory: every page frame gets its own session of core calls for its life (a hidden app keeps its import session)
+  const pageCalls = useCallback(() => (root ? importCalls({
     root, env, projects: () => projectsRef.current,
     onFinished: async (open) => {
       await refreshProjectsRef.current();
       if (open !== undefined) navigate(open ? `/e/${env}/p/${open}` : `/e/${env}`);
     },
-  }) : undefined), [root, env, navigate, modulePageRoute?.moduleId, modulePageRoute?.pageId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }) : undefined), [root, env, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
   const refreshProjects = useCallback(async () => {
     if (!root || !authOk || !envValid) return;
     try {
@@ -667,6 +734,7 @@ export default function Shell({ auth }: { auth: Signed }) {
         <div className="module-tray">
           <ModuleSlots slot="ui.header" modules={modules} me={auth.homeEnv} owner={!!auth.owner} />
         </div>
+        <RecentApps modules={modules} recent={recentApps.filter((r) => r.env === env).slice(0, 5)} current={appNow} onOpen={openApp} className="hide-mobile" />
         <Launcher modules={modules} env={env} current={modulePageRoute} />
         {familyUnread > 0 && (
           <button type="button" className="fam-top" title="New messages in the family chat" onClick={() => openInspectorTab('family')}>
@@ -1029,10 +1097,7 @@ export default function Shell({ auth }: { auth: Signed }) {
               <div className="empty">Connecting to AI-Workbench…</div>
             ) : inboxRoute ? (
               <InboxView env={env} inbox={inbox} />
-            ) : modulePageRoute ? (
-              <ModulePage modules={modules} moduleId={modulePageRoute.moduleId} pageId={modulePageRoute.pageId} me={auth.homeEnv}
-                owner={!!auth.owner} coreCalls={pageCalls} extra={{ env }} />
-            ) : viewerChat ? (
+            ) : modulePageRoute ? null : viewerChat ? (
               <Navigate to={`/e/${env}/p/${viewerChat.projectId}/c/${viewerChat.chatId}${search}`} replace />
             ) : chat && project ? viewerWrap(
               <ChatView
@@ -1107,6 +1172,11 @@ export default function Shell({ auth }: { auth: Signed }) {
                 <h2>{envName}</h2>
                 <p className="muted">Select a project on the left or create a new one.</p>
               </div>
+            )}
+            {/* mounted on every page of the shell, so that hidden apps keep their state (also while the inbox is open) */}
+            {root && (
+              <AppHost modules={modules} env={env} live={liveApps} current={appNow} recent={recentApps} me={auth.homeEnv} owner={!!auth.owner}
+                makeCoreCalls={pageCalls} onExit={exitApp} onOpen={openApp} />
             )}
           </main>
 

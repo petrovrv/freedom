@@ -133,6 +133,12 @@ interface FrameProps {
   rootId?: string | null;
   /** a viewer pane of a chat mode (ui.panel): its chat and what it may do there */
   panel?: PanelLink;
+  /** a full-window page shown now (false: an app kept alive while hidden, F14e.1); its title applies only while shown */
+  active?: boolean;
+  /** Esc the page did not use itself (ext/1 'key'): the shell leaves the app */
+  onEscape?: () => void;
+  /** "Open it again" of a full-window page that reloaded itself and was closed (the shell mounts a fresh frame) */
+  onReopen?: () => void;
 }
 
 /** What a viewer pane (ui.panel of a chat mode) is linked to: its chat, and what it may do there. */
@@ -179,7 +185,7 @@ async function service(name: string, args: Record<string, unknown>, rootId: stri
   throw new Error('unknown_request');
 }
 
-export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extra, composer, onHint, input, rootId, panel }: FrameProps) {
+export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extra, composer, onHint, input, rootId, panel, active = true, onEscape, onReopen }: FrameProps) {
   const frame = useRef<HTMLIFrameElement>(null);
   const wrap = useRef<HTMLSpanElement>(null);
   const [size, setSize] = useState<{ w: number; h: number; overlay: boolean }>({ w: 0, h: 0, overlay: false });
@@ -190,6 +196,15 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
   calls.current = coreCalls;
   const hintCb = useRef(onHint);
   hintCb.current = onHint;
+  const escCb = useRef(onEscape);
+  escCb.current = onEscape;
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  // the window title a full-window page asked for; a hidden app gets it back when it is shown again
+  const pageTitle = useRef('');
+  useEffect(() => {
+    if (active && pageTitle.current && mode === 'fill' && ui.slot === 'ui.page') document.title = pageTitle.current;
+  }, [active, mode, ui.slot]);
   const src = moduleUrl(m, ui.entry);
   const extraKey = JSON.stringify(extra ?? {});
 
@@ -373,7 +388,12 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
       if (r.target === 'blank') window.open(url, '_blank', 'noopener');
       else window.location.replace(url);
     } else if (r.t === 'title') {
-      if (mode === 'fill' && ui.slot === 'ui.page') document.title = r.text;
+      if (mode === 'fill' && ui.slot === 'ui.page') {
+        pageTitle.current = r.text;
+        if (activeRef.current) document.title = r.text;
+      }
+    } else if (r.t === 'key') {
+      if (activeRef.current) escCb.current?.();
     } else if (r.t === 'hint') {
       hintCb.current?.(r.hint);
     } else if (r.t === 'input') {
@@ -457,7 +477,15 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
     return () => document.removeEventListener('pointerdown', f, true);
   }, [size.overlay, send]);
 
-  if (!src || dead) return mode === 'fill' && dead ? <div className="muted pad">This page of {m.title} reloaded itself and was closed. Open it again.</div> : null;
+  if (!src || dead) {
+    if (mode !== 'fill' || !dead) return null;
+    return (
+      <div className="muted pad">
+        This page of {m.title} reloaded itself and was closed.{' '}
+        {onReopen ? <button type="button" className="btn small" onClick={onReopen}>Open it again</button> : 'Open it again.'}
+      </div>
+    );
+  }
   if (mode !== 'inline') {
     return (
       <span ref={wrap} className={mode === 'fill' ? 'module-page' : 'module-hidden'} data-module={m.id} aria-hidden={mode === 'hidden' || undefined}>

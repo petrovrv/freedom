@@ -109,6 +109,8 @@ export type ExtRequest =
   | { t: 'req'; id: string; name: string; args: Record<string, unknown> }
   | { t: 'navigate'; url: string; target: 'self' | 'blank' }
   | { t: 'title'; text: string }
+  // a key the page did not use itself (only Esc): the shell may leave the app
+  | { t: 'key'; key: 'Escape' }
   | { t: 'size'; w: number; h: number; overlay: boolean }
   | { t: 'badge'; value: string }
   | { t: 'input'; text: string; interim: string; done: boolean; focus: boolean }
@@ -182,6 +184,7 @@ export function parseExtMessage(data: unknown): ExtRequest | null {
     return { t: 'navigate', url: m.url, target: m.target === 'blank' ? 'blank' : 'self' };
   }
   if (m.t === 'title') return typeof m.text === 'string' ? { t: 'title', text: m.text.slice(0, 200) } : null;
+  if (m.t === 'key') return m.key === 'Escape' ? { t: 'key', key: 'Escape' } : null;
   if (m.t === 'badge') {
     // a count or a short mark; "0" and anything blank clear it
     const v = typeof m.value === 'string' ? m.value.trim().slice(0, 3) : '';

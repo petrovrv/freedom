@@ -840,3 +840,26 @@ button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
   .viewer-divider { width: auto; height: 12px; cursor: row-resize; border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
   .viewer-grip { width: 36px; height: 3px; }
 }
+
+/* F14e.1: apps in the centre of CO Web — a bar "← Chats | ▦ | name | recent", hidden apps stay alive (display: none) */
+.app-host { display: none; }
+.app-host.on { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.app-slot { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.app-slot[hidden] { display: none; }
+.app-slot > .module-page { position: static; inset: auto; display: flex; flex: 1; min-height: 0; width: 100%; height: auto; }
+.app-bar { display: flex; align-items: center; gap: 6px; flex: none; padding: 4px 8px; border-bottom: 1px solid var(--line); background: var(--panel); min-width: 0; }
+.app-bar button { border: 1px solid transparent; border-radius: 8px; background: none; color: inherit; font: inherit; cursor: pointer; height: 32px; padding: 0 8px; white-space: nowrap; }
+.app-bar button:hover, .app-bar button:focus-visible { background: var(--panel-2); border-color: var(--line); }
+.app-bar-apps { font-size: 17px; }
+.app-bar-title { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; font-weight: 600; }
+.app-bar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-apps { display: flex; align-items: center; gap: 2px; flex: none; }
+.recent-app { display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: 8px; background: none; color: inherit; cursor: pointer; font-size: 17px; line-height: 1; }
+.recent-app:hover, .recent-app:focus-visible { background: var(--panel-2); }
+.recent-app.here { border-color: var(--accent); }
+.app-bar .recent-app { width: 32px; padding: 0; }
+@media (max-width: 760px) {
+  .app-bar { padding: 4px; gap: 2px; }
+  .app-bar-back-label { display: none; }
+  .recent-apps.hide-mobile { display: none; }
+}

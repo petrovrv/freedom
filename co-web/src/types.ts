@@ -48,6 +48,10 @@ export interface Chat {
   draft?: boolean;
   // CO Web 0.25.0: hidden from the chat list, shown under "Archived (N)"; opens and works as usual.
   archived?: boolean;
+  // F15.2: in the trash since then ('' or absent = not); a trashed chat is also archived (hidden wherever archived ones
+  // are), trashedArchived keeps its own archived flag for the restore. Deleted for good after 30 days or by the owner.
+  trashedUtc?: string;
+  trashedArchived?: boolean;
   // 0.26.0: automatic summary written by the server (Claude Haiku), from the database only
   summary?: string;
   // 0.33.0: branch / follow-up / side question / subtask of another chat (lineage.ts)

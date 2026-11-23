@@ -337,7 +337,7 @@ function driveLater(key: string, what: string, fn: () => Promise<unknown>): void
 }
 
 // patch: fields of the chat document, plus the fields of chat modes of modules (<key>, <key>Log, <key>Doc; F10)
-export async function updateChatMeta(chat: Chat, patch: Partial<Pick<Chat, 'title' | 'titleAuto' | 'defaultMode' | 'projectId' | 'movedUtc' | 'permissions' | 'archived' | 'parent' | 'folder' | 'contextMode' | 'autoSwitch' | 'browser' | 'family'>> & Record<string, unknown>): Promise<Chat> {
+export async function updateChatMeta(chat: Chat, patch: Partial<Pick<Chat, 'title' | 'titleAuto' | 'defaultMode' | 'projectId' | 'movedUtc' | 'permissions' | 'archived' | 'trashedUtc' | 'trashedArchived' | 'parent' | 'folder' | 'contextMode' | 'autoSwitch' | 'browser' | 'family'>> & Record<string, unknown>): Promise<Chat> {
   const next = { ...chat, ...patch, updatedUtc: nowUtc() };
   // 0.45.0: shareRole is server-only, never written to chat.json
   const { folderId, legacy, shareRole, ...doc } = next;
@@ -1375,12 +1375,9 @@ export async function deleteProject(root: Root, p: Project, hosts: Record<string
   if (failed.length) throw new Error(`The project is in the Drive trash, but the database kept the messages of ${failed.length} chat(s).`);
 }
 
-// Stops every unfinished job of the chat, then moves the chat folder to the Google Drive trash
-// (restorable there for 30 days). Jobs still waiting in an inbox are withdrawn; claimed ones get a
-// cancel marker and the executor kills the agent process.
-export async function deleteChat(root: Root, chat: Chat, hosts: Record<string, HostDirs>, shared = false): Promise<void> {
-  // 0.45.0: shared chats are deleted on the server first (owner only); nothing is touched on refusal
-  if (shared && !(await dbDeleteChat(chat.chatId))) throw new Error('Only the project owner can delete this chat.');
+// Stops every unfinished job of the chat: jobs still waiting in an inbox are withdrawn; claimed ones get a cancel
+// marker and the executor kills the agent process.
+async function stopChatJobs(chat: Chat, hosts: Record<string, HostDirs>): Promise<void> {
   const events = await loadChatEvents(chat);
   const done = new Set(events.filter((e) => e.type === 'assistant_message').map((e) => e.jobId));
   const open = events.filter((e) => e.type === 'user_message' && e.jobId && !done.has(e.jobId));
@@ -1393,6 +1390,25 @@ export async function deleteChat(root: Root, chat: Chat, hosts: Record<string, H
       else await requestCancel(host, u.jobId!);
     }),
   );
+}
+
+// F15.2: Delete puts the chat into the CO trash: its jobs stop, it is hidden like an archived chat and comes back with
+// restoreChat; deleteChat (the owner's "Delete forever", or 30 days later) removes it for good.
+export async function trashChat(chat: Chat, hosts: Record<string, HostDirs>): Promise<Chat> {
+  await stopChatJobs(chat, hosts);
+  return updateChatMeta(chat, { trashedUtc: nowUtc(), archived: true, trashedArchived: !!chat.archived });
+}
+
+export function restoreChat(chat: Chat): Promise<Chat> {
+  return updateChatMeta(chat, { trashedUtc: '', archived: !!chat.trashedArchived, trashedArchived: false });
+}
+
+// Deletes the chat for good: stops its jobs, then moves the chat folder to the Google Drive trash
+// (restorable there for 30 days) and deletes its messages from the database.
+export async function deleteChat(root: Root, chat: Chat, hosts: Record<string, HostDirs>, shared = false): Promise<void> {
+  // 0.45.0: shared chats are deleted on the server first (owner only); nothing is touched on refusal
+  if (shared && !(await dbDeleteChat(chat.chatId))) throw new Error('Only the project owner can delete this chat.');
+  await stopChatJobs(chat, hosts);
   await trashFile(chat.folderId);
   if (!shared) void dbDeleteChat(chat.chatId);
   localChats.delete(chat.chatId);

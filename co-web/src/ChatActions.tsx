@@ -6,9 +6,10 @@ import { suggestChatTitle } from './search';
 import { deleteChat, moveChat, renameChat, type HostDirs, type Root } from './workbench';
 
 // 'title' = the rename dialog that starts with an AI-suggested title.
-export type ChatAction = 'rename' | 'title' | 'move' | 'archive' | 'delete';
+// F15.2: 'delete' puts the chat into the trash (no dialog); 'restore' brings it back, 'purge' deletes it for good.
+export type ChatAction = 'rename' | 'title' | 'move' | 'archive' | 'delete' | 'restore' | 'purge';
 
-// Rename (with AI title suggestion) / move / delete dialogs for one chat.
+// Rename (with AI title suggestion) / move / delete-forever dialogs for one chat.
 export function ChatActionDialog({
   action, chat, root, hosts, projects, onClose, onDone,
 }: {
@@ -105,12 +106,12 @@ export function ChatActionDialog({
             </p>
           </>
         )}
-        {action === 'delete' && (
+        {action === 'purge' && (
           <>
-            <h3>Delete “{chat.title}”?</h3>
+            <h3>Delete “{chat.title}” forever?</h3>
             <p className="hint">
-              Unfinished jobs of this chat are stopped. The chat folder with history and files goes to the Google Drive trash, where it
-              can be restored for 30 days.
+              The chat leaves the CO trash and its messages leave the database. The chat folder with history and files goes to the
+              Google Drive trash, where it can be restored for 30 days.
             </p>
           </>
         )}
@@ -119,10 +120,10 @@ export function ChatActionDialog({
           <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
           <button
             type="submit"
-            className={`btn ${action === 'delete' ? 'danger' : 'primary'}`}
+            className={`btn ${action === 'purge' ? 'danger' : 'primary'}`}
             disabled={busy || suggesting || (action === 'move' && !target) || (renaming && !title.trim())}
           >
-            {busy ? 'Working…' : renaming ? 'Rename' : action === 'move' ? 'Move' : 'Delete'}
+            {busy ? 'Working…' : renaming ? 'Rename' : action === 'move' ? 'Move' : 'Delete forever'}
           </button>
         </div>
       </form>
@@ -151,13 +152,13 @@ function ChatMenuInner({ onPick, archived, actions = ALL_CHAT_ACTIONS }: ChatMen
             <button
               key={a}
               role="menuitem"
-              className={a === 'delete' ? 'danger-text' : ''}
+              className={a === 'delete' || a === 'purge' ? 'danger-text' : ''}
               onClick={() => {
                 setOpen(false);
                 onPick(a);
               }}
             >
-              {a === 'rename' ? 'Rename' : a === 'title' ? 'Suggest title' : a === 'move' ? 'Move to project…' : a === 'archive' ? (archived ? 'Restore from archive' : 'Archive') : 'Delete'}
+              {a === 'rename' ? 'Rename' : a === 'title' ? 'Suggest title' : a === 'move' ? 'Move to project…' : a === 'archive' ? (archived ? 'Restore from archive' : 'Archive') : a === 'restore' ? 'Restore from trash' : a === 'purge' ? 'Delete forever' : 'Move to trash'}
             </button>
           ))}
         </span>

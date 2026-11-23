@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
-import { archiveScope, buildChatTree, readTreeOpen, treeTitle, writeTreeOpen } from './chatTree';
+import { archiveScope, buildChatTree, readTreeOpen, trashDue, trashScope, TRASH_DAYS, treeTitle, writeTreeOpen } from './chatTree';
 import { SORT_MODES, compareBy, readSortMode, ts as tsOf, writeSortMode, type SortMode } from './sidebarSort';
 import ViewerSplit from './ViewerSplit';
 import { Resizer, useColumnWidth } from './Resizer';
@@ -26,7 +26,7 @@ function chatActionsFor(p: { shareRole?: string }, c: { shareRole?: string }): C
   if (p.shareRole === 'editor' || c.shareRole === 'editor') return ['rename', 'title', 'archive'];
   return [];
 }
-import { allProjectChats, latestChats, moveChatGroup, saveProjectMeta, updateChatMeta } from './workbench';
+import { allProjectChats, deleteChat, latestChats, moveChatGroup, restoreChat, saveProjectMeta, trashChat, updateChatMeta } from './workbench';
 import { projectModeDefault, type ModeDecl } from './moduleModes';
 import { modesOf } from './moduleStore';
 import { importCalls } from './importWriter';
@@ -243,6 +243,8 @@ export default function Shell({ auth }: { auth: Signed }) {
   useColumnWidth('--right-w', 'co.rightW', 300, 220, 640);
   // 0.25.0: archive (projects and chats are hidden from the lists, not deleted)
   const [showArchivedChats, setShowArchivedChats] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
+  const purging = useRef(new Set<string>()); // F15.2: chats being deleted by the 30-day trash clean-up
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
   // CO Web 0.14.0: text/links/files shared from another app (service worker share target)
   const [share, setShare] = useState<SharedItem | null>(null);
@@ -475,6 +477,26 @@ export default function Shell({ auth }: { auth: Signed }) {
 
   const project = useMemo(() => projects?.find((p) => p.projectId === projectId) || null, [projects, projectId]);
 
+  // F15.2: trashed chats of an own project are deleted for good 30 days after deletion, when the project is opened
+  useEffect(() => {
+    if (!chats || !root || !hosts || !project || project.shareRole || chatsPid !== project.projectId) return;
+    const due = trashDue(chats, Date.now()).filter((c) => !purging.current.has(c.chatId));
+    if (!due.length) return;
+    for (const c of due) purging.current.add(c.chatId);
+    void (async () => {
+      const done = new Set<string>();
+      for (const c of due) {
+        try {
+          await deleteChat(root, c, hosts);
+          done.add(c.folderId);
+        } catch (e) {
+          console.warn('trash clean-up', c.chatId, e);
+        }
+      }
+      if (done.size) setChats((prev) => (prev || []).filter((x) => !done.has(x.folderId)));
+    })();
+  }, [chats, chatsPid, root, hosts, project]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const refreshChats = useCallback(async () => {
     if (!project || !authOk) return;
     try {
@@ -650,7 +672,9 @@ export default function Shell({ auth }: { auth: Signed }) {
     .map((x) => x.p);
   const matchingChats = (chats || []).filter((c) => !f || c.title.toLowerCase().includes(f));
   const visibleChats = matchingChats.filter((c) => !c.archived);
-  const archivedChats = matchingChats.filter((c) => c.archived);
+  // F15.2: a trashed chat is archived too (hidden wherever archived ones are) and listed only under Trash
+  const archivedChats = matchingChats.filter((c) => c.archived && !c.trashedUtc);
+  const trashedChats = matchingChats.filter((c) => !!c.trashedUtc);
   // 0.40.0: child chats under their parent (chatTree.ts)
   const treeRows = buildChatTree(visibleChats, {
     isWorking: (id) => runningByChat.has(id),
@@ -701,7 +725,31 @@ export default function Shell({ auth }: { auth: Signed }) {
     }
   }
 
+  // F15.2: Delete moves the chat with its subchats to the trash; Restore brings them back with trashed parents
+  async function trashOrRestore(c: Chat, trash: boolean) {
+    if (!hosts) return;
+    const scope = trashScope(chats || [], c.chatId, trash);
+    const changed = new Map<string, Chat>();
+    let failed = 0;
+    for (const x of scope.length ? scope : [c]) {
+      try {
+        const updated = trash ? await trashChat(x, hosts) : await restoreChat(x);
+        changed.set(updated.folderId, updated);
+      } catch (e) {
+        if (x.chatId === c.chatId) {
+          alert(categorize(e).message);
+          return;
+        }
+        failed++;
+      }
+    }
+    setChats((prev) => (prev || []).map((x) => changed.get(x.folderId) ?? x));
+    if (trash && chatId && [...changed.values()].some((x) => x.chatId === chatId)) navigate(`/e/${env}/p/${c.projectId}`);
+    if (failed) alert(`${failed} related chat(s) could not be changed.`);
+  }
+
   async function pickChatAction(action: ChatAction, c: Chat) {
+    if (action === 'delete' || action === 'restore') return trashOrRestore(c, action === 'delete');
     if (action !== 'archive') {
       setChatAction({ action, chat: c });
       return;
@@ -1173,6 +1221,34 @@ export default function Shell({ auth }: { auth: Signed }) {
                           )}
                         </>
                       )}
+                      {trashedChats.length > 0 && (
+                        <>
+                          <button className="btn tiny ghost" onClick={() => setShowTrash((v) => !v)} aria-expanded={showTrash}>
+                            {showTrash ? '▾' : '▸'} 🗑 Trash ({trashedChats.length})
+                          </button>
+                          {showTrash && (
+                            <ul className="archived-list">
+                              <li className="hint small">Deleted for good {TRASH_DAYS} days after deletion.</li>
+                              {trashedChats.map((c) => (
+                                <li key={c.folderId} className="chat-li">
+                                  <button
+                                    className={c.chatId === chatId ? 'active' : ''}
+                                    title={c.summary || undefined}
+                                    onClick={() => {
+                                      navigate(`/e/${env}/p/${p.projectId}/c/${c.chatId}`);
+                                      setLeftOpen(false);
+                                    }}
+                                  >
+                                    <span className="nav-title">{shownTitle(c.title || '')}</span>
+                                    <span className="nav-date" title="Moved to trash">{formatLocal(c.trashedUtc || '')}</span>
+                                  </button>
+                                  <ChatMenu actions={chatActionsFor(p, c).includes('delete') ? ['restore', 'purge'] : []} onPick={(action) => void pickChatAction(action, c)} />
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </>
+                      )}
                     </div>
                   )}
                 </li>
@@ -1250,7 +1326,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                 owner={owner}
                 limits={limits}
                 onChatUpdated={refreshChats}
-                onChatAction={(action) => setChatAction({ action, chat })}
+                onChatAction={(action) => void pickChatAction(action, chat)}
                 onChatCreated={(c) => {
                   // 0.33.0: branch / follow-up opened from this chat
                   setChats((prev) => [c, ...(prev || []).filter((x) => x.chatId !== c.chatId)]);

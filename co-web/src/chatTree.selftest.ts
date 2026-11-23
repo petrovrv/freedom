@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // CO Web 0.70.0: self-check of the chat tree and archive scope (run: npm test, or node src/chatTree.selftest.ts).
-import { buildChatTree, archiveScope } from './chatTree.ts';
+import { buildChatTree, archiveScope, trashScope, trashDue } from './chatTree.ts';
 import type { Chat } from './types.ts';
 
 declare const process: { exitCode?: number };
@@ -28,6 +28,18 @@ eq('archive unknown chat', archiveScope(chats, 'Z', true), []);
 const arch = [mk('H', undefined, true), mk('A', 'H', true), mk('A1', 'A', true), mk('B', 'H', true), mk('X')];
 eq('restore child brings archived ancestors', ids(archiveScope(arch, 'A1', false)), ['A', 'A1', 'H']);
 eq('restore hub takes subtree', ids(archiveScope(arch, 'H', false)), ['A', 'A1', 'B', 'H']);
+
+// F15.2: trash scope and the 30-day clean-up
+const tr = (c: Chat, at: string) => ({ ...c, trashedUtc: at }) as Chat;
+eq('trash hub takes subtree', ids(trashScope(chats, 'H', true)), ['A', 'A1', 'B', 'H']);
+const binned = [tr(mk('H'), '2026-10-01T00:00:00Z'), tr(mk('A', 'H'), '2026-10-01T00:00:00Z'), tr(mk('A1', 'A'), '2026-10-01T00:00:00Z'), mk('B', 'H'), mk('X')];
+eq('trash skips trashed ones', ids(trashScope(binned, 'H', true)), ['B']);
+eq('restore child brings trashed ancestors', ids(trashScope(binned, 'A1', false)), ['A', 'A1', 'H']);
+eq('restore keeps live ones out', ids(trashScope(binned, 'H', false)), ['A', 'A1', 'H']);
+const now = Date.parse('2026-10-31T00:00:00Z');
+eq('due after 30 days', ids(trashDue(binned, now)), ['A', 'A1', 'H']);
+eq('not due before 30 days', trashDue(binned, now - 1000), []);
+eq('bad date never due', trashDue([tr(mk('Q'), 'x')], now), []);
 eq('restore skips visible chats', ids(archiveScope([mk('H'), mk('A', 'H', true)], 'A', false)), ['A']);
 eq('first item is the chat itself', archiveScope(arch, 'A', false)[0].chatId, 'A');
 

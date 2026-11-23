@@ -183,6 +183,11 @@ export function buildChatTree(
  * Only chats whose flag actually changes are returned, the given chat first.
  */
 export function archiveScope(chats: Chat[], chatId: string, archive: boolean): Chat[] {
+  return relatives(chats, chatId, !archive, (c) => !!c.archived).filter((c) => !!c.archived !== archive);
+}
+
+// The chat, its descendants and (withAncestors) those of its ancestors that pass keep, the chat first.
+function relatives(chats: Chat[], chatId: string, withAncestors: boolean, keep: (c: Chat) => boolean): Chat[] {
   const byId = new Map<string, Chat>();
   for (const c of chats) if (c?.chatId && !byId.has(c.chatId)) byId.set(c.chatId, c);
   const self = byId.get(chatId);
@@ -205,11 +210,28 @@ export function archiveScope(chats: Chat[], chatId: string, archive: boolean): C
     out.push(c);
     stack.push(...(kids.get(c.chatId) ?? []));
   }
-  if (!archive) {
+  if (withAncestors) {
     for (let cur = byId.get(placeParent(self) || ''); cur && !seen.has(cur.chatId); cur = byId.get(placeParent(cur) || '')) {
       seen.add(cur.chatId);
-      if (cur.archived) out.push(cur);
+      if (keep(cur)) out.push(cur);
     }
   }
-  return out.filter((c) => !!c.archived !== archive);
+  return out;
+}
+
+/**
+ * F15.2: chats that go to the trash with `chatId` (it and its descendants) or come back from it (it, its trashed
+ * descendants and trashed ancestors, so the restored chat is back under its parent). The given chat first.
+ */
+export function trashScope(chats: Chat[], chatId: string, trash: boolean): Chat[] {
+  return relatives(chats, chatId, !trash, (c) => !!c.trashedUtc).filter((c) => !!c.trashedUtc !== trash);
+}
+
+/** F15.2: trashed chats older than `days` days at `nowMs`; they are deleted for good. */
+export const TRASH_DAYS = 30;
+export function trashDue(chats: Chat[], nowMs: number, days = TRASH_DAYS): Chat[] {
+  return chats.filter((c) => {
+    const t = c.trashedUtc ? Date.parse(c.trashedUtc) : NaN;
+    return Number.isFinite(t) && nowMs - t >= days * 86400000;
+  });
 }

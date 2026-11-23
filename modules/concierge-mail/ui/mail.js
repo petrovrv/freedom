@@ -411,7 +411,7 @@ function undo(d, seconds) {
     try {
       const out = await call('compose_unsend', {key: d.key});
       if (gen !== undoGen) return;
-      if (out.cancelled) { bar.hidden = true; d.sending = false; if (await closeComposer()) { showComposer(d); cstate('Отправка отменена, письмо — снова черновик'); } }
+      if (out.cancelled) { done(); d.sending = false; if (await closeComposer()) { await reopen(d); cstate('Отправка отменена, письмо — снова черновик'); } }
       else result(d, gen, Date.now());
     } catch (err) { text('Не удалось отменить: ' + writeError(err)); result(d, gen, Date.now()); }
   };
@@ -423,15 +423,15 @@ async function result(d, gen, started) {
   try { it = ((await call('compose_outbox', {})).items || []).find(i => i.key === d.key); } catch (_) {}
   if (gen !== undoGen) return;
   const btn = $('undo'), text = t => { $('undo-text').textContent = t; };
-  if (it && it.state === 'sent') { text('Письмо отправлено'); setTimeout(() => { if (gen === undoGen) { $('undo-bar').hidden = true; resumeOutbox(); } }, 6000); refreshList(); return; }
+  if (it && it.state === 'sent') { text('Письмо отправлено'); setTimeout(() => { if (gen === undoGen) done(); }, 6000); refreshList(); return; }
   if (it && it.state === 'failed') {
     text('Не отправлено' + (it.error && it.error !== 'not sent' ? ': ' + writeError(it.error) : '') + ' — письмо осталось в черновиках');
     btn.hidden = false; btn.textContent = 'Открыть';
-    btn.onclick = async () => { $('undo-bar').hidden = true; d.sending = false; if (await closeComposer()) await reopen(d); resumeOutbox(); };
+    btn.onclick = async () => { done(); d.sending = false; if (await closeComposer()) await reopen(d); };
     d.sending = false;
     return;
   }
-  if (it && it.state === 'cancelled') { $('undo-bar').hidden = true; return; }
+  if (it && it.state === 'cancelled') { done(); return; }
   if (it && it.state === 'unknown' && it.ask) {
     // nothing settles an unclear send by itself: the person looks at Sent and answers
     text('Неясно, ушло ли письмо. Посмотрите «Отправленные»: оно там?');
@@ -442,8 +442,8 @@ async function result(d, gen, started) {
       try {
         await call('compose_resolve', {key: d.key, sent});
         $('undo-bar').querySelectorAll('.undo-extra').forEach(n => n.remove());
-        if (sent) { text('Отмечено как отправленное'); btn.hidden = true; refreshList(); }
-        else { $('undo-bar').hidden = true; d.sending = false; if (await closeComposer()) await reopen(d); }
+        if (sent) { text('Отмечено как отправленное'); btn.hidden = true; refreshList(); setTimeout(() => { if (gen === undoGen) done(); }, 4000); }
+        else { done(); d.sending = false; if (await closeComposer()) await reopen(d); }
       } catch (err) { text(writeError(err)); }
     };
     btn.onclick = () => answer(true);
@@ -452,6 +452,8 @@ async function result(d, gen, started) {
   text(it && it.state === 'unknown' ? 'Проверяю в «Отправленных», ушло ли письмо…' : 'Отправляется…');
   setTimeout(() => result(d, gen, started), it && it.state === 'unknown' ? 10000 : 2000);
 }
+// the bar is free again: the next open send (if any) takes it
+function done() { $('undo-bar').hidden = true; $('undo-bar').querySelectorAll('.undo-extra').forEach(n => n.remove()); setTimeout(resumeOutbox, 0); }
 // a letter known only by its key (after a reload): its fields come from the home server's list of letters being written
 async function reopen(d) {
   if (d.fields) { showComposer(d); return; }
@@ -466,6 +468,7 @@ async function resumeOutbox() {
   try {
     const it = ((await call('compose_outbox', {})).items || []).find(i => ['wait', 'sending', 'unknown'].includes(i.state));
     if (!it || !$('undo-bar').hidden) return;
+    if (it.state === 'wait') { undo({key: it.key}, Math.max(0, Math.ceil(it.due - Date.now() / 1000))); return; }
     const gen = ++undoGen;
     $('undo-bar').hidden = false; $('undo').hidden = true; $('undo-bar').querySelectorAll('.undo-extra').forEach(n => n.remove());
     result({key: it.key}, gen, Date.now());

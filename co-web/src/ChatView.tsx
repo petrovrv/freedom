@@ -607,12 +607,8 @@ export default function ChatView(props: Props) {
       return;
     }
     setEvents([...current, ev]);
-    // F15.2: writing in a trashed chat takes it out of the trash (the 30-day clean-up would delete the new work)
-    const untrash = chat.trashedUtc ? { trashedUtc: '', archived: !!chat.trashedArchived, trashedArchived: false } : {};
     if (wantsTitle(chat, current)) {
-      setChat(await updateChatMeta(chat, { title: heuristicTitle(input.text), titleAuto: true, ...untrash }));
-    } else if (chat.trashedUtc) {
-      setChat(await updateChatMeta(chat, untrash));
+      setChat(await updateChatMeta(chat, { title: heuristicTitle(input.text), titleAuto: true }));
     } else {
       await updateChatMeta(chat, {});
     }
@@ -803,6 +799,8 @@ export default function ChatView(props: Props) {
   }
 
   async function sendOrQueue(input: SendForm, progress: (s: string) => void) {
+    // F15.2: no new work in a trashed chat (the 30-day clean-up would take it along); the text stays in the box
+    if (chat.trashedUtc) throw new Error('This chat is in the trash: restore it first (chat panel → Restore from trash).');
     // 0.106.0: messages on screen are a copy (database down): queue like offline, sent once the database answers
     if (navigator.onLine && !staleUtc) return onSend(input, progress);
     const why = navigator.onLine ? 'No connection to the CO database' : 'No network';
@@ -812,7 +810,7 @@ export default function ChatView(props: Props) {
   }
 
   useEffect(() => {
-    if (!online || !authOk || events === null || staleUtc || chatPending.length > 0 || !outbox.length || flushing.current || chat.draft) return;
+    if (!online || !authOk || events === null || staleUtc || chatPending.length > 0 || !outbox.length || flushing.current || chat.draft || chat.trashedUtc) return;
     if (Date.now() - lastFlushFail.current < 20000) return; // after a failure: next try with the chat reload (20 s)
     const item = outbox[0];
     if (!outboxTake(item.id)) return;

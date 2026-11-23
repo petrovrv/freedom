@@ -1419,10 +1419,12 @@ export async function deleteChat(root: Root, chat: Chat, hosts: Record<string, H
 }
 
 // F15.2: the 30-day clean-up of one trashed chat. The database deletes it only while it is still trashed since the
-// same moment (a restore elsewhere wins); the folder goes to the Google Drive trash after that. True when deleted.
+// same moment (a restore elsewhere wins); the folder goes to the Google Drive trash after that. A folder left by a
+// failed Drive call (row already gone, chat.json still trashed) is trashed on the next run. True when deleted.
 export async function purgeTrashedChat(root: Root, chat: Chat): Promise<boolean> {
   if (chat.legacy || !chat.trashedUtc) return false;
-  if ((await dbDeleteTrashedChat(chat.chatId, chat.trashedUtc)) !== 'deleted') return false;
+  const r = await dbDeleteTrashedChat(chat.chatId, chat.trashedUtc);
+  if (r !== 'deleted' && r !== 'missing') return false;
   await trashFile(chat.folderId);
   localChats.delete(chat.chatId);
   const projectsId = await ensurePath(root.id, ['projects']);

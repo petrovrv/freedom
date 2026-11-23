@@ -183,7 +183,8 @@ export function buildChatTree(
  * Only chats whose flag actually changes are returned, the given chat first.
  */
 export function archiveScope(chats: Chat[], chatId: string, archive: boolean): Chat[] {
-  return relatives(chats, chatId, !archive, (c) => !!c.archived).filter((c) => !!c.archived !== archive);
+  // F15.2: trashed chats keep their state (they come back only through the trash)
+  return relatives(chats, chatId, !archive, (c) => !!c.archived && !c.trashedUtc).filter((c) => !c.trashedUtc && !!c.archived !== archive);
 }
 
 // The chat, its descendants and (withAncestors) those of its ancestors that pass keep, the chat first.

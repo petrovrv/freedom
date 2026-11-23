@@ -40,6 +40,9 @@ const now = Date.parse('2026-10-31T00:00:00Z');
 eq('due after 30 days', ids(trashDue(binned, now)), ['A', 'A1', 'H']);
 eq('not due before 30 days', trashDue(binned, now - 1000), []);
 eq('bad date never due', trashDue([tr(mk('Q'), 'x')], now), []);
+const mixed = [mk('H', undefined, true), tr({ ...mk('A', 'H'), archived: true } as Chat, '2026-10-01T00:00:00Z'), mk('B', 'H', true)];
+eq('archive restore leaves trashed ones', ids(archiveScope(mixed, 'H', false)), ['B', 'H']);
+eq('archive leaves trashed ones', ids(archiveScope([mk('H'), tr(mk('A', 'H'), 'x')], 'H', true)), ['H']);
 eq('restore skips visible chats', ids(archiveScope([mk('H'), mk('A', 'H', true)], 'A', false)), ['A']);
 eq('first item is the chat itself', archiveScope(arch, 'A', false)[0].chatId, 'A');
 

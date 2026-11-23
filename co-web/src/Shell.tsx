@@ -245,6 +245,7 @@ export default function Shell({ auth }: { auth: Signed }) {
   const [showArchivedChats, setShowArchivedChats] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
   const purging = useRef(new Set<string>()); // F15.2: chats being deleted by the 30-day trash clean-up
+  const chatsNow = useRef<Chat[] | null>(null); // F15.2: the newest chat list for the clean-up's re-check
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
   // CO Web 0.14.0: text/links/files shared from another app (service worker share target)
   const [share, setShare] = useState<SharedItem | null>(null);
@@ -477,6 +478,9 @@ export default function Shell({ auth }: { auth: Signed }) {
 
   const project = useMemo(() => projects?.find((p) => p.projectId === projectId) || null, [projects, projectId]);
 
+  useEffect(() => {
+    chatsNow.current = chats;
+  }, [chats]);
   // F15.2: trashed chats of an own project are deleted for good 30 days after deletion, when the project is opened
   useEffect(() => {
     if (!chats || !root || !hosts || !project || project.shareRole || chatsPid !== project.projectId) return;
@@ -487,12 +491,17 @@ export default function Shell({ auth }: { auth: Signed }) {
       const done = new Set<string>();
       for (const c of due) {
         try {
-          await deleteChat(root, c, hosts);
+          // re-checked right before: restored here (state) or elsewhere (newest copy) since the list was read
+          const here = (chatsNow.current || []).find((x) => x.folderId === c.folderId);
+          const [fresh] = await latestChats(project, [here || c]);
+          if (!here || !fresh || trashDue([here, fresh], Date.now()).length < 2) continue;
+          await deleteChat(root, fresh, hosts);
           done.add(c.folderId);
         } catch (e) {
           console.warn('trash clean-up', c.chatId, e);
         }
       }
+      for (const c of due) purging.current.delete(c.chatId);
       if (done.size) setChats((prev) => (prev || []).filter((x) => !done.has(x.folderId)));
     })();
   }, [chats, chatsPid, root, hosts, project]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -729,6 +738,10 @@ export default function Shell({ auth }: { auth: Signed }) {
   async function trashOrRestore(c: Chat, trash: boolean) {
     if (!hosts) return;
     const scope = trashScope(chats || [], c.chatId, trash);
+    if (scope.some((x) => purging.current.has(x.chatId))) {
+      alert('The trash is being cleaned up (30 days passed); try again in a moment.');
+      return;
+    }
     const changed = new Map<string, Chat>();
     let failed = 0;
     for (const x of scope.length ? scope : [c]) {
@@ -750,6 +763,10 @@ export default function Shell({ auth }: { auth: Signed }) {
 
   async function pickChatAction(action: ChatAction, c: Chat) {
     if (action === 'delete' || action === 'restore') return trashOrRestore(c, action === 'delete');
+    if (c.trashedUtc && action !== 'purge' && action !== 'rename' && action !== 'title') {
+      alert('This chat is in the trash; restore it first.');
+      return;
+    }
     if (action !== 'archive') {
       setChatAction({ action, chat: c });
       return;

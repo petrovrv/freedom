@@ -493,34 +493,40 @@ export default function Shell({ auth }: { auth: Signed }) {
 
   const chat = useMemo(() => chats?.find((c) => c.chatId === chatId) || null, [chats, chatId]);
 
-  // F15.1: the Explorer browses any project; chats of the open project come from `chats`, the others load on demand
+  // F15.1: the Explorer browses any project; chats of the open project come from `chats`, the others load on demand.
+  // A generation per environment: answers and queued loads of the previous environment are dropped.
+  const exGen = useRef(0);
   useEffect(() => {
+    exGen.current++;
     setExChats({});
     exLoading.current.clear();
   }, [env]);
-  const exLoad = useCallback(async (pid: string) => {
+  const exLoad = useCallback(async (pid: string, gen: number) => {
     const p = projects?.find((x) => x.projectId === pid);
-    if (!p || !authOk || exLoading.current.has(pid)) return;
+    if (gen !== exGen.current || !p || !authOk || exLoading.current.has(pid)) return;
     exLoading.current.add(pid);
     try {
       const list = await listChats(p, env);
-      setExChats((m) => ({ ...m, [pid]: { at: Date.now(), list } }));
+      if (gen === exGen.current) setExChats((m) => ({ ...m, [pid]: { at: Date.now(), list } }));
     } catch (e) {
       console.warn('explorer chats', e);
     } finally {
-      exLoading.current.delete(pid);
+      if (gen === exGen.current) exLoading.current.delete(pid);
     }
   }, [projects, authOk, env]);
-  const exFresh = (pid: string) => Date.now() - (exChats[pid]?.at ?? 0) < POLL_LISTS_MS;
+  // fresh for half the list poll, so the Explorer's poll of the shown project reloads it every time
+  const exFresh = (pid: string) => Date.now() - (exChats[pid]?.at ?? 0) < POLL_LISTS_MS / 2;
   const exLoadOne = (pid: string) => {
-    if (pid !== projectId && !exFresh(pid)) void exLoad(pid);
+    if (pid !== projectId && !exFresh(pid)) void exLoad(pid, exGen.current);
   };
   const exLoadAll = () => {
+    const gen = exGen.current;
     const todo = (projects || []).filter((p) => !p.family && !p.archived && p.projectId !== projectId && !exFresh(p.projectId));
-    void mapLimit(todo, 4, (p) => exLoad(p.projectId));
+    void mapLimit(todo, 4, (p) => exLoad(p.projectId, gen));
   };
+  // the open project: only its own list (`chats`), never an older copy, so the Explorer finds a new chat's folder
   const exChatsOf = useCallback(
-    (pid: string): Chat[] | null => (pid === projectId && chatsPid === pid ? chats : exChats[pid]?.list ?? null),
+    (pid: string): Chat[] | null => (pid === projectId ? (chatsPid === pid ? chats : null) : exChats[pid]?.list ?? null),
     [projectId, chatsPid, chats, exChats],
   );
 

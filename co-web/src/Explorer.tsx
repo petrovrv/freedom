@@ -8,6 +8,8 @@ import { createPortal } from 'react-dom';
 import type { Chat, Project } from './types';
 import type { SortMode } from './sidebarSort';
 import { formatLocal } from './util';
+import { useInterval } from './hooks';
+import { POLL_LISTS_MS } from './config';
 import { ChatStatusIcon, ProjectRing, type ChatStatus } from './status';
 import {
   childPath, crumbs, explorerItems, shortDate, moveFocus, parentPath, pathOfChat, quickJump, readExplorerView, ROOT_PATH, samePath,
@@ -54,9 +56,12 @@ export default function Explorer(props: ExplorerProps) {
   useEffect(() => {
     if (!routeProjectId) return;
     const key = `${routeProjectId}/${routeChatId || ''}`;
-    if (synced.current === key || (routeChatId && !routeChats)) return;
+    // waits until the opened chat is in its project's list (a new chat comes with the next load)
+    if (synced.current === key || (routeChatId && !routeChats?.some((c) => c.chatId === routeChatId))) return;
     synced.current = key;
-    setPath(routeChatId && routeChats ? pathOfChat(routeProjectId, routeChatId, routeChats) : { projectId: routeProjectId, chatIds: [] });
+    const target = routeChatId && routeChats ? pathOfChat(routeProjectId, routeChatId, routeChats) : { projectId: routeProjectId, chatIds: [] };
+    // a chat opened from its own folder ("this chat itself") keeps that folder
+    setPath((cur) => (samePath(cur, target) || (routeChatId && cur.projectId === routeProjectId && cur.chatIds[cur.chatIds.length - 1] === routeChatId) ? cur : target));
   }, [routeProjectId, routeChatId, routeChats]);
 
   // a folder that is gone (deleted, archived, moved) leads to the nearest one above it
@@ -71,6 +76,10 @@ export default function Explorer(props: ExplorerProps) {
   useEffect(() => {
     if (pid) loadChats(pid);
   }, [pid]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the shown project keeps up with new, deleted and moved chats (the open project is polled by the shell)
+  useInterval(() => {
+    if (pid) loadChats(pid);
+  }, POLL_LISTS_MS, !!pid);
 
   const items = useMemo(
     () =>
@@ -90,18 +99,28 @@ export default function Explorer(props: ExplorerProps) {
     setFocus(i >= 0 ? i : 0);
   }, [pathKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const focusIdx = Math.min(focus, Math.max(0, items.length - 1));
+  const loading = !!pid && !chats;
 
   const gridRef = useRef<HTMLUListElement>(null);
   const btns = useRef<Array<HTMLButtonElement | null>>([]);
   const keyFocus = useRef(false);
+  // focus after a key: waits for the items of a folder still loading; an empty folder focuses the list itself
   useEffect(() => {
     if (!keyFocus.current) return;
-    keyFocus.current = false;
-    btns.current[focusIdx]?.focus();
-  }, [focusIdx, pathKey]);
+    const el = btns.current[focusIdx];
+    if (el) {
+      keyFocus.current = false;
+      el.focus();
+    } else if (!loading) {
+      keyFocus.current = false;
+      gridRef.current?.focus();
+    }
+  }, [focusIdx, pathKey, items.length, loading]);
 
+  const moved = useRef(0);
   const go = (p: ExplorerPath, byKey = false) => {
     keyFocus.current = byKey;
+    moved.current = Date.now();
     setPath(p);
   };
   const open = (item: ExplorerItem, byKey = false) => {
@@ -152,7 +171,6 @@ export default function Explorer(props: ExplorerProps) {
   }, []);
 
   const bar = crumbs(path, props.rootLabel, projects, chats);
-  const loading = !!pid && !chats;
 
   return (
     <div className="explorer" onKeyDown={onKey}>
@@ -183,7 +201,7 @@ export default function Explorer(props: ExplorerProps) {
       {!loading && items.length === 0 && (
         <div className="muted small pad">{props.filter.trim() ? 'Nothing matches the filter here.' : pid ? 'No chats yet.' : 'No projects.'}</div>
       )}
-      <ul ref={gridRef} className={`ex-items ex-${view}`} role="listbox" aria-label={bar[bar.length - 1].label}>
+      <ul ref={gridRef} tabIndex={-1} className={`ex-items ex-${view}`} role="listbox" aria-label={bar[bar.length - 1].label}>
         {items.map((it, i) => {
           const active = it.kind === 'project' ? it.project.projectId === routeProjectId && !routeChatId : it.chat.chatId === routeChatId;
           const icon = it.kind === 'project' ? '📁' : it.kind === 'self' ? '💬' : it.folder ? '🗂️' : '💬';
@@ -205,7 +223,8 @@ ${formatLocal(date)}` : '';
                 onPointerDown={onPointerDown}
                 onClick={() => {
                   setFocus(i);
-                  if (pointer.current !== 'mouse') open(it);
+                  // a quick second tap after entering a folder must not open an item of the new folder
+                  if (pointer.current !== 'mouse' && Date.now() - moved.current > 450) open(it);
                 }}
                 onDoubleClick={() => open(it)}
                 onKeyDown={(e) => {
@@ -261,6 +280,9 @@ function QuickJump(props: {
   useEffect(() => loadAll(), []); // eslint-disable-line react-hooks/exhaustive-deps
   const hits = useMemo(() => quickJump(q, props.projects, props.chatsOf), [q, props.projects, props.chatsOf]);
   const cur = Math.min(sel, Math.max(0, hits.length - 1));
+  useEffect(() => {
+    document.getElementById(`ex-jump-${cur}`)?.scrollIntoView({ block: 'nearest' });
+  }, [cur, hits]);
   const back = useRef<Element | null>(document.activeElement);
   useEffect(() => {
     const el = back.current;

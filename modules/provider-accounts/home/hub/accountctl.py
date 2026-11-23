@@ -12,6 +12,9 @@
         is gone); with --revoke the grant is also withdrawn at the provider (the refresh token is sent to its revoke
         endpoint from the host, it never comes to this PC)
   status [SLUG]   who is connected, which capabilities are granted (no secrets)
+  person SLUG [--adopt OLD ...]
+        the one Unix user of the person on the host, aiwb-SLUG, for the services of all their modules; created if
+        missing, or an older module-specific user (e.g. cmail-SLUG) is renamed to it (same uid, files stay owned)
 
 Modules load the credential in their units: LoadCredentialEncrypted=account:/etc/credstore.encrypted/account.%i.google.cred
 and mint narrowed access tokens with accounts.TokenSource(capabilities=[...]).
@@ -60,6 +63,61 @@ def slug_ok(slug):
 
 def cred_path(slug, provider):
     return f'{CREDSTORE}/account.{slug}.{provider}.cred'
+
+
+def person_user(slug):
+    """The one Unix user of a person on the host: the services of all modules of the person run as it."""
+    return 'aiwb-' + slug_ok(slug)
+
+
+PERSON_SH = r'''set -e; mode=$1; u=$2; shift 2
+gid() { getent group "$1" | cut -d: -f3; }
+conflict() { echo "conflict:$*"; exit 5; }
+if id -u "$u" >/dev/null 2>&1; then
+  for old in "$@"; do id -u "$old" >/dev/null 2>&1 && conflict "both $u and $old exist (different users)"; done
+  [ "$(id -gn "$u")" = "$u" ] && { echo exists; exit 0; }
+  # a rename that stopped after the user and before the group: the primary group still has an older name
+  for old in "$@"; do
+    if [ "$(gid "$old")" = "$(id -g "$u")" ] && ! getent group "$u" >/dev/null; then
+      [ "$mode" = check ] && { echo "repair:$old"; exit 0; }
+      sudo groupmod -n "$u" "$old"; echo "renamed:$old"; exit 0
+    fi
+  done
+  conflict "primary group of $u is $(id -gn "$u")"
+fi
+for old in "$@"; do
+  id -u "$old" >/dev/null 2>&1 || continue
+  g=$(id -g "$old"); gn=$(id -gn "$old")
+  [ "$gn" = "$old" ] || [ "$gn" = "$u" ] || conflict "primary group of $old is $gn"
+  getent group "$u" >/dev/null && [ "$(gid "$u")" != "$g" ] && conflict "group $u exists"
+  [ "$mode" = check ] && { echo "rename:$old"; exit 0; }
+  pgrep -u "$old" >/dev/null && { echo "busy:$old"; exit 4; }
+  # group first: a stop between the two steps is resumed by the next run (the branch above or this one)
+  [ "$gn" = "$u" ] || sudo groupmod -n "$u" "$old"
+  sudo usermod -l "$u" "$old"
+  [ "$(id -gn "$u")" = "$u" ] || conflict "primary group of $u is $(id -gn "$u") after the rename"
+  echo "renamed:$old"; exit 0
+done
+getent group "$u" >/dev/null && conflict "group $u exists without the user"
+[ "$mode" = check ] && { echo create; exit 0; }
+sudo useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin "$u"; echo created'''
+
+
+def ensure_person(args, slug, adopt=(), check=False):
+    """aiwb-SLUG exists afterwards, its primary group aiwb-SLUG; returns exists | created | renamed:OLD (with check: what
+    would be done, nothing changed). Renaming keeps the uid and gid, so the person's data stays theirs; it is refused
+    while a process of the old user runs (stop its units first), and when the names clash with other users or groups.
+    A rename interrupted between the group and the user is completed by the next call."""
+    user = person_user(slug)
+    for old in adopt:
+        if not re.fullmatch(r'[a-z][a-z0-9-]{0,31}', old) or old == user:
+            sys.exit(f'adopt: {old!r} is not a user name to rename')
+    out = ssh(args, 'bash -c ' + shlex.quote(PERSON_SH) + ' person ' + ' '.join(shlex.quote(x) for x in
+                                                                              ['check' if check else 'apply', user, *adopt]), check=False).strip()
+    result = out.splitlines()[-1] if out else ''
+    if result in ('exists', 'created', 'create') or result.split(':')[0] in ('renamed', 'rename', 'repair'):
+        return result
+    sys.exit(f'person user {user}: {result or "host command failed"}' + (' (stop its services first)' if result.startswith('busy:') else ''))
 
 
 def read_record(args, slug):
@@ -466,7 +524,15 @@ def main():
     d.add_argument('--revoke', action='store_true', help='also withdraw the grant at the provider')
     s = sub.add_parser('status')
     s.add_argument('slug', nargs='?')
+    u = sub.add_parser('person')
+    u.add_argument('slug')
+    u.add_argument('--adopt', nargs='*', default=[], help='older module-specific users of the person to rename, in order')
+    u.add_argument('--check', action='store_true', help='only say what would be done')
     args = p.parse_args()
+    if args.cmd == 'person':
+        print(json.dumps({'slug': args.slug, 'user': person_user(args.slug),
+                          'result': ensure_person(args, args.slug, args.adopt, check=args.check)}))
+        return
     {'connect': connect, 'migrate': migrate, 'disconnect': disconnect, 'status': status}[args.cmd](args)
 
 

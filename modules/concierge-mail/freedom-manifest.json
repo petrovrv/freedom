@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.8.1",
- "created": "2026-11-22T17:08:49Z",
+ "version": "0.9.0",
+ "created": "2026-11-23T10:58:15Z",
  "files": [
   {
    "path": "context/mail.md",
@@ -30,8 +30,8 @@
   },
   {
    "path": "home/hub/concierge-mail-backup-at.service",
-   "size": 909,
-   "sha256": "30e3431a69b620b1d8576426751155ddb84ee4b2a4484600c43f6602cb44b84f"
+   "size": 907,
+   "sha256": "e98679eb204fac4721ac350e31551103d9789933564182c7038b4954765f73b9"
   },
   {
    "path": "home/hub/concierge-mail-backup-at.timer",
@@ -40,13 +40,13 @@
   },
   {
    "path": "home/hub/concierge-mail-relay-at.service",
-   "size": 1012,
-   "sha256": "19fa634fbdd908b180e9a2a6349a6b312fe1a80fa07f17c6fc7780dc85b89068"
+   "size": 1010,
+   "sha256": "37135a24e25649ba3e90a88ca4391bce144ce5a16ebe9b27650fc14c821d295e"
   },
   {
    "path": "home/hub/concierge-mail-sync-at.service",
-   "size": 895,
-   "sha256": "bb46eb9b2c6d039dcf4864d67b0ac8a6451f25ec7ead3c07de06e4c09758025e"
+   "size": 893,
+   "sha256": "775ef97f5b6f726bd453529d0439ccd71ef908dd96afe1d08818bde8c4c17300"
   },
   {
    "path": "home/hub/concierge-mail-sync-at.timer",
@@ -55,8 +55,8 @@
   },
   {
    "path": "home/hub/hubctl.py",
-   "size": 14719,
-   "sha256": "985624b006b1b8d3fc58f9005702b3fa17f97accc2344412bc59bc0363c28ef0"
+   "size": 16620,
+   "sha256": "918395dca565bc96e5d66e0d646bd5927d1fac599ffb9fcce081c471281f3edb"
   },
   {
    "path": "home/hubbackup.py",
@@ -141,12 +141,12 @@
   {
    "path": "module.json",
    "size": 2662,
-   "sha256": "5ee4b923ffe455874595b3c185e8cfc7491230d305feb79e16872136580b7916"
+   "sha256": "54ffa86a250fb48593ba46f68635164b3a8347cf120dad594822a26495ae99ac"
   },
   {
    "path": "README.md",
-   "size": 13740,
-   "sha256": "eef772b74fe05d48e24285b711614598c25aacbc541da4bbd59a3711d4e4fb8d"
+   "size": 13893,
+   "sha256": "bf5711c4e4aaaa6fc8840609a2c08e9293da16b52becc3f1db11def4a49ba39e"
   },
   {
    "path": "server/ops.php",
@@ -198,7 +198,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "29qIDBXarnUY6kJlSvJuNxk9XkNAyCBqLl4S39LpgD13lJyMW12gogiG7npgIgZiEuwwgPEGyTvvprC9f0dKDw=="
+   "sig": "/Bt2tHSRJrheXTqmR2LfpzHCRvqkCdJtlGDIIHMYNqz0VGTk8onyrsp1VH5elbuv8z0LzmU8951HyZ8D5lsEAA=="
   }
  ],
  "module": "concierge-mail"

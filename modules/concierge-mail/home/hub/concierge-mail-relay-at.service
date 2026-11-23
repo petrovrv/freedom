@@ -7,8 +7,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=cmail-%i
-Group=cmail-%i
+User=aiwb-%i
+Group=aiwb-%i
 EnvironmentFile=/etc/concierge-mail/%i.env
 LoadCredentialEncrypted=relay:/etc/credstore.encrypted/concierge-mail-relay.%i.cred
 ExecStart=/usr/bin/python3 /opt/concierge-mail/modules/concierge-mail/home/mailcli.py --root /srv/data/mail/%i relay-serve

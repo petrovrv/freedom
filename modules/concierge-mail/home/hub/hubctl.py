@@ -1,7 +1,7 @@
 """Mail store on the home server, managed from a PC over SSH (Linux host with systemd).
 
   deploy                      copy the module code and read-guard to /opt/concierge-mail, install the unit templates
-  add SLUG --account A --env E [--backup-public KEY]   system user cmail-SLUG, /srv/data/mail/SLUG (0700), /etc/concierge-mail/SLUG.env
+  add SLUG --account A --env E [--backup-public KEY]   person user aiwb-SLUG (provider-accounts), /srv/data/mail/SLUG (0700), /etc/concierge-mail/SLUG.env
   connect SLUG --client-json F | --client-credman TARGET   the person allows mail.read + drive.appfiles of their shared
                               account (module provider-accounts: one sign-in for all modules of the person, missing rights are
                               added incrementally); the token goes straight into the encrypted systemd credential
@@ -13,9 +13,10 @@
   unpair SLUG                 stop the worker and revoke its token on the site
   start SLUG / stop SLUG      enable/disable the sync timer (and the backup timer when a backup key is set)
   status [SLUG]               timers, last run, per-mailbox counters (no message content)
-  run SLUG -- ARGS            mailcli.py as cmail-SLUG with its credential (diagnostics: gmail-status, search ...)
+  run SLUG -- ARGS            mailcli.py as aiwb-SLUG with its credential (diagnostics: gmail-status, search ...)
 
-Each person: own Unix user, own directory, own credential; one person's service cannot read another's mail.
+Each person: own Unix user (aiwb-SLUG, shared by the modules of that person), own directory, own credential; one person's
+service cannot read another's mail. deploy renames the older user cmail-SLUG to aiwb-SLUG (same uid, units restarted).
 """
 from __future__ import annotations
 import argparse
@@ -35,6 +36,7 @@ CAPABILITIES = ['mail.read', 'drive.appfiles']
 sys.path.insert(0, str(MODULE.parent / 'provider-accounts' / 'home' / 'hub'))
 import accountctl  # noqa: E402  (module provider-accounts)
 SLUG = re.compile(r'^[a-z][a-z0-9-]{0,20}$')
+LEGACY_USER = 'cmail-'  # concierge-mail 0.7-0.8 ran as its own user; 0.9 runs as the person user aiwb-SLUG
 UNITS = ['concierge-mail-sync@.service', 'concierge-mail-sync@.timer', 'concierge-mail-backup@.service', 'concierge-mail-backup@.timer',
          'concierge-mail-relay@.service']
 
@@ -84,11 +86,38 @@ def deploy(args):
                                                               ' && echo move || true').strip() == 'move':
             args.slug = slug
             migrate(args)
+    people = slugs(args)
+    # one Unix user per person (provider-accounts): every clash is found before any unit is stopped
+    for slug in people:
+        accountctl.ensure_person(args, slug, adopt=[LEGACY_USER + slug], check=True)
+    users = {}
+    for slug in people:
+        if ssh(args, f'id -u {LEGACY_USER + slug} >/dev/null 2>&1 && echo yes || echo no').strip() == 'yes':
+            ssh(args, 'sudo systemctl stop ' + ' '.join(unit_names(slug)))  # a rename is refused while the old user runs
+        users[slug] = accountctl.ensure_person(args, slug, adopt=[LEGACY_USER + slug])
     for unit in UNITS:  # stored as name-at.ext: signed module files allow no '@'
         source = HERE / unit.replace('@', '-at')
         ssh(args, f'sudo tee /etc/systemd/system/{unit} >/dev/null', source.read_bytes().replace(b'\r\n', b'\n'))
     ssh(args, 'sudo systemctl daemon-reload')
-    print(json.dumps({'deployed': '/opt/concierge-mail', 'units': UNITS}))
+    # what a person has enabled runs again (also when an earlier deploy stopped it and failed half way)
+    failed = []
+    for slug in people:
+        failed += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:3]) + '; do'
+                            ' if systemctl is-enabled -q "$u"; then sudo systemctl start "$u" || echo "$u"; fi; done').split()
+    if failed:
+        sys.exit('deployed, but these enabled units did not start (see journalctl -u <unit>): ' + ', '.join(failed))
+    print(json.dumps({'deployed': '/opt/concierge-mail', 'units': UNITS, 'users': users}))
+
+
+def slugs(args):
+    return [n.removesuffix('.env') for n in ssh(args, 'ls /etc/concierge-mail 2>/dev/null || true').split()
+            if n.endswith('.env') and SLUG.match(n.removesuffix('.env'))]
+
+
+def unit_names(slug):
+    """The units of a person: timers and the worker (what may be enabled), then the oneshot services."""
+    return [f'concierge-mail-sync@{slug}.timer', f'concierge-mail-backup@{slug}.timer', f'concierge-mail-relay@{slug}.service',
+            f'concierge-mail-sync@{slug}.service', f'concierge-mail-backup@{slug}.service']
 
 
 def add(args):
@@ -101,9 +130,9 @@ def add(args):
         base64.b64decode(args.backup_public, validate=True)
         env['BACKUP_PUBLIC_KEY'] = args.backup_public
     body = ''.join(f'{k}={v}\n' for k, v in env.items())
-    user = 'cmail-' + slug
-    ssh(args, f'set -e; id -u {user} >/dev/null 2>&1 || sudo useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin {user};'
-              f' sudo install -d -m 0700 -o {user} -g {user} /srv/data/mail/{slug}; sudo tee /etc/concierge-mail/{slug}.env >/dev/null;'
+    user = accountctl.person_user(slug)
+    accountctl.ensure_person(args, slug, adopt=[LEGACY_USER + slug])
+    ssh(args, f'set -e; sudo install -d -m 0700 -o {user} -g {user} /srv/data/mail/{slug}; sudo tee /etc/concierge-mail/{slug}.env >/dev/null;'
               f' sudo chown root:{user} /etc/concierge-mail/{slug}.env; sudo chmod 0640 /etc/concierge-mail/{slug}.env', body.encode())
     print(json.dumps({'slug': slug, 'user': user, 'data': f'/srv/data/mail/{slug}', 'env': env | ({'BACKUP_PUBLIC_KEY': 'set'} if args.backup_public else {})}))
 
@@ -189,7 +218,7 @@ def run(args):
     if any(a in ('--root',) for a in rest):
         sys.exit('--root is fixed to the person directory')
     cmd = ('sudo systemd-run --quiet --wait --pipe --collect'
-           f' -p User=cmail-{slug} -p Group=cmail-{slug} -p EnvironmentFile=/etc/concierge-mail/{slug}.env'
+           f' -p User={accountctl.person_user(slug)} -p Group={accountctl.person_user(slug)} -p EnvironmentFile=/etc/concierge-mail/{slug}.env'
            f' -p LoadCredentialEncrypted=account:/etc/credstore.encrypted/account.{slug}.google.cred'
            f' -p ProtectSystem=strict -p ReadWritePaths=/srv/data/mail/{slug} -p ProtectHome=yes -p PrivateTmp=yes'
            f' /usr/bin/python3 /opt/concierge-mail/modules/concierge-mail/home/mailcli.py --root /srv/data/mail/{slug} '

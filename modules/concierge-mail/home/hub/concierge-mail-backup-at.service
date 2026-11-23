@@ -6,8 +6,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=cmail-%i
-Group=cmail-%i
+User=aiwb-%i
+Group=aiwb-%i
 EnvironmentFile=/etc/concierge-mail/%i.env
 LoadCredentialEncrypted=account:/etc/credstore.encrypted/account.%i.google.cred
 ExecStart=/usr/bin/python3 /opt/concierge-mail/modules/concierge-mail/home/mailcli.py --root /srv/data/mail/%i backup-drive

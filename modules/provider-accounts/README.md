@@ -26,7 +26,9 @@ One sign-in per person and provider for all modules of the person's environment 
   token never travels to the PC. Without `--revoke` the grant stays at Google (visible in the person's Google account).
 
 A running long-lived service keeps the token it started with; capabilities added later reach it after a restart.
-Each module still runs as its own Unix user per person; this module only shares the sign-in.
+Every module runs the services of a person as the one Unix user of that person, `aiwb-<slug>` (`accountctl.py person SLUG
+[--adopt OLD]` creates it, or renames an older module-specific user to it keeping the uid); each module keeps its own data
+directory and loads only its own narrowed token.
 
 ```
 python modules/provider-accounts/home/hub/accountctl.py --host H --user U --key K connect person1 --want mail.read,drive.appfiles --client-credman <target>

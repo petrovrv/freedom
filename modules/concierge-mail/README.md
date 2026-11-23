@@ -54,7 +54,8 @@ A separate settings page is planned.
 
 ## Mail store on the home server (0.7.0)
 
-The whole mailbox lives on the home server (Linux, systemd), one store per person: own system user `cmail-<slug>`,
+The whole mailbox lives on the home server (Linux, systemd), one store per person: own system user `aiwb-<slug>` (since 0.9.0 the one user of the person for all modules,
+module `provider-accounts`; `hubctl.py deploy` renames the older `cmail-<slug>` to it, same uid),
 own directory `/srv/data/mail/<slug>` (0700). Since 0.8.0 the Google sign-in is the person's shared account of the
 module `provider-accounts` (`/etc/credstore.encrypted/account.<slug>.google.cred`, systemd-creds encrypted with the host key; one
 consent for all modules of the person): sync mints tokens with `mail.read` only, the backup with `drive.appfiles` only. One person's service cannot read another person's mail; the owner's
@@ -85,7 +86,7 @@ Read only: the Gmail scope is `gmail.readonly`, so nothing can be marked, moved,
 The app ✉ (`ui/mail.html`, a `ui.page` with `app: true`, its own window in CO Desktop) and the tray indicator
 (`ui/tray.html`, unread count, empty at 0) read the person's store on the home server through the site:
 
-- **Worker** (`home/relay.py`, unit `concierge-mail-relay@<slug>`, runs as `cmail-<slug>`): long-polls the module route
+- **Worker** (`home/relay.py`, unit `concierge-mail-relay@<slug>`, runs as `aiwb-<slug>`): long-polls the module route
   `worker` with its own token (credential `concierge-mail-relay.<slug>.cred`), takes the requests of its environment
   only and answers them from the store. Read only: `overview`, `list`, `search`, `thread`, `attachment` (up to 4 MB).
   HTML loses scripts, frames, forms, event handlers and `javascript:` links; `cid:` images go inline; remote images stay

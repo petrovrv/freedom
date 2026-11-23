@@ -5,6 +5,7 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- Module provider-accounts 0.1.3: one Unix user per person on the home server, `aiwb-<slug>`, for the services of all modules of the person (`accountctl.py person SLUG [--adopt OLD]`: created, or an older module user renamed with the same uid). Module concierge-mail 0.9.0 runs sync, backup and the Mail page worker as it; `hubctl.py deploy` stops the units of a person, renames `cmail-<slug>` and starts again what was running.
 - CO Web 0.117.0: a document viewer next to the chat (study viewer) takes the whole width: the projects and the Inspector become drawers (☰ menu), a draggable divider between the document and the chat (keyboard arrows too, kept per browser; the chat keeps at least 280px), stacked only on phones. Module study 1.0.1: the Ask box stays inside the page.
 - CO Web 0.116.0: `coExt.badge(v)` — any loaded page of a module (usually its tray page) sets a count or short mark (up to 3 characters) shown on the module's app tile in ▦ and as a red dot on ▦ itself; `0`/blank clears it (SPEC §3.6a F14b). A module without an app takes the icon of any of its pages (`icon` is accepted on every slot now) for its Settings tile instead of the first letter.
 - Module geo-presence 0.5.1: icon 📍 for its Settings tile. Module chat-import 0.2.1: launcher label "Import" (was "Import…", cut on phones).

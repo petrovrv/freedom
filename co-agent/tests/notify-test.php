@@ -75,6 +75,7 @@ co_app_notify($db, 'notemail', 'sam', $n + ['open' => ['page' => 'read', 'params
 $ok('params: the bare page with its query', ($seen()[0][3] ?? '') === '/x/notemail/read?id=a%20b%2F1');
 $ok('open.page must be a page of the module', $throws(fn() => co_app_notify($db, 'notemail', 'sam', $n + ['open' => ['page' => 'nope']], 'page'), 'open.page'));
 $ok('open.params must be strings', $throws(fn() => co_app_notify($db, 'notemail', 'sam', $n + ['open' => ['params' => ['a' => 1]]], 'page'), 'open.params'));
+$ok('too long an address: refused', $throws(fn() => co_app_notify($db, 'notemail', 'sam', $n + ['open' => ['params' => ['a' => str_repeat('я', 300), 'b' => str_repeat('я', 300)]]], 'page'), '1000'));
 $ok('title required', $throws(fn() => co_app_notify($db, 'notemail', 'sam', ['title' => '  '], 'page'), 'title'));
 $ok('bad tag', $throws(fn() => co_app_notify($db, 'notemail', 'sam', $n + ['tag' => '../x'], 'page'), 'tag'));
 $ok('long title cut', ($r = co_app_notify($db, 'notemail', 'alex', ['title' => str_repeat('я', 200)], 'page'))['ok']

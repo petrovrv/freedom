@@ -495,13 +495,30 @@ function co_app_notify_allowed(array $m): bool
     return $m['enabled'] && in_array(CO_APP_NOTIFY_PERMISSION, (array)($m['manifest']['permissions'] ?? []), true);
 }
 
-/** The env's notify state under a row lock; $f gets it by reference and returns the answer. */
+/**
+ * The env's notify state under a row lock; $f gets it by reference and returns the answer. The insert takes the row's
+ * exclusive lock at once (a no-op update; INSERT IGNORE would take a shared one, and two of them deadlock on the
+ * upgrade); a deadlock all the same is retried (review F14b-3).
+ */
 function co_app_notify_locked(mysqli $db, string $env, callable $f): mixed
+{
+    for ($try = 1; ; $try++) {
+        try {
+            return co_app_notify_locked_once($db, $env, $f);
+        } catch (mysqli_sql_exception $e) {
+            if ($try >= 3 || !in_array($e->getCode(), [1213, 1205], true)) throw $e;
+            usleep(random_int(20000, 80000) * $try);
+        }
+    }
+}
+
+function co_app_notify_locked_once(mysqli $db, string $env, callable $f): mixed
 {
     $scope = 'env/' . $env;
     $db->begin_transaction();
     try {
-        $st = $db->prepare("INSERT IGNORE INTO kv (scope, name, data, sha, updated_utc) VALUES (?, 'app-notify', '{}', '', UTC_TIMESTAMP(3))");
+        $st = $db->prepare("INSERT INTO kv (scope, name, data, sha, updated_utc) VALUES (?, 'app-notify', '{}', '', UTC_TIMESTAMP(3))
+                            ON DUPLICATE KEY UPDATE name = name");
         $st->execute([$scope]);
         $st->close();
         $st = $db->prepare("SELECT data FROM kv WHERE scope = ? AND name = 'app-notify' FOR UPDATE");
@@ -580,7 +597,10 @@ function co_app_notify_url(array $m, string $env, mixed $open): string
     }
     // the shell address has no query; a page that needs its params opens bare at /x/ (ctx.params), as fileActions do
     if ($params === []) return '/e/' . rawurlencode($env) . '/m/' . $m['id'] . '/' . $page;
-    return '/x/' . $m['id'] . '/' . $page . '?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986);
+    $url = '/x/' . $m['id'] . '/' . $page . '?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986);
+    // co_push_notify keeps 1000 characters: a longer address would arrive cut, so it is refused before any quota is used
+    if (strlen($url) > 1000) throw new InvalidArgumentException('open.params: the address is longer than 1000 characters');
+    return $url;
 }
 
 /** A text field of a notification: one line, trimmed, cut to $max with an ellipsis. */
@@ -636,7 +656,9 @@ function co_app_notify(mysqli $db, string $id, string $env, array $n, string $by
         $hour = array_values(array_filter($sent, static fn(int $t): bool => $t > $now - 3600));
         $d['sent'][$id] = $sent;
         if (count($hour) >= CO_APP_NOTIFY_HOUR || count($sent) >= CO_APP_NOTIFY_DAY) {
-            $retry = count($sent) >= CO_APP_NOTIFY_DAY ? $sent[count($sent) - CO_APP_NOTIFY_DAY] + 86400 : $hour[count($hour) - CO_APP_NOTIFY_HOUR] + 3600;
+            // the later of the two: both limits may hold at once
+            $retry = max(count($sent) >= CO_APP_NOTIFY_DAY ? $sent[count($sent) - CO_APP_NOTIFY_DAY] + 86400 : 0,
+                count($hour) >= CO_APP_NOTIFY_HOUR ? $hour[count($hour) - CO_APP_NOTIFY_HOUR] + 3600 : 0);
             return ['ok' => false, 'error' => 'rate_limited', 'retryAfter' => max(1, $retry - $now),
                 'message' => 'At most ' . CO_APP_NOTIFY_HOUR . ' notifications an hour and ' . CO_APP_NOTIFY_DAY . ' a day per app.'];
         }

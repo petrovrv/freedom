@@ -1,12 +1,12 @@
 {
  "format": "freedom-release/1",
- "version": "0.10.1",
- "created": "2026-11-23T13:22:54Z",
+ "version": "0.11.0",
+ "created": "2026-11-23T13:26:11Z",
  "files": [
   {
    "path": "context/mail.md",
-   "size": 2087,
-   "sha256": "68de660882c1f047d7457077c904a0d15255e08f8d6764fcaf45c55b4a39b088"
+   "size": 2234,
+   "sha256": "eeec95e02705027c30a17cf6f19515f8b98a8d0ce0788196841a0c466d145d74"
   },
   {
    "path": "home/archive.py",
@@ -17,6 +17,11 @@
    "path": "home/briefing.py",
    "size": 8685,
    "sha256": "1706df0705216fdedc26a5df36c7aab76e5ad6c7968346e2ed0e6caf4f4c7632"
+  },
+  {
+   "path": "home/compose.py",
+   "size": 31809,
+   "sha256": "0af40d60b2bac77dffc0f675e7dbcd3799d0e2ec444d7e94def8631097297091"
   },
   {
    "path": "home/deliver.py",
@@ -50,8 +55,8 @@
   },
   {
    "path": "home/hub/hubctl.py",
-   "size": 22360,
-   "sha256": "01ed637e81258d710c2bdabf499734f1f7a8fc5edd65a428ffa8023b90f2ee3b"
+   "size": 22546,
+   "sha256": "b51c5f0f12a8dcac8fe46dcbef867a5e0affcce1da2735b76c904fc681a83dc9"
   },
   {
    "path": "home/hubbackup.py",
@@ -70,8 +75,8 @@
   },
   {
    "path": "home/relay.py",
-   "size": 14532,
-   "sha256": "98c5aee3c2fcbdfc9525a9ac21cb1b3a220e626a2526e3c00949a91f22f218fb"
+   "size": 16324,
+   "sha256": "7f4fcf2a25f7bf0ac7836a9230f10acbca9304aaf5b51a996f89d2d064de4efe"
   },
   {
    "path": "home/remoteimg.py",
@@ -97,6 +102,11 @@
    "path": "home/test_coding_regressions.py",
    "size": 8422,
    "sha256": "b90f2c491097fd91831fca8e755e3745304f355fe3151b9dc671ac9d97892ec3"
+  },
+  {
+   "path": "home/test_compose.py",
+   "size": 11913,
+   "sha256": "4f00d1b9d8a4f2310739cad0330aa6fe7075d7137b3919388776c9db0ba7616d"
   },
   {
    "path": "home/test_deliver.py",
@@ -146,7 +156,7 @@
   {
    "path": "module.json",
    "size": 2485,
-   "sha256": "c7171bdd7faaa4a6bc60522edc7558f32bcd4d224c9af0d77fa4a33f7bceb01d"
+   "sha256": "dfcac7af69916f40416cd1a4176261d5de87ebdc62556749366569d5a33b27ab"
   },
   {
    "path": "README.md",
@@ -165,18 +175,18 @@
   },
   {
    "path": "ui/mail.css",
-   "size": 4651,
-   "sha256": "84459100253c4c760d932e242a7374ff4e8183d5fdb5d85e59f2c2502bf5666b"
+   "size": 7140,
+   "sha256": "145c4c6f40a697d60e43ff81f5989f0ec4769fbb850a3b5031a43278463c4add"
   },
   {
    "path": "ui/mail.html",
-   "size": 1877,
-   "sha256": "f43c93d6c5bf9d703da74a10c1804e8a2ba8865d7d402073c6d3841366602762"
+   "size": 3430,
+   "sha256": "e158cba0436927e5b2e9e22f6cea0b777918a98b8bacbc55bb5d123d392c0f1f"
   },
   {
    "path": "ui/mail.js",
-   "size": 17638,
-   "sha256": "485ed49a87cf070dcf3c647cbcfd08b1fde82ce1badfd7f67eaa4467a65e647d"
+   "size": 28717,
+   "sha256": "ee6070f5b44f0266552dad20c7ef09bf1d581d192f74b96999040e87d209d226"
   },
   {
    "path": "ui/tray.css",
@@ -198,7 +208,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "cTY8RTnWks6KwgcB0R/e3NGBJEr3zh0wrXWftCqJLOt35IJiu8SHQTk8uYzFrmFGA7yO365GM+S9wd47xhPrDw=="
+   "sig": "2rgRMv+AMFt/6jCN0B9c379j4YIK4kJHQpaPm8aSIZHV2Ir4XdkXl2jCPJ1fOJr9363KqfxgeIHXLh/nAztBDQ=="
   }
  ],
  "module": "concierge-mail"

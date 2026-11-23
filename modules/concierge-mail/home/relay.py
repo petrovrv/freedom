@@ -295,11 +295,17 @@ def handler_main(store, stdin=None, stdout=None, environ=None):
     store.db.execute('PRAGMA busy_timeout=10000')
     remoteimg.prune(store.root / 'imgcache')
     api = MailApi(store, account)
+    stop, sender = threading.Event(), None
     if bound:
         token = write_token(environ)
         api.composer = compose.Composer(store, account, token, gmailsync._http if token else None)
-        threading.Thread(target=api.composer.run_sender, args=(store.root / 'mail.sqlite3',), daemon=True).start()
+        sender = threading.Thread(target=api.composer.run_sender, args=(store.root / 'mail.sqlite3', stop), daemon=True)
+        sender.start()
     for line in iter(stdin.readline, b''):
         out = handle_line(api, bound, line)
         stdout.write(json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode() + b'\n')
         stdout.flush()
+    if sender:  # the worker closed our stdin: let the outbox thread close its database
+        stop.set()
+        api.composer._wake.set()
+        sender.join(5)

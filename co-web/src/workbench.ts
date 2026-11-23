@@ -1205,7 +1205,9 @@ export async function moveChatGroup(root: Root, group: Chat[], source: Project, 
       }
     }
     const why = e instanceof Error ? e.message : String(e);
-    throw new Error(back.length ? `${why} ${back.join(', ')} stayed in “${target.title}”; move them back by hand.` : `${why} Nothing was moved.`);
+    const stuck = why.includes('move it back by hand');
+    if (back.length) throw new Error(`${why} ${back.join(', ')} stayed in “${target.title}”; move them back by hand.`);
+    throw new Error(stuck ? why : `${why} Nothing was moved.`);
   }
   return out;
 }
@@ -1236,9 +1238,15 @@ async function moveChatFolder(root: Root, chat: Chat, target: Project, extra: Pa
   try {
     moved = await updateChatMeta({ ...chat }, { ...extra, projectId: target.projectId, movedUtc: nowUtc() });
   } catch (e) {
-    // F15.2: the folder goes back where its chat.json says it is
-    await moveFile(chat.folderId, toChats, fromChats).catch(() => undefined);
+    // F15.2: the folder goes back where its chat.json says it is, and this browser's copy with it
+    rememberChat(chat);
     forgetFolder(toChats, chat.chatId);
+    try {
+      await moveFile(chat.folderId, toChats, fromChats);
+    } catch {
+      const why = e instanceof Error ? e.message : String(e);
+      throw new Error(`${why} The folder of “${chat.title}” stayed in “${target.title}”; move it back by hand.`);
+    }
     throw e;
   }
   // F15.2: the import index is a lookup aid; a failed update must not split a move

@@ -10,7 +10,7 @@
 // storage. A module with data about people (manifest personal) asks a person whose switch is "ask" right in the slot.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioCapture, audioFileName, AudioPlayback, mediaSupport, platformDictation, SpeechCapture } from './composerMedia';
-import { dbAppNotify, dbModuleCall, dbModuleList, dbModulePerson, dbModuleUpload } from './dbapi';
+import { dbAppData, dbAppNotify, dbModuleCall, dbModuleList, dbModulePerson, dbModuleUpload } from './dbapi';
 import { callRoute, capabilityRefusal, deviceOpSlot, moduleUrl, navTarget, parseExtMessage, reqRefusal, setModuleBadge, SLOT_PERMISSION, THEME_VARS, type ExtRequest, type ModuleHint, type ModuleInfo, type ModuleUi } from './extBridge';
 import { setModuleList } from './moduleStore';
 import { fileService } from './moduleServices';
@@ -392,9 +392,12 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
         return;
       }
       // F14b-3: a push of the module to the signed-in person; the server applies limits, the switch and the journal
+      // F14c: data.* - the app's data kept by the core for the signed-in person (permission data.env)
       const run = r.name === 'notify.push'
         ? dbAppNotify(mod.current.id, r.args).then((data) => ({ data, transfer: [] as Transferable[] }))
-        : service(r.name, r.args, rootRef.current ?? null, panelRef.current);
+        : r.name.startsWith('data.')
+          ? dbAppData(mod.current.id, r.name.slice(5), r.args).then((data) => ({ data, transfer: [] as Transferable[] }))
+          : service(r.name, r.args, rootRef.current ?? null, panelRef.current);
       run.then(
         ({ data, transfer }) => send({ t: 'result', id: r.id, ok: true, data }, transfer),
         (err) => send({ t: 'result', id: r.id, ok: false, error: err instanceof Error ? err.message : String(err) }),

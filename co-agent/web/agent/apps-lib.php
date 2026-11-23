@@ -16,6 +16,9 @@
 //     and the click carries the card's etag (app, action, module version, arguments): a changed request is refused.
 //     The agent gets {pending, requestId} and asks app_action_status for the outcome (also from a later job of the env).
 //   - after an action the open pages of the app get the ext/1 event "refresh" (app_events, polled by CO Web)
+//   - F14c: an app with the permission data.env keeps small data per person through the core (no server code of its
+//     own: apps made on the fly are signed by the owner, not the maintainers) - ext/1 coExt.data, user op app_data; the
+//     agent gets the core actions data_list / data_get / data_set / data_delete on it
 declare(strict_types=1);
 
 require_once __DIR__ . '/modules-lib.php';
@@ -54,7 +57,9 @@ function co_app_schema(mixed $s): array
         $t = (string)($p['type'] ?? '');
         if (!in_array($t, CO_APP_ARG_TYPES, true)) continue;
         $props[$k] = ['type' => $t] + (isset($p['description']) ? ['description' => mb_substr((string)$p['description'], 0, 300)] : [])
-            + (is_array($p['enum'] ?? null) ? ['enum' => array_values($p['enum'])] : []);
+            + (is_array($p['enum'] ?? null) ? ['enum' => array_values($p['enum'])] : [])
+            // a longer string than the default 2000 characters (F14c: a value of the app's data), at most 65536
+            + ($t === 'string' && is_int($p['maxLength'] ?? null) && $p['maxLength'] > 0 ? ['maxLength' => min(65536, $p['maxLength'])] : []);
     }
     $req = array_values(array_filter(is_array($s['required'] ?? null) ? $s['required'] : [],
         static fn($k): bool => is_string($k) && isset($props[$k])));
@@ -74,12 +79,12 @@ function co_app_args(array $schema, mixed $args): array
         $p = $props[$k] ?? null;
         if ($p === null) throw new InvalidArgumentException("args.$k is not an argument of this action");
         $ok = match ($p['type']) {
-            'string' => is_string($v) && mb_strlen($v) <= 2000,
+            'string' => is_string($v) && mb_strlen($v) <= ($p['maxLength'] ?? 2000),
             'integer' => is_int($v),
             'number' => is_int($v) || is_float($v),
             'boolean' => is_bool($v),
         };
-        if (!$ok) throw new InvalidArgumentException("args.$k must be a {$p['type']}" . ($p['type'] === 'string' ? ' (up to 2000 characters)' : ''));
+        if (!$ok) throw new InvalidArgumentException("args.$k must be a {$p['type']}" . ($p['type'] === 'string' ? ' (up to ' . ($p['maxLength'] ?? 2000) . ' characters)' : ''));
         if (isset($p['enum']) && !in_array($v, $p['enum'], true)) throw new InvalidArgumentException("args.$k must be one of " . json_encode($p['enum']));
     }
     return $args;
@@ -117,13 +122,19 @@ function co_app_job(mysqli $db, array $in): array
         'restricted' => relay_job_restricted($db, $env, $job, $chat), 'readOnly' => (string)$r['files'] === 'read'];
 }
 
-/** Modules whose actions this job may see: enabled, with actions, not switched off by the person. */
+/** Every action of a module: the core's data actions (data.env) first, then the module's own (standard modules only). */
+function co_app_all_actions(array $m): array
+{
+    return co_app_data_actions($m) + ($m['standard'] ? co_app_actions($m) : []);
+}
+
+/** Modules whose actions this job may see: enabled, for the job's env, with actions, not switched off by the person. */
 function co_app_modules(mysqli $db, array $job): array
 {
     $out = [];
     foreach (co_modules($db) as $m) {
-        if (!$m['enabled'] || !$m['standard']) continue;
-        $acts = co_app_actions($m);
+        if (!$m['enabled'] || !co_module_for_env($m, $job['env'])) continue;
+        $acts = co_app_all_actions($m);
         if (!$acts || co_module_person_mode($db, $m, $job['env']) === 'off') continue;
         $out[$m['id']] = [$m, $acts];
     }
@@ -174,13 +185,20 @@ function co_app_action(mysqli $db, array $in): array
 /** Runs the module's handler of user op $op as the person of $env; logs it and refreshes the env's pages on success. */
 function co_app_run(mysqli $db, array $m, string $op, array $args, string $env, bool $owner, string $email, array $ctx, array $log): array
 {
-    $h = co_module_load($m)['user'][$op] ?? null;
-    if (!is_callable($h)) throw new RuntimeException("module {$m['id']} declares $op but has no handler");
-    $r = $h(co_module_ctx($db, $m, $env, $owner, $email) + $ctx, $args);
-    $r = is_array($r) ? $r : ['ok' => true];
+    if (isset(co_app_data_actions($m)[$op])) {
+        // F14c: a core data action (the module has no handler of its own for it)
+        $r = co_app_data($db, $m['id'], $env, substr($op, 5), $args);
+        if (empty($r['ok'])) $r += ['error' => 'failed'];
+    } else {
+        $h = co_module_load($m)['user'][$op] ?? null;
+        if (!is_callable($h)) throw new RuntimeException("module {$m['id']} declares $op but has no handler");
+        $r = $h(co_module_ctx($db, $m, $env, $owner, $email) + $ctx, $args);
+        $r = is_array($r) ? $r : ['ok' => true];
+    }
     $failed = isset($r['error']);
     co_module_log($db, $m['id'], 'action', $m['version'], $env, ['op' => $op, 'ok' => !$failed] + $log);
-    if (!$failed) co_app_event_put($db, $env, $m['id'], $op);
+    // reads of the core's data actions change nothing: no refresh
+    if (!$failed && !in_array($op, ['data_list', 'data_get'], true)) co_app_event_put($db, $env, $m['id'], $op);
     return $r;
 }
 
@@ -694,4 +712,155 @@ function co_app_notify_ctx(mysqli $db, string $id, string $myEnv): Closure
             return ['ok' => false, 'error' => 'bad_request', 'message' => $e->getMessage()];
         }
     };
+}
+
+// ---------- F14c: data of an app kept by the core (kv scope env/<env>, name app-data.<module>) ----------
+// An app made on the fly has no server code (only standard modules run PHP, SPEC §3.6 principle 4), so the core keeps
+// its data: string values under short keys, per module and person, only for a module that declares data.env and is for
+// that person's environment. The page uses coExt.data (user op app_data, the session's env); the agent the actions
+// data_list / data_get / data_set / data_delete (co_app_run: journal, and a refresh of the open app after a write).
+// The data stays when the module is switched off; remove --data erase deletes it (modules-lib.php co_module_remove).
+const CO_APP_DATA_PERMISSION = 'data.env';
+const CO_APP_DATA_KEY_RE = '/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/';
+const CO_APP_DATA_VALUE_MAX = 65536;     // bytes of one value
+const CO_APP_DATA_KEYS_MAX = 200;        // keys per module and person
+const CO_APP_DATA_TOTAL_MAX = 1048576;   // bytes of all values of a module and person
+
+/** The core's data actions of a module with data.env (none without the permission). */
+function co_app_data_actions(array $m): array
+{
+    if (!in_array(CO_APP_DATA_PERMISSION, (array)($m['manifest']['permissions'] ?? []), true)) return [];
+    $key = ['type' => 'string', 'description' => 'Key: letters, digits, . _ - (up to 80 characters)'];
+    $acts = [
+        'data_list' => ['List the keys this app keeps for the person (key, size in bytes, last change).',
+            ['prefix' => ['type' => 'string', 'description' => 'Only keys that start with this']], []],
+        'data_get' => ['Read the value of one key (text; often JSON the app page wrote).', ['key' => $key], ['key']],
+        'data_set' => ['Write the value of one key (text up to 64 KB; keep the format the app page uses); the open app reloads.',
+            ['key' => $key, 'value' => ['type' => 'string', 'description' => 'The new value', 'maxLength' => CO_APP_DATA_VALUE_MAX]], ['key', 'value']],
+        'data_delete' => ['Delete one key; the open app reloads.', ['key' => $key], ['key']],
+    ];
+    $out = [];
+    foreach ($acts as $op => [$desc, $props, $req]) {
+        $out[$op] = ['op' => $op, 'description' => $desc, 'args' => co_app_schema(['properties' => $props, 'required' => $req]),
+            'outward' => false];
+    }
+    return $out;
+}
+
+/** The data of module $id for $env under a row lock; $f gets the items by reference and returns the answer. */
+function co_app_data_locked(mysqli $db, string $id, string $env, callable $f): mixed
+{
+    $scope = 'env/' . $env;
+    $name = 'app-data.' . $id;
+    for ($try = 1; ; $try++) {
+        $db->begin_transaction();
+        try {
+            // a no-op update takes the row's exclusive lock at once (as co_app_notify_locked_once)
+            $st = $db->prepare("INSERT INTO kv (scope, name, data, sha, updated_utc) VALUES (?, ?, '{}', '', UTC_TIMESTAMP(3))
+                                ON DUPLICATE KEY UPDATE name = name");
+            $st->execute([$scope, $name]);
+            $st->close();
+            $st = $db->prepare('SELECT data FROM kv WHERE scope = ? AND name = ? FOR UPDATE');
+            $st->execute([$scope, $name]);
+            $row = $st->get_result()->fetch_row();
+            $st->close();
+            $items = $row ? json_decode((string)$row[0], true) : null;
+            $items = is_array($items) ? $items : [];
+            $before = $items;
+            $out = $f($items);
+            if ($items !== $before) {
+                $data = json_encode((object)$items, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+                $st = $db->prepare('UPDATE kv SET data = ?, sha = ?, updated_utc = UTC_TIMESTAMP(3) WHERE scope = ? AND name = ?');
+                $st->execute([$data, hash('sha256', $data), $scope, $name]);
+                $st->close();
+            }
+            $db->commit();
+            return $out;
+        } catch (mysqli_sql_exception $e) {
+            $db->rollback();
+            if ($try >= 3 || !in_array($e->getCode(), [1213, 1205], true)) throw $e;
+            usleep(random_int(20000, 80000) * $try);
+        } catch (Throwable $e) {
+            $db->rollback();
+            throw $e;
+        }
+    }
+}
+
+/** A key of app data, or InvalidArgumentException. */
+function co_app_data_key(mixed $k): string
+{
+    if (!is_string($k) || !preg_match(CO_APP_DATA_KEY_RE, $k)) throw new InvalidArgumentException('key must match [A-Za-z0-9][A-Za-z0-9._-]{0,79}');
+    return $k;
+}
+
+/**
+ * The app data of module $id for the person of $env: $action get {key} | set {key, value} | delete {key} | list {prefix?}.
+ * Returns {ok: true, ...} or {ok: false, error, message}; throws InvalidArgumentException for a malformed request.
+ */
+function co_app_data(mysqli $db, string $id, string $env, string $action, array $in): array
+{
+    $m = co_modules($db)[$id] ?? null;
+    if ($m === null || !$m['enabled']) return ['ok' => false, 'error' => 'module_disabled', 'message' => "Module $id is not enabled."];
+    if (!in_array(CO_APP_DATA_PERMISSION, (array)($m['manifest']['permissions'] ?? []), true)) {
+        return ['ok' => false, 'error' => 'permission_not_declared', 'message' => "Module $id does not declare the permission " . CO_APP_DATA_PERMISSION . '.'];
+    }
+    if (!in_array($env, co_member_envs(), true)) return ['ok' => false, 'error' => 'bad_env', 'message' => 'Not a member environment.'];
+    if (!co_module_for_env($m, $env)) return ['ok' => false, 'error' => 'not_your_app', 'message' => 'This app belongs to another environment.'];
+    if (co_module_person_mode($db, $m, $env) === 'off') {
+        return ['ok' => false, 'error' => 'person_off', 'message' => 'The person switched this module off for themselves.'];
+    }
+    if ($action === 'get' || $action === 'list') {
+        // reads take no lock
+        $st = $db->prepare('SELECT data FROM kv WHERE scope = ? AND name = ?');
+        $st->execute(['env/' . $env, 'app-data.' . $id]);
+        $row = $st->get_result()->fetch_row();
+        $st->close();
+        $items = $row ? json_decode((string)$row[0], true) : null;
+        $items = is_array($items) ? $items : [];
+        if ($action === 'get') {
+            $it = $items[co_app_data_key($in['key'] ?? null)] ?? null;
+            return ['ok' => true, 'value' => is_array($it) ? (string)($it['v'] ?? '') : null, 'utc' => is_array($it) ? (string)($it['t'] ?? '') : null];
+        }
+        $prefix = $in['prefix'] ?? '';
+        if (!is_string($prefix) || strlen($prefix) > 80) throw new InvalidArgumentException('prefix must be a string of up to 80 characters');
+        $keys = [];
+        foreach ($items as $k => $it) {
+            if (is_array($it) && ($prefix === '' || str_starts_with((string)$k, $prefix))) {
+                $keys[] = ['key' => (string)$k, 'size' => strlen((string)($it['v'] ?? '')), 'utc' => (string)($it['t'] ?? '')];
+            }
+        }
+        usort($keys, static fn(array $a, array $b): int => strcmp($a['key'], $b['key']));
+        return ['ok' => true, 'keys' => $keys];
+    }
+    if ($action !== 'set' && $action !== 'delete') throw new InvalidArgumentException('action must be get, set, delete or list');
+    $key = co_app_data_key($in['key'] ?? null);
+    $value = $in['value'] ?? null;
+    if ($action === 'set' && $value === null) $action = 'delete';
+    if ($action === 'set') {
+        if (!is_string($value) || !mb_check_encoding($value, 'UTF-8')) throw new InvalidArgumentException('value must be a string (or null to delete)');
+        if (strlen($value) > CO_APP_DATA_VALUE_MAX) {
+            return ['ok' => false, 'error' => 'too_large', 'message' => 'A value holds at most ' . CO_APP_DATA_VALUE_MAX . ' bytes.'];
+        }
+    }
+    $utc = gmdate('Y-m-d\TH:i:s\Z');
+    return co_app_data_locked($db, $id, $env, static function (array &$items) use ($action, $key, $value, $utc): array {
+        if ($action === 'delete') {
+            $had = isset($items[$key]);
+            unset($items[$key]);
+            return ['ok' => true, 'deleted' => $had];
+        }
+        $next = $items;
+        $next[$key] = ['v' => $value, 't' => $utc];
+        if (count($next) > CO_APP_DATA_KEYS_MAX) {
+            return ['ok' => false, 'error' => 'too_many_keys', 'message' => 'An app keeps at most ' . CO_APP_DATA_KEYS_MAX . ' keys per person.'];
+        }
+        $total = 0;
+        foreach ($next as $it) $total += is_array($it) ? strlen((string)($it['v'] ?? '')) : 0;
+        if ($total > CO_APP_DATA_TOTAL_MAX) {
+            return ['ok' => false, 'error' => 'quota', 'message' => 'An app keeps at most ' . CO_APP_DATA_TOTAL_MAX . ' bytes per person.'];
+        }
+        $items = $next;
+        return ['ok' => true, 'utc' => $utc];
+    });
 }

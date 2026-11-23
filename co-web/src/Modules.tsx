@@ -78,7 +78,7 @@ export function ModulesSection({ me, owner }: { me?: string; owner: boolean }) {
           <div key={m.id} id={`module-${m.id}`} className="module-row">
             <div className="module-row-head">
               <b>{m.title}</b>
-              <span className="small muted">{m.version}{m.standard ? ' · standard' : ''}</span>
+              <span className="small muted">{m.version}{m.standard ? ' · standard' : ''}{m.envs?.length ? ` · ${m.envs.join(', ')}` : ''}</span>
               {owner && (
                 <button className={`btn tiny ${m.enabled ? '' : 'primary'}`} type="button" disabled={busy}
                   onClick={() => void act(() => dbModuleSet(m.id, !m.enabled))}>{m.enabled ? 'Turn off' : 'Turn on'}</button>

@@ -144,6 +144,13 @@ console.log('extBridge selftest OK');
   ok('notify.push from any slot', reqRefusal({ enabled: true, permissions: ['notify.push'] }, 'notify.push', 'ui.header') === ''
     && reqRefusal({ enabled: true, permissions: ['notify.push'] }, 'notify.push', 'ui.page') === '');
   ok('notify.push of a disabled module', reqRefusal({ enabled: false, permissions: ['notify.push'] }, 'notify.push', 'ui.page') === 'module_disabled');
+  // F14c: the app's data kept by the core
+  ok('data.* needs data.env', reqRefusal({ enabled: true, permissions: [] }, 'data.set', 'ui.page') === 'permission_not_declared'
+    && reqRefusal({ enabled: true, permissions: ['data.env'] }, 'data.get', 'ui.page') === ''
+    && reqRefusal({ enabled: true, permissions: ['data.env'] }, 'data.list', 'ui.header') === ''
+    && reqRefusal({ enabled: true, permissions: ['data.env'] }, 'data.delete', 'ui.page') === '');
+  ok('data.* of a disabled module', reqRefusal({ enabled: false, permissions: ['data.env'] }, 'data.get', 'ui.page') === 'module_disabled');
+  ok('unknown data service', reqRefusal({ enabled: true, permissions: ['data.env'] }, 'data.drop', 'ui.page') === 'unknown_request');
   const nm = parseExtMessage({ ext: 1, t: 'req', id: 'n1', name: 'notify.push', args: { title: 'x', open: { page: 'm' } } });
   ok('notify request parsed', nm?.t === 'req' && nm.name === 'notify.push');
 }

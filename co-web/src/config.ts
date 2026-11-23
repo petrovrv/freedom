@@ -3,7 +3,7 @@ import { gateway, onGatewayChange, pausedAgents } from './gateway.ts';
 // Static configuration of the CO web client.
 // Nothing here is secret: the OAuth client ID is public by design.
 
-export const APP_VERSION = '0.123.0';
+export const APP_VERSION = '0.124.0';
 
 // Full Drive scope: drive.file cannot see files written by Google Drive for Desktop
 // (verified with the probe on 2026-09-25).

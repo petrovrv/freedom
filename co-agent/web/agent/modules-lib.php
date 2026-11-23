@@ -19,6 +19,9 @@
 //            'text' (indexed text of a project file); manifest provides.search [{id, hooks}]
 //   notify - copies of pushes (push-lib.php co_push_mirror): hook 'push' gets {envs, title, body, url, tag} of every push
 //            the server sends, e.g. to write it to the person in a messenger; manifest provides.notify [{id, hooks}]
+// Modules of one environment (F14c, apps made on the fly, SPEC §3.6a item 6): manifest `envs` names the environments a
+// module is for (an own app: the env of the person it was made for). Other people get none of its pages, ops, actions
+// or data; the owner still sees it in Settings to switch or remove it.
 // A handler's context has $ctx['notify']({title, body?, tag?, open?, env?}) (F14b-3, apps-lib.php co_app_notify): a push
 // of the module to its person, with the permission notify.push.
 // Core op names always win: a module cannot take over an op of the core.
@@ -144,6 +147,20 @@ function co_module_for_op(mysqli $db, string $via, string $op): ?array
     return null;
 }
 
+/** Environments a module is for (manifest envs); [] = every member. */
+function co_module_envs(array $m): array
+{
+    $e = $m['manifest']['envs'] ?? null;
+    return is_array($e) ? array_values(array_filter($e, static fn($x): bool => is_string($x) && $x !== '')) : [];
+}
+
+/** Whether the module works for $env (no envs = everybody; a module of other environments never). */
+function co_module_for_env(array $m, string $env): bool
+{
+    $e = co_module_envs($m);
+    return !$e || in_array($env, $e, true);
+}
+
 /** Includes the server entry of an enabled standard module after checking every registered file; returns its handlers. */
 function co_module_load(array $m): array
 {
@@ -210,6 +227,7 @@ function co_module_call(mysqli $db, string $via, string $op, array $in, string $
 {
     $m = co_module_for_op($db, $via, $op);
     if ($m === null) return null;
+    if ($via === 'user' && !co_module_for_env($m, $myEnv)) return ['error' => 'not_your_app'];
     $h = co_module_load($m)[$via][$op] ?? null;
     if (!is_callable($h)) throw new RuntimeException("module {$m['id']} declares $op but has no handler");
     $r = $h(co_module_ctx($db, $m, $myEnv, $owner, $email), $in);
@@ -546,24 +564,28 @@ function co_modules_list(mysqli $db, string $myEnv, bool $owner, array $coreOps 
     foreach (co_modules($db) as $m) {
         // names of import sources of every installed module: chats imported earlier keep their label while it is off
         foreach (co_module_imports($m) as $x) $labels[$x['source']] ??= $x;
-        if (!$m['enabled'] && !$owner) continue;
+        $mine = co_module_for_env($m, $myEnv);
+        if ((!$m['enabled'] || !$mine) && !$owner) continue;
         $man = $m['manifest'];
+        // the owner manages a module of another environment (Settings) but gets none of its pages, modes or context
+        $on = $m['enabled'] && $mine;
         $row = ['id' => $m['id'], 'version' => $m['version'], 'title' => (string)($man['title'] ?? $m['id']),
             'description' => (string)($man['description'] ?? ''), 'enabled' => $m['enabled'], 'standard' => $m['standard'],
             'permissions' => array_values(array_filter(is_array($man['permissions'] ?? null) ? $man['permissions'] : [], 'is_string')),
-            'ui' => $m['enabled'] ? co_module_ui($m) : [], 'imports' => $m['enabled'] ? co_module_imports($m) : [], 'uiOps' => array_values(array_diff(co_module_ops($m, 'user'), $coreOps)),
-            'uploads' => co_module_uploads($m),
-            'device' => $m['enabled'] ? co_module_device($m) : null,
+            'ui' => $on ? co_module_ui($m) : [], 'imports' => $m['enabled'] ? co_module_imports($m) : [],
+            'uiOps' => $mine ? array_values(array_diff(co_module_ops($m, 'user'), $coreOps)) : [],
+            'uploads' => $mine ? co_module_uploads($m) : [],
+            'device' => $on ? co_module_device($m) : null,
             'personal' => co_module_personal($m) ? ['about' => (string)($man['personal']['about'] ?? 'members'), 'mode' => co_module_person_mode($db, $m, $myEnv),
                 'question' => (string)($man['personal']['question'] ?? '')] : null];
         // what CO Web weaves into its own screens (only while enabled: a disabled module leaves no trace there)
-        $on = $m['enabled'];
         $row += ['modes' => $on ? co_module_modes($m) : [], 'context' => $on ? co_module_context($m) : [],
             'fileActions' => $on ? co_module_file_actions($m) : [], 'messageViews' => $on ? co_module_message_views($m) : [],
             // side-job rows of a switched-off module stay collapsed (old turns), so these come always
             'sideJobs' => co_module_side_jobs($m), 'navigate' => $on ? co_module_navigate($m) : [],
             // F14b-2: ops agents may call (apps-lib.php); CO Web listens for their refresh while the module's tray is shown
-            'actions' => $on && function_exists('co_app_actions') ? array_keys(co_app_actions($m)) : []];
+            'actions' => $on && function_exists('co_app_all_actions') ? array_keys(co_app_all_actions($m)) : []];
+        if (co_module_envs($m)) $row['envs'] = co_module_envs($m);
         // F14b-3: the person's switch of the module's notifications (only modules that may notify)
         if ($on && function_exists('co_app_notify_allowed') && co_app_notify_allowed($m)) {
             $notifyOff ??= co_app_notify_off($db, $myEnv);
@@ -671,6 +693,14 @@ function co_module_install(mysqli $db, array $in): array
         if (!is_string($rel) || !is_string($sha) || !preg_match('/^[0-9a-f]{64}$/', $sha) || str_contains($rel, '..')) throw new InvalidArgumentException('bad files');
         $f = co_module_home($id) . "/$rel";
         if (!is_file($f) || !hash_equals($sha, (string)hash_file('sha256', $f))) return ['ok' => false, 'error' => 'file_mismatch', 'file' => $rel];
+    }
+    // F14c: a module of some environments names members only (an own app is made for one person)
+    $envs = $man['envs'] ?? null;
+    if ($envs !== null) {
+        if (!is_array($envs) || !$envs || !array_is_list($envs)) return ['ok' => false, 'error' => 'bad_envs'];
+        foreach ($envs as $e) {
+            if (!is_string($e) || !in_array($e, co_member_envs(), true)) return ['ok' => false, 'error' => 'bad_envs', 'env' => is_string($e) ? $e : ''];
+        }
     }
     // an op belongs to one module: another module's page could otherwise call it, or shadow it in co_module_for_op
     $mine = [];
@@ -789,6 +819,12 @@ function co_module_remove(mysqli $db, array $in): array
         $st->bind_param('s', $id);
         $st->execute();
         $st->close();
+        // F14c: what the app kept for people through the core (apps-lib.php co_app_data, kv env/<env> app-data.<id>)
+        $name = 'app-data.' . $id;
+        $st = $db->prepare("DELETE FROM kv WHERE scope LIKE 'env/%' AND name = ?");
+        $st->bind_param('s', $name);
+        $st->execute();
+        $st->close();
     }
     co_module_log($db, $id, 'remove', $m['version'], 'installer', ['data' => $data]);
     co_modules($db, true);
@@ -802,7 +838,7 @@ function co_modules_host(mysqli $db, array $in): array
     return match ($action) {
         'list'    => ['ok' => true, 'ext' => CO_EXT_VERSION, 'modules' => array_values(array_map(static fn(array $m): array => [
             'id' => $m['id'], 'version' => $m['version'], 'enabled' => $m['enabled'], 'standard' => $m['standard'],
-            'publisher' => $m['publisher'], 'files' => $m['files'],
+            'publisher' => $m['publisher'], 'files' => $m['files'], 'envs' => co_module_envs($m),
             // Bridge's module loader (F10): whose switch lets the module work for them (personal modules only)
             'people' => co_module_personal($m) ? (object)array_combine(co_member_envs(), array_map(
                 static fn(string $env): string => co_module_person_mode($db, $m, $env), co_member_envs())) : null],

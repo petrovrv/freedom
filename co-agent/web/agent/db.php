@@ -997,7 +997,7 @@ try {
             'inbox', 'inbox_mark', 'action_decide', 'autoswitch', 'tool_candidates', 'tool_decide', 'executors', 'executor_set',
             'related', 'dossier_context', 'dossier_get', 'dossier_put', 'browser_defaults', 'family_state', 'family_read', 'members',
             'models_list', 'model_set', 'model_delete', 'subs_put', 'modules_list', 'module_set', 'module_person',
-            'app_list', 'app_action', 'app_action_status', 'app_events', 'app_request_decide', 'app_notify', 'app_notify_set'];
+            'app_list', 'app_action', 'app_action_status', 'app_events', 'app_request_decide', 'app_notify', 'app_notify_set', 'app_data'];
     // Schema 27 (modules-lib.php, Freedom F10): an op the core does not know may belong to an enabled module (manifest
     // server.ops.user); core names always win
     $moduleOp = !in_array($op, $coreOps, true);
@@ -1088,6 +1088,15 @@ try {
         try {
             co_json(200, co_app_notify($db, co_module_in_str($in, 'module', 64), $myEnv,
                 ['title' => $in['title'] ?? null, 'body' => $in['body'] ?? null, 'tag' => $in['tag'] ?? '', 'open' => $in['open'] ?? null], 'page'));
+        } catch (InvalidArgumentException $e) {
+            co_json(400, ['ok' => false, 'error' => 'bad_request', 'message' => $e->getMessage()]);
+        }
+    }
+    // F14c: data an app keeps for its person through the core (ext/1 coExt.data, permission data.env; apps-lib.php)
+    if ($op === 'app_data') {
+        try {
+            co_json(200, co_app_data($db, co_module_in_str($in, 'module', 64), $myEnv, co_module_in_str($in, 'action', 8),
+                ['key' => $in['key'] ?? null, 'value' => $in['value'] ?? null, 'prefix' => $in['prefix'] ?? '']));
         } catch (InvalidArgumentException $e) {
             co_json(400, ['ok' => false, 'error' => 'bad_request', 'message' => $e->getMessage()]);
         }

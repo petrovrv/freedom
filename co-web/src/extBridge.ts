@@ -36,6 +36,8 @@ export interface ModuleInfo {
   device?: ModuleDevice | null;
   people?: { env: string; mode: 'auto' | 'ask' | 'off'; own: boolean }[];
   installedUtc?: string | null; updatedUtc?: string | null; publisher?: string;
+  /** F14c: the environments a module is for (an app made on the fly); absent = everybody */
+  envs?: string[];
   // ext/1 declarations CO Web weaves into its own screens (empty while the module is off; older servers send none)
   modes?: ModeDecl[]; context?: string[]; fileActions?: FileAction[]; messageViews?: MessageView[]; sideJobs?: SideJob[];
   navigate?: string[];
@@ -328,6 +330,8 @@ export const REQ_PERMISSION: Record<string, string> = {
   'chat.ask': 'chat.post', 'chat.reveal': 'chat.read', 'panel.close': '',
   // F14b-3: a push of the module to its own person (any slot; db.php app_notify checks again and applies the limits)
   'notify.push': 'notify.push',
+  // F14c: data the app keeps for its person through the core (db.php app_data; apps made on the fly have no server code)
+  'data.get': 'data.env', 'data.set': 'data.env', 'data.delete': 'data.env', 'data.list': 'data.env',
 };
 const PANEL_ONLY = new Set(['chat.ask', 'chat.reveal', 'panel.close']);
 

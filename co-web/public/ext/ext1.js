@@ -36,6 +36,9 @@
 //   coExt.badge(v)          - the module's badge in the shell (count on its app tile, dot on ▦); 0/''/null clears
 //   coExt.notify({title, body, tag, open: {page, params}}) - a push to the signed-in person (permission notify.push);
 //                           -> Promise of {ok, sent} or {ok: false, error: notify_off|rate_limited|person_off|..., retryAfter?}
+//   coExt.data.get(key) / set(key, value) / delete(key) / list(prefix) - the app's data kept by the core for the
+//                           signed-in person (permission data.env): string values up to 64 KB, 200 keys, 1 MB;
+//                           -> {ok, value} | {ok, utc} | {ok, deleted} | {ok, keys: [{key, size, utc}]} or {ok: false, error}
 //   coExt.on('chat', fn)    - a viewer panel: {events, canAsk} of its chat (permission chat.read)
 (function () {
   'use strict';
@@ -159,6 +162,15 @@
       n = n || {};
       return request({ t: 'req', name: 'notify.push', args: { title: String(n.title == null ? '' : n.title),
         body: n.body == null ? '' : String(n.body), tag: n.tag == null ? '' : String(n.tag), open: n.open || null } }, 30000);
+    },
+    // F14c: the app's data kept by the core for the signed-in person (permission data.env; set(key, null) deletes)
+    data: {
+      get: function (key) { return request({ t: 'req', name: 'data.get', args: { key: String(key) } }, 30000); },
+      set: function (key, value) {
+        return request({ t: 'req', name: 'data.set', args: { key: String(key), value: value == null ? null : String(value) } }, 30000);
+      },
+      delete: function (key) { return request({ t: 'req', name: 'data.delete', args: { key: String(key) } }, 30000); },
+      list: function (prefix) { return request({ t: 'req', name: 'data.list', args: { prefix: prefix == null ? '' : String(prefix) } }, 30000); },
     },
     hint: function (h) {
       post({ t: 'hint', hint: h || null });

@@ -1344,6 +1344,17 @@ export async function dbAppNotify(module: string, args: Record<string, unknown>)
   return j;
 }
 /** F14b-3: the person's own switch of a module's notifications. */
+/** F14c: the app data of a module for the signed-in person (ext/1 coExt.data, permission data.env): get|set|delete|list. */
+export async function dbAppData(module: string, action: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const a = args as { key?: unknown; value?: unknown; prefix?: unknown };
+  const res = await post({ op: 'app_data', module, action, key: a.key ?? null, value: a.value ?? null, prefix: a.prefix ?? '' }, false);
+  if (!res) throw new Error('Database is not reachable.');
+  const j = await res.json().catch(() => ({}));
+  // a refused write (quota, too_large, not_your_app) is an answer for the page; a malformed request is an error
+  if (!res.ok) throw new Error(String(j.message || j.error || res.status));
+  return j;
+}
+
 export async function dbAppNotifySet(id: string, on: boolean): Promise<void> {
   const r = await rawCall('app_notify_set', { id, on });
   if (!r.ok) throw new Error(String(r.error || 'app_notify_set failed'));

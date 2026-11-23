@@ -7,8 +7,9 @@ same format as release manifests (install/freedom_release.py). The server never 
 does it at home, uploads the files over SSH to ~/co-agent/modules/<id>/ and registers the module with the sha256 of
 each file (db.php op modules_host, host key aiwb/co-push); the server then includes only files that still match.
 
+  python install/freedom_modules.py new ID --app [--title T] [--icon I] [--env ENV] [--dir PARENT]  an app from the template
   python install/freedom_modules.py check DIR                       manifest and files (no network)
-  python install/freedom_modules.py sign DIR [--name maintainer-1]  freedom-manifest.json signed with keyring aiwb/freedom-release
+  python install/freedom_modules.py sign DIR [--name maintainer-1 | --own]  freedom-manifest.json signed with keyring aiwb/freedom-release
   python install/freedom_modules.py verify DIR [--trust FILE]       signature: standard (install/maintainers.json) or a trusted author
   python install/freedom_modules.py plan DIR                        what install would do (read only: compares with the server)
   python install/freedom_modules.py install DIR [--enable] [--default-person MODE] [--person ENV=MODE ...] [--allow-untrusted]
@@ -23,7 +24,14 @@ host key of keyring aiwb/co-push; variant B/C (freedom_docker.py) into the app c
 through the published port with the stack's own host key (<stack>/secrets/push_key).
 Trust: standard modules are signed by the maintainers (install/maintainers.json, threshold); a module of another author
 installs only when its key is in install.json modules.trustedKeys [{name, key}] or with --allow-untrusted, and it never
-runs PHP on the server (no server/ part is uploaded for it). Services of a module (provides.services windowsTask) are
+runs PHP on the server (no server/ part is uploaded for it). Own modules are signed with the owner's key (sign --own:
+keyring aiwb/freedom-release, account install.json modules.ownKey, default "owner", whose public key is in trustedKeys);
+verify names the level standard | own | trusted | untrusted. Before a module that is not standard is installed, review()
+scans it (toolbox security scan when the library is there, plus the page rules below) and install stops on an error.
+Apps made on the fly (F14c, SPEC §3.6a item 6): `new ID --app` writes an app module from the template into the owner's
+module folder (install.json modules.dirs[0] or --dir): one ui.page app with its icon, the permission data.env (the
+core keeps its data per person: ext/1 coExt.data, no server code) and manifest envs = [the env it is made for], so
+only that person sees it; the core refuses its pages, data and actions to everybody else. Services of a module (provides.services windowsTask) are
 started and stopped with enable/disable on Windows (kind "schedule" is only re-enabled, it runs at its own time).
 Tools (provides.tools [{name, minVersion}]) go into the tool library with toolbox.py install --from (the module's
 tools/ or the distribution's tools/) and toolbox.py module records them as owned by the module: a tool of a
@@ -51,6 +59,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+from html import escape as html_escape
 from xml.sax.saxutils import escape as xml_escape
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -81,6 +90,20 @@ USER_AGENT = "freedom-modules/1"
 HOOK_EVENTS = {"job.before", "job.after"}
 RUN_RE = re.compile(r"^[A-Za-z0-9 ._=:/,-]{1,200}$")   # split on spaces by Bridge, never through a shell
 SUPERVISOR_FRESH_SEC = 300
+ENV_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+# a module of some environments (manifest envs) may not bring parts that work for the whole house: they have no notion
+# of a person yet (home services, tools of the library, device tools, notify/search hooks, import, side jobs)
+ENV_MODULE_FORBIDDEN = ("tools", "services", "deviceTools", "deviceOps", "notify", "search", "hooks", "gateway", "import",
+                        "sideJobs", "context", "modes")
+# page code of a module that is not standard: what a reviewer must see before the owner says yes (CSP blocks most of it
+# anyway: connect-src 'none', no same-origin)
+PAGE_RULES = (
+    ("network", re.compile(r"\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon|importScripts)\b")),
+    ("remote-code", re.compile(r"<script[^>]+src\s*=\s*['\"]?(?:https?:)?//|\bimport\s*\(\s*['\"`](?:https?:)?//", re.I)),
+    ("dynamic-code", re.compile(r"(?<![.\w])eval\s*\(|\bnew\s+Function\s*\(|setTimeout\s*\(\s*['\"`]")),
+    ("external-url", re.compile(r"\b(?:https?|wss?)://(?!localhost\b)[A-Za-z0-9.-]+")),
+    ("storage-escape", re.compile(r"\b(?:document\.cookie|localStorage|sessionStorage|indexedDB)\b")),
+)
 
 
 class Fail(Exception):
@@ -208,6 +231,15 @@ def check(root: pathlib.Path) -> list:
             p.append(f"search provider {sp.get('id')}: hooks from {sorted(SEARCH_HOOKS)}")
         elif not srv:
             p.append(f"search provider {sp.get('id')}: needs server.entry")
+    envs = m.get("envs")
+    if envs is not None:
+        if not isinstance(envs, list) or not envs or not all(isinstance(e, str) and ENV_RE.match(e) for e in envs):
+            p.append("envs: a non-empty list of environment ids")
+        for k in ENV_MODULE_FORBIDDEN:
+            if prov.get(k):
+                p.append(f"provides.{k}: not for a module of some environments (envs) - it would work for the whole house")
+        if m.get("device") or m.get("server"):
+            p.append("device/server parts: not for a module of some environments (envs)")
     pers = m.get("personal")
     if pers is not None and pers.get("default", "ask") not in PERSON_MODES:
         p.append("personal.default: auto|ask|off")
@@ -567,22 +599,257 @@ def trusted_authors() -> dict:
     return {"keys": keys, "threshold": 1}
 
 
+def own_key_name() -> str:
+    """Account of the owner's own signing key in keyring aiwb/freedom-release (install.json modules.ownKey, default owner)."""
+    n = aiwb_install.get("modules.ownKey")
+    return n if isinstance(n, str) and re.fullmatch(r"[A-Za-z0-9._-]{1,40}", n) else "owner"
+
+
 def verify(root: pathlib.Path, trust_file: pathlib.Path = fr.DEFAULT_TRUST) -> dict:
-    """{'standard': bool, 'trusted': bool, 'publisher': str, 'problems': [...]} for the signature of a module folder."""
+    """{'standard': bool, 'trusted': bool, 'level': standard|own|trusted|untrusted, 'publisher': str, 'problems': [...]}
+    for the signature of a module folder. own = signed with the owner's key (the trustedKeys entry named own_key_name())."""
     mf = root / fr.MANIFEST_NAME
     if not mf.is_file():
-        return {"standard": False, "trusted": False, "publisher": "", "problems": ["not signed (no freedom-manifest.json)"]}
+        return {"standard": False, "trusted": False, "level": "untrusted", "publisher": "",
+                "problems": ["not signed (no freedom-manifest.json)"]}
     man = json.loads(mf.read_text(encoding="utf-8"))
     std = verify_folder(root, man, fr.load_trust(trust_file))
     if not std:
         names = [s.get("name", "") for s in man.get("signatures", [])]
-        return {"standard": True, "trusted": True, "publisher": ",".join(names), "problems": []}
+        return {"standard": True, "trusted": True, "level": "standard", "publisher": ",".join(names), "problems": []}
     auth = trusted_authors()
     own = verify_folder(root, man, auth) if auth["keys"] else ["no trusted authors in install.json modules.trustedKeys"]
     if not own:
         k = next(s["key"] for s in man.get("signatures", []) if s.get("key", "").lower() in auth["keys"])
-        return {"standard": False, "trusted": True, "publisher": auth["keys"][k.lower()], "problems": []}
-    return {"standard": False, "trusted": False, "publisher": "", "problems": std}
+        name = auth["keys"][k.lower()]
+        return {"standard": False, "trusted": True, "level": "own" if name == own_key_name() else "trusted",
+                "publisher": name, "problems": []}
+    return {"standard": False, "trusted": False, "level": "untrusted", "publisher": "", "problems": std}
+
+
+def review(root: pathlib.Path) -> dict:
+    """Check before installing a module that is not standard (SPEC §3.6): the toolbox security scan of its code (secrets,
+    hosts, remote exec, writes; skipped with a note when the tool library is not here) and the page rules (network,
+    remote or dynamic code, external addresses, browser storage) on ui/. {'errors': [...], 'warnings': [...], 'notes'}."""
+    errors, warnings, notes = [], [], []
+    try:
+        sys.path.insert(0, str(tools_root() / "toolbox"))
+        import security  # noqa: PLC0415 - toolbox 1.5.0+ (stdlib only); the rules of scan_tool without SKILL.md exceptions
+
+        def add(rel, line, rule, detail, snippet, host=None):
+            if rule == "host-not-allowed" and security.host_allowed(host or detail, []):
+                return
+            msg = f"{rule} {rel}:{line} {detail}"
+            dst = errors if security.RULES[rule][0] == security.ERROR else warnings
+            if msg not in dst:
+                dst.append(msg)
+
+        for f in sorted(root.rglob("*")):
+            if not f.is_file() or f.suffix.lower() not in security.CODE_EXT or "__pycache__" in f.parts:
+                continue
+            rel = f.relative_to(root).as_posix()
+            if f.suffix.lower() == ".py":
+                security.scan_python(f, rel, add)
+            else:
+                security.regex_lines(f.read_text(encoding="utf-8", errors="replace"), rel, add)
+    except Exception as e:  # no library on this computer: the page rules still run
+        notes.append(f"toolbox security scan skipped ({type(e).__name__}: {e})")
+    finally:
+        if sys.path and sys.path[0] == str(tools_root() / "toolbox"):
+            sys.path.pop(0)
+    m = load_manifest(root)
+    nav = bool((m.get("provides") or {}).get("navigate"))
+    for f in sorted((root / "ui").rglob("*")) if (root / "ui").is_dir() else []:
+        if not f.is_file() or f.suffix.lower() not in (".js", ".mjs", ".html", ".htm", ".css"):
+            continue
+        rel = f.relative_to(root).as_posix()
+        for n, line in enumerate(f.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            for rule, rx in PAGE_RULES:
+                hit = rx.search(line)
+                if not hit:
+                    continue
+                msg = f"{rule} {rel}:{n} {hit.group(0)[:80]}"
+                # an address the manifest lets the page navigate to is declared; anything else is an error
+                (warnings if rule == "external-url" and nav else errors).append(msg)
+    return {"errors": errors, "warnings": warnings, "notes": notes}
+
+
+# ---------- apps made on the fly (F14c) ----------
+
+APP_TEMPLATE = {
+    "ui/main.html": """<!doctype html>
+<html lang="{lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title><link rel="stylesheet" href="?m={id}&amp;f=ui/main.css"></head>
+<body><main>
+<header><span class="icon" aria-hidden="true">{icon}</span><h1>{title}</h1></header>
+<form id="add"><input id="text" maxlength="300" autocomplete="off" placeholder="{placeholder}" aria-label="{placeholder}"><button>+</button></form>
+<ul id="items"></ul>
+<p id="empty" class="muted">{empty}</p>
+<p id="status" class="muted" role="status"></p>
+</main><script src="/ext/ext1.js"></script><script src="?m={id}&amp;f=ui/main.js"></script></body></html>
+""",
+    "ui/main.css": """/* Made from the Freedom app template (freedom_modules.py new --app). The core passes its theme as CSS variables. */
+:root{{font:15px system-ui,sans-serif;color:var(--fg,#1d2733);background:var(--bg,#f6f7f9)}}
+*{{box-sizing:border-box}}body{{margin:0}}main{{max-width:640px;margin:auto;padding:24px 16px}}
+header{{display:flex;align-items:center;gap:10px}}h1{{font-size:24px;margin:0}}.icon{{font-size:26px}}
+form{{display:flex;gap:8px;margin:18px 0}}input{{flex:1;min-width:0;font:inherit;padding:10px 12px;border:1px solid var(--line,#d5dbe3);border-radius:10px;background:var(--panel,#fff);color:inherit}}
+button{{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:8px 14px;background:var(--accent,#2b6cb0);color:var(--accent-fg,#fff)}}
+ul{{list-style:none;margin:0;padding:0}}li{{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--line,#e3e7ec)}}
+li span{{flex:1;overflow-wrap:anywhere}}li.done span{{text-decoration:line-through;color:var(--muted,#6b7785)}}
+li button{{background:none;color:var(--muted,#6b7785);padding:4px 8px}}.muted{{color:var(--muted,#6b7785);font-size:13px}}
+""",
+    "ui/main.js": """// Made from the Freedom app template (freedom_modules.py new --app): a list kept by the core for the signed-in person
+// (ext/1 coExt.data, permission data.env; one key "items" with a JSON array). No network, no other storage.
+(() => {{
+'use strict';
+const $ = (id) => document.getElementById(id);
+const KEY = 'items';
+let items = [];
+let saving = Promise.resolve();
+
+function render() {{
+  const ul = $('items');
+  ul.textContent = '';
+  for (const it of items) {{
+    const li = document.createElement('li');
+    if (it.done) li.className = 'done';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = !!it.done;
+    box.onchange = () => {{ it.done = box.checked; save(); }};
+    const text = document.createElement('span');
+    text.textContent = it.text;
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.textContent = '×';
+    del.title = 'Delete';
+    del.onclick = () => {{ items = items.filter((x) => x !== it); save(); }};
+    li.append(box, text, del);
+    ul.append(li);
+  }}
+  $('empty').hidden = items.length > 0;
+}}
+
+async function load() {{
+  const r = await coExt.data.get(KEY);
+  try {{
+    const v = r && r.value ? JSON.parse(r.value) : [];
+    items = Array.isArray(v) ? v.filter((x) => x && typeof x.text === 'string') : [];
+  }} catch {{ items = []; }}
+  render();
+}}
+
+function save() {{
+  render();
+  const value = JSON.stringify(items);
+  saving = saving.then(() => coExt.data.set(KEY, value)).then((r) => {{
+    $('status').textContent = r && r.ok ? '' : 'Not saved: ' + ((r && (r.message || r.error)) || 'error');
+  }}, (e) => {{ $('status').textContent = 'Not saved: ' + e.message; }});
+}}
+
+$('add').onsubmit = (e) => {{
+  e.preventDefault();
+  const t = $('text').value.trim();
+  if (!t) return;
+  items.push({{ text: t.slice(0, 300), done: false }});
+  $('text').value = '';
+  save();
+}};
+
+coExt.ready.then(() => {{
+  coExt.title({title_js});
+  // an agent changed the data (app_action data_set): read it again
+  coExt.on('refresh', () => {{ load().catch(() => {{}}); }});
+  return load();
+}}).catch((e) => {{ $('status').textContent = e.message; }});
+}})();
+""",
+    "README.md": """# {title}
+
+An app made on the fly (Freedom F14c, SPEC §3.6a item 6) from the template of `install/freedom_modules.py new --app`.
+It is for the environment `{env}` only (manifest `envs`): nobody else sees its tile, pages or data.
+
+- Data: kept by the core for the person (ext/1 `coExt.data`, permission `data.env`; up to 64 KB a value, 200 keys,
+  1 MB). The agent reads and writes it with the core actions `data_list` / `data_get` / `data_set` / `data_delete`
+  (MCP `app_list` / `app_action`). Switching the app off keeps the data; `remove --data erase` deletes it.
+- No server code, no network (the page CSP has `connect-src 'none'`), no secrets.
+- Change it: edit `ui/`, raise `version` in `module.json`, then `check`, `sign --own`, `install --enable`.
+- Test: `python tests/test_app.py` (manifest, template rules, the review before install).
+""",
+    "tests/test_app.py": """# Test of an app made on the fly: the manifest and files pass the installer's check and its review before install.
+# Run from anywhere: python tests/test_app.py (finds the Freedom tree through AIWB_FREEDOM, else C:\\AIWorkbench\\freedom).
+import os
+import pathlib
+import sys
+
+APP = pathlib.Path(__file__).resolve().parents[1]
+TREE = pathlib.Path(os.environ.get("AIWB_FREEDOM") or r"C:\\AIWorkbench\\freedom")
+sys.path.insert(0, str(TREE / "install"))
+import freedom_modules as fm  # noqa: E402
+
+problems = fm.check(APP)
+assert not problems, problems
+m = fm.load_manifest(APP)
+assert m.get("envs"), "an app made on the fly is for named environments"
+assert any(u.get("app") for u in m["provides"]["ui"]), "no app page"
+r = fm.review(APP)
+assert not r["errors"], r["errors"]
+print("ok", m["id"], m["version"], *r["notes"])
+""",
+}
+
+
+def owner_env() -> str:
+    """The env of the owner of this install (install.json members role owner), '' when unknown."""
+    for mem in aiwb_install.get("members") or []:
+        if isinstance(mem, dict) and mem.get("role") == "owner" and isinstance(mem.get("env"), str):
+            return mem["env"]
+    return ""
+
+
+def new_app(mid: str, parent, title: str, icon: str, env: str, label: str = "", lang: str = "en") -> pathlib.Path:
+    """Writes an app module from the template into parent/<id>; refuses an existing folder."""
+    if not ID_RE.match(mid):
+        raise Fail("id: [a-z0-9-], up to 63 characters")
+    if parent is None:
+        dirs = [d for d in (aiwb_install.get("modules.dirs") or []) if isinstance(d, str)]
+        if not dirs:
+            raise Fail("no folder for own modules: pass --dir or set install.json modules.dirs")
+        parent = pathlib.Path(dirs[0])
+    env = env or owner_env()
+    if not ENV_RE.match(env or ""):
+        raise Fail("--env: the environment the app is made for (no owner in install.json members)")
+    if mid in local_modules():
+        raise Fail(f"a module {mid} already exists: {local_modules()[mid][0]}")
+    root = pathlib.Path(parent) / mid
+    if root.exists():
+        raise Fail(f"{root} already exists")
+    title = (title or mid.replace("-", " ").capitalize()).strip()[:80]
+    icon = (icon or title[:1].upper()).strip()[:8]
+    label = (label or title)[:40]
+    ru = lang == "ru"
+    fill = {"id": mid, "title": html_escape(title), "icon": html_escape(icon), "env": env, "lang": lang,
+            "title_js": json.dumps(title, ensure_ascii=False),
+            "placeholder": "Добавить…" if ru else "Add…", "empty": "Пока пусто." if ru else "Nothing here yet."}
+    manifest = {
+        "schema": 1, "id": mid, "version": "0.1.0", "title": title,
+        "description": f"{title}: an app made on the fly for one person (data kept by the core, no network).",
+        "ext": ">=1 <2", "scope": "environment", "envs": [env],
+        "platforms": ["windows", "macos", "linux"], "requires": {"core": [], "modules": []},
+        "permissions": ["data.env"],
+        "provides": {"ui": [{"slot": "ui.page", "id": "main", "entry": "ui/main.html", "title": title, "app": True,
+                             "icon": icon, "label": label}],
+                     "data": {"server": "core app data (coExt.data)"}},
+        "localOnly": ["tests/"],
+        "dataPolicy": {"onDisable": "keep", "onRemove": "ask", "migrations": "additive"},
+        "defaults": {"enabled": False},
+    }
+    (root / "ui").mkdir(parents=True)
+    (root / "tests").mkdir()
+    (root / "module.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    for rel, text in APP_TEMPLATE.items():
+        (root / rel).write_text(text.format(**fill), encoding="utf-8")
+    return root
 
 
 # ---------- server ----------
@@ -1103,13 +1370,27 @@ def main(argv=None) -> int:
         p = sp.add_parser(name)
         p.add_argument("dir", type=pathlib.Path)
         p.add_argument("--trust", type=pathlib.Path, default=fr.DEFAULT_TRUST)
+    p = sp.add_parser("new", help="an app module from the template (F14c)")
+    p.add_argument("id")
+    p.add_argument("--app", action="store_true", required=True, help="the only kind of template so far")
+    p.add_argument("--title", default="")
+    p.add_argument("--icon", default="", help="an emoji or up to 8 characters")
+    p.add_argument("--label", default="", help="the name on the tile (default: the title)")
+    p.add_argument("--env", default="", help="the environment the app is for (default: the owner's)")
+    p.add_argument("--dir", type=pathlib.Path, help="parent folder (default: install.json modules.dirs[0])")
+    p.add_argument("--lang", default="en", choices=("en", "ru"), help="language of the template's few words")
     p = sp.add_parser("sign")
     p.add_argument("dir", type=pathlib.Path)
     p.add_argument("--name", default="maintainer-1")
+    p.add_argument("--own", action="store_true", help="the owner's own key (install.json modules.ownKey, default owner)")
+    p = sp.add_parser("review", help="the check before installing a module that is not standard")
+    p.add_argument("dir", type=pathlib.Path)
     p = sp.add_parser("install")
     p.add_argument("dir", type=pathlib.Path)
     p.add_argument("--trust", type=pathlib.Path, default=fr.DEFAULT_TRUST)
     p.add_argument("--enable", action="store_true")
+    p.add_argument("--allow-findings", action="store_true", help="install a module that is not standard despite errors "
+                   "of its review (only after the owner read them)")
     p.add_argument("--default-person", choices=PERSON_MODES, help="default switch of every member who has not chosen")
     p.add_argument("--person", action="append", help="ENV=MODE default of one member")
     p.add_argument("--allow-untrusted", action="store_true")
@@ -1148,10 +1429,28 @@ def run(a) -> int:
         p = check(a.dir)
         out({"ok": not p, "problems": p})
         return 0 if not p else 1
+    if a.cmd == "new":
+        root = new_app(a.id, a.dir, a.title, a.icon, a.env, a.label, a.lang)
+        out({"ok": True, "dir": str(root), "next": [f'python install/freedom_modules.py check "{root}"',
+                                                     f'python install/freedom_modules.py sign "{root}" --own',
+                                                     f'python install/freedom_modules.py install "{root}" --enable']})
+        return 0
+    if a.cmd == "review":
+        r = review(a.dir)
+        out({"ok": not r["errors"], **r})
+        return 0 if not r["errors"] else 1
     if a.cmd == "sign":
         p = check(a.dir)
         if p:
             raise Fail("check failed: " + "; ".join(p))
+        key = None
+        if a.own:
+            a.name = own_key_name()
+            key = fr.keyring_key(a.name, create=True)
+            pub = fr.public_hex(key)
+            if pub not in trusted_authors()["keys"]:
+                print(f"note: add the owner's key to install.json modules.trustedKeys, else the module does not install: "
+                      f'{{"name": "{a.name}", "key": "{pub}"}}', file=sys.stderr)
         m = load_manifest(a.dir)
         man = signed_files(a.dir, fr.build(a.dir, str(m["version"])))
         ignored = git_ignored(a.dir, [f["path"] for f in man["files"]])
@@ -1159,7 +1458,7 @@ def run(a) -> int:
             raise Fail("git ignores files that would be signed (no other checkout has them): " + ", ".join(ignored[:10])
                        + " - delete them or list them as generated")
         man["module"] = m["id"]
-        fr.write_json(a.dir / fr.MANIFEST_NAME, fr.sign(man, a.name, fr.keyring_key(a.name)))
+        fr.write_json(a.dir / fr.MANIFEST_NAME, fr.sign(man, a.name, key or fr.keyring_key(a.name)))
         out({"ok": True, "signed": str(a.dir / fr.MANIFEST_NAME), "files": len(man["files"])})
         return 0
     if a.cmd == "verify":
@@ -1210,9 +1509,14 @@ def run(a) -> int:
     if not v["trusted"] and not getattr(a, "allow_untrusted", False) and a.cmd == "install":
         raise Fail("signature not trusted: " + "; ".join(v["problems"]) + " (standard modules: install/maintainers.json; "
                    "own authors: install.json modules.trustedKeys; or --allow-untrusted)")
+    rv = review(a.dir) if not v["standard"] else {"errors": [], "warnings": [], "notes": []}
+    if rv["errors"] and a.cmd == "install" and not a.allow_findings:
+        raise Fail("review before install found: " + "; ".join(rv["errors"][:10]) + " (fix them, or --allow-findings "
+                   "after the owner read them)")
     files = module_files(a.dir, with_server=v["standard"])
     live = next((x for x in host_call({"action": "list"}).get("modules", []) if x["id"] == m["id"]), None)
-    plan = {"id": m["id"], "version": m["version"], "standard": v["standard"], "publisher": v["publisher"],
+    plan = {"id": m["id"], "version": m["version"], "standard": v["standard"], "level": v["level"],
+            "publisher": v["publisher"], "envs": m.get("envs") or [], "review": rv,
             "signature": "ok" if v["trusted"] else "untrusted", "installed": live and live["version"],
             "files": len(files), "changed": sorted(k for k, s in files.items() if not live or live["files"].get(k) != s),
             "config": sorted(install_config(m)),

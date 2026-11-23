@@ -7,7 +7,9 @@ knows no module by name: everything below is generic and read from the manifests
 ## Manifest (`module.json`, schema 1)
 
 Base fields (`id`, `version`, `ext`, `scope`, `permissions`, `personal`, `server`, `dataPolicy`, `defaults`) — see
-`geo-presence/module.json` and SPEC §3.6. `provides` may contain:
+`geo-presence/module.json` and SPEC §3.6. `envs` (optional, F14c): the environments the module is for — nobody else
+gets its pages, ops, data or actions (the owner still switches and removes it); such a module brings no part that works
+for the whole house (tools, services, device parts, hooks, context, modes, import, side jobs). `provides` may contain:
 
 | Key | Shape | What the core does |
 |---|---|---|
@@ -38,6 +40,7 @@ Files the core reads itself (`context/*.md|txt`) must be registered files of the
 | `chat.post` | `chat.ask` |
 | `ui.navigate` | `navigate` (only to targets of `provides.navigate`) |
 | `notify.push` | `coExt.notify` from any page and `$ctx['notify']` of server code: pushes of the app to its person (see *Notifications*) |
+| `data.env` | `coExt.data.*` from any page: the app's data kept by the core for the signed-in person, and the agent's core actions `data_*` (see *Apps made on the fly*) |
 
 ### Desktop windows (`ui.window`)
 
@@ -178,6 +181,41 @@ Minimal example — a module that tells its person when a long import finished (
 
 and in `module.json`: `"permissions": ["notify.push"]`. A page does the same with
 `coExt.notify({title: 'Import finished', tag: 'import'})`. Test: `co-agent/tests/notify-test.php`.
+
+## Apps made on the fly (F14c, SPEC §3.6a item 6)
+
+A person asks their agent for a small app ("a shopping list", "a timer", "notes for the trip"); the agent makes a
+module from the template and installs it like any app. The app is the person's own: signed with the owner's key (trust
+level *own*, SPEC §3.6), for one environment (`envs`), in a sandboxed iframe with `connect-src 'none'`, with the usual
+switch, and checked before install.
+
+**Data kept by the core.** Only standard modules run PHP on the server, so an own app keeps its data through the core
+(permission `data.env`): `coExt.data.get(key)` → `{ok, value, utc}` (`value` null when missing), `set(key, value)` →
+`{ok, utc}` (`null` deletes), `delete(key)` → `{ok, deleted}`, `list(prefix)` → `{ok, keys: [{key, size, utc}]}`;
+refused: `{ok: false, error: too_large | too_many_keys | quota | not_your_app | person_off | module_disabled}`. Keys
+`[A-Za-z0-9][A-Za-z0-9._-]{0,79}`, string values up to 64 KB, 200 keys and 1 MB per app and person (user op
+`app_data`, kv `env/<env>` `app-data.<module>`). The agent of that person gets the core actions `data_list`,
+`data_get`, `data_set`, `data_delete` in `app_list` (not outward; a write is journaled and the open app gets
+`refresh`). Switching the app off keeps the data; `remove --data erase` deletes it. Any module may use it.
+
+**Playbook for the agent** (on the home PC, owner jobs; tree `C:\AIWorkbench\freedom` or the Freedom distribution; `<dir>` = the app folder):
+
+1. Asked for an app → `python install/freedom_modules.py new <id> --app --title "<name>" --icon "<emoji>" --lang ru
+   [--env <env of the person>]` — the folder goes to `install.json modules.dirs[0]` (the owner's private modules) or
+   `--dir`. The template is a list kept in `coExt.data` (key `items`), themed by the core, with a test.
+2. Change `ui/main.html|js|css` to what the person asked (keep: no network, no `localStorage`, no remote scripts,
+   no secrets — the CSP blocks them anyway and the review refuses them); raise `version` on every change.
+3. `python <app>/tests/test_app.py` and `python install/freedom_modules.py check <dir>` (and `review <dir>`).
+4. `python install/freedom_modules.py sign <dir> --own` (keyring `aiwb/freedom-release`, account `owner`; its public key
+   must be in `install.json modules.trustedKeys`).
+5. `python install/freedom_modules.py install <dir> --enable` — `plan` shows `level: own`, `envs`, the review;
+   install stops on a review error. Update = the same with a higher version; off = `disable <id>`; away =
+   `remove <id> --data keep|erase`.
+6. Open `/e/<env>/m/<id>/main` (the tile is in ▦ of that person only) and look at it:
+   `aiwb-e2e.py shot --path /e/<env>/m/<id>/main --out shot.png` (signed in as the owner: for another env only the owner's view). Tell the person what the app does and how to remove it.
+
+A household member's agent cannot install (installing needs the owner's keys on the home PC): it makes the folder
+with `--env <member>` and asks the owner; the owner's agent signs and installs it into that member's environment only.
 
 ## Device parts compiled into CO Desktop
 

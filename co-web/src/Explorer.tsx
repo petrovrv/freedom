@@ -47,7 +47,7 @@ export default function Explorer(props: ExplorerProps) {
     setViewState(v);
   };
   // the selected item belongs to one folder; another folder starts at its default
-  const [focusAt, setFocusAt] = useState<{ key: string; idx: number }>({ key: '', idx: 0 });
+  const [focusAt, setFocusAt] = useState<{ key: string; item: string; idx: number }>({ key: '', item: '', idx: 0 });
   const [jumpOpen, setJumpOpen] = useState(false);
   const chats = path.projectId ? chatsOf(path.projectId) : null;
 
@@ -96,8 +96,10 @@ export default function Explorer(props: ExplorerProps) {
   const pathKey = `${path.projectId || ''}/${path.chatIds.join('/')}`;
   // a folder starts at the opened chat when it is here, else at its first item
   const routeIdx = items.findIndex((x) => x.kind !== 'project' && x.chat.chatId === routeChatId);
-  const focus = focusAt.key === pathKey ? focusAt.idx : Math.max(0, routeIdx);
-  const setFocus = (idx: number) => setFocusAt({ key: pathKey, idx });
+  // the selection follows its item when a poll reorders the folder; a removed item leaves its place selected
+  const heldIdx = focusAt.key === pathKey ? items.findIndex((x) => x.key === focusAt.item) : -1;
+  const focus = focusAt.key !== pathKey ? Math.max(0, routeIdx) : heldIdx >= 0 ? heldIdx : focusAt.idx;
+  const setFocus = (idx: number) => setFocusAt({ key: pathKey, item: items[idx]?.key ?? '', idx });
   const focusIdx = Math.min(focus, Math.max(0, items.length - 1));
   const loading = !!pid && !chats;
 

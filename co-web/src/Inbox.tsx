@@ -174,7 +174,7 @@ function InboxRow({ item: it, env, onOpen, onMark, onChanged, focused }: {
         {!own && it.agent && <span className="muted tiny">{agentLabel(it.agent)}</span>}
         <span className="muted tiny">{formatLocal(it.utc)}</span>
         <button className="btn tiny ghost" onClick={() => void onMark([it.id], it.unread ? 'read' : 'unread')} title={it.unread ? 'Mark read' : 'Mark unread'}>{it.unread ? '●' : '○'}</button>
-        <button className="btn tiny ghost" onClick={() => void onMark([it.id], 'done')} title="Done: hide until the agent writes again">Done</button>
+        {it.kind !== 'app' && <button className="btn tiny ghost" onClick={() => void onMark([it.id], 'done')} title="Done: hide until the agent writes again">Done</button>}
       </div>
       {diag ? (
         <div className="inbox-text"><strong>{diag.title}.</strong> {diag.todo}</div>

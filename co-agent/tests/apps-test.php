@@ -127,6 +127,12 @@ $ok('an expired card cannot run', $e3 === [] && co_app_request_decide($db, 'owne
 for ($i = 0; $i < CO_APP_REQ_PENDING_MAX; $i++) {
     co_app_action($db, ['args' => ['entity' => 'light.n' . $i, 'action' => 'turn_on', 'requestKey' => str_repeat('d', 20)]] + $ctl);
 }
+$keep = [['id' => 'p', 'state' => 'pending']];
+for ($i = 0; $i < CO_APP_REQ_KEEP + 5; $i++) $keep[] = ['id' => "d$i", 'state' => 'done'];
+$keep[] = ['id' => 'r', 'state' => 'running'];
+$pruned = array_column(co_app_requests_prune($keep), 'id');
+$ok('pruning keeps pending and running, drops the oldest decided', count($pruned) === CO_APP_REQ_KEEP && in_array('p', $pruned, true)
+    && in_array('r', $pruned, true) && !in_array('d0', $pruned, true) && in_array('d' . (CO_APP_REQ_KEEP + 4), $pruned, true));
 $ok('pending cards are limited', co_app_action($db, ['args' => ['entity' => 'light.more', 'action' => 'turn_on', 'requestKey' => str_repeat('d', 20)]] + $ctl)['error'] === 'too_many_pending');
 $ok('the member\'s own card is theirs', ($rs = co_app_action($db, ['jobId' => 'J-SAM'] + $ctl)) && co_app_requests_inbox($db, 'sam')[0]['app']['requestId'] === $rs['requestId']
     && co_app_request_decide($db, 'owner', true, 'owner@example.org', ['id' => $rs['requestId'], 'decision' => 'deny'])['error'] === 'not_found');

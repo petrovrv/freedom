@@ -205,6 +205,22 @@ function co_app_requests_expire(array $list): array
     return $list;
 }
 
+/** Keeps every pending or running request and the newest decided ones, CO_APP_REQ_KEEP in all (review F14b-2). */
+function co_app_requests_prune(array $list): array
+{
+    $live = static fn(array $q): bool => in_array($q['state'] ?? '', ['pending', 'running'], true);
+    $drop = max(0, count($list) - CO_APP_REQ_KEEP);
+    $out = [];
+    foreach (array_values($list) as $q) {
+        if ($drop > 0 && !$live($q)) {
+            $drop--;
+            continue;
+        }
+        $out[] = $q;
+    }
+    return $out;
+}
+
 /** Reads and changes the env's request list under a row lock; $f gets the list by reference and returns the answer. */
 function co_app_requests_locked(mysqli $db, string $env, callable $f): mixed
 {
@@ -221,7 +237,7 @@ function co_app_requests_locked(mysqli $db, string $env, callable $f): mixed
         $list = $row ? json_decode((string)$row[0], true) : null;
         $list = co_app_requests_expire(is_array($list) && array_is_list($list) ? $list : []);
         $out = $f($list);
-        $data = co_db_json(array_slice(array_values($list), -CO_APP_REQ_KEEP));
+        $data = co_db_json(co_app_requests_prune($list));
         $st = $db->prepare("UPDATE kv SET data = ?, sha = ?, updated_utc = UTC_TIMESTAMP(3) WHERE scope = ? AND name = 'app-requests'");
         $st->execute([$data, hash('sha256', $data), $scope]);
         $st->close();

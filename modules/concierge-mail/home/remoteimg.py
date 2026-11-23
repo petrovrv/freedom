@@ -15,6 +15,7 @@ import base64
 import hashlib
 import html as htmllib
 from html.entities import html5
+from html.parser import HTMLParser
 import http.client
 import ipaddress
 import os
@@ -57,11 +58,62 @@ def _attr(value):
     return re.sub(r'&(?:(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6})|([A-Za-z][A-Za-z0-9]{0,31}))(;?)', one, value)
 
 
+# containers whose content the page never shows (mail.js drops them with everything inside)
+DROPPED = {'script', 'style', 'iframe', 'frameset', 'object', 'form', 'button', 'textarea', 'select', 'option', 'svg',
+           'math', 'template', 'noscript', 'video', 'audio', 'title', 'head'}
+ATTR_RE = re.compile(r'''[\s/]*([^\s"'>/=]+)(?:\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]*)))?''')
+
+
+def _src(tag_text):
+    """The raw value of the first src attribute of one start tag's text (attributes tokenized in order, so 'src=' inside
+    another attribute's quoted value never counts), or None."""
+    pos = len(re.match(r'<[A-Za-z0-9]+', tag_text).group(0)) if re.match(r'<[A-Za-z0-9]+', tag_text) else 1
+    while pos < len(tag_text):
+        m = ATTR_RE.match(tag_text, pos)
+        if not m or m.end() == pos:
+            break
+        pos = m.end()
+        if m.group(1).lower() == 'src':
+            return next((g for g in m.group(3, 4, 5) if g is not None), '')
+    return None
+
+
+class _Images(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.depth, self.raw = 0, []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in DROPPED:
+            self.depth += 1
+        elif tag == 'img' and not self.depth:
+            value = _src(self.get_starttag_text() or '')
+            if value is not None:
+                self.raw.append(value)
+
+    def handle_startendtag(self, tag, attrs):  # <x/>: never opens a container
+        if tag == 'img' and not self.depth:
+            value = _src(self.get_starttag_text() or '')
+            if value is not None:
+                self.raw.append(value)
+
+    def handle_endtag(self, tag):
+        if tag in DROPPED and self.depth:
+            self.depth -= 1
+
+
 def image_urls(html):
-    """Remote <img src> addresses of a message's html, as the page sees them (entities decoded), in order, unique."""
+    """Remote <img src> addresses of a message's html as the page sees them (real <img> elements only — not comments,
+    not inside dropped containers; entities decoded like a browser), in order, unique."""
+    parser = _Images()
+    try:
+        parser.feed(html or '')
+        parser.close()
+    except Exception:  # a parser surprise: no pictures rather than a broken handler
+        return []
     out = []
-    for m in re.finditer(r'(?is)<img\b[^>]*?\ssrc\s*=\s*("([^"]*)"|\'([^\']*)\'|([^\s>]+))', html or ''):
-        raw = _attr(m.group(2) if m.group(2) is not None else m.group(3) if m.group(3) is not None else m.group(4)).strip()
+    for value in parser.raw:
+        raw = _attr(value).strip()
         if re.match(r'(?i)^(https?:)?//', raw) and raw not in out:
             out.append(raw)
         if len(out) >= MAX_IMAGES:
@@ -222,11 +274,20 @@ _pruned = [0.0]
 def prune(cache, force=False):
     """Drop cached images older than CACHE_DAYS (and leftovers of interrupted writes), then the oldest beyond CACHE_MAX
     bytes; at most once an hour unless forced."""
-    if not cache or not cache.is_dir() or (not force and time.monotonic() - _pruned[0] < 3600 and _pruned[0]):
+    try:
+        if not cache or not cache.is_dir():
+            return
+    except OSError:
+        return
+    if (not force and time.monotonic() - _pruned[0] < 3600 and _pruned[0]):
         return
     _pruned[0] = time.monotonic()
     limit, files = time.time() - CACHE_DAYS * 86400, []
-    for path in cache.iterdir():
+    try:
+        entries = list(cache.iterdir())
+    except OSError:  # cache upkeep is best effort: never stops the mail handler
+        return
+    for path in entries:
         try:
             st = path.stat()
             if st.st_mtime < limit or (path.name.startswith('.part-') and st.st_mtime < time.time() - 600):

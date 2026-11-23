@@ -27,6 +27,17 @@ class RemoteImageTests(unittest.TestCase):
                                                       'https://e.example/y\u00a9.png', 'https://e.example/zb<',
                                                       'https://e.example/?x=1&notit;=2'])
 
+    def test_only_real_img_elements(self):
+        html = ('<!-- <img src="https://hidden.example/c.png"> --><p title="<img src=https://in-attr.example/a.png>">x</p>'
+                '<img alt="a > b src=https://alt.example/x.png" src="https://real.example/1.png" src="https://second.example/2.png">'
+                '<noscript><img src="https://ns.example/n.png"></noscript><svg/><img src="https://after.example/3.png"/>'
+                '<template><img src="https://tpl.example/t.png"></template>')
+        self.assertEqual(remoteimg.image_urls(html), ['https://real.example/1.png', 'https://after.example/3.png'])
+
+    def test_prune_survives_an_unreadable_cache(self):
+        with mock.patch.object(Path, 'iterdir', side_effect=PermissionError('denied')), mock.patch.object(Path, 'is_dir', return_value=True):
+            remoteimg.prune(Path('/nowhere/imgcache'), force=True)
+
     def test_watchdog_shuts_the_transport_even_without_conn_sock(self):
         a, b = socket.socketpair()
         try:

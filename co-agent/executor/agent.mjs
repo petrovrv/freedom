@@ -13,7 +13,7 @@ import { gzipSync } from 'node:zlib';
 import { dirname, join, relative, sep } from 'node:path';
 import * as drive from './drive.mjs';
 
-const VERSION = '1.8.2';
+const VERSION = '1.8.3';
 const HOST_ID = 'site';
 const HOME = homedir();
 const BASE = join(HOME, 'co-agent');
@@ -22,6 +22,8 @@ const WORK = join(BASE, 'work');
 const LOGS = join(BASE, 'executor', 'logs');
 const PID_FILE = join(BASE, 'executor', 'agent.pid');
 const CLAUDE_TOKEN_FILE = join(BASE, 'secrets', 'claude_oauth_token');
+// 1.8.3 (F14b-1): the agent's tools get AIWB_JOB_ID too (aiwb-tools app_list / app_action: the server takes the env and
+// the chat from the job's row)
 // 1.8.2 (subtask B of chat CHAT-20261112071412-CJZ0): the [Home PC] note when dev_home has pc_* (Bridge 1.15.0): the
 // owner's whole PC, or the member's own sandbox seat (schema 26 picks it)
 // 1.8.1 (D 12.11): job_result is retried (3 tries); the server writes one answer per job (schema 25) and sends the
@@ -807,6 +809,7 @@ function runProcess(job, ws, prompt, ev, st, timeoutMin, ctl, relay) {
       env.AIWB_DB_KEY_FILE = RELAY_KEY_FILE;
     }
     env.AIWB_CHAT_ID = job.chatId || '';
+    env.AIWB_JOB_ID = job.jobId || '';
     if (relay) {
       env.MCP_TOOL_TIMEOUT = '2460000'; // a device call waits up to 40 min for a confirmation on the device
       env.MAX_MCP_OUTPUT_TOKENS = '25000';

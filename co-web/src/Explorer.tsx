@@ -46,7 +46,8 @@ export default function Explorer(props: ExplorerProps) {
     writeExplorerView(v);
     setViewState(v);
   };
-  const [focus, setFocus] = useState(0);
+  // the selected item belongs to one folder; another folder starts at its default
+  const [focusAt, setFocusAt] = useState<{ key: string; idx: number }>({ key: '', idx: 0 });
   const [jumpOpen, setJumpOpen] = useState(false);
   const chats = path.projectId ? chatsOf(path.projectId) : null;
 
@@ -93,11 +94,10 @@ export default function Explorer(props: ExplorerProps) {
     [path, projects, chats, props.sort, props.filter, props.projectFresh, props.projectWait, props.chatWait],
   );
   const pathKey = `${path.projectId || ''}/${path.chatIds.join('/')}`;
-  // a new folder: focus its first item, or the opened chat when it is here
-  useEffect(() => {
-    const i = items.findIndex((x) => x.kind !== 'project' && x.chat.chatId === routeChatId);
-    setFocus(i >= 0 ? i : 0);
-  }, [pathKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a folder starts at the opened chat when it is here, else at its first item
+  const routeIdx = items.findIndex((x) => x.kind !== 'project' && x.chat.chatId === routeChatId);
+  const focus = focusAt.key === pathKey ? focusAt.idx : Math.max(0, routeIdx);
+  const setFocus = (idx: number) => setFocusAt({ key: pathKey, idx });
   const focusIdx = Math.min(focus, Math.max(0, items.length - 1));
   const loading = !!pid && !chats;
 

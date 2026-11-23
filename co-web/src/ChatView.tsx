@@ -515,6 +515,8 @@ export default function ChatView(props: Props) {
 
   const chatState = chat;
   async function onSend(input: SendForm, progress: (s: string) => void) {
+    // F15.2: no new work in a trashed chat (the 30-day clean-up would take it along); the text stays in the box
+    if (chatState.trashedUtc) throw new Error('This chat is in the trash: restore it first (chat panel → Restore from trash).');
     // 0.17.0: a draft becomes a real chat (Drive folder + chat.json) only with its first message.
     let chat = chatState;
     if (chat.draft) {
@@ -799,8 +801,6 @@ export default function ChatView(props: Props) {
   }
 
   async function sendOrQueue(input: SendForm, progress: (s: string) => void) {
-    // F15.2: no new work in a trashed chat (the 30-day clean-up would take it along); the text stays in the box
-    if (chat.trashedUtc) throw new Error('This chat is in the trash: restore it first (chat panel → Restore from trash).');
     // 0.106.0: messages on screen are a copy (database down): queue like offline, sent once the database answers
     if (navigator.onLine && !staleUtc) return onSend(input, progress);
     const why = navigator.onLine ? 'No connection to the CO database' : 'No network';

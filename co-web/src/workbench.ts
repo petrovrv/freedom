@@ -1399,8 +1399,16 @@ export async function trashChat(chat: Chat, hosts: Record<string, HostDirs>): Pr
   return updateChatMeta(chat, { trashedUtc: nowUtc(), archived: true, trashedArchived: !!chat.archived });
 }
 
-export function restoreChat(chat: Chat): Promise<Chat> {
-  return updateChatMeta(chat, { trashedUtc: '', archived: !!chat.trashedArchived, trashedArchived: false });
+// The restore counts only when the database has it (the clean-up of another tab reads the database)
+export async function restoreChat(chat: Chat): Promise<Chat> {
+  const next = await updateChatMeta(chat, { trashedUtc: '', archived: !!chat.trashedArchived, trashedArchived: false });
+  const { folderId, legacy, shareRole, ...doc } = next;
+  void legacy;
+  void shareRole;
+  if (!chat.legacy && !(await dbPut({ chats: [{ ...doc, folderId }] }))) {
+    throw new Error('The database did not confirm the restore; try again.');
+  }
+  return next;
 }
 
 // Deletes the chat for good: stops its jobs, then moves the chat folder to the Google Drive trash

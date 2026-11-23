@@ -198,7 +198,7 @@ public sealed class MainWindow : Window
         // F14e.2: the apps of the launcher in the tray menu and in the jump list of the CO button; a later start of
         // CO Desktop (a jump list task, a pinned app window) hands its request over the instance pipe
         RefreshApps();
-        s.ModuleLoader.Applied += () => Dispatcher.BeginInvoke(() => { _appsListed = true; RefreshApps(); });
+        s.ModuleLoader.Applied += () => Dispatcher.BeginInvoke(RefreshApps);
         _ = Platform.InstancePipe.ListenAsync(line => Dispatcher.BeginInvoke(() => OnInstanceRequest(line)), _cts.Token);
 
         s.Approvals.Pending += _ => Dispatcher.BeginInvoke(() =>
@@ -347,7 +347,6 @@ public sealed class MainWindow : Window
             await _web.EnsureCoreWebView2Async(env);
             var origin = new Uri(_s.Settings.WebUrl).GetLeftPart(UriPartial.Authority);
             _webOrigin = origin;
-            _webEnv = env;
             await _web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(DesktopShimScript(origin));
             _web.CoreWebView2.WebMessageReceived += async (_, e) => await OnWebMessageAsync(_web.CoreWebView2, e, origin, pageWindow: false);
             // Freedom F10 (ext/1 ui.window): a module page CO Web opens in a new tab gets its own window when the module
@@ -377,6 +376,7 @@ public sealed class MainWindow : Window
                 }
             };
             _web.Source = new Uri(_s.Settings.WebUrl);
+            _webEnv = env;   // ready for apps only now: an app opened earlier would be overwritten by the start page
             OpenPendingApps();   // started with --app, or asked for while the web view was starting
         }
         catch (Exception ex)
@@ -394,7 +394,6 @@ public sealed class MainWindow : Window
 
     // apps asked for before the web view or the module list was ready, in order, each once
     private readonly List<string> _pendingApps = App.StartupApp is { } first ? new() { first } : new();
-    private bool _appsListed;   // the module list was applied once (maybe empty); before that an unknown app may still come
     private string _appsShown = "\0";               // what the tray menu and the jump list show now
 
     private void ShowMain()
@@ -433,7 +432,8 @@ public sealed class MainWindow : Window
         ShowMain();
     }
 
-    private bool AppsKnown => _appsListed || _s.ModuleLoader.Modules.Count > 0;
+    // the module list was applied once (maybe empty, also the cached one); before that an unknown app may still come
+    private bool AppsKnown => _s.ModuleLoader.Listed;
 
     private void OpenPendingApps()
     {

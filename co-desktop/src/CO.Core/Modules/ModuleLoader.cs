@@ -116,6 +116,10 @@ public sealed class ModuleLoader
     public ModuleFileCache Cache => _cache;
     public IReadOnlyList<ModuleEntry> Modules { get { lock (_sync) return _list; } }
 
+    /// <summary>A module list was applied (the server's or the cached one, maybe empty).</summary>
+    public bool Listed { get { lock (_sync) return _listed; } }
+    private bool _listed;
+
     /// <summary>Per-device switch: the person's choice on this device, else the manifest default.</summary>
     public bool On(ModuleEntry m) { lock (_sync) return _switches.TryGetValue(m.Id, out bool b) ? b : m.DefaultOn; }
 
@@ -186,6 +190,7 @@ public sealed class ModuleLoader
         lock (_sync)
         {
             _list = list;
+            _listed = true;
             var want = new Dictionary<string, (ModuleEntry M, IDeviceTool Tool, string Key)>(StringComparer.Ordinal);
             var nowActive = new HashSet<string>(StringComparer.Ordinal);
             foreach (var m in list)

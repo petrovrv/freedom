@@ -84,9 +84,74 @@ $r = co_app_action($db, ['jobId' => 'J-ALEX', 'app' => 'smart-home', 'action' =>
 $ok('member without access gets the module\'s own refusal', $r['ok'] === false && ($r['result']['error'] ?? '') === 'home_forbidden');
 $ok('a refused action refreshes nothing', co_app_events($db, 'alex', -1)['seq'] === 0);
 
-$r = co_app_action($db, ['jobId' => 'J-OWNER', 'app' => 'smart-home', 'action' => 'home_control',
-    'args' => ['entity' => 'light.x', 'action' => 'turn_on', 'requestKey' => str_repeat('a', 20)]]);
-$ok('outward action refused for the agent', $r['ok'] === false && $r['error'] === 'outward');
+// F14b-2: an outward action becomes a card; only the person of the env runs it, once, with the card's etag
+$ctl = ['jobId' => 'J-OWNER', 'app' => 'smart-home', 'action' => 'home_control',
+    'args' => ['entity' => 'light.x', 'action' => 'turn_on', 'requestKey' => str_repeat('a', 20)]];
+$r = co_app_action($db, $ctl);
+$rid = (string)($r['requestId'] ?? '');
+$ok('outward action waits for the person', $r['ok'] === false && ($r['pending'] ?? false) === true && $r['status'] === 'pending'
+    && preg_match('/^[0-9a-f]{16}$/', $rid) === 1);
+$ok('the same call again gives the same card', (co_app_action($db, $ctl)['requestId'] ?? '') === $rid);
+$ok('outward args are still checked', $throws(fn() => co_app_action($db, ['args' => ['entity' => 'light.x']] + $ctl), 'args.action'));
+$cards = co_app_requests_inbox($db, 'owner');
+$card = $cards[0]['app'] ?? [];
+$ok('one card in the owner\'s inbox, args in words', count($cards) === 1 && $cards[0]['id'] === "app:$rid" && $cards[0]['kind'] === 'app'
+    && $card['title'] === 'Дом' && ($card['args'][0]['about'] ?? '') !== '' && $card['etag'] !== '');
+$ok('no card for another env', co_app_requests_inbox($db, 'sam') === []);
+$st = co_app_action_status($db, ['jobId' => 'J-OWNER', 'requestId' => $rid]);
+$ok('status: pending', $st['ok'] === true && $st['status'] === 'pending');
+$ok('status from a restricted job refused', co_app_action_status($db, ['jobId' => 'J-RESTR', 'requestId' => $rid])['error'] === 'not_allowed');
+$ok('status from another env does not see it', co_app_action_status($db, ['jobId' => 'J-SAM', 'requestId' => $rid])['error'] === 'unknown_request');
+$ok('another env cannot decide it', co_app_request_decide($db, 'sam', false, 'sam@example.org', ['id' => $rid, 'decision' => 'run', 'etag' => $card['etag']])['error'] === 'not_found');
+$ok('a wrong etag is refused', co_app_request_decide($db, 'owner', true, 'owner@example.org', ['id' => $rid, 'decision' => 'run', 'etag' => 'x'])['error'] === 'etag_mismatch');
+$ok('bad decision refused', $throws(fn() => co_app_request_decide($db, 'owner', true, 'owner@example.org', ['id' => $rid, 'decision' => 'yes'])));
+$ev0 = co_app_events($db, 'owner', -1);
+$d = co_app_request_decide($db, 'owner', true, 'owner@example.org', ['id' => $rid, 'decision' => 'run', 'etag' => $card['etag']]);
+$ok('run: the handler ran with the person\'s rights (house offline here)', $d['status'] === 'failed' && ($d['result']['error'] ?? '') === 'home_offline');
+$ok('a second click is refused', co_app_request_decide($db, 'owner', true, 'owner@example.org', ['id' => $rid, 'decision' => 'run', 'etag' => $card['etag']])['error'] === 'already_decided');
+$st = co_app_action_status($db, ['jobId' => 'J-OWNER', 'requestId' => $rid]);
+$ok('status: the outcome for the agent', $st['status'] === 'failed' && ($st['result']['error'] ?? '') === 'home_offline' && isset($st['decidedUtc']) && !isset($st['by']));
+$ok('the card left the inbox', co_app_requests_inbox($db, 'owner') === []);
+$ok('a failed run refreshes nothing', co_app_events($db, 'owner', -1)['seq'] === $ev0['seq']);
+// decline, expiry, the pending limit
+$r2 = co_app_action($db, ['args' => ['entity' => 'light.y', 'action' => 'turn_off', 'requestKey' => str_repeat('b', 20)]] + $ctl);
+$ok('decline', co_app_request_decide($db, 'owner', true, 'owner@example.org', ['id' => $r2['requestId'], 'decision' => 'deny'])['status'] === 'denied'
+    && co_app_action_status($db, ['jobId' => 'J-OWNER', 'requestId' => $r2['requestId']])['status'] === 'denied');
+$r3 = co_app_action($db, ['args' => ['entity' => 'light.z', 'action' => 'turn_off', 'requestKey' => str_repeat('c', 20)]] + $ctl);
+co_app_requests_locked($db, 'owner', static function (array &$l) use ($r3): void {
+    foreach ($l as &$q) if ($q['id'] === $r3['requestId']) $q['expires'] = time() - 1;
+});
+$e3 = co_app_requests_inbox($db, 'owner');
+$ok('an expired card cannot run', $e3 === [] && co_app_request_decide($db, 'owner', true, 'owner@example.org',
+    ['id' => $r3['requestId'], 'decision' => 'run', 'etag' => 'x'])['error'] === 'expired');
+for ($i = 0; $i < CO_APP_REQ_PENDING_MAX; $i++) {
+    co_app_action($db, ['args' => ['entity' => 'light.n' . $i, 'action' => 'turn_on', 'requestKey' => str_repeat('d', 20)]] + $ctl);
+}
+$ok('pending cards are limited', co_app_action($db, ['args' => ['entity' => 'light.more', 'action' => 'turn_on', 'requestKey' => str_repeat('d', 20)]] + $ctl)['error'] === 'too_many_pending');
+$ok('the member\'s own card is theirs', ($rs = co_app_action($db, ['jobId' => 'J-SAM'] + $ctl)) && co_app_requests_inbox($db, 'sam')[0]['app']['requestId'] === $rs['requestId']
+    && co_app_request_decide($db, 'owner', true, 'owner@example.org', ['id' => $rs['requestId'], 'decision' => 'deny'])['error'] === 'not_found');
+// a changed module (new version) refuses an old card
+$rs2 = co_app_requests_inbox($db, 'sam')[0]['app'];
+$db->query("UPDATE modules SET version = '9.9.9' WHERE id = 'smart-home'");
+co_modules($db, true);
+$ok('a card from an older version of the app is refused', co_app_request_decide($db, 'sam', false, 'sam@example.org',
+    ['id' => $rs2['requestId'], 'decision' => 'run', 'etag' => $rs2['etag']])['result']['error'] === 'app_changed');
+$db->query("UPDATE modules SET version = '{$p['manifest']['version']}' WHERE id = 'smart-home'");
+co_modules($db, true);
+// a run that works: the house reports itself online with light.ok, the person's click queues the command
+$hm = co_modules($db)['smart-home'];
+co_module_load($hm)['host']['home_exchange'](co_module_ctx($db, $hm), ['entities' => [['id' => 'light.ok', 'name' => 'ok', 'state' => 'off',
+    'actions' => ['turn_on', 'turn_off'], 'attrs' => []]], 'results' => [], 'online' => true, 'updated' => time(), 'hostNow' => time()]);
+co_app_requests_locked($db, 'owner', static function (array &$l): void {
+    foreach ($l as &$q) if ($q['state'] === 'pending') $q['state'] = 'denied';
+});
+$rk = co_app_action($db, ['args' => ['entity' => 'light.ok', 'action' => 'turn_on', 'requestKey' => str_repeat('e', 20)]] + $ctl);
+$ck = co_app_requests_inbox($db, 'owner');
+$ev0 = co_app_events($db, 'owner', -1);
+$d = co_app_request_decide($db, 'owner', true, 'owner@example.org', ['id' => $rk['requestId'], 'decision' => 'run', 'etag' => $ck[0]['app']['etag'] ?? '']);
+$ok('run: done, the command is queued for the house', count($ck) === 1 && $d['ok'] === true && $d['status'] === 'done' && is_string($d['result']['id'] ?? null));
+$ok('a run refreshes the app pages', (co_app_events($db, 'owner', $ev0['seq'])['events'][0]['action'] ?? '') === 'home_control');
+$ok('status: done', co_app_action_status($db, ['jobId' => 'J-OWNER', 'requestId' => $rk['requestId']])['status'] === 'done');
 $ok('an op that is not an action is unknown', co_app_action($db, ['jobId' => 'J-OWNER', 'app' => 'smart-home', 'action' => 'home_pair_start'])['error'] === 'unknown_action');
 $ok('another app is unknown', co_app_action($db, ['jobId' => 'J-OWNER', 'app' => 'nope', 'action' => 'home_state'])['error'] === 'unknown_action');
 $ok('extra argument refused', $throws(fn() => co_app_action($db, ['jobId' => 'J-OWNER', 'app' => 'smart-home', 'action' => 'home_state', 'args' => ['x' => 1]]), 'args.x'));

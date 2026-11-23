@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // node src/appEvents.selftest.ts - refresh of app pages after an agent's action (F14b-1).
-import { takeAppEvents } from './appEvents.ts';
+import { takeAppEvents, trayWantsRefresh } from './appEvents.ts';
 
 let fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -21,6 +21,12 @@ ok('a reset record restarts the cursor without refresh', r.cursor === 2 && r.ref
 r = takeAppEvents(3, { seq: 4, events: [ev(4, '../x'), { seq: 4, app: 'ok-app', action: 'BAD OP' }, null] });
 ok('bad app ids dropped, bad action names ignored', JSON.stringify(r.refresh) === JSON.stringify([{ module: 'ok-app', actions: [] }]));
 ok('garbage keeps the cursor', takeAppEvents(5, null).cursor === 5 && takeAppEvents(5, { seq: 'x' }).refresh.length === 0);
+
+// F14b-2: the tray of a module with actions keeps the poll on without an open app
+const mod = (enabled: boolean, actions: unknown, slots: string[]) => ({ enabled, actions, ui: slots.map((slot) => ({ slot })) });
+ok('tray of a module with actions listens', trayWantsRefresh([mod(true, ['home_state'], ['ui.page', 'ui.header'])]));
+ok('no tray, no actions or switched off: no poll', !trayWantsRefresh([mod(true, ['home_state'], ['ui.page']), mod(true, [], ['ui.header']),
+  mod(false, ['x'], ['ui.header']), mod(true, undefined, ['ui.header'])]));
 
 if (fail) throw new Error(`appEvents selftest: ${fail} failed`);
 console.log('appEvents selftest OK');

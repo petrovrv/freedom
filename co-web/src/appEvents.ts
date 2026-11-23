@@ -7,6 +7,14 @@
 export const APP_REFRESH = 'co-app-refresh';
 export const APP_EVENTS_MS = 5000;
 
+/**
+ * F14b-2: a tray chip (ui.header) of an enabled module with actions is shown in the header all the time, so CO Web polls
+ * app_events for it even when no app is open.
+ */
+export function trayWantsRefresh(modules: { enabled: boolean; actions?: unknown; ui: { slot: string }[] }[]): boolean {
+  return modules.some((m) => m.enabled && Array.isArray(m.actions) && m.actions.length > 0 && m.ui.some((u) => u.slot === 'ui.header'));
+}
+
 export type AppEvent = { seq: number; app: string; action: string; utc?: string };
 export type AppRefresh = { module: string; actions: string[] };
 

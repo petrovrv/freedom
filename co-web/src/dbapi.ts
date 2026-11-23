@@ -1105,7 +1105,7 @@ export async function dbFollowupCancel(chatId: string, id: number): Promise<bool
 
 // ---------- 0.71.0: "Waiting for you" (db.php inbox / inbox_mark, inbox-lib.php) ----------
 
-export type InboxKind = 'ask' | 'captcha' | 'confirm' | 'action' | 'failed' | 'memory' | 'tools';
+export type InboxKind = 'ask' | 'captcha' | 'confirm' | 'action' | 'app' | 'failed' | 'memory' | 'tools';
 
 // 0.81.0 (schema 18): a risky action read-guard held (send, purchase, delete, publish, git push, ...) - the confirmation card
 export interface InboxAction {
@@ -1116,6 +1116,19 @@ export interface InboxAction {
   command: string;
   actions: { kind: string; summary: string }[]; // all actions held under the same code
   tainted: boolean; // the chat read text with signs of prompt injection
+  expiresUtc: string;
+}
+
+/** F14b-2 (apps-lib.php): an outward action of an app an agent asked for; Run executes it with my rights, once. */
+export interface InboxApp {
+  requestId: string;
+  app: string; // module id
+  action: string; // op
+  title: string; // the app's name
+  icon: string;
+  description: string; // what the action does (the module's words)
+  args: { name: string; about: string; value: string }[];
+  etag: string; // what Run sends back: the request must be exactly the one shown
   expiresUtc: string;
 }
 
@@ -1202,6 +1215,7 @@ export interface InboxItem {
   candidates: InboxMemory[];
   tools: ToolCandidate[];
   action: InboxAction | null;
+  app: InboxApp | null;
   unread: boolean;
 }
 
@@ -1209,7 +1223,7 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
 export async function dbInbox(env: string): Promise<{ items: InboxItem[]; unread: number }> {
   const j = await rawCall('inbox', { env });
-  const kinds: InboxKind[] = ['ask', 'captcha', 'confirm', 'action', 'failed', 'memory', 'tools'];
+  const kinds: InboxKind[] = ['ask', 'captcha', 'confirm', 'action', 'app', 'failed', 'memory', 'tools'];
   const items = (Array.isArray(j.items) ? j.items : [])
     .filter((x: any) => x && typeof x.id === 'string' && kinds.includes(x.kind))
     .map((x: any): InboxItem => ({
@@ -1241,6 +1255,12 @@ export async function dbInbox(env: string): Promise<{ items: InboxItem[]; unread
         actions: (Array.isArray(x.action.actions) ? x.action.actions : []).filter((a: any) => a && typeof a.summary === 'string')
           .map((a: any) => ({ kind: str(a.kind), summary: a.summary })),
       } : null,
+      app: x.app && typeof x.app.requestId === 'string' ? {
+        requestId: x.app.requestId, app: str(x.app.app), action: str(x.app.action), title: str(x.app.title), icon: str(x.app.icon),
+        description: str(x.app.description), etag: str(x.app.etag), expiresUtc: str(x.app.expiresUtc),
+        args: (Array.isArray(x.app.args) ? x.app.args : []).filter((a: any) => a && typeof a.name === 'string')
+          .map((a: any) => ({ name: a.name, about: str(a.about), value: str(a.value) })),
+      } : null,
       unread: x.unread === true,
     }));
   return { items, unread: Number(j.unread) || 0 };
@@ -1250,6 +1270,12 @@ export async function dbInbox(env: string): Promise<{ items: InboxItem[]; unread
 /** F14b-1: actions agents ran in apps of my environment after seq `since` (-1: only the current seq). */
 export async function dbAppEvents(since: number): Promise<Record<string, any>> {
   return rawCall('app_events', { since });
+}
+
+/** F14b-2: Run / Decline of an app card; ok false with error already_decided | expired | etag_mismatch | not_found. */
+export async function dbAppRequestDecide(id: string, decision: 'run' | 'deny', etag: string): Promise<{ ok: boolean; status?: string; error?: string; result?: any }> {
+  const r = await rawCall('app_request_decide', { id, decision, etag });
+  return { ...r, ok: r.ok === true };
 }
 
 export async function dbActionDecide(id: number, decision: 'approved' | 'denied'): Promise<void> {

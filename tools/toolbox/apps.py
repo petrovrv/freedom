@@ -2,8 +2,9 @@
 app_action of the aiwb-tools server. An app (a Freedom module) describes some of its server ops as actions; the agent
 calls them through db.php host ops app_list / app_action with the id of its job (AIWB_JOB_ID). The server takes the
 environment, the chat and the rights from the job's row, never from this caller: the action runs as the person of the
-job's environment would run it from the app, actions that act outside the workbench (outward) are refused, and the
-open pages of the app refresh. stdlib only.
+job's environment would run it from the app, and the open pages of the app refresh. An action that acts outside the
+workbench (outward) is not run: toolbox 1.9.0 (F14b-2) gets back a pending request, a card in "Waiting for you" that the
+person runs or declines, and app_action_status tells its outcome. stdlib only.
 """
 import base64
 import gzip
@@ -12,7 +13,7 @@ import os
 import urllib.error
 import urllib.request
 
-UA = "aiwb-tools-apps/1.8"
+UA = "aiwb-tools-apps/1.9"
 TIMEOUT = 40
 
 
@@ -98,10 +99,26 @@ def app_action(args):
     res, err = _call("app_action", {"app": app, "action": action, "args": params})
     if err:
         return err, True
+    if res.get("pending"):
+        # outward: not an error and not done - the person decides on a card
+        return json.dumps({k: res.get(k) for k in ("status", "requestId", "expiresUtc", "message")}, ensure_ascii=False, indent=1), False
     if not res.get("ok"):
         msg = res.get("message") or (res.get("result") or {}).get("error") or res.get("error") or "refused"
         return "%s/%s: %s" % (app, action, msg), True
     return json.dumps(res.get("result"), ensure_ascii=False, indent=1), False
+
+
+def app_action_status(args):
+    rid = args.get("requestId")
+    if not isinstance(rid, str) or not rid:
+        return "'requestId' (from app_action) is required", True
+    res, err = _call("app_action_status", {"requestId": rid})
+    if err:
+        return err, True
+    if not res.get("ok"):
+        return res.get("message") or res.get("error") or "refused", True
+    res.pop("ok", None)
+    return json.dumps(res, ensure_ascii=False, indent=1), False
 
 
 TOOLS = [
@@ -110,12 +127,17 @@ TOOLS = [
      "Call it before app_action.",
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "app_action", "description": "Run one action of an app as the person of this job's environment would run it "
-     "from the app (same rights). Actions marked outward (they act outside the workbench) are refused: only the person "
-     "runs them. The open pages of the app refresh after the action.",
+     "from the app (same rights). An action marked outward (it acts outside the workbench) does not run now: it becomes "
+     "a card in the person's \"Waiting for you\" and the answer is status pending with a requestId; tell the person and "
+     "check app_action_status later. The open pages of the app refresh after an action.",
      "inputSchema": {"type": "object", "properties": {
          "app": {"type": "string", "description": "app id from app_list, e.g. smart-home"},
          "action": {"type": "string", "description": "action op from app_list, e.g. home_state"},
          "args": {"type": "object", "description": "arguments by the action's schema"}},
          "required": ["app", "action"]}},
+    {"name": "app_action_status", "description": "Outcome of an outward app action that waits for the person: "
+     "pending, running, done (with the app's result), failed, denied (the person declined) or expired.",
+     "inputSchema": {"type": "object", "properties": {
+         "requestId": {"type": "string", "description": "requestId from app_action"}}, "required": ["requestId"]}},
 ]
-HANDLERS = {"app_list": app_list, "app_action": app_action}
+HANDLERS = {"app_list": app_list, "app_action": app_action, "app_action_status": app_action_status}

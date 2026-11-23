@@ -1,7 +1,7 @@
 ---
 name: toolbox
-description: Manage this tool library — search for an existing tool, create a new one from the template, validate, security-scan tools (secrets, hosts, remote exec, TLS off, writes), regenerate INDEX.md, commit, archive an unused tool; tools of Freedom modules (install a tool from a module or export folder, module on/off/remove — tools of a switched-off module are refused by the MCP server); MCP tools app_list / app_action - actions of Freedom apps for the agent with the rights of the job's environment.
-version: 1.8.0
+description: Manage this tool library — search for an existing tool, create a new one from the template, validate, security-scan tools (secrets, hosts, remote exec, TLS off, writes), regenerate INDEX.md, commit, archive an unused tool; tools of Freedom modules (install a tool from a module or export folder, module on/off/remove — tools of a switched-off module are refused by the MCP server); MCP tools app_list / app_action / app_action_status - actions of Freedom apps for the agent with the rights of the job's environment (outward ones wait for the person's Run on a card).
+version: 1.9.0
 entry: toolbox.py
 requires: [git]
 secrets: []
@@ -47,12 +47,13 @@ python toolbox/toolbox.py modules [--json]
 
 ## Действия приложений для агента (с 1.8.0)
 
-`mcp_server.py` (`aiwb-tools`) кроме `tool_list/tool_help/tool_run` даёт агенту `app_list` и `app_action` (`apps.py`, Freedom F14b-1, SPEC §3.6a п. 5). Приложение (модуль Freedom) описывает в `module.json` → `provides.actions` часть своих операций `server.ops.user`: `{op, description, args, outward}`.
+`mcp_server.py` (`aiwb-tools`) кроме `tool_list/tool_help/tool_run` даёт агенту `app_list`, `app_action` и (с 1.9.0) `app_action_status` (`apps.py`, Freedom F14b-1, SPEC §3.6a п. 5). Приложение (модуль Freedom) описывает в `module.json` → `provides.actions` часть своих операций `server.ops.user`: `{op, description, args, outward}`.
 
 - `app_list` — приложения окружения задания с действиями: описание, схема аргументов, флаг `outward`.
 - `app_action {app, action, args}` — выполняет действие так, как его выполнил бы человек этого окружения из приложения (те же права, ответ модуля как есть). После действия открытые страницы приложения в CO Web получают событие ext/1 `refresh`.
 - Кто: сервер (`db.php` host ops `app_list`/`app_action`, `co-agent/web/agent/apps-lib.php`) берёт окружение, чат и права из строки задания `AIWB_JOB_ID`; задание должно ещё идти. Ключ хоста — `AIWB_DB_KEY_FILE` на сайте, keyring `aiwb/co-push` дома; адрес — `AIWB_DB_URL` или `site.url` из install.json.
-- Отказы: `outward: true` (действует вне Workbench: письма, чужие календари, устройства дома) — только нажатием человека (карточка в «Waiting for you» — F14b-2); общий чат, чат под ним или задание `restricted` — ни списка, ни действий; чат только для чтения (`permissions.files: read`) — список есть, действий нет; модуль выключен или выключен человеком — его нет.
+- `outward: true` (действует вне Workbench: письма, чужие календари, устройства дома) — с 1.9.0 (F14b-2) не выполняется сразу: сервер заводит карточку в «Waiting for you» человека этого окружения (что, приложение, аргументы словами, из какого чата), агент получает `{status: pending, requestId, expiresUtc}`. Человек жмёт «Run» или «Decline»; карточка живёт 30 мин, решение одноразовое (повтор отвергается), выполняется с правами человека. Итог — `app_action_status {requestId}`: `pending`, `running`, `done` (+ ответ приложения), `failed`, `denied`, `expired`; можно спросить и из следующего задания того же окружения. Тот же вызов из того же чата, пока карточка ждёт, возвращает ту же карточку.
+- Отказы: общий чат, чат под ним или задание `restricted` — ни списка, ни действий; чат только для чтения (`permissions.files: read`) — список есть, действий нет; модуль выключен или выключен человеком — его нет.
 - Тест: `python -m pytest toolbox/tests/test_apps.py` (поддельный db.php на 127.0.0.1).
 
 ## Проверка безопасности (с 1.5.0)
@@ -94,6 +95,7 @@ security:
 
 ## История
 
+- 1.9.0 — 2026-11-23 — Freedom F14b-2: outward-действие возвращает карточку «Waiting for you» (`pending` + `requestId`) вместо отказа; новый инструмент `app_action_status`.
 - 1.8.0 — 2026-11-23 — Freedom F14b-1: инструменты MCP `app_list` и `app_action` (`apps.py`) — действия приложений Freedom для агента через `db.php` с id задания; outward-действия отказываются.
 - 1.7.0 — 2026-11-12 — Freedom F10: инструменты модулей — команды `install --from`, `module --state`, `modules`; `modstate.py` (файл `tool-modules.json` рядом с install.json); `mcp_server.py` отказывает инструментам выключенного модуля, блок CLAUDE.md/AGENTS.md их не показывает; `AIWB_CLAUDE_MD`/`AIWB_AGENTS_MD` для тестов. Без файла состояния поведение прежнее.
 - 1.6.2 — 2026-11-12 — Freedom: в коде нет личных имён — свой домен в `ALLOWED_HOSTS` берётся из install.json (`site.url` и родительский домен; `AIWB_SITE_URL`, `AIWB_ALLOWED_HOSTS`), разрешённые папки записи — из `%LOCALAPPDATA%` текущего пользователя, папка hz.py — `AIWB_HZ_DIR` или `~/.ssh` (исключение `write-outside` для неё больше не нужно), Python для hz.py — anaconda, если есть, иначе текущий. Результат `scan` у владельца прежний.

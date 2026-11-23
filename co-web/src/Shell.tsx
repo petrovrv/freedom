@@ -34,7 +34,8 @@ import { LimitsBar } from './Limits';
 import Inspector from './Inspector';
 import FamilyPanel from './FamilyPanel';
 import Launcher from './Launcher';
-import AppHost, { RecentApps } from './AppHost';
+import AppHost, { RecentApps, useAppEvents } from './AppHost';
+import { trayWantsRefresh } from './appEvents';
 import { appKey, exitTarget, findApp, findPage, liveLimit, loadRecent, pruneApps, RECENT_MAX, saveRecent, touchApp, type AppRef } from './appStack';
 import { shellOpen, type ShellApp } from './extBridge';
 import { ModuleFrame, ModuleSlots, modulePages, useModules, type PanelLink } from './ModuleSlot';
@@ -167,6 +168,9 @@ export default function Shell({ auth }: { auth: Signed }) {
     [env, modulePageRoute?.moduleId, modulePageRoute?.pageId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [liveApps, setLiveApps] = useState<AppRef[]>([]);
   const [recentApps, setRecentApps] = useState<AppRef[]>(loadRecent);
+  // F14b-2: refresh of app pages and tray chips after an action, also with no app open (a tray chip of a module with actions)
+  const trayListens = useMemo(() => trayWantsRefresh(modules), [modules]);
+  useAppEvents(authOk && (liveApps.length > 0 || trayListens));
   const lastShellPath = useRef<string | null>(null);
   const openedFromShell = useRef(false);
   const wasApp = useRef(false);

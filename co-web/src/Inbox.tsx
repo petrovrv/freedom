@@ -8,10 +8,14 @@
 // 0.81.0 (schema 18): action items are confirmation cards of risky actions read-guard held in any chat (send, purchase,
 // delete, publish, git push); Yes / No record the decision (action_decide) and send "<code> да" / "<code> нет" in the chat,
 // which is what read-guard grant checks. A push opens /inbox#act-<id>.
+// 0.120.0 (F14b-2): app items are outward actions of apps (smart-home home_control, ...) an agent asked for through
+// app_action. The card says what, which app, the arguments in words and from which chat; Run executes it here with my
+// rights, once (the server refuses a second click, an expired card or a changed request), Decline drops it. A push
+// opens /inbox#app-<id>.
 import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AGENTS } from './config';
-import { dbActionDecide, dbInbox, dbInboxMark, dbMemoryDecide, dbToolDecide, type InboxAction, type InboxItem, type InboxKind, type InboxMemory, type ToolCandidate } from './dbapi';
+import { dbActionDecide, dbAppRequestDecide, dbInbox, dbInboxMark, dbMemoryDecide, dbToolDecide, type InboxAction, type InboxApp, type InboxItem, type InboxKind, type InboxMemory, type ToolCandidate } from './dbapi';
 import { diagnose } from './diagnose';
 import { categorize } from './errors';
 import { useInterval } from './hooks';
@@ -25,6 +29,7 @@ const KIND_LABEL: Record<InboxKind, string> = {
   captcha: 'Captcha',
   confirm: 'Confirmation',
   action: 'Confirm action',
+  app: 'Run in app',
   failed: 'Failed',
   memory: 'Memory',
   tools: 'Tool library',
@@ -94,7 +99,7 @@ export function InboxView({ env, inbox }: { env: string; inbox: InboxState }) {
   const [focused, setFocused] = useState<string | null>(null);
   useEffect(() => {
     const h = location.hash.replace(/^#/, '');
-    if (!/^act-\d+$/.test(h) || !items || focused === h) return;
+    if (!/^(?:act-\d+|app-[0-9a-f]{16})$/.test(h) || !items || focused === h) return;
     const el = document.getElementById(h);
     if (!el) return;
     setFocused(h);
@@ -179,6 +184,8 @@ function InboxRow({ item: it, env, onOpen, onMark, onChanged, focused }: {
         <ToolList item={it} env={env} onChanged={onChanged} />
       ) : it.kind === 'action' && it.action ? (
         <ActionCard item={it} action={it.action} onOpen={onOpen} />
+      ) : it.kind === 'app' && it.app ? (
+        <AppCard app={it.app} onChanged={onChanged} />
       ) : (
         it.excerpt && <div className="inbox-text">{it.excerpt}</div>
       )}
@@ -188,10 +195,10 @@ function InboxRow({ item: it, env, onOpen, onMark, onChanged, focused }: {
       )}
       {!own && (
         <div className="inbox-actions">
-          {it.kind !== 'action' && options.map((o) => (
+          {it.kind !== 'action' && it.kind !== 'app' && options.map((o) => (
             <button key={o} className="btn small" onClick={() => onOpen(it, o)} title="Open the chat and send this as your reply">{o}</button>
           ))}
-          {it.kind !== 'failed' && (
+          {it.kind !== 'failed' && it.kind !== 'app' && (
             <form className="inbox-reply" onSubmit={(e) => { e.preventDefault(); if (reply.trim()) onOpen(it, reply.trim()); }}>
               <input value={reply} onChange={(e) => setReply(e.target.value)} placeholder={quick?.asks.length ? 'Answer (or open the chat for the form)…' : 'Reply…'} aria-label="Reply" />
               <button className="btn small" type="submit" disabled={!reply.trim()}>Send</button>
@@ -236,6 +243,56 @@ function ActionCard({ item: it, action: a, onOpen }: { item: InboxItem; action: 
         <button className="btn small primary" disabled={busy || !it.code} onClick={() => decide(true)} title={`Send “${it.code} да” in the chat`}>Да</button>
         <button className="btn small" disabled={busy || !it.code} onClick={() => decide(false)} title={`Send “${it.code} нет” in the chat`}>Нет</button>
       </div>
+    </div>
+  );
+}
+
+const APP_ERROR: Record<string, string> = {
+  already_decided: 'Already decided (here or on another device).',
+  expired: 'The card expired: ask the agent again if it is still needed.',
+  etag_mismatch: 'The request changed: reload the list and check it again.',
+  not_found: 'This card is gone.',
+};
+
+// 0.120.0 (F14b-2): an outward action of an app waiting for me; Run executes it with my rights, as my click in the app would
+function AppCard({ app: a, onChanged }: { app: InboxApp; onChanged: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const decide = async (run: boolean) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await dbAppRequestDecide(a.requestId, run ? 'run' : 'deny', a.etag);
+      if (r.ok) setDone(run ? 'Done.' : 'Declined.');
+      else if (r.status === 'failed') setErr(`The app answered: ${String(r.result?.message || r.result?.error || 'error')}`);
+      else setErr(APP_ERROR[r.error || ''] || r.error || 'Refused.');
+      if (r.ok || r.status === 'failed' || r.error === 'already_decided' || r.error === 'expired' || r.error === 'not_found') {
+        window.setTimeout(() => void onChanged(), 1500);
+      }
+    } catch (e) {
+      setErr(categorize(e).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="action-card">
+      <div className="action-title">{a.icon || '▦'} <strong>{a.title}</strong> <code className="muted tiny">{a.action}</code></div>
+      <div className="action-summary">{a.description}</div>
+      {a.args.length > 0 && (
+        <ul className="action-more">
+          {a.args.map((x) => <li key={x.name}><strong>{x.value}</strong> <span className="muted tiny">— {x.about || x.name}</span></li>)}
+        </ul>
+      )}
+      <div className="muted tiny">An agent asks to do this outside the workbench. Run does it once, with your rights · waits until {formatLocal(a.expiresUtc)}</div>
+      {err && <div className="error-text small">{err}</div>}
+      {done ? <div className="small">{done}</div> : (
+        <div className="inbox-actions">
+          <button className="btn small primary" disabled={busy} onClick={() => void decide(true)} title="Run this action now, once">Run</button>
+          <button className="btn small" disabled={busy} onClick={() => void decide(false)} title="Do not run it; the agent learns that you declined">Decline</button>
+        </div>
+      )}
     </div>
   );
 }

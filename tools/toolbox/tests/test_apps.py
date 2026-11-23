@@ -1,4 +1,4 @@
-"""toolbox 1.8.0: app_list / app_action of the aiwb-tools MCP server against a local fake db.php."""
+"""toolbox 1.8.0/1.9.0: app_list / app_action / app_action_status of the aiwb-tools MCP server against a local fake db.php."""
 import base64
 import gzip
 import json
@@ -26,8 +26,11 @@ class Fake(BaseHTTPRequestHandler):
         SEEN.append((self.headers.get("X-CO-Push-Key"), req))
         if req["op"] == "app_list":
             out = {"env": "env-a", "apps": [{"app": "smart-home", "actions": [{"op": "home_state", "outward": False}]}]}
+        elif req["op"] == "app_action_status":
+            out = {"ok": True, "requestId": req["requestId"], "status": "denied"} if req["requestId"] == "abc" else                 {"ok": False, "error": "unknown_request", "message": "No such request"}
         elif req["action"] == "home_control":
-            out = {"ok": False, "error": "outward", "message": "only the person runs it"}
+            out = {"ok": False, "pending": True, "status": "pending", "requestId": "abc", "expiresUtc": "2026-11-23T12:00:00Z",
+                   "message": "waits for the person"}
         elif req["action"] == "boom":
             self.send_response(400)
             self.end_headers()
@@ -74,6 +77,7 @@ class AppsTest(unittest.TestCase):
         names = [t["name"] for t in mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})["result"]["tools"]]
         self.assertIn("app_list", names)
         self.assertIn("app_action", names)
+        self.assertIn("app_action_status", names)
 
     def test_list_sends_job_and_key(self):
         text, err = self.call("app_list", {})
@@ -87,10 +91,21 @@ class AppsTest(unittest.TestCase):
         self.assertEqual(json.loads(text), {"online": True, "entities": []})
         self.assertEqual(SEEN[0][1]["args"], {})
 
-    def test_outward_refused(self):
+    def test_outward_pending(self):
         text, err = self.call("app_action", {"app": "smart-home", "action": "home_control", "args": {"entity": "light.x"}})
+        self.assertFalse(err)
+        self.assertEqual(json.loads(text)["status"], "pending")
+        self.assertEqual(json.loads(text)["requestId"], "abc")
+
+    def test_status(self):
+        text, err = self.call("app_action_status", {"requestId": "abc"})
+        self.assertFalse(err)
+        self.assertEqual(json.loads(text), {"requestId": "abc", "status": "denied"})
+        self.assertEqual(SEEN[0][1], {"op": "app_action_status", "requestId": "abc", "jobId": "JOB-T-1"})
+        text, err = self.call("app_action_status", {"requestId": "zzz"})
         self.assertTrue(err)
-        self.assertIn("only the person", text)
+        self.assertIn("No such request", text)
+        self.assertTrue(self.call("app_action_status", {})[1])
 
     def test_bad_request_message(self):
         text, err = self.call("app_action", {"app": "smart-home", "action": "boom"})

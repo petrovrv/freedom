@@ -553,7 +553,9 @@ function co_modules_list(mysqli $db, string $myEnv, bool $owner, array $coreOps 
         $row += ['modes' => $on ? co_module_modes($m) : [], 'context' => $on ? co_module_context($m) : [],
             'fileActions' => $on ? co_module_file_actions($m) : [], 'messageViews' => $on ? co_module_message_views($m) : [],
             // side-job rows of a switched-off module stay collapsed (old turns), so these come always
-            'sideJobs' => co_module_side_jobs($m), 'navigate' => $on ? co_module_navigate($m) : []];
+            'sideJobs' => co_module_side_jobs($m), 'navigate' => $on ? co_module_navigate($m) : [],
+            // F14b-2: ops agents may call (apps-lib.php); CO Web listens for their refresh while the module's tray is shown
+            'actions' => $on && function_exists('co_app_actions') ? array_keys(co_app_actions($m)) : []];
         if ($owner) {
             $people = co_module_people($db, $m['id']);
             $row['people'] = co_module_personal($m) ? array_map(static fn(string $env): array => ['env' => $env,

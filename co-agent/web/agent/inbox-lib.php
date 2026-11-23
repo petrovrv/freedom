@@ -226,6 +226,8 @@ function co_inbox_list(mysqli $db, string $env, string $email): array
                 !isset($it['chatId'], $cards[$it['chatId']]) || ($it['kind'] ?? '') === 'failed'));
         }
         array_push($items, ...$acts);
+        // F14b-2 (apps-lib.php): outward actions of apps an agent asked for, Run / Decline in place
+        if (function_exists('co_app_requests_inbox')) array_push($items, ...co_app_requests_inbox($db, $env));
     }
 
     $marks = co_inbox_marks($db, $email);
@@ -251,7 +253,7 @@ function co_inbox_mark(mysqli $db, string $email, array $in): array
         throw new InvalidArgumentException('ids (1-300) and action read|unread|done required');
     }
     foreach ($ids as $id) {
-        if (!is_string($id) || !preg_match('/^(?:ev|mem|tool|act):[A-Za-z0-9_-]{1,80}$/', $id)) {
+        if (!is_string($id) || !preg_match('/^(?:ev|mem|tool|act|app):[A-Za-z0-9_-]{1,80}$/', $id)) {
             throw new InvalidArgumentException('invalid id');
         }
     }

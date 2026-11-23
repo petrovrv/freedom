@@ -4,13 +4,36 @@
 // "← Chats" leave it. An app that is left is not destroyed: its iframe is hidden and keeps its state, so switching back
 // is instant; the last 3 (phone) or 5 (computer) stay alive (appStack.ts). No window manager of its own: on a computer
 // the windows of CO Desktop are the windows of the system (F14e.2).
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { appKey, findApp, findPage, LAUNCHER_OPEN, mountOrder, type AppRef } from './appStack';
 import type { ModuleInfo, ShellApp } from './extBridge';
 import { ModuleFrame, type CoreCalls } from './ModuleSlot';
 import { APP_EVENTS_MS, APP_REFRESH, takeAppEvents } from './appEvents';
 import { dbAppEvents } from './dbapi';
 import { useInterval } from './hooks';
+
+/**
+ * F14b-1/F14b-2: an action in an app of my environment (by an agent, or by my Run on its card) refreshes the open pages
+ * of that app and its tray chip. Shell keeps this on while an app is alive or a tray chip of a module with actions is
+ * shown; the first poll goes at once (an action right after opening is not missed) and the cursor survives pauses.
+ */
+export function useAppEvents(enabled: boolean) {
+  const cursor = useRef(-1);
+  const polling = useRef(false);
+  const poll = useCallback(() => {
+    if (polling.current) return;
+    polling.current = true;
+    dbAppEvents(cursor.current).then((r) => {
+      const t = takeAppEvents(cursor.current, r);
+      cursor.current = t.cursor;
+      for (const x of t.refresh) window.dispatchEvent(new CustomEvent(APP_REFRESH, { detail: x }));
+    }).catch(() => undefined).finally(() => { polling.current = false; });
+  }, []);
+  useEffect(() => {
+    if (enabled) poll();
+  }, [enabled, poll]);
+  useInterval(poll, APP_EVENTS_MS, enabled);
+}
 
 /** Icons of recent apps (the header on a computer, the app bar everywhere); the current one is marked. */
 export function RecentApps({ modules, recent, current, onOpen, className = '' }: {
@@ -55,18 +78,6 @@ export default function AppHost({ modules, env, live, current, recent, me, owner
   useEffect(() => {
     if (!current) document.title = baseTitle.current;
   }, [current]);
-  // F14b-1: an agent's action in an app of my environment refreshes the open pages of that app (and its tray chip)
-  const cursor = useRef(-1);
-  const polling = useRef(false);
-  useInterval(() => {
-    if (polling.current) return;
-    polling.current = true;
-    dbAppEvents(cursor.current).then((r) => {
-      const t = takeAppEvents(cursor.current, r);
-      cursor.current = t.cursor;
-      for (const x of t.refresh) window.dispatchEvent(new CustomEvent(APP_REFRESH, { detail: x }));
-    }).catch(() => undefined).finally(() => { polling.current = false; });
-  }, APP_EVENTS_MS, live.length > 0);
   // sessions of unloaded frames go with them (a page opened again starts a fresh session)
   const mounted = new Set(live.filter((a) => a.env === env).flatMap((a) => {
     const app = findPage(modules, a);

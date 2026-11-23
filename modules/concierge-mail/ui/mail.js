@@ -54,7 +54,7 @@ async function status() {
       if (!relay) relay = HomeRelay((op, args, opts) => coExt.call(op, args, opts), {env: st.env, module: 'concierge-mail', op: 'mail_call'});
       $('connection').textContent = st.account || 'Почта подключена';
       if (st.synced) $('connection').append(document.createTextNode(' · Синхронизация: ' + st.synced));
-      if (!initialized) { initialized = true; overview(); loadList(); }
+      if (!initialized) { initialized = true; overview(); loadList(); resumeOutbox(); }
     }
   } catch (err) {
     if (ticket !== statusTicket) return;
@@ -423,11 +423,11 @@ async function result(d, gen, started) {
   try { it = ((await call('compose_outbox', {})).items || []).find(i => i.key === d.key); } catch (_) {}
   if (gen !== undoGen) return;
   const btn = $('undo'), text = t => { $('undo-text').textContent = t; };
-  if (it && it.state === 'sent') { text('Письмо отправлено'); setTimeout(() => { if (gen === undoGen) $('undo-bar').hidden = true; }, 6000); refreshList(); return; }
+  if (it && it.state === 'sent') { text('Письмо отправлено'); setTimeout(() => { if (gen === undoGen) { $('undo-bar').hidden = true; resumeOutbox(); } }, 6000); refreshList(); return; }
   if (it && it.state === 'failed') {
     text('Не отправлено' + (it.error && it.error !== 'not sent' ? ': ' + writeError(it.error) : '') + ' — письмо осталось в черновиках');
     btn.hidden = false; btn.textContent = 'Открыть';
-    btn.onclick = async () => { $('undo-bar').hidden = true; d.sending = false; if (await closeComposer()) showComposer(d); };
+    btn.onclick = async () => { $('undo-bar').hidden = true; d.sending = false; if (await closeComposer()) await reopen(d); resumeOutbox(); };
     d.sending = false;
     return;
   }
@@ -443,7 +443,7 @@ async function result(d, gen, started) {
         await call('compose_resolve', {key: d.key, sent});
         $('undo-bar').querySelectorAll('.undo-extra').forEach(n => n.remove());
         if (sent) { text('Отмечено как отправленное'); btn.hidden = true; refreshList(); }
-        else { $('undo-bar').hidden = true; d.sending = false; if (await closeComposer()) showComposer(d); }
+        else { $('undo-bar').hidden = true; d.sending = false; if (await closeComposer()) await reopen(d); }
       } catch (err) { text(writeError(err)); }
     };
     btn.onclick = () => answer(true);
@@ -451,6 +451,25 @@ async function result(d, gen, started) {
   }
   text(it && it.state === 'unknown' ? 'Проверяю в «Отправленных», ушло ли письмо…' : 'Отправляется…');
   setTimeout(() => result(d, gen, started), it && it.state === 'unknown' ? 10000 : 2000);
+}
+// a letter known only by its key (after a reload): its fields come from the home server's list of letters being written
+async function reopen(d) {
+  if (d.fields) { showComposer(d); return; }
+  try {
+    const found = ((await call('compose_drafts', {})).drafts || []).find(x => x.key === d.key);
+    if (found) showComposer(found); else note('Черновик не найден — посмотрите «Черновики»');
+  } catch (err) { note(writeError(err)); }
+}
+// sends still open from an earlier visit (waiting, sending or unclear) get their bar back when the page loads
+async function resumeOutbox() {
+  if (!$('undo-bar').hidden) return;
+  try {
+    const it = ((await call('compose_outbox', {})).items || []).find(i => ['wait', 'sending', 'unknown'].includes(i.state));
+    if (!it || !$('undo-bar').hidden) return;
+    const gen = ++undoGen;
+    $('undo-bar').hidden = false; $('undo').hidden = true; $('undo-bar').querySelectorAll('.undo-extra').forEach(n => n.remove());
+    result({key: it.key}, gen, Date.now());
+  } catch (_) {}
 }
 $('compose-new').addEventListener('click', () => compose('new'));
 $('composer-close').addEventListener('click', closeComposer);

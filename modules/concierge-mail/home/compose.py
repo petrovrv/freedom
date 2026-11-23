@@ -605,8 +605,9 @@ class Composer:
             try:
                 out = self.gmail().draft_send(draft_id)
                 with db:
-                    db.execute("UPDATE outbox SET state='sent', sent_id=?, updated=? WHERE key=?", (out.get('id') or '', self.clock(), r['key']))
-                    db.execute('DELETE FROM compose WHERE key=?', (r['key'],))
+                    if db.execute("UPDATE outbox SET state='sent', sent_id=?, updated=? WHERE key=? AND state='sending'",
+                                  (out.get('id') or '', self.clock(), r['key'])).rowcount:
+                        db.execute('DELETE FROM compose WHERE key=?', (r['key'],))
             except NeedsConsent:
                 with db:
                     db.execute("UPDATE outbox SET state='failed', error='needs_consent', updated=? WHERE key=?", (self.clock(), r['key']))
@@ -634,8 +635,9 @@ class Composer:
             except Exception:  # noqa: BLE001 - still unclear: ask again later
                 found = False
             with db:
-                if found:
-                    db.execute("UPDATE outbox SET state='sent', updated=? WHERE key=? AND state='unknown'", (now, r['key']))
+                # only the same unknown send (the person may have answered and reopened the letter meanwhile)
+                if found and db.execute("UPDATE outbox SET state='sent', updated=? WHERE key=? AND state='unknown' AND mid=?",
+                                        (now, r['key'], r['mid'])).rowcount:
                     db.execute('DELETE FROM compose WHERE key=?', (r['key'],))
                 else:
                     db.execute("UPDATE outbox SET updated=? WHERE key=? AND state='unknown'", (now, r['key']))

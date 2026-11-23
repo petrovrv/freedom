@@ -32,6 +32,7 @@ UPLOAD = 'https://gmail.googleapis.com/upload/gmail/v1/users/me/'
 CAPABILITIES = ['mail.compose', 'mail.modify']
 UNDO_SECONDS = 10
 RECONCILE = 20                       # seconds between provider checks of a send with an unknown outcome
+GRACE = 180                          # seconds after an unclear send before "not in Sent" counts as not sent
 ATTACH_TOTAL = 20 * 1024 * 1024      # Gmail takes 25 MB per letter, encoding included
 CHUNK_MAX = 512 * 1024               # bytes of one upload piece from the page (the site takes ~1 MB per sealed request)
 FIELD_MAX = 512 * 1024               # characters of the text of a letter
@@ -51,6 +52,11 @@ def schema(db):
     CREATE TABLE IF NOT EXISTS outbox(key TEXT PRIMARY KEY, account TEXT NOT NULL, draft_id TEXT NOT NULL, due REAL NOT NULL,
         state TEXT NOT NULL, error TEXT NOT NULL DEFAULT '', sent_id TEXT NOT NULL DEFAULT '', updated REAL NOT NULL);
     ''')
+    # the Message-ID of the letter as saved in its draft: how a send with an unknown outcome is found in Sent
+    for table, column, ddl in (('compose', 'mid', "TEXT NOT NULL DEFAULT ''"), ('outbox', 'mid', "TEXT NOT NULL DEFAULT ''"),
+                               ('outbox', 'since', 'REAL NOT NULL DEFAULT 0')):
+        if column not in {r[1] for r in db.execute(f'PRAGMA table_info({table})')}:
+            db.execute(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}')
     db.commit()
 
 
@@ -126,6 +132,11 @@ class GmailWrite:
 
     def draft_send(self, draft_id):
         return self.call('POST', 'drafts/send', {'id': draft_id}, once=True)
+
+    def find_sent(self, mid):
+        """True when a sent letter with this Message-ID exists (Gmail search rfc822msgid)."""
+        q = urllib.parse.urlencode({'q': 'in:sent rfc822msgid:' + mid.strip('<>'), 'maxResults': 1})
+        return bool(self.call('GET', 'messages?' + q).get('messages'))
 
     def draft_exists(self, draft_id):
         try:
@@ -259,7 +270,8 @@ class Composer:
             raise ValueError('bad subject')
         msg['Subject'] = subject[:500]
         msg['Date'] = formatdate(localtime=True)
-        msg['Message-ID'] = make_msgid(domain=self.account.split('@')[-1])
+        mid = make_msgid(domain=self.account.split('@')[-1])
+        msg['Message-ID'] = mid
         text = str(fields.get('text') or '')[:FIELD_MAX]
         quote_text, quote_html = '', ''
         orig = self._original(fields.get('of')) if fields.get('of') else None
@@ -292,10 +304,10 @@ class Composer:
             maintype, _, subtype = (att.get('type') or 'application/octet-stream').partition('/')
             msg.add_attachment(data, maintype=maintype or 'application', subtype=subtype or 'octet-stream',
                                filename=att.get('name') or 'file')
-        return msg.as_bytes()
+        return msg.as_bytes(), mid
 
     def _save(self, key, row, fields, attachments):
-        raw = self.build(fields, attachments)
+        raw, mid = self.build(fields, attachments)
         orig = self._original(fields.get('of')) if fields.get('of') else None
         thread = row['thread_id'] if row and row['thread_id'] else (orig['thread_id'] if orig is not None and
                                                                      fields.get('kind') in ('reply', 'replyall') else None)
@@ -307,11 +319,12 @@ class Composer:
         message = (out.get('message') or {}).get('id') or ''
         thread = (out.get('message') or {}).get('threadId') or thread or ''
         with self.db:
-            self.db.execute('INSERT INTO compose(key,account,draft_id,message_id,thread_id,fields,attachments,updated) VALUES(?,?,?,?,?,?,?,?)'
+            self.db.execute('INSERT INTO compose(key,account,draft_id,message_id,thread_id,fields,attachments,updated,mid) VALUES(?,?,?,?,?,?,?,?,?)'
                             ' ON CONFLICT(key) DO UPDATE SET draft_id=excluded.draft_id, message_id=excluded.message_id,'
-                            ' thread_id=excluded.thread_id, fields=excluded.fields, attachments=excluded.attachments, updated=excluded.updated',
+                            ' thread_id=excluded.thread_id, fields=excluded.fields, attachments=excluded.attachments,'
+                            ' updated=excluded.updated, mid=excluded.mid',
                             (key, self.account, draft, message, thread, json.dumps(fields, ensure_ascii=False),
-                             json.dumps(attachments), self.clock()))
+                             json.dumps(attachments), self.clock(), mid))
         return {'key': key, 'draft': draft, 'thread': thread, 'attachments': self._public(attachments), 'saved': self.clock()}
 
     @staticmethod
@@ -475,10 +488,10 @@ class Composer:
             raise ValueError('no recipients')
         due = self.clock() + UNDO_SECONDS
         with self.db:
-            cur = self.db.execute("INSERT INTO outbox(key,account,draft_id,due,state,updated) VALUES(?,?,?,?, 'wait', ?)"
+            cur = self.db.execute("INSERT INTO outbox(key,account,draft_id,due,state,updated,mid) VALUES(?,?,?,?, 'wait', ?, ?)"
                                   " ON CONFLICT(key) DO UPDATE SET draft_id=excluded.draft_id, due=excluded.due, state='wait',"
-                                  " error='', updated=excluded.updated WHERE outbox.state IN ('cancelled','failed')",
-                                  (key, self.account, row['draft_id'], due, self.clock()))
+                                  " error='', updated=excluded.updated, mid=excluded.mid WHERE outbox.state IN ('cancelled','failed')",
+                                  (key, self.account, row['draft_id'], due, self.clock(), row['mid'] or ''))
             if not cur.rowcount:
                 raise ValueError('already sending')
         self._wake.set()
@@ -565,7 +578,8 @@ class Composer:
         stop = stop or threading.Event()
         # a letter caught mid-send by a restart is not sent twice blindly: its fate is asked from the provider first
         with db:
-            db.execute("UPDATE outbox SET state='unknown', error='interrupted', updated=0 WHERE state='sending' AND account=?", (self.account,))
+            db.execute("UPDATE outbox SET state='unknown', error='interrupted', since=updated, updated=0 WHERE state='sending' AND account=?",
+                       (self.account,))
         while not stop.is_set():
             self.send_due(db)
             self.reconcile(db)
@@ -600,29 +614,34 @@ class Composer:
             except Uncertain as exc:
                 # maybe sent (a lost answer or a 5xx): asked from the provider before anything else
                 with db:
-                    db.execute("UPDATE outbox SET state='unknown', error=?, updated=? WHERE key=?", (str(exc)[:200], self.clock(), r['key']))
+                    db.execute("UPDATE outbox SET state='unknown', error=?, since=?, updated=? WHERE key=?",
+                               (str(exc)[:200], now, self.clock(), r['key']))
             except Exception as exc:  # noqa: BLE001 - a definite refusal: the person sees it and the draft stays
                 with db:
                     db.execute("UPDATE outbox SET state='failed', error=?, updated=? WHERE key=?", (str(exc)[:200], self.clock(), r['key']))
 
     def reconcile(self, db):
-        """Letters whose send outcome is unknown: drafts.send removes the draft, so a draft that is gone was sent and a
-        draft still there was not (then the person may send again). Asked at most every RECONCILE seconds."""
+        """Letters whose send outcome is unknown, asked at most every RECONCILE seconds. Sent only when the letter's own
+        Message-ID is found in Sent; not sent only when it is still not there GRACE seconds after the attempt (a send
+        that timed out has finished or failed by then) — the draft being there or gone proves nothing by itself."""
         now = self.clock()
-        for r in db.execute("SELECT key, draft_id FROM outbox WHERE state='unknown' AND updated<=? AND account=?",
+        for r in db.execute("SELECT key, draft_id, mid, since FROM outbox WHERE state='unknown' AND updated<=? AND account=?",
                             (now - RECONCILE, self.account)).fetchall():
             try:
-                there = self.gmail().draft_exists(r['draft_id'])
+                found = bool(r['mid']) and self.gmail().find_sent(r['mid'])
+                settled = not found and now - (r['since'] or 0) >= GRACE
+                there = self.gmail().draft_exists(r['draft_id']) if settled else None
             except Exception:  # noqa: BLE001 - still unclear: ask again later
-                with db:
-                    db.execute("UPDATE outbox SET updated=? WHERE key=? AND state='unknown'", (now, r['key']))
-                continue
+                found, settled, there = False, False, None
             with db:
-                if there:
-                    db.execute("UPDATE outbox SET state='failed', error='not sent', updated=? WHERE key=? AND state='unknown'", (now, r['key']))
-                else:
+                if found:
                     db.execute("UPDATE outbox SET state='sent', updated=? WHERE key=? AND state='unknown'", (now, r['key']))
                     db.execute('DELETE FROM compose WHERE key=?', (r['key'],))
+                elif settled:
+                    db.execute("UPDATE outbox SET state='failed', error=?, updated=? WHERE key=? AND state='unknown'",
+                               ('not sent' if there else 'draft gone', now, r['key']))
+                else:
+                    db.execute("UPDATE outbox SET updated=? WHERE key=? AND state='unknown'", (now, r['key']))
 
     def handle(self, action, args):
         fn = {'compose_start': self.start, 'compose_save': self.save, 'compose_upload': self.upload,

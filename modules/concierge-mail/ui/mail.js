@@ -219,7 +219,7 @@ const consentNote = 'Нужно разрешение Google писать и от
 function writeError(err) {
   const m = String(err && err.message || err);
   return {needs_consent: consentNote, 'already sending': 'Письмо уже отправляется', 'no recipients': 'Укажите получателя',
-    'too big': 'Вложения больше 20 МБ', 'save first': 'Черновик ещё не сохранён', 'protected message': 'На защищённое письмо так не ответить'}[m]
+    'too big': 'Вложения больше 20 МБ', upload_failed: 'Не все вложения загрузились: уберите отметку ⚠ или прикрепите файл снова', discarded: 'Черновик удалён', 'draft gone': 'черновик исчез из Gmail — проверьте «Отправленные», прежде чем отправлять снова', 'save first': 'Черновик ещё не сохранён', 'protected message': 'На защищённое письмо так не ответить'}[m]
     || (/^bad address/.test(m) ? 'Неверный адрес: ' + m.replace(/^bad address:\s*/, '') : 'Не получилось: ' + m);
 }
 function toolbar(thread, messages) {
@@ -278,6 +278,10 @@ function fields() { const f = {}; for (const [k, id] of Object.entries(fieldIds)
 function cstate(text, bad) { $('c-note').textContent = text || ''; $('c-note').className = 'small' + (bad ? ' err' : ''); }
 function sync() { if (draft) draft.local = fields(); }
 function later(d, fn) { const p = d.ops.then(fn); d.ops = p.catch(() => {}); return p; }
+function freeze(on) {
+  for (const id of [...Object.values(fieldIds), 'c-file', 'c-send', 'c-discard']) $(id).disabled = on;
+  $('composer').classList.toggle('frozen', on);
+}
 function showComposer(d) {
   d.ops = d.ops || Promise.resolve(); d.rev = d.rev || 0; d.savedRev = d.savedRev ?? (d.draft ? 0 : -1);
   draft = d; const f = {...(d.fields || {}), ...(d.local || {})};
@@ -287,13 +291,18 @@ function showComposer(d) {
   $('c-more').hidden = !!(f.cc || f.bcc);
   $('composer-title').textContent = {reply:'Ответ', replyall:'Ответ всем', forward:'Пересылка'}[(d.fields || {}).kind] || 'Новое письмо';
   renderAttachments(); cstate(''); $('composer-state').textContent = d.draft ? 'Черновик сохранён' : '';
-  $('c-send').disabled = false; $('composer').hidden = false;
+  freeze(false); $('composer').hidden = false;
   (f.to ? $('c-text') : $('c-to')).focus();
   if ((d.fields || {}).kind === 'reply' || (d.fields || {}).kind === 'replyall') $('c-text').setSelectionRange(0, 0);
 }
 function renderAttachments() {
   const box = $('c-attachments'); box.replaceChildren();
   const d = draft;
+  for (const name of d?.uploadFailed || []) {
+    const chip = el('span', 'chip', '⚠ ' + name + ' — не загружено');
+    chip.append(button('×', () => { d.uploadFailed = d.uploadFailed.filter(n => n !== name); renderAttachments(); }));
+    box.append(chip);
+  }
   for (const a of d?.attachments || []) {
     const chip = el('span', 'chip', '📎 ' + a.name + ' · ' + size(a.size));
     chip.append(button('×', () => later(d, async () => {
@@ -307,6 +316,7 @@ function renderAttachments() {
 function isEmpty(d) { const f = d.local || {}; return !f.to && !f.cc && !f.bcc && !f.subject && !(f.text || '').trim() && !(d.attachments || []).length; }
 async function saveNow(d) {
   // inside d.ops only: one save of the newest edit, if the server does not have it yet
+  if (d.discarded) throw new Error('discarded');
   if (d.draft && d.savedRev === d.rev) return;
   const rev = d.rev, snap = {...d.local};
   const out = await call('compose_save', {key: d.key, fields: {...d.fields, ...snap}, ...(d.pending?.length && !d.draft ? {pending: d.pending} : {})});
@@ -318,7 +328,7 @@ async function flush(d) {
   while (!(d.draft && d.savedRev === d.rev)) await later(d, () => saveNow(d));
 }
 function edited() {
-  if (!draft) return;
+  if (!draft || draft.discarded || draft.sending) return;
   sync(); draft.rev++;
   clearTimeout(saveTimer); $('composer-state').textContent = 'Изменено';
   const d = draft; saveTimer = setTimeout(() => flush(d).catch(err => { if (d === draft) cstate(writeError(err), true); }), 1500);
@@ -326,9 +336,13 @@ function edited() {
 async function closeComposer() {
   const d = draft; if (!d) return true;
   sync(); clearTimeout(saveTimer);
-  if (!(isEmpty(d) && !d.draft)) {
+  if (!(isEmpty(d) && !d.draft) && !d.discarded) {
     $('composer-state').textContent = 'Сохранение…';
-    try { await flush(d); } catch (err) { if (d === draft) cstate(writeError(err) + ' — окно не закрыто, чтобы не потерять текст', true); return false; }
+    try {
+      await d.ops;  // uploads of this letter finish first
+      await flush(d);
+      if ((d.uploadFailed || []).length) throw new Error('upload_failed');
+    } catch (err) { if (d === draft) cstate(writeError(err) + ' — окно не закрыто, чтобы ничего не потерять', true); return false; }
   }
   if (d === draft) { $('composer').hidden = true; draft = null; }
   return true;
@@ -357,16 +371,23 @@ function attach(files) {
       const out = await call('compose_upload', {key: d.key, upload, name: file.name, type: file.type || 'application/octet-stream', offset, last, data: btoa(bin)});
       if (last) { d.draft = out.draft; d.attachments = out.attachments; break; }
     }
+    d.uploadFailed = (d.uploadFailed || []).filter(n => n !== file.name);
     if (d === draft) { renderAttachments(); cstate(''); }
-  }).catch(err => { if (d === draft) cstate(file.name + ': ' + writeError(err), true); });
+  }).catch(err => {
+    // a failed file blocks Send until the person removes its mark (or attaches it again)
+    d.uploadFailed = [...(d.uploadFailed || []), file.name];
+    if (d === draft) { renderAttachments(); cstate(file.name + ': ' + writeError(err), true); }
+  });
 }
 async function send() {
   const d = draft; if (!d || d.sending) return;
   sync(); clearTimeout(saveTimer);
-  d.sending = true; $('c-send').disabled = true; cstate('Отправка…');
+  d.sending = true; freeze(true); cstate('Отправка…');  // no edits from here: what is sent is what was on screen
   try {
     // after every earlier save and upload of this letter; the server saves the last fields and queues the draft
     const out = await later(d, async () => {
+      if ((d.uploadFailed || []).length) throw new Error('upload_failed');
+      if (d.discarded) throw new Error('discarded');
       const rev = d.rev, snap = {...d.local};
       const res = await call('compose_send', {key: d.key, fields: {...d.fields, ...snap}, ...(d.pending?.length && !d.draft ? {pending: d.pending} : {})});
       d.fields = {...d.fields, ...snap}; d.savedRev = rev; if (res.draft) d.draft = res.draft;
@@ -374,8 +395,7 @@ async function send() {
     });
     if (d === draft) { $('composer').hidden = true; draft = null; }
     undo(d, out.undo || 10);
-  } catch (err) { if (d === draft) { cstate(writeError(err), true); $('c-send').disabled = false; } }
-  finally { d.sending = false; }
+  } catch (err) { d.sending = false; if (d === draft) { freeze(false); cstate(writeError(err), true); } }
 }
 function undo(d, seconds) {
   const gen = ++undoGen;
@@ -390,7 +410,7 @@ function undo(d, seconds) {
     try {
       const out = await call('compose_unsend', {key: d.key});
       if (gen !== undoGen) return;
-      if (out.cancelled) { bar.hidden = true; if (await closeComposer()) { showComposer(d); cstate('Отправка отменена, письмо — снова черновик'); } }
+      if (out.cancelled) { bar.hidden = true; d.sending = false; if (await closeComposer()) { showComposer(d); cstate('Отправка отменена, письмо — снова черновик'); } }
       else result(d, gen, Date.now());
     } catch (err) { text('Не удалось отменить: ' + writeError(err)); result(d, gen, Date.now()); }
   };
@@ -407,6 +427,7 @@ async function result(d, gen, started) {
     text('Не отправлено' + (it.error && it.error !== 'not sent' ? ': ' + writeError(it.error) : '') + ' — письмо осталось в черновиках');
     btn.hidden = false; btn.textContent = 'Открыть';
     btn.onclick = async () => { $('undo-bar').hidden = true; d.sending = false; if (await closeComposer()) showComposer(d); };
+    d.sending = false;
     return;
   }
   if (it && it.state === 'cancelled') { $('undo-bar').hidden = true; return; }
@@ -422,12 +443,13 @@ for (const id of Object.values(fieldIds)) $(id).addEventListener('input', edited
 $('c-file').addEventListener('change', e => { const files = [...e.target.files]; e.target.value = ''; attach(files); });
 $('c-send').addEventListener('click', send);
 $('c-discard').addEventListener('click', () => {
-  const d = draft; if (!d) return;
+  const d = draft; if (!d || d.sending) return;
   clearTimeout(saveTimer);
+  d.discarded = true; freeze(true);  // no save may follow (it would bring the draft back)
   later(d, async () => {
     if (d.key) await call('compose_discard', {key: d.key});
     if (d === draft) { $('composer').hidden = true; draft = null; }
-  }).catch(err => { if (d === draft) cstate(writeError(err), true); });
+  }).catch(err => { d.discarded = false; if (d === draft) { freeze(false); cstate(writeError(err), true); } });
 });
 $('composer').addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); send(); }
@@ -435,7 +457,7 @@ $('composer').addEventListener('keydown', e => {
 });
 $('undo-close').addEventListener('click', () => { $('undo-bar').hidden = true; });
 // leaving the page or the app: the newest edit goes to the server at once (a closed tab may still cut it short)
-document.addEventListener('visibilitychange', () => { if (document.hidden && draft) { sync(); clearTimeout(saveTimer); flush(draft).catch(() => {}); } });
+document.addEventListener('visibilitychange', () => { if (document.hidden && draft && !draft.discarded && !draft.sending) { sync(); clearTimeout(saveTimer); flush(draft).catch(() => {}); } });
 function back() {
   if (document.body.dataset.pane === 'reader') { pane('list'); $('threads').children[selected]?.focus(); }
   else { pane(document.body.dataset.pane === 'labels' ? 'list' : 'labels'); }
@@ -467,5 +489,5 @@ coExt.ready.then(ctx => {
   coExt.on('context', nextCtx => { theme(nextCtx); status(); });
   status();
 }).catch(err => error($('connection'), err, () => location.reload()));
-window.addEventListener('pagehide', () => { if (draft) { sync(); flush(draft).catch(() => {}); } clearTimeout(timer); statusTicket++; listTicket++; readTicket++; });
+window.addEventListener('pagehide', () => { if (draft && !draft.discarded && !draft.sending) { sync(); flush(draft).catch(() => {}); } clearTimeout(timer); statusTicket++; listTicket++; readTicket++; });
 })();

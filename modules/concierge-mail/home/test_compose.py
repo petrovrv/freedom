@@ -54,6 +54,11 @@ class FakeWrite:
                 return self.fail_send, {}
             self.sent.append(self.drafts.pop(data['id']))
             return 200, {'id': 'sent1', 'threadId': 't'}
+        if path == 'messages' and method == 'GET':
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)['q'][0]
+            mid = '<' + q.split('rfc822msgid:')[1] + '>'
+            hits = [m for m in self.sent if raw_of(m)['Message-ID'] == mid]
+            return 200, ({'messages': [{'id': 'x'}]} if hits else {})
         if path.startswith('threads/'):
             return 200, {}
         if path.startswith('drafts/') and method == 'GET':
@@ -203,6 +208,9 @@ class ComposeTests(unittest.TestCase):
         self.c.send_due(self.store.db)
         self.assertEqual(self.write.send_calls, 1)  # a 5xx of a send is not retried
         self.now[0] += compose.RECONCILE + 1
+        self.c.reconcile(self.store.db)
+        self.assertEqual(self.c.handle('compose_outbox', {})['items'][0]['state'], 'unknown')  # not in Sent yet, within the grace
+        self.now[0] += compose.GRACE
         self.c.reconcile(self.store.db)
         self.assertEqual(self.c.handle('compose_outbox', {})['items'][0]['state'], 'failed')
         self.write.fail_send = None

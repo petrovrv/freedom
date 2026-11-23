@@ -335,14 +335,17 @@ export default function Shell({ auth }: { auth: Signed }) {
   // F10: generic core calls a module page may use (each refused unless its manifest declares the point's permission)
   const projectsRef = useRef<Project[] | null>(null);
   projectsRef.current = projects;
+  // navigate changes with every address; the sessions of the page frames must not
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   // a factory: every page frame gets its own session of core calls for its life (a hidden app keeps its import session)
   const pageCalls = useCallback(() => (root ? importCalls({
     root, env, projects: () => projectsRef.current,
     onFinished: async (open) => {
       await refreshProjectsRef.current();
-      if (open !== undefined) navigate(open ? `/e/${env}/p/${open}` : `/e/${env}`);
+      if (open !== undefined) navigateRef.current(open ? `/e/${env}/p/${open}` : `/e/${env}`);
     },
-  }) : undefined), [root, env, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }) : undefined), [root, env]); // eslint-disable-line react-hooks/exhaustive-deps
   const refreshProjects = useCallback(async () => {
     if (!root || !authOk || !envValid) return;
     try {

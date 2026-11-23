@@ -215,8 +215,9 @@ def _env_file(path):
 
 
 def load_handlers(config_dir, slug, env, log=None):
-    """{module: Handler} from <config_dir>/modules.d/<module>.json: {"exec": [...], "envFile": "...", "if": "<path>"} with
-    {slug} filled in; a module whose "if" path does not exist for this person is not served."""
+    """{module: Handler} from <config_dir>/modules.d/<module>.json: {"exec": [...], "envFile": "...", "if": "<path>",
+    "credentials": {name: path}} with {slug} filled in; a module whose "if" path does not exist for this person is not
+    served; a module with "credentials" gets the unit's CREDENTIALS_DIRECTORY (e.g. the person's account credential)."""
     if not SLUG_RE.match(slug):
         raise ValueError('bad slug')
     out = {}
@@ -235,6 +236,9 @@ def load_handlers(config_dir, slug, env, log=None):
                 child.update({k: os.environ[k] for k in ('SYSTEMROOT', 'PATH') if k in os.environ})
             if spec.get('envFile'):
                 child = {**_env_file(str(spec['envFile']).replace('{slug}', slug)), **child}
+            if spec.get('credentials') and os.environ.get('CREDENTIALS_DIRECTORY'):
+                # the unit loads them (relayctl: drop-in credentials.conf); only a module that asked sees the folder
+                child['CREDENTIALS_DIRECTORY'] = os.environ['CREDENTIALS_DIRECTORY']
             out[module] = Handler(module, argv, child)
         except Exception as exc:  # one broken registration does not stop the others
             if log:

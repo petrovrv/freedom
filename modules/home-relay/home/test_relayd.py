@@ -101,6 +101,18 @@ class RelaydTests(unittest.TestCase):
         self.assertEqual(sorted(relayd.load_handlers(self.root / 'conf', 'alice', 'enva')), ['calendar', 'mail'])
         with self.assertRaises(ValueError):
             relayd.load_handlers(self.root / 'conf', '../x', 'enva')
+        self.assertNotIn('CREDENTIALS_DIRECTORY', mail.env)
+
+    def test_credentials_only_for_a_module_that_asks(self):
+        conf = self.root / 'conf2'
+        (conf / 'modules.d').mkdir(parents=True)
+        exe = os.path.abspath(sys.executable)
+        (conf / 'modules.d' / 'mail.json').write_text(json.dumps({'exec': [exe, '-c', 'pass'], 'credentials': {'account': '/etc/credstore.encrypted/account.{slug}.google.cred'}}))
+        (conf / 'modules.d' / 'notes.json').write_text(json.dumps({'exec': [exe, '-c', 'pass']}))
+        with unittest.mock.patch.dict(os.environ, {'CREDENTIALS_DIRECTORY': '/run/credentials/home-relay@alice.service'}):
+            got = relayd.load_handlers(conf, 'alice', 'enva')
+        self.assertEqual(got['mail'].env['CREDENTIALS_DIRECTORY'], '/run/credentials/home-relay@alice.service')
+        self.assertNotIn('CREDENTIALS_DIRECTORY', got['notes'].env)
 
     def test_key_is_kept_private_and_reused(self):
         path = self.root / 'relay-key.pem'

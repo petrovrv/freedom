@@ -32,7 +32,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 MODULE = HERE.parents[1]
 REPO = HERE.parents[3]
-CAPABILITIES = ['mail.read', 'drive.appfiles']
+CAPABILITIES = ['mail.read', 'drive.appfiles', 'mail.compose', 'mail.modify']  # read+backup; writing from the Mail page
 sys.path.insert(0, str(MODULE.parent / 'provider-accounts' / 'home' / 'hub'))
 sys.path.insert(0, str(MODULE.parent / 'home-relay' / 'home' / 'hub'))
 import accountctl  # noqa: E402  (module provider-accounts)
@@ -121,7 +121,8 @@ def deploy(args):
             failed += ssh(args, 'for u in ' + ' '.join(was_active) + '; do sudo systemctl start "$u" || echo "$u"; done', check=False).split()
     # the Mail page handler of the home relay (every person whose mailbox is set up here)
     failed += relayctl.register(args, 'concierge-mail', HANDLER, env_file='/etc/concierge-mail/{slug}.env',
-                                write=['/srv/data/mail/{slug}'], only_if='/etc/concierge-mail/{slug}.env')
+                                write=['/srv/data/mail/{slug}'], only_if='/etc/concierge-mail/{slug}.env',
+                                credentials={'account': '/etc/credstore.encrypted/account.{slug}.google.cred'})
     if failed or legacy:
         sys.exit(json.dumps({'deployed': '/opt/concierge-mail', 'users': users, 'notStarted': sorted(set(failed)),
                              'hint': 'persons in "kept" still run as their old user; fix the reason and deploy again'}, ensure_ascii=False))

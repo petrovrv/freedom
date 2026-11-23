@@ -19,9 +19,12 @@ import os
 import re
 import sqlite3
 import sys
+import threading
 from email import policy
 from email.parser import BytesParser
 
+import compose
+import gmailsync
 import remoteimg
 
 PAGE = 50
@@ -63,9 +66,10 @@ def _clean_html(html, inline):
 class MailApi:
     """Read-only queries of one person's store for the Mail page."""
 
-    def __init__(self, store, account):
+    def __init__(self, store, account, composer=None):
         self.store, self.db, self.account = store, store.db, account
         self.db.row_factory = sqlite3.Row
+        self.composer = composer  # writing (module compose): only in the handler of a bound mailbox
 
     def unread(self):
         row = self.db.execute("SELECT COUNT(DISTINCT thread_id) FROM gmail_messages WHERE account=? AND gone=0"
@@ -223,9 +227,38 @@ class MailApi:
     def handle(self, request):
         action = request.get('action') if isinstance(request, dict) else None
         args = request.get('args') or {} if isinstance(request, dict) else {}
-        if action not in ('overview', 'list', 'search', 'thread', 'attachment', 'images') or not isinstance(args, dict):
+        if not isinstance(args, dict):
+            raise ValueError('unknown action')
+        if action in compose.ACTIONS and self.composer is not None:
+            return self.composer.handle(action, args)
+        if action not in ('overview', 'list', 'search', 'thread', 'attachment', 'images'):
             raise ValueError('unknown action')
         return getattr(self, action)(args)
+
+
+class LazyToken:
+    """The write token of the person's account, made on first use (and again after the person gave consent)."""
+
+    def __init__(self, make):
+        self._make, self._source = make, None
+
+    def __call__(self):
+        if self._source is None:
+            self._source = self._make()  # PermissionError while mail.compose / mail.modify are not granted
+        return self._source()
+
+    def invalidate(self, token):
+        if self._source is not None:
+            self._source.invalidate(token)
+
+
+def write_token(environ):
+    """LazyToken for the Gmail writes, or None when the handler was started without the account credential."""
+    directory = environ.get('CREDENTIALS_DIRECTORY')
+    if not directory or not os.path.isfile(os.path.join(directory, 'account')):
+        return None
+    path = os.path.join(directory, 'account')
+    return LazyToken(lambda: gmailsync.TokenSource(path, capabilities=compose.CAPABILITIES))
 
 
 def handle_line(api, bound, line):
@@ -262,6 +295,10 @@ def handler_main(store, stdin=None, stdout=None, environ=None):
     store.db.execute('PRAGMA busy_timeout=10000')
     remoteimg.prune(store.root / 'imgcache')
     api = MailApi(store, account)
+    if bound:
+        token = write_token(environ)
+        api.composer = compose.Composer(store, account, token, gmailsync._http if token else None)
+        threading.Thread(target=api.composer.run_sender, args=(store.root / 'mail.sqlite3',), daemon=True).start()
     for line in iter(stdin.readline, b''):
         out = handle_line(api, bound, line)
         stdout.write(json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode() + b'\n')

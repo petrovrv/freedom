@@ -215,20 +215,193 @@ function message(msg, last) {
   }
   return card;
 }
-async function openThread(index) {
+const consentNote = 'Нужно разрешение Google писать и отмечать письма: хозяин подключает его для вашего ящика (hubctl connect).';
+function writeError(err) {
+  const m = String(err && err.message || err);
+  return {needs_consent: consentNote, 'already sending': 'Письмо уже отправляется', 'no recipients': 'Укажите получателя',
+    'too big': 'Вложения больше 20 МБ', 'save first': 'Черновик ещё не сохранён', 'protected message': 'На защищённое письмо так не ответить'}[m]
+    || (/^bad address/.test(m) ? 'Неверный адрес: ' + m.replace(/^bad address:\s*/, '') : 'Не получилось: ' + m);
+}
+function toolbar(thread, messages) {
+  const bar = $('toolbar'); bar.replaceChildren(); bar.hidden = false;
+  const last = [...messages].reverse().find(m => !m.sensitive && !(m.labels || []).includes('DRAFT'));
+  const labels = new Set(messages.flatMap(m => m.labels || []));
+  const act = (text, fn, title) => { const b = button(text, fn); if (title) b.title = title; bar.append(b); return b; };
+  if (last) {
+    act('↩ Ответить', () => compose('reply', last.id));
+    act('↩↩ Всем', () => compose('replyall', last.id), 'Ответить всем');
+    act('↪ Переслать', () => compose('forward', last.id));
+  }
+  const mark = (what, done) => async () => {
+    try { await call('mark', {thread: thread.thread, mark: what}); done && done(); refreshList(); }
+    catch (err) { note(writeError(err)); }
+  };
+  if (labels.has('INBOX')) act('📥 В архив', mark('archive', () => pane('list')));
+  else if (!labels.has('TRASH') && !labels.has('SPAM')) act('📥 Во входящие', mark('inbox'));
+  act(labels.has('UNREAD') ? '✉ Прочитано' : '✉ Не прочитано', mark(labels.has('UNREAD') ? 'read' : 'unread', () => openThread(selected, false)));
+  act(labels.has('STARRED') ? '★ Снять' : '☆ Пометить', mark(labels.has('STARRED') ? 'unstar' : 'star', () => openThread(selected, false)));
+  if (labels.has('TRASH')) act('↺ Восстановить', mark('untrash', () => pane('list')));
+  else act('🗑 Удалить', mark('trash', () => pane('list')));
+}
+function note(text) { const n = el('p', 'notice', text); $('reading').prepend(n); setTimeout(() => n.remove(), 8000); }
+function refreshList() { overview(); loadList(); }
+async function openThread(index, markRead = true) {
   const thread = threads[index]; if (!thread) return;
   selected = index; renderThreads(); pane('reader');
   const ticket = ++readTicket;
+  $('toolbar').hidden = true;
   $('reading').replaceChildren(el('p', 'empty', 'Загрузка письма…')); $('reader').focus();
   try {
     const data = await call('thread', {thread:thread.thread});
     if (ticket !== readTicket) return;
     const messages = data.messages || [];
     $('reading').replaceChildren(el('h2', '', messages.find(m => !m.sensitive && m.subject)?.subject || 'Переписка'));
-    messages.forEach((msg, i) => $('reading').append(message(msg, i === messages.length - 1)));
+    messages.forEach((msg, i) => {
+      const card = message(msg, i === messages.length - 1);
+      if ((msg.labels || []).includes('DRAFT') && !msg.sensitive) card.querySelector('.message-content').prepend(button('✏ Продолжить черновик', () => openDraft(msg.id)));
+      $('reading').append(card);
+    });
     if (!messages.length) $('reading').append(el('p', 'empty', 'Писем нет'));
+    toolbar(thread, messages);
+    // opening a letter reads it, as in Gmail (silently skipped until writing is allowed)
+    if (markRead && thread.unread) call('mark', {thread: thread.thread, mark: 'read'}).then(() => { thread.unread = 0; renderThreads(); overview(); }).catch(() => {});
   } catch (err) { if (ticket === readTicket) error($('reading'), err, () => openThread(index)); }
 }
+
+// ---- writing (module home/compose.py on the home server; everything only on the person's click)
+let draft = null, saveTimer = 0, saving = null, undoTimer = 0;
+const fieldIds = {to:'c-to', cc:'c-cc', bcc:'c-bcc', subject:'c-subject', text:'c-text'};
+function fields() { const f = {}; for (const [k, id] of Object.entries(fieldIds)) f[k] = $(id).value; return f; }
+function cstate(text, bad) { $('c-note').textContent = text || ''; $('c-note').className = 'small' + (bad ? ' err' : ''); }
+function showComposer(d) {
+  draft = d; const f = d.fields || {};
+  for (const [k, id] of Object.entries(fieldIds)) $(id).value = f[k] || '';
+  for (const n of document.querySelectorAll('.cc')) n.hidden = !(f.cc || f.bcc);
+  $('c-more').hidden = !!(f.cc || f.bcc);
+  $('composer-title').textContent = {reply:'Ответ', replyall:'Ответ всем', forward:'Пересылка'}[f.kind] || 'Новое письмо';
+  renderAttachments(); cstate(''); $('composer-state').textContent = d.draft ? 'Черновик сохранён' : '';
+  $('composer').hidden = false;
+  (f.to ? $('c-text') : $('c-to')).focus();
+  if (f.kind === 'reply' || f.kind === 'replyall') $('c-text').setSelectionRange(0, 0);
+}
+function renderAttachments() {
+  const box = $('c-attachments'); box.replaceChildren();
+  for (const a of draft?.attachments || []) {
+    const chip = el('span', 'chip', '📎 ' + a.name + ' · ' + size(a.size));
+    chip.append(button('×', async () => {
+      try { await flush(); const out = await call('compose_detach', {key: draft.key, sha: a.sha}); Object.assign(draft, out); renderAttachments(); }
+      catch (err) { cstate(writeError(err), true); }
+    }));
+    box.append(chip);
+  }
+}
+async function compose(kind, of) {
+  if (draft && !$('composer').hidden) await closeComposer();
+  try { showComposer(await call('compose_start', {kind, of})); }
+  catch (err) { note(writeError(err)); }
+}
+async function openDraft(id) {
+  if (draft && !$('composer').hidden) await closeComposer();
+  try { showComposer(await call('compose_open', {id})); }
+  catch (err) { note(writeError(err)); }
+}
+function scheduleSave() { clearTimeout(saveTimer); $('composer-state').textContent = 'Изменено'; saveTimer = setTimeout(flush, 2500); }
+async function flush() {
+  clearTimeout(saveTimer);
+  if (!draft) return;
+  if (saving) return saving;
+  const d = draft;
+  saving = (async () => {
+    try {
+      const out = await call('compose_save', {key: d.key, fields: {...d.fields, ...fields()}, ...(d.pending?.length && !d.draft ? {pending: d.pending} : {})});
+      d.draft = out.draft; d.attachments = out.attachments; d.fields = {...d.fields, ...fields()};
+      if (d === draft) { $('composer-state').textContent = 'Черновик сохранён'; renderAttachments(); cstate(''); }
+    } catch (err) { if (d === draft) cstate(writeError(err), true); throw err; }
+    finally { saving = null; }
+  })();
+  return saving;
+}
+async function closeComposer() {
+  const empty = !fields().to && !fields().subject && !fields().text.trim() && !(draft?.attachments || []).length;
+  try { if (draft && !(empty && !draft.draft)) await flush(); } catch (_) { return; }
+  $('composer').hidden = true; draft = null;
+}
+async function attach(files) {
+  if (!draft) return;
+  try { if (!draft.draft) await flush(); } catch (_) { return; }
+  for (const file of files) {
+    const upload = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
+    const bytes = new Uint8Array(await file.arrayBuffer()), PIECE = 384 * 1024;
+    try {
+      for (let offset = 0; offset < bytes.length || offset === 0; offset += PIECE) {
+        const piece = bytes.subarray(offset, offset + PIECE), last = offset + PIECE >= bytes.length;
+        cstate(`Загрузка ${file.name}: ${Math.round(100 * Math.min(bytes.length, offset + PIECE) / Math.max(1, bytes.length))}%`);
+        let bin = ''; for (let i = 0; i < piece.length; i += 8192) bin += String.fromCharCode(...piece.subarray(i, i + 8192));
+        const out = await call('compose_upload', {key: draft.key, upload, name: file.name, type: file.type || 'application/octet-stream', offset, last, data: btoa(bin)});
+        if (last) { Object.assign(draft, {draft: out.draft, attachments: out.attachments}); renderAttachments(); break; }
+      }
+      cstate('');
+    } catch (err) { cstate(file.name + ': ' + writeError(err), true); }
+  }
+}
+async function send() {
+  if (!draft) return;
+  clearTimeout(saveTimer);
+  const d = draft;
+  try { if (saving) await saving; } catch (_) {}
+  $('c-send').disabled = true;
+  try {
+    const out = await call('compose_send', {key: d.key, fields: {...d.fields, ...fields()}, ...(d.pending?.length && !d.draft ? {pending: d.pending} : {})});
+    d.fields = {...d.fields, ...fields()};
+    $('composer').hidden = true; draft = null;
+    undo(d, out.undo || 10);
+  } catch (err) { cstate(writeError(err), true); }
+  finally { $('c-send').disabled = false; }
+}
+function undo(d, seconds) {
+  clearInterval(undoTimer);
+  let left = seconds;
+  const bar = $('undo-bar'); bar.hidden = false; $('undo').hidden = false; $('undo').textContent = 'Отменить';
+  const tick = () => { $('undo-text').textContent = left > 0 ? `Отправка через ${left} с` : 'Отправляется…'; left--; };
+  tick(); undoTimer = setInterval(() => { tick(); if (left < -1) { clearInterval(undoTimer); $('undo').hidden = true; result(d, 0); } }, 1000);
+  $('undo').onclick = async () => {
+    clearInterval(undoTimer);
+    try {
+      const out = await call('compose_unsend', {key: d.key});
+      if (out.cancelled) { bar.hidden = true; showComposer(d); cstate('Отправка отменена, письмо — снова черновик'); }
+      else { $('undo').hidden = true; result(d, 0); }
+    } catch (err) { $('undo-text').textContent = writeError(err); }
+  };
+}
+async function result(d, tries) {
+  try {
+    const items = (await call('compose_outbox', {})).items || [];
+    const it = items.find(i => i.key === d.key);
+    if (it && (it.state === 'wait' || it.state === 'sending') && tries < 10) { setTimeout(() => result(d, tries + 1), 1500); return; }
+    if (it && it.state === 'sent') { $('undo-text').textContent = 'Письмо отправлено'; setTimeout(() => { $('undo-bar').hidden = true; }, 6000); refreshList(); return; }
+    $('undo-text').textContent = 'Не отправлено' + (it?.error ? ': ' + writeError(it.error) : '') + ' — письмо осталось в черновиках';
+    $('undo').hidden = false; $('undo').textContent = 'Открыть';
+    $('undo').onclick = () => { $('undo-bar').hidden = true; $('undo').textContent = 'Отменить'; showComposer(d); };
+  } catch (err) { if (tries < 10) setTimeout(() => result(d, tries + 1), 3000); }
+}
+$('compose-new').addEventListener('click', () => compose('new'));
+$('composer-close').addEventListener('click', closeComposer);
+$('c-more').addEventListener('click', () => { for (const n of document.querySelectorAll('.cc')) n.hidden = false; $('c-more').hidden = true; $('c-cc').focus(); });
+for (const id of Object.values(fieldIds)) $(id).addEventListener('input', scheduleSave);
+$('c-file').addEventListener('change', e => { const files = [...e.target.files]; e.target.value = ''; attach(files); });
+$('c-send').addEventListener('click', send);
+$('c-discard').addEventListener('click', async () => {
+  if (!draft) return;
+  clearTimeout(saveTimer);
+  try { if (saving) await saving; } catch (_) {}
+  try { await call('compose_discard', {key: draft.key}); $('composer').hidden = true; draft = null; }
+  catch (err) { cstate(writeError(err), true); }
+});
+$('composer').addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); send(); }
+  else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeComposer(); }
+});
+$('undo-close').addEventListener('click', () => { $('undo-bar').hidden = true; });
 function back() {
   if (document.body.dataset.pane === 'reader') { pane('list'); $('threads').children[selected]?.focus(); }
   else { pane(document.body.dataset.pane === 'labels' ? 'list' : 'labels'); }
@@ -260,5 +433,5 @@ coExt.ready.then(ctx => {
   coExt.on('context', nextCtx => { theme(nextCtx); status(); });
   status();
 }).catch(err => error($('connection'), err, () => location.reload()));
-window.addEventListener('pagehide', () => { clearTimeout(timer); statusTicket++; listTicket++; readTicket++; });
+window.addEventListener('pagehide', () => { if (draft) flush().catch(() => {}); clearTimeout(timer); statusTicket++; listTicket++; readTicket++; });
 })();

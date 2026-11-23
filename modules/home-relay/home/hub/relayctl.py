@@ -135,10 +135,12 @@ def registered(args):
     return sorted(n.removesuffix('.json') for n in ssh(args, f'ls {CONF}/modules.d 2>/dev/null || true').split() if n.endswith('.json'))
 
 
-def register(args, module, exec_argv, env_file=None, write=(), only_if=None):
+def register(args, module, exec_argv, env_file=None, write=(), only_if=None, credentials=None):
     """A module's handler for every person's worker (called from the module's own deploy). exec_argv / env_file / write /
     only_if may contain {slug}; write: folders the handler may write (a drop-in of the unit template, '-' = may be missing);
-    only_if: a path that must exist for a person to be served (e.g. the module's own config of that person)."""
+    only_if: a path that must exist for a person to be served (e.g. the module's own config of that person);
+    credentials: {name: encrypted credential path with {slug}} the unit loads for the handler (CREDENTIALS_DIRECTORY;
+    one name means one file for all modules, e.g. the person's account of provider-accounts)."""
     if not MODULE_RE.match(module) or not exec_argv or not str(exec_argv[0]).startswith('/'):
         sys.exit(f'register: bad module {module!r} or command')
     spec = {'exec': [str(a) for a in exec_argv]}
@@ -146,6 +148,12 @@ def register(args, module, exec_argv, env_file=None, write=(), only_if=None):
         spec['envFile'] = env_file
     if only_if:
         spec['if'] = only_if
+    if credentials:
+        for name, path in credentials.items():
+            if not re.fullmatch(r'[a-z][a-z0-9_-]{0,30}', name) or name == 'relay' or \
+                    not re.fullmatch(r'/etc/credstore\.encrypted/[A-Za-z0-9_.{}-]+\.cred', path) or '..' in path:
+                sys.exit(f'register: bad credential {name!r}')
+        spec['credentials'] = dict(credentials)
     paths = []
     for p in write:
         p = str(p).replace('{slug}', '%i')
@@ -160,14 +168,37 @@ def register(args, module, exec_argv, env_file=None, write=(), only_if=None):
         ssh(args, f'sudo tee {drop} >/dev/null', ('[Service]\nReadWritePaths=' + ' '.join(paths) + '\n').encode())
     else:
         ssh(args, f'sudo rm -f {drop}')
+    credentials_dropin(args)
     ssh(args, 'sudo systemctl daemon-reload')
     return restart_running(args)
+
+
+def credentials_dropin(args):
+    """One drop-in credentials.conf with the credentials all registered modules ask for (a name appears once: two
+    modules naming one credential share it; the same name with two different files is refused)."""
+    want = {}
+    for module in registered(args):
+        try:
+            spec = json.loads(ssh(args, f'sudo cat {CONF}/modules.d/{module}.json'))
+        except ValueError:
+            continue
+        for name, path in (spec.get('credentials') or {}).items():
+            if want.setdefault(name, path) != path:
+                sys.exit(f'register: credential {name!r} names two files ({want[name]}, {path})')
+    drop = f'/etc/systemd/system/{UNIT}.d/credentials.conf'
+    if want:
+        body = '[Service]\n' + ''.join(f'LoadCredentialEncrypted={n}:{p.replace("{slug}", "%i")}\n' for n, p in sorted(want.items()))
+        ssh(args, f'sudo tee {drop} >/dev/null', body.encode())
+    else:
+        ssh(args, f'sudo rm -f {drop}')
 
 
 def unregister(args, module):
     if not MODULE_RE.match(module):
         sys.exit(f'unregister: bad module {module!r}')
-    ssh(args, f'sudo rm -f {CONF}/modules.d/{module}.json /etc/systemd/system/{UNIT}.d/{module}.conf; sudo systemctl daemon-reload')
+    ssh(args, f'sudo rm -f {CONF}/modules.d/{module}.json /etc/systemd/system/{UNIT}.d/{module}.conf')
+    credentials_dropin(args)
+    ssh(args, 'sudo systemctl daemon-reload')
     return restart_running(args)
 
 

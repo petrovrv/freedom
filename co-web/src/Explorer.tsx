@@ -223,6 +223,10 @@ ${formatLocal(date)}` : '';
                 className={`ex-item${active ? ' active' : ''}${i === focusIdx ? ' sel' : ''}${it.kind === 'self' ? ' self' : ''}`}
                 title={hint}
                 onPointerDown={onPointerDown}
+                // Tab, a click or the focus after entering a folder: the focused item is the selected one
+                onFocus={() => {
+                  if (focusAt.key !== pathKey || focusAt.item !== it.key) setFocus(i);
+                }}
                 onClick={() => {
                   setFocus(i);
                   // a quick second tap after entering a folder must not open an item of the new folder

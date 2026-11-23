@@ -90,20 +90,25 @@ def deploy(args):
     # one Unix user per person (provider-accounts): every clash is found before any unit is stopped
     for slug in people:
         accountctl.ensure_person(args, slug, adopt=[LEGACY_USER + slug], check=True)
-    users = {}
+    users, was_active = {}, []
     for slug in people:
         if ssh(args, f'id -u {LEGACY_USER + slug} >/dev/null 2>&1 && echo yes || echo no').strip() == 'yes':
+            # also what runs without being enabled (started by hand) comes back below
+            was_active += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:3]) + '; do'
+                                    ' case $(systemctl is-active "$u") in active|activating|reloading) echo "$u";; esac; done').split()
             ssh(args, 'sudo systemctl stop ' + ' '.join(unit_names(slug)))  # a rename is refused while the old user runs
         users[slug] = accountctl.ensure_person(args, slug, adopt=[LEGACY_USER + slug])
     for unit in UNITS:  # stored as name-at.ext: signed module files allow no '@'
         source = HERE / unit.replace('@', '-at')
         ssh(args, f'sudo tee /etc/systemd/system/{unit} >/dev/null', source.read_bytes().replace(b'\r\n', b'\n'))
     ssh(args, 'sudo systemctl daemon-reload')
-    # what a person has enabled runs again (also when an earlier deploy stopped it and failed half way)
+    # what a person has enabled runs again (also when an earlier deploy stopped it and failed half way), and what ran before
     failed = []
     for slug in people:
         failed += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:3]) + '; do'
                             ' if systemctl is-enabled -q "$u"; then sudo systemctl start "$u" || echo "$u"; fi; done').split()
+    if was_active:
+        failed += ssh(args, 'for u in ' + ' '.join(was_active) + '; do sudo systemctl start "$u" || echo "$u"; done').split()
     if failed:
         sys.exit('deployed, but these enabled units did not start (see journalctl -u <unit>): ' + ', '.join(failed))
     print(json.dumps({'deployed': '/opt/concierge-mail', 'units': UNITS, 'users': users}))

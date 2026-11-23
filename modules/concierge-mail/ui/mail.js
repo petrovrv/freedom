@@ -15,7 +15,33 @@ function el(tag, cls, text) {
 function button(text, action) { const b = el('button', '', text); b.type = 'button'; b.addEventListener('click', action); return b; }
 function theme(ctx) { document.documentElement.dataset.theme = ['dark','light'].includes(ctx.theme) ? ctx.theme : ''; }
 function title(n) { coExt.title('Почта' + (n > 0 ? ' (' + n + ')' : '')); }
-function pane(name) { document.body.dataset.pane = name; $('link-bar').hidden = true; }
+// The open letter is one step of history inside the app: Back of Android or the browser returns to the list, and only
+// the next Back leaves the app (the shell's own entry). The header button is "←" only in a letter; in the list it shows
+// the folders (🗂) — leaving the app is the shell's "← Chats".
+let readerEntry = false, popping = false;
+function pane(name) {
+  document.body.dataset.pane = name; $('link-bar').hidden = true;
+  if (name === 'reader' && !readerEntry) { history.pushState({mail: 'reader'}, ''); readerEntry = true; }
+  else if (name !== 'reader' && readerEntry) {
+    readerEntry = false;
+    if (!popping && history.state && history.state.mail === 'reader') history.back();  // drop our entry, nothing else
+  }
+  const b = $('back');
+  b.textContent = name === 'reader' ? '←' : '🗂';
+  b.setAttribute('aria-label', name === 'reader' ? 'К списку писем' : name === 'labels' ? 'Скрыть папки' : 'Папки');
+}
+window.addEventListener('popstate', () => {
+  if (!readerEntry) return;
+  readerEntry = false; popping = true;
+  try { pane('list'); } finally { popping = false; }
+  $('threads').children[selected]?.focus();
+});
+// Esc in a letter (outside a text field) goes to the list; in the list it is left to the shell (= leave the app)
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || document.body.dataset.pane !== 'reader' || !$('composer').hidden || !$('link-bar').hidden) return;
+  if (e.composedPath().some(n => n.matches?.('input,textarea,select,[contenteditable="true"]'))) return;
+  e.preventDefault(); e.stopPropagation(); back();
+}, true);
 function error(target, err, retry) {
   const messages = {offline:'Домашний сервер не отвечает', timeout:'Сервер не успел ответить', not_paired:'Почта ещё не подключена', not_served:'Домашний сервер не обслуживает почту', not_bound:'Ящик на домашнем сервере принадлежит другому окружению', bad_request:'Не удалось прочитать запрос', worker_error:'Не удалось получить почту', no_webcrypto:'Шифрование недоступно в этом браузере', busy:'Слишком много запросов, повторите'};
   target.replaceChildren(el('span', '', messages[err.message] || 'Не удалось загрузить почту'), button('Повторить', retry));

@@ -736,7 +736,7 @@ export default function Shell({ auth }: { auth: Signed }) {
 
   // F15.2: Delete moves the chat with its subchats to the trash; Restore brings them back with trashed parents
   async function trashOrRestore(c: Chat, trash: boolean) {
-    if (!hosts) return;
+    if (!hosts || !!c.trashedUtc === trash) return; // already there
     const scope = trashScope(chats || [], c.chatId, trash);
     if (scope.some((x) => purging.current.has(x.chatId))) {
       alert('The trash is being cleaned up (30 days passed); try again in a moment.');

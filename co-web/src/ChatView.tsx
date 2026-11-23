@@ -1136,7 +1136,15 @@ export default function ChatView(props: Props) {
                 <button className="btn tiny ghost" onClick={() => props.onChatAction('move')}>Move…</button>
               </div>
               <div className="chat-panel-danger">
-                <button className="btn tiny ghost danger" onClick={() => props.onChatAction('delete')}>Delete chat</button>
+                {/* F15.2: Delete moves the chat to the trash; a trashed chat offers Restore and Delete forever */}
+                {chat.trashedUtc ? (
+                  <>
+                    <button className="btn tiny ghost" onClick={() => props.onChatAction('restore')}>Restore from trash</button>
+                    <button className="btn tiny ghost danger" onClick={() => props.onChatAction('purge')}>Delete forever</button>
+                  </>
+                ) : (
+                  <button className="btn tiny ghost danger" onClick={() => props.onChatAction('delete')} title="Moves the chat with its subchats to the trash (restorable for 30 days)">Delete chat</button>
+                )}
               </div>
             </>
           )}

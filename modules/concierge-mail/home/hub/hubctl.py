@@ -134,7 +134,7 @@ LEGACY_CODE = '/opt/concierge-mail-relay-legacy'
 
 def old_relays(args):
     """Persons that still have the 0.8-0.9 Mail page worker (its credential); a failed check ends the command."""
-    out = ssh(args, 'sudo ls /etc/credstore.encrypted')
+    out = ssh(args, "sudo sh -c 'if [ -d /etc/credstore.encrypted ]; then ls /etc/credstore.encrypted; fi'")  # a fresh host: none
     names = [n[len(OLD_RELAY):-len('.cred')] for n in out.split() if n.startswith(OLD_RELAY[:-1] + '.') and n.endswith('.cred')]
     return [n for n in names if SLUG.match(n)]
 
@@ -146,8 +146,10 @@ def keep_old_relay(args):
     unit = f'/etc/systemd/system/{OLD_RELAY}.service'
     ssh(args, f'set -e; if [ ! -d {LEGACY_CODE} ]; then grep -q relay-serve /opt/concierge-mail/modules/concierge-mail/home/mailcli.py;'
               f' sudo cp -a /opt/concierge-mail {LEGACY_CODE}.new; sudo mv {LEGACY_CODE}.new {LEGACY_CODE}; fi; sudo mkdir -p {unit}.d')
-    ssh(args, f'sudo tee {unit}.d/20-legacy-code.conf >/dev/null',
-        ('[Service]\nExecStart=\nExecStart=/usr/bin/python3 ' + LEGACY_CODE +
+    # the person user of 0.9 (an 0.8 template names cmail-%i); a person not renamed yet gets 10-person-user.conf from
+    # _units(), which comes later in the drop-in order and wins
+    ssh(args, f'sudo tee {unit}.d/05-legacy-code.conf >/dev/null',
+        ('[Service]\nUser=aiwb-%i\nGroup=aiwb-%i\nExecStart=\nExecStart=/usr/bin/python3 ' + LEGACY_CODE +
          '/modules/concierge-mail/home/mailcli.py --root /srv/data/mail/%i relay-serve\n').encode())
     ssh(args, 'sudo systemctl daemon-reload')
 
@@ -195,7 +197,8 @@ def _units(args, people, legacy):
         source = HERE / unit.replace('@', '-at')
         ssh(args, f'sudo tee /etc/systemd/system/{unit} >/dev/null', source.read_bytes().replace(b'\r\n', b'\n'))
     for slug in people:
-        for name in unit_names(slug)[2:]:  # the services of the person
+        # the services of the person, and the kept 0.8-0.9 Mail page worker (its template may still name the older user)
+        for name in unit_names(slug)[2:] + [f'{OLD_RELAY}{slug}.service']:
             d = f'/etc/systemd/system/{name}.d'
             if slug in legacy:
                 ssh(args, f'set -e; u={LEGACY_USER + slug}; id -u $u >/dev/null 2>&1 || u={accountctl.person_user(slug)};'

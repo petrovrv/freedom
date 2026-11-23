@@ -1,0 +1,110 @@
+{
+ "format": "freedom-release/1",
+ "version": "0.1.0",
+ "created": "2026-11-23T19:29:32Z",
+ "files": [
+  {
+   "path": "home/calapi.py",
+   "size": 9297,
+   "sha256": "a0c9751c30881fa8759749fa7fe4cccceb3cb0bafa2db51e390bea06deb9a09d"
+  },
+  {
+   "path": "home/calcli.py",
+   "size": 4294,
+   "sha256": "5527caa3dbb01818b584df836353b2164d3039b8673e27874c9ca0eaaaaad10d"
+  },
+  {
+   "path": "home/calstore.py",
+   "size": 20907,
+   "sha256": "6ffa15142b2c97982e3b15a8dc874e2a35d1b31bc3bd8dcce9211dd1028189ba"
+  },
+  {
+   "path": "home/hub/calctl.py",
+   "size": 8319,
+   "sha256": "6fe8a94accb2c2f6ebc47057b3834c19385a094a8aa019b076fea95f0e8bc69b"
+  },
+  {
+   "path": "home/hub/calendar-sync-at.service",
+   "size": 921,
+   "sha256": "d7628502e0c089741a12f7e0191a9ea14c7ffe6fb6a16912c82a6d18f80e260d"
+  },
+  {
+   "path": "home/hub/calendar-sync-at.timer",
+   "size": 178,
+   "sha256": "8becbc6bd302955ad5bb0f3c6ed3d1abc6abf145e0191e8a179e59bae63af7ef"
+  },
+  {
+   "path": "home/providers/__init__.py",
+   "size": 1104,
+   "sha256": "2f6be971ef27c2cf468819ea8cbc5364d86c06846b5e8576b23f99343b23a2b8"
+  },
+  {
+   "path": "home/providers/google.py",
+   "size": 7248,
+   "sha256": "e37ba5528a2a011703417ec8f7ba7cc33072acb57893a369233cbcaef4610861"
+  },
+  {
+   "path": "home/test_calendar.py",
+   "size": 10367,
+   "sha256": "a25a0ca0ddfce754e77b3d1f2a17ac78dde05882bd133d279e99d871ce8a890b"
+  },
+  {
+   "path": "module.json",
+   "size": 1997,
+   "sha256": "3f3b6aba2821b84f081cd339daa020135ce3714a508cec818bc17f2d44bac5bb"
+  },
+  {
+   "path": "README.md",
+   "size": 2853,
+   "sha256": "05c0c20100d637bb268ad79d71eed21e6530bc8a8b244c84fae4055024a1a927"
+  },
+  {
+   "path": "server/ops.php",
+   "size": 3137,
+   "sha256": "8238139144bc44e086b0ec716392f97377f34b52bcd22e623cb6edf39eb02e8a"
+  },
+  {
+   "path": "tests/server.php",
+   "size": 2966,
+   "sha256": "fee4e72622fa3e8fdad5fdbc3bf0d3061c5fb70d58a79b06ba27a7484f7de853"
+  },
+  {
+   "path": "ui/app.css",
+   "size": 5285,
+   "sha256": "00921c7d2c5131d46bbf64fe6ef3ca0716d25a94d12cdac1a6f1911d385ecffc"
+  },
+  {
+   "path": "ui/app.html",
+   "size": 1539,
+   "sha256": "79ae2502b15595f9063f679eb8296a943b1ecff073acdb63342dfe501f35ed29"
+  },
+  {
+   "path": "ui/app.js",
+   "size": 19005,
+   "sha256": "c3d7f89111e9a71a522aea8ef0071fdc1a5730da5ef876b9e57c85ce8a1cfc79"
+  },
+  {
+   "path": "ui/tray.css",
+   "size": 727,
+   "sha256": "88109c3a5b4a8b57828f0dfbee9950d9fb2bab8941c6ec9e3ec491222a7e0927"
+  },
+  {
+   "path": "ui/tray.html",
+   "size": 437,
+   "sha256": "a59ed30fa2fe2b4369a6d30b933c7c8b02923384d9913044bc7395aea0c0f933"
+  },
+  {
+   "path": "ui/tray.js",
+   "size": 2493,
+   "sha256": "b919792566bcbd93313f03f501fb9438c9d05c88e48a5649d8247d23aa1ae77f"
+  }
+ ],
+ "signatures": [
+  {
+   "name": "maintainer-1",
+   "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
+   "sig": "G59QCXZ9ntRaQGF0y5tQuufmqncyoDhNyOpq4KHcy1iP/OBMEaB7upXjOIR8GUGOYNoutkbwogT2iG0hLplGDg=="
+  }
+ ],
+ "module": "calendar"
+}

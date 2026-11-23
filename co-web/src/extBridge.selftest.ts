@@ -124,7 +124,7 @@ console.log('extBridge selftest OK');
   ok('launcher: icon from the manifest', apps[0].icon === '🏠');
   ok('launcher: icon falls back to the first letter', apps[1].icon === 'I' && apps[1].label === 'import…');
   ok('launcher: opens in the centre', shellOpen(apps[0], 'alice', true).href === '/e/alice/m/home/home' && shellOpen(apps[0], 'alice', true).target === 'self');
-  ok('launcher: window page in its own window on a desktop app', shellOpen(apps[2], 'alice', true).target === 'blank' && shellOpen(apps[2], 'alice', true).href === '/ed');
+  ok('launcher: window page in its own window on a desktop app', shellOpen(apps[2], 'alice', true).target === 'blank' && shellOpen(apps[2], 'alice', true).href === '/ed?window=1');
   ok('launcher: window page in the centre in a browser', shellOpen(apps[2], 'alice', false).target === 'self');
   const set = shellSettings([
     ...list,

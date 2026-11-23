@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // node src/appStack.selftest.ts - live and recent apps of the shell (F14e.1).
-import { appKey, exitTarget, findApp, findPage, liveLimit, mountOrder, parseRecent, pruneApps, touchApp, type AppRef } from './appStack.ts';
+import { appKey, envOfPath, exitTarget, findApp, findPage, liveLimit, mountOrder, parseRecent, pruneApps, shellRoute, touchApp, type AppRef } from './appStack.ts';
 import { parseExtMessage, type ModuleInfo } from './extBridge.ts';
 
 let fail = 0;
@@ -48,5 +48,12 @@ ok('a page without app: true is not an app', findApp(mods, a('plain')) === null)
 ok('but it is a page the shell shows', findPage(mods, a('plain'))?.m.id === 'plain' && findPage(mods, a('off')) === null);
 
 ok('ext/1 key: Esc only', parseExtMessage({ ext: 1, t: 'key', key: 'Escape' })?.t === 'key' && parseExtMessage({ ext: 1, t: 'key', key: 'Enter' }) === null);
+
+ok('bare /x/ page goes into the shell', shellRoute('/x/concierge-mail/mail', '', 'env-a') === '/e/env-a/m/concierge-mail/mail');
+ok('trailing slash too', shellRoute('/x/smart-home/home/', '', 'env-a') === '/e/env-a/m/smart-home/home');
+ok('a query keeps the bare page', shellRoute('/x/study/view', '?doc=1', 'env-a') === null);
+ok('a desktop window keeps the bare page', shellRoute('/x/concierge-mail/mail', '?window=1', 'env-a') === null);
+ok('other addresses are not touched', shellRoute('/geo', '', 'env-a') === null && shellRoute('/x/a', '', 'env-a') === null);
+ok('environment of a shell address', envOfPath('/e/env-b/p/x/c/y') === 'env-b' && envOfPath('/x/a/b') === '');
 
 if (fail) throw new Error(`appStack selftest: ${fail} failed`);

@@ -472,6 +472,7 @@ export function shellSettings(modules: ModuleInfo[]): ShellSetting[] {
  * (blank → the module address); everywhere else the app fills the centre of CO Web like any ui.page.
  */
 export function shellOpen(app: Pick<ShellApp, 'm' | 'ui'>, env: string, desktop: boolean): { href: string; target: 'self' | 'blank' } {
-  if (desktop && app.ui.window) return { href: app.ui.path || `/x/${app.m.id}/${app.ui.id}`, target: 'blank' };
+  // ?window=1: the bare page in its own window, not the shell (appStack shellRoute)
+  if (desktop && app.ui.window) return { href: `${app.ui.path || `/x/${app.m.id}/${app.ui.id}`}?window=1`, target: 'blank' };
   return { href: `/e/${env}/m/${app.m.id}/${app.ui.id}`, target: 'self' };
 }

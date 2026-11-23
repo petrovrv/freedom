@@ -17,6 +17,8 @@ import { fileService } from './moduleServices';
 import type { ChatEvent } from './types';
 
 import { useInterval } from './hooks';
+import { useNavigate } from 'react-router-dom';
+import { envOfPath, shellRoute } from './appStack';
 import { APP_REFRESH } from './appEvents';
 import { setImportSources } from './importPoint';
 
@@ -197,6 +199,7 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
   calls.current = coreCalls;
   const hintCb = useRef(onHint);
   hintCb.current = onHint;
+  const routerNav = useNavigate();
   const escCb = useRef(onEscape);
   escCb.current = onEscape;
   const activeRef = useRef(active);
@@ -395,7 +398,13 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
     } else if (r.t === 'navigate') {
       const url = navTarget(mod.current, r.url, window.location.href);
       if (!url) return;
-      if (r.target === 'blank') window.open(url, '_blank', 'noopener');
+      if (r.target === 'blank') { window.open(url, '_blank', 'noopener'); return; }
+      // F14e.1: an app page of this site opens in the shell as a new history entry (Back and "← Chats" return here);
+      // a full reload with replace left a bare page with no way back (the mail tray chip, 23.11)
+      const u = new URL(url);
+      const inShell = u.origin === window.location.origin
+        ? shellRoute(u.pathname, u.search, envOfPath(window.location.pathname)) : null;
+      if (inShell) routerNav(inShell);
       else window.location.replace(url);
     } else if (r.t === 'title') {
       if (mode === 'fill' && ui.slot === 'ui.page') {

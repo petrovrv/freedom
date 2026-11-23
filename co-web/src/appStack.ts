@@ -94,3 +94,22 @@ export function mountOrder(live: AppRef[], seq: Map<string, number>): AppRef[] {
   for (const a of [...live].reverse()) if (!seq.has(appKey(a))) seq.set(appKey(a), next++);
   return [...live].sort((x, y) => seq.get(appKey(x))! - seq.get(appKey(y))!);
 }
+
+/**
+ * The shell address of a full-window module page /x/<module>/<page> (from a tray chip, a push, a bookmark or a link in
+ * a message), or null to keep the bare page. Without the shell such a page has no app bar, no Back/Esc and no way back
+ * to the chats (seen 23.11 with the mail). A query stays on the bare page (app pages of the shell take no parameters);
+ * a desktop app's own window (F14e.2) is opened with ?window=1 for that reason.
+ */
+export function shellRoute(pathname: string, search: string, env: string): string | null {
+  if (search && search !== '?') return null;
+  if (!env) return null;
+  const x = /^\/x\/([a-z0-9][a-z0-9-]{0,62})\/([A-Za-z0-9._-]{1,40})\/?$/.exec(pathname);
+  return x ? `/e/${encodeURIComponent(env)}/m/${x[1]}/${x[2]}` : null;
+}
+
+/** The environment of a shell address /e/<env>/... ('' elsewhere). */
+export function envOfPath(pathname: string): string {
+  const m = /^\/e\/([^/]+)/.exec(pathname);
+  return m ? decodeURIComponent(m[1]) : '';
+}

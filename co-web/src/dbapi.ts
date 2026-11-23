@@ -1247,6 +1247,11 @@ export async function dbInbox(env: string): Promise<{ items: InboxItem[]; unread
 }
 
 // 0.81.0: Yes / No of a confirmation card (the chat message "<code> да|нет" is sent by the chat itself)
+/** F14b-1: actions agents ran in apps of my environment after seq `since` (-1: only the current seq). */
+export async function dbAppEvents(since: number): Promise<Record<string, any>> {
+  return rawCall('app_events', { since });
+}
+
 export async function dbActionDecide(id: number, decision: 'approved' | 'denied'): Promise<void> {
   await rawCall('action_decide', { id, decision });
 }

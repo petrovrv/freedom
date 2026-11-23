@@ -72,6 +72,28 @@ class ModulesTest(unittest.TestCase):
         for want in ("id:", "ext", "ui entry", "Drop-Table", "server.ops.evil", "personal.default", "additive"):
             self.assertIn(want, p)
 
+    def test_actions(self):
+        # F14b-1: actions of the app for the agent are user ops of the module with a description and outward
+        m = self.man()
+        user = m["server"]["ops"]["user"]
+        m["provides"]["actions"] = [{"op": user[0], "description": "read it", "outward": False,
+                                     "args": {"type": "object", "properties": {"day": {"type": "string"}}, "required": ["day"]}}]
+        self.write_man(m)
+        self.assertEqual(fm.check(self.root), [])
+        m["provides"]["actions"] += [{"op": "nope_op", "description": "x", "outward": False},
+                                     {"op": user[0], "description": "twice", "outward": False},
+                                     {"op": user[-1], "outward": "no"},
+                                     {"op": user[-1], "description": "x", "outward": True,
+                                      "args": {"type": "object", "properties": {"l": {"type": "array"}}, "required": ["z"]}}]
+        self.write_man(m)
+        p = " | ".join(fm.check(self.root))
+        for want in ("'nope_op'", "declared twice", "description for the agent", "outward true|false",
+                     "argument 'l'", "required must list"):
+            self.assertIn(want, p)
+        m["provides"]["actions"] = {"op": user[0]}
+        self.write_man(m)
+        self.assertIn("provides.actions must be a list", fm.check(self.root))
+
     def test_device_tools(self):
         (self.root / "device").mkdir()
         (self.root / "device" / "hello.py").write_text("print('{}')\n")

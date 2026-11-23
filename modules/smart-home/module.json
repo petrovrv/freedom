@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "id": "smart-home",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "title": "Дом",
-  "description": "Home app: rooms, lights and sockets, sensor readings, thermostat targets and Zigbee pairing; a tray chip while pairing runs.",
+  "description": "Home app: rooms, lights and sockets, sensor readings, thermostat targets and Zigbee pairing; a tray chip while pairing runs; the agent reads the state of the house through the app action home_state.",
   "ext": ">=1 <2",
   "scope": "household",
   "platforms": [
@@ -53,6 +53,52 @@
     ],
     "navigate": [
       "/x/smart-home/home"
+    ],
+    "actions": [
+      {
+        "op": "home_state",
+        "outward": false,
+        "description": "State of the house: every light, socket, sensor and thermostat (entity id, name, room, state, attributes, actions a person may run on it) and whether the home worker is online. Read only.",
+        "args": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "op": "home_control",
+        "outward": true,
+        "description": "Switch a light or socket on/off or set a thermostat target. Acts on devices of the house, so only a person runs it (from the Home app).",
+        "args": {
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "string",
+              "description": "entity id from home_state, e.g. light.kitchen"
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "turn_on",
+                "turn_off",
+                "set_temperature"
+              ]
+            },
+            "value": {
+              "type": "number",
+              "description": "target temperature for set_temperature"
+            },
+            "requestKey": {
+              "type": "string",
+              "description": "16-80 characters [A-Za-z0-9-], the same key repeats nothing"
+            }
+          },
+          "required": [
+            "entity",
+            "action",
+            "requestKey"
+          ]
+        }
+      }
     ]
   },
   "server": {

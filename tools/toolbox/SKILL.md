@@ -1,7 +1,7 @@
 ---
 name: toolbox
-description: Manage this tool library — search for an existing tool, create a new one from the template, validate, security-scan tools (secrets, hosts, remote exec, TLS off, writes), regenerate INDEX.md, commit, archive an unused tool; tools of Freedom modules (install a tool from a module or export folder, module on/off/remove — tools of a switched-off module are refused by the MCP server).
-version: 1.7.0
+description: Manage this tool library — search for an existing tool, create a new one from the template, validate, security-scan tools (secrets, hosts, remote exec, TLS off, writes), regenerate INDEX.md, commit, archive an unused tool; tools of Freedom modules (install a tool from a module or export folder, module on/off/remove — tools of a switched-off module are refused by the MCP server); MCP tools app_list / app_action - actions of Freedom apps for the agent with the rights of the job's environment.
+version: 1.8.0
 entry: toolbox.py
 requires: [git]
 secrets: []
@@ -45,6 +45,16 @@ python toolbox/toolbox.py modules [--json]
 - Копия библиотеки на сайте (`site-sync`) файла состояния не получает: выключенный модуль на сайте пока не отключает инструмент.
 - Тест: `python toolbox/tests/test_modules.py` (временная библиотека; `AIWB_CLAUDE_MD`, `AIWB_AGENTS_MD`, `AIWB_TOOL_MODULES` уводят записи от настоящих файлов).
 
+## Действия приложений для агента (с 1.8.0)
+
+`mcp_server.py` (`aiwb-tools`) кроме `tool_list/tool_help/tool_run` даёт агенту `app_list` и `app_action` (`apps.py`, Freedom F14b-1, SPEC §3.6a п. 5). Приложение (модуль Freedom) описывает в `module.json` → `provides.actions` часть своих операций `server.ops.user`: `{op, description, args, outward}`.
+
+- `app_list` — приложения окружения задания с действиями: описание, схема аргументов, флаг `outward`.
+- `app_action {app, action, args}` — выполняет действие так, как его выполнил бы человек этого окружения из приложения (те же права, ответ модуля как есть). После действия открытые страницы приложения в CO Web получают событие ext/1 `refresh`.
+- Кто: сервер (`db.php` host ops `app_list`/`app_action`, `co-agent/web/agent/apps-lib.php`) берёт окружение, чат и права из строки задания `AIWB_JOB_ID`; задание должно ещё идти. Ключ хоста — `AIWB_DB_KEY_FILE` на сайте, keyring `aiwb/co-push` дома; адрес — `AIWB_DB_URL` или `site.url` из install.json.
+- Отказы: `outward: true` (действует вне Workbench: письма, чужие календари, устройства дома) — только нажатием человека (карточка в «Waiting for you» — F14b-2); общий чат, чат под ним или задание `restricted` — ни списка, ни действий; чат только для чтения (`permissions.files: read`) — список есть, действий нет; модуль выключен или выключен человеком — его нет.
+- Тест: `python -m pytest toolbox/tests/test_apps.py` (поддельный db.php на 127.0.0.1).
+
 ## Проверка безопасности (с 1.5.0)
 
 Статический разбор кода инструмента (`security.py`, только stdlib): `.py` — через `ast`, `.ps1`, `.js`, `.mjs`, `.ts`, `.sh`, `.cmd`, `.bat` — регулярными выражениями по строкам (строки-комментарии пропускаются). Запуск — `scan`, а также в составе `check` (вся библиотека) и `commit` (коммитируемые инструменты). Ошибка (`error`) даёт код выхода 1, предупреждение (`warn`) только печатается.
@@ -84,6 +94,7 @@ security:
 
 ## История
 
+- 1.8.0 — 2026-11-23 — Freedom F14b-1: инструменты MCP `app_list` и `app_action` (`apps.py`) — действия приложений Freedom для агента через `db.php` с id задания; outward-действия отказываются.
 - 1.7.0 — 2026-11-12 — Freedom F10: инструменты модулей — команды `install --from`, `module --state`, `modules`; `modstate.py` (файл `tool-modules.json` рядом с install.json); `mcp_server.py` отказывает инструментам выключенного модуля, блок CLAUDE.md/AGENTS.md их не показывает; `AIWB_CLAUDE_MD`/`AIWB_AGENTS_MD` для тестов. Без файла состояния поведение прежнее.
 - 1.6.2 — 2026-11-12 — Freedom: в коде нет личных имён — свой домен в `ALLOWED_HOSTS` берётся из install.json (`site.url` и родительский домен; `AIWB_SITE_URL`, `AIWB_ALLOWED_HOSTS`), разрешённые папки записи — из `%LOCALAPPDATA%` текущего пользователя, папка hz.py — `AIWB_HZ_DIR` или `~/.ssh` (исключение `write-outside` для неё больше не нужно), Python для hz.py — anaconda, если есть, иначе текущий. Результат `scan` у владельца прежний.
 - 1.6.1 — 2026-11-11 — `mcp_server.py`: в `requires` проверяются как Python-модули только голые pip-спецификации (`openpyxl`, `pint>=0.20`); описания программ («node 22+», «Microsoft Edge», «playwright (npm, local)») больше не делают инструмент «недоступным»; запятые внутри скобок и кавычек не режут элемент списка. Повод: S2, `tool_run browser-agent` с Site через relay отвечал «missing python modules: node 22+…».

@@ -8,6 +8,9 @@ import { useEffect, useRef, useState } from 'react';
 import { appKey, findApp, findPage, LAUNCHER_OPEN, mountOrder, type AppRef } from './appStack';
 import type { ModuleInfo, ShellApp } from './extBridge';
 import { ModuleFrame, type CoreCalls } from './ModuleSlot';
+import { APP_EVENTS_MS, APP_REFRESH, takeAppEvents } from './appEvents';
+import { dbAppEvents } from './dbapi';
+import { useInterval } from './hooks';
 
 /** Icons of recent apps (the header on a computer, the app bar everywhere); the current one is marked. */
 export function RecentApps({ modules, recent, current, onOpen, className = '' }: {
@@ -52,6 +55,18 @@ export default function AppHost({ modules, env, live, current, recent, me, owner
   useEffect(() => {
     if (!current) document.title = baseTitle.current;
   }, [current]);
+  // F14b-1: an agent's action in an app of my environment refreshes the open pages of that app (and its tray chip)
+  const cursor = useRef(-1);
+  const polling = useRef(false);
+  useInterval(() => {
+    if (polling.current) return;
+    polling.current = true;
+    dbAppEvents(cursor.current).then((r) => {
+      const t = takeAppEvents(cursor.current, r);
+      cursor.current = t.cursor;
+      for (const x of t.refresh) window.dispatchEvent(new CustomEvent(APP_REFRESH, { detail: x }));
+    }).catch(() => undefined).finally(() => { polling.current = false; });
+  }, APP_EVENTS_MS, live.length > 0);
   // sessions of unloaded frames go with them (a page opened again starts a fresh session)
   const mounted = new Set(live.filter((a) => a.env === env).flatMap((a) => {
     const app = findPage(modules, a);

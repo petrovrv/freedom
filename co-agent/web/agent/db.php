@@ -23,6 +23,7 @@ require_once __DIR__ . '/browser-lib.php';
 require_once __DIR__ . '/search-lib.php';
 require_once __DIR__ . '/family-lib.php';
 require_once __DIR__ . '/modules-lib.php';
+require_once __DIR__ . '/apps-lib.php';
 require_once __DIR__ . '/models-lib.php';
 require_once __DIR__ . '/subs-lib.php';
 require_once __DIR__ . '/executors-lib.php';
@@ -955,6 +956,16 @@ try {
         }
     }
 
+    // F14b-1 (apps-lib.php, SPEC §3.6a item 5): actions of apps for an agent job (core tool aiwb-apps): the job's own env
+    if ($op === 'app_list' || $op === 'app_action') {
+        co_db_host_auth();
+        try {
+            co_json(200, $op === 'app_list' ? co_app_list(co_db(), $in) : co_app_action(co_db(), $in));
+        } catch (InvalidArgumentException $e) {
+            co_json(400, ['error' => $e->getMessage()]);
+        }
+    }
+
     if (in_array($op, ['models_host', 'model_register', 'model_unregister', 'subtask_spawn', 'subtask_poll'], true)) {
         co_db_host_auth();
         try {
@@ -980,7 +991,8 @@ try {
             'followup_add', 'followup_list', 'followup_take', 'followup_done', 'followup_cancel',
             'inbox', 'inbox_mark', 'action_decide', 'autoswitch', 'tool_candidates', 'tool_decide', 'executors', 'executor_set',
             'related', 'dossier_context', 'dossier_get', 'dossier_put', 'browser_defaults', 'family_state', 'family_read', 'members',
-            'models_list', 'model_set', 'model_delete', 'subs_put', 'modules_list', 'module_set', 'module_person'];
+            'models_list', 'model_set', 'model_delete', 'subs_put', 'modules_list', 'module_set', 'module_person',
+            'app_list', 'app_action', 'app_events'];
     // Schema 27 (modules-lib.php, Freedom F10): an op the core does not know may belong to an enabled module (manifest
     // server.ops.user); core names always win
     $moduleOp = !in_array($op, $coreOps, true);
@@ -1056,6 +1068,10 @@ try {
         $env = isset($in['env']) ? co_module_in_str($in, 'env', 64) : $myEnv;
         if ($env !== $myEnv && !$owner) co_json(403, ['error' => 'forbidden']);
         co_json(200, co_module_person_set($db, co_module_in_str($in, 'id', 64), $env, co_module_in_str($in, 'mode', 8), $myEnv));
+    }
+    // F14b-1: pages of apps refresh after an agent's action (CO Web polls while an app is open)
+    if ($op === 'app_events') {
+        co_json(200, co_app_events($db, $myEnv, db_int($in, 'since', -1, -1, PHP_INT_MAX)));
     }
     if ($moduleOp) {
         co_json(200, co_module_call($db, 'user', $op, $in, $myEnv, $owner, $email) ?? ['error' => 'unknown_op']);

@@ -331,6 +331,40 @@ def check_ext1(m: dict, root: pathlib.Path) -> list:
             r = str(x["run"])
             if not re.fullmatch(r"[A-Za-z0-9._/-]+\.py", r) or ".." in r or not (root / r).is_file():
                 p.append(f"service {x.get('id', '')!r}: run {r!r} must be a .py file of the module")
+    # F14b-1 (SPEC §3.6a item 5): actions of the app for the agent - user ops of the module itself, described for the
+    # agent, with a flat argument schema and outward true|false (outward: only the person's click runs it)
+    acts = prov.get("actions", [])
+    if not isinstance(acts, list):
+        p.append("provides.actions must be a list")
+        acts = []
+    user_ops = ((m.get("server") or {}).get("ops") or {}).get("user") or []
+    seen = set()
+    for x in acts:
+        op = str((x or {}).get("op", "")) if isinstance(x, dict) else ""
+        if not isinstance(x, dict) or op not in user_ops:
+            p.append(f"action {x!r}: op must be one of server.ops.user")
+            continue
+        if op in seen:
+            p.append(f"action {op}: declared twice")
+        seen.add(op)
+        d = x.get("description")
+        if not is_str(d) or len(d) > 500:
+            p.append(f"action {op}: description for the agent needed (up to 500 characters)")
+        if not isinstance(x.get("outward"), bool):
+            p.append(f"action {op}: outward true|false needed (true = acts outside the workbench, only a person runs it)")
+        a = x.get("args", {"type": "object", "properties": {}})
+        props = a.get("properties", {}) if isinstance(a, dict) else None
+        if not isinstance(a, dict) or a.get("type", "object") != "object" or not isinstance(props, dict):
+            p.append(f"action {op}: args must be an object schema with properties")
+            continue
+        for k, v in props.items():
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,40}", k) or not isinstance(v, dict)                     or v.get("type") not in ("string", "integer", "number", "boolean"):
+                p.append(f"action {op}: argument {k!r} needs type string|integer|number|boolean")
+            elif "enum" in v and not isinstance(v["enum"], list):
+                p.append(f"action {op}: argument {k} enum must be a list")
+        req = a.get("required", [])
+        if not isinstance(req, list) or any(r not in props for r in req):
+            p.append(f"action {op}: required must list arguments of properties")
     return p
 
 

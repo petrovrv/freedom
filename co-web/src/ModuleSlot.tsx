@@ -17,6 +17,7 @@ import { fileService } from './moduleServices';
 import type { ChatEvent } from './types';
 
 import { useInterval } from './hooks';
+import { APP_REFRESH } from './appEvents';
 import { setImportSources } from './importPoint';
 
 /** Handlers of generic core calls ("core.<point>.<call>") a slot offers its pages; refused unless the manifest declares the permission. */
@@ -258,6 +259,15 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
     window.addEventListener('blur', f);
     return () => window.removeEventListener('blur', f);
   }, [ui.slot, m.permissions]);
+  // ext/1 F14b-1: an agent ran an action of this module (appEvents.ts): its pages load their data again
+  useEffect(() => {
+    const f = (e: Event) => {
+      const d = (e as CustomEvent<{ module: string; actions: string[] }>).detail;
+      if (d?.module === m.id) send({ t: 'event', type: 'refresh', data: { by: 'agent', actions: d.actions } });
+    };
+    window.addEventListener(APP_REFRESH, f);
+    return () => window.removeEventListener(APP_REFRESH, f);
+  }, [m.id, send]);
   useEffect(() => {
     if (ui.slot !== 'ui.composer') return;
     const f = () => {

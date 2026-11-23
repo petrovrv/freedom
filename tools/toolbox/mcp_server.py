@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Minimal MCP stdio server exposing the AIWB CLI tool library (stdlib only, Python 3.9+).
 
-toolbox 1.4.0 (1.7.0: tools of switched-off modules are unavailable, modstate.py). Registered as MCP server "aiwb-tools" for Claude Code and Codex on the home PC and on the site agent
+toolbox 1.4.0 (1.7.0: tools of switched-off modules are unavailable, modstate.py; 1.8.0: app_list / app_action,
+actions of Freedom apps for the agent, apps.py). Registered as MCP server "aiwb-tools" for Claude Code and Codex on the home PC and on the site agent
 (the CO site of the install), so every agent sees the same library: tool_list, tool_help (SKILL.md), tool_run.
 """
 import importlib.util
@@ -17,6 +18,10 @@ try:
     import modstate  # toolbox 1.7.0: tools of switched-off Freedom modules
 except ImportError:  # an older copy of the library without it
     modstate = None
+try:
+    import apps  # toolbox 1.8.0: actions of apps (Freedom F14b-1)
+except ImportError:
+    apps = None
 
 ROOT = os.path.abspath(os.environ.get("AIWB_TOOLS")
                        or os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -31,7 +36,8 @@ DEFAULT_PROTOCOL = "2025-06-18"
 INSTRUCTIONS = ("This server exposes a library of local CLI tools. Always call tool_list (optionally with a "
                 "query) to discover tools, then tool_help to read a tool's SKILL.md (usage, arguments, "
                 "outputs) BEFORE calling tool_run. tool_run executes the tool's script with the arguments you "
-                "pass; tools write files only where you tell them (via arguments or cwd).")
+                "pass; tools write files only where you tell them (via arguments or cwd). app_list / app_action "
+                "use the apps of the AI Workbench environment (Home, Calendar, ...) the way the person would.")
 
 _OUT = sys.stdout.buffer
 sys.stdout = sys.stderr  # protect the protocol channel from stray prints
@@ -240,6 +246,9 @@ TOOLS = [
          "timeout_sec": {"type": "integer", "default": 300, "minimum": 1, "maximum": 1800},
          "stdin": {"type": "string"}}, "required": ["name", "args"]}},
 ]
+if apps is not None:
+    HANDLERS.update(apps.HANDLERS)
+    TOOLS += apps.TOOLS
 
 
 def handle(msg):

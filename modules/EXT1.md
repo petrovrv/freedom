@@ -18,6 +18,7 @@ Base fields (`id`, `version`, `ext`, `scope`, `permissions`, `personal`, `server
 | `messageViews[]` | `{match, label, strip[]?, replace[[re, text]]?}` | how a person sees user messages a module page wrote: when the regex `match` matches the text, the bubble shows `label` (`$1`… = groups of `match`) as a tag and the text with `match` and every `strip` regex removed and `replace` pairs applied. The agent gets the full text. |
 | `sideJobs[]` | `{key, label, list?, item?, count?, countNoun?}` | jobs the module's server code queues into a chat with `request.<key> = {path, file}`: the question and the answer collapse into one row `label` (they never hold back the chat's own messages and never wait in the inbox). `list/item/count/countNoun`: the answer is JSON (last fenced block) with an array `list` of objects; the row shows `item` of each and the size of its `count` array (`countNoun`). |
 | `navigate[]` | `"https://origin"` \| `"/path"` \| `{config: key}` | where a page may send the whole window (`navigate` below): an origin, a path of this site, or the origin of a value of the module's install config. |
+| `actions[]` | `{op, description, args?, outward}` | **app actions for the agent** (F14b-1, section "App actions" below): user ops of the module (`server.ops.user`) an agent may call through the core tools `app_list` / `app_action`. `args` is a flat JSON schema (`properties` of type string \| integer \| number \| boolean, `enum`, `required`); `outward` (required) — true when the op acts outside the workbench (mail, calendars of others, devices of the house): such an op only a person runs. |
 | `notify[]` | `{id, hooks: ["push"]}` | **notify**: the server entry's `notify[<id>]['push']` gets `(ctx, {envs, title, body, url, tag})` for every push the server sends (job finished, confirmations, family chats, alerts; `[[silent]]` ones never), whether or not the person has a subscribed device — e.g. to write it to them in a messenger. Optional hook `status` gets `(ctx, {env})` and returns `{ready, note?}`: whether this channel reaches the person now. Each hook is a delivery channel `<module>/<id>` next to the core's `devices`: push.php `op=channels {env}` (push key) lists them, `op=notify` with `channels: [...]` sends only there (without it: everywhere) and answers `modules: {<channel>: true|false}` (the hook ran without an error). Only standard modules; a failing hook never stops the push. |
 
 `installConfig {key: "install.json path"}` (top level): values the installer copies from the owner's `install.json`
@@ -89,9 +90,38 @@ a **service** without a screen (`services`, `deviceTools`, `context`, `tools`).
   op that starts the program; elsewhere the page says where it runs, and agents use the program's functions as device
   tools. Example: `photostudio`.
 - **Open with** — `fileActions` (above): a file of a chat opens in the app that declared its extension.
+- **App actions** (F14b-1) — see "App actions for the agent" below: the agent uses an app the way its person does, and
+  the open pages of the app get the event `refresh` after an action.
 
 Example (`smart-home`): `{ "slot": "ui.page", "id": "home", "entry": "ui/home.html", "title": "Дом", "app": true,
 "icon": "🏠", "label": "Дом" }` plus a tray page that shows a chip only while Zigbee pairing runs.
+
+## App actions for the agent (F14b-1, SPEC §3.6a item 5)
+
+An app describes some of its user ops as actions (`provides.actions`); an agent job calls them with the rights of the
+person of the job's environment, as if the person pressed the button in the app. No page is needed for an action.
+
+- **Agent side**: the MCP server `aiwb-tools` (core tool `toolbox` 1.8.0+, on the home PC and on the site) has
+  `app_list` (apps of the environment with their actions, schemas and `outward`) and `app_action {app, action, args}`
+  (runs one action, returns the module's answer). It sends the job id (`AIWB_JOB_ID`) with the host key to `db.php`
+  host ops `app_list` / `app_action` (`co-agent/web/agent/apps-lib.php`).
+- **Who**: the server takes the environment, the chat and the person's rights from the job's row in `jobs`, never
+  from the caller; the job must still run. The handler gets the usual context (`myEnv`, `owner`, `email` of the
+  person) plus `actor: "agent"` and `jobId`, and checks access itself exactly as for a page call. A member's job acts
+  only in the member's own environment.
+- **Refused**: `outward: true` (only the person's click; F14b-2 brings a card in "Waiting for you" with a one-time
+  permission), a job of a shared chat, of a chat below one or queued restricted (no list, no actions), a read-only
+  chat (`permissions.files: read`: list only), a module switched off or switched off by the person (`personal` off).
+  The core also refuses arguments outside the action's schema (`args.x ...`) before the handler sees them.
+- **Refresh**: after a successful action the server records an app event of the environment (`kv env/<env>
+  app-events`); CO Web asks for new ones (user op `app_events {since}`, every 5 s while an app is alive and the tab
+  is visible) and sends every frame of that module (the app page and its tray page) the event
+  `coExt.on('refresh', fn)` with `{by: "agent", actions: [...]}`. A page loads its data again. Windows of CO Desktop
+  get it with F14e.2.
+- Every action is written to the module journal (`module_log`, action `action`).
+
+Example (`smart-home` 0.4.0): `home_state` (read the house, `outward: false`) and `home_control` (switch a device,
+`outward: true` — the agent is refused and asks the person).
 
 ## Device parts compiled into CO Desktop
 
@@ -116,7 +146,7 @@ A page includes `/ext/ext1.js` and talks through `window.coExt`:
 - `coExt.navigate(url, target)` — `self` (whole window) or `blank` (new tab/window).
 - `coExt.title(text)` — window title of a `ui.page` (applied while the app is shown).
 - `coExt.badge(v)` — the module's badge in the shell (count on its app tile, dot on ▦); `0`/blank/`null` clears it.
-- `coExt.on('context'|'blur'|'chat', fn)`.
+- `coExt.on('context'|'blur'|'chat'|'refresh', fn)` — `refresh`: an agent ran an action of this app (F14b-1).
 
 Composer slot (`ui.composer`, a page in the action row of the message box; CO Web captures for the frame, which has an
 opaque origin): `coExt.input`/`focusInput` (`composer.input`), `coExt.audio.start(maxSeconds, {silenceMs})`/`stop`/`cancel`

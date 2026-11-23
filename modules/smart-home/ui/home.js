@@ -101,6 +101,8 @@ $('kinds').onclick=e=>{const b=e.target.closest('button');if(!b)return;kind=b.da
  for(const x of $('kinds').children)x.classList.toggle('selected',x===b);render();};
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
 window.addEventListener('focus',()=>{if(!document.hidden)refresh();});
+// ext/1 F14b: an agent ran an action of this app (core event refresh)
+coExt.on('refresh',()=>{lastRefresh=0;refresh();});
 function renderPair(){
  const b=$('pair'),s=pair.state;
  $('pair-label').textContent=pair.text();b.className='secondary pair '+s.state;

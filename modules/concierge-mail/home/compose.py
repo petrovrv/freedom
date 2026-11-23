@@ -310,6 +310,11 @@ class Composer:
                 quote_text = '\n\n' + lead + '\n' + '\n'.join('> ' + line for line in body.splitlines())
                 quote_html = ('<br><br><div>' + htmllib.escape(lead) + '</div><blockquote style="margin:0 0 0 .8ex;'
                               'border-left:1px solid #ccc;padding-left:1ex">' + (orig['html'] or _html_of_text(body)) + '</blockquote>')
+        if orig is None and fields.get('base_irt') and not re.search(r'[\r\n\x00]', fields['base_irt'] + fields.get('base_refs', '')):
+            # a reply written elsewhere and edited here keeps its place in the conversation
+            msg['In-Reply-To'] = fields['base_irt']
+            if fields.get('base_refs'):
+                msg['References'] = fields['base_refs'][-4000:]
         sig_text = ('\n\n-- \n' + _text_of_html(sig)) if sig and fields.get('signature', True) else ''
         sig_html = ('<br><br><div>' + sig + '</div>') if sig and fields.get('signature', True) else ''
         msg.set_content(text + sig_text + quote_text)
@@ -578,11 +583,19 @@ class Composer:
         if not ID_RE.fullmatch(did):
             raise ValueError('bad draft')
         row = self.db.execute('SELECT * FROM compose WHERE account=? AND draft_id=?', (self.account, did)).fetchone()
-        if row:
-            return {'key': row['key'], 'fields': _page(json.loads(row['fields'])), 'attachments': self._public(json.loads(row['attachments'])),
-                    'draft': row['draft_id'], 'saved': row['updated']}
         data = self.gmail().draft_raw(did)
         message = data.get('message') or {}
+        if row and row['message_id'] and row['message_id'] == message.get('id'):
+            # the draft at the provider is still the one saved from here
+            return {'key': row['key'], 'fields': _page(json.loads(row['fields'])), 'attachments': self._public(json.loads(row['attachments'])),
+                    'draft': row['draft_id'], 'saved': row['updated']}
+        if row:
+            # changed in Gmail since (every save there makes a new message): the provider's version wins
+            if self._waiting(row['key']):
+                raise ValueError('already sending')
+            self._drop_upload(row['key'])
+            with self.db:
+                self.db.execute('DELETE FROM compose WHERE key=?', (row['key'],))
         raw = base64.urlsafe_b64decode((message.get('raw') or '') + '==')
         if not raw:
             raise LookupError('no draft')
@@ -600,7 +613,8 @@ class Composer:
         # base*: kept here only (never sent to the page)
         fields = {'kind': 'new', 'to': str(mail.get('To') or ''), 'cc': str(mail.get('Cc') or ''), 'bcc': str(mail.get('Bcc') or ''),
                   'subject': str(mail.get('Subject') or ''), 'text': text, 'quote': False, 'signature': False,
-                  'base': base, 'base_text': text, 'base_atts': sorted(a['sha'] for a in attachments)}
+                  'base': base, 'base_text': text, 'base_atts': sorted(a['sha'] for a in attachments),
+                  'base_irt': str(mail.get('In-Reply-To') or '').strip(), 'base_refs': str(mail.get('References') or '').strip()}
         key = secrets.token_hex(16)
         with self.db:
             self.db.execute('INSERT INTO compose(key,account,draft_id,message_id,thread_id,fields,attachments,updated) VALUES(?,?,?,?,?,?,?,?)',
@@ -682,10 +696,6 @@ class Composer:
                 continue  # cancelled (or sent again) at the last moment
             try:
                 out = self.gmail().draft_send(draft_id)
-                with db:
-                    if db.execute("UPDATE outbox SET state='sent', sent_id=?, updated=? WHERE key=? AND state='sending'",
-                                  (out.get('id') or '', self.clock(), r['key'])).rowcount:
-                        db.execute('DELETE FROM compose WHERE key=?', (r['key'],))
             except NeedsConsent:
                 with db:
                     db.execute("UPDATE outbox SET state='failed', error='needs_consent', updated=? WHERE key=?", (self.clock(), r['key']))
@@ -700,6 +710,13 @@ class Composer:
             except Exception as exc:  # noqa: BLE001 - a definite refusal: the person sees it and the draft stays
                 with db:
                     db.execute("UPDATE outbox SET state='failed', error=?, updated=? WHERE key=?", (str(exc)[:200], self.clock(), r['key']))
+            else:
+                # sent: a database error here propagates, the row stays 'sending', and the sender loop turns it into
+                # 'unknown' (settled by the Message-ID in Sent) — never into 'failed', which would allow a resend
+                with db:
+                    if db.execute("UPDATE outbox SET state='sent', sent_id=?, updated=? WHERE key=? AND state='sending'",
+                                  (out.get('id') or '', self.clock(), r['key'])).rowcount:
+                        db.execute('DELETE FROM compose WHERE key=?', (r['key'],))
 
     def reconcile(self, db):
         """Letters whose send outcome is unknown, asked at most every RECONCILE seconds: sent when the letter's own

@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import sqlite3
 import tempfile
@@ -25,6 +26,9 @@ class FakeWrite:
         self.drafts, self.sent, self.calls, self.n = {}, [], [], 0
         self.fail_send, self.send_calls = None, 0
 
+    def mid(self, did):  # Gmail gives a draft a new message id on every change
+        return 'm' + did + hashlib.md5(self.drafts[did].get('raw', '').encode()).hexdigest()[:6]
+
     def __call__(self, method, url, headers, body=None):
         assert headers['Authorization'] == 'Bearer tok'
         path = urllib.parse.urlparse(url).path.split('/users/me/')[1]
@@ -37,13 +41,13 @@ class FakeWrite:
             self.n += 1
             did = 'd%d' % self.n
             self.drafts[did] = data['message']
-            return 200, {'id': did, 'message': {'id': 'm' + did, 'threadId': data['message'].get('threadId', 't' + did)}}
+            return 200, {'id': did, 'message': {'id': self.mid(did), 'threadId': data['message'].get('threadId', 't' + did)}}
         if path.startswith('drafts/') and method == 'PUT':
             did = path.split('/')[1]
             if did not in self.drafts:
                 return 404, {}
             self.drafts[did] = data['message']
-            return 200, {'id': did, 'message': {'id': 'm' + did, 'threadId': data['message'].get('threadId', 't' + did)}}
+            return 200, {'id': did, 'message': {'id': self.mid(did), 'threadId': data['message'].get('threadId', 't' + did)}}
         if path.startswith('drafts/') and method == 'DELETE':
             self.drafts.pop(path.split('/')[1], None)
             return 204, {}
@@ -68,7 +72,7 @@ class FakeWrite:
             if did not in self.drafts:
                 return 404, {}
             m = self.drafts[did]
-            return 200, {'id': did, 'message': {'id': 'm' + did, 'threadId': m.get('threadId', 't' + did), 'raw': m.get('raw', ''),
+            return 200, {'id': did, 'message': {'id': self.mid(did), 'threadId': m.get('threadId', 't' + did), 'raw': m.get('raw', ''),
                                                 'snippet': 'snip &amp; more', 'internalDate': '5',
                                                 'payload': {'headers': [{'name': 'Subject', 'value': 'S ' + did}]}}}
         if path.startswith('drafts'):
@@ -280,6 +284,53 @@ class ComposeTests(unittest.TestCase):
         self.assertIn('New plan', mail.get_body(('plain',)).get_content())
         self.assertNotIn('plan.example', mail.get_body(('html',)).get_content())
         self.assertEqual([p.get_filename() for p in mail.iter_attachments()], ['p.gif'])
+    def test_db_error_after_a_send_never_allows_a_resend(self):
+        key = self.queue()
+        self.now[0] += 11
+        real = self.store.db.execute
+
+        class Db:  # the sent mark fails once, after Gmail took the letter
+            def __getattr__(s, name):
+                return getattr(self.store.db, name)
+
+            def execute(s, sql, *a):
+                if sql.startswith("UPDATE outbox SET state='sent'"):
+                    raise sqlite3.OperationalError('disk I/O error')
+                return real(sql, *a)
+
+            def __enter__(s):
+                return self.store.db.__enter__()
+
+            def __exit__(s, *e):
+                return self.store.db.__exit__(*e)
+        with self.assertRaises(sqlite3.OperationalError):
+            self.c.send_due(Db())
+        self.assertEqual(len(self.write.sent), 1)
+        state = self.store.db.execute('SELECT state FROM outbox WHERE key=?', (key,)).fetchone()[0]
+        self.assertEqual(state, 'sending')  # the loop turns it into unknown; never failed
+        stop = threading.Event(); stop.set()
+        self.c.run_sender(self.store.root / 'mail.sqlite3', stop)
+        self.assertEqual(self.store.db.execute('SELECT state FROM outbox WHERE key=?', (key,)).fetchone()[0], 'unknown')
+        with self.assertRaises(ValueError):
+            self.c.handle('compose_send', {'key': key})
+
+    def test_draft_changed_in_gmail_is_taken_again(self):
+        d = EmailMessage()
+        d['From'], d['To'], d['Subject'], d['In-Reply-To'], d['References'] = 'me@example.org', 'eve@example.org', 'Re: X', '<p@x>', '<o@x> <p@x>'
+        d.set_content('first')
+        self.write.drafts['dz'] = {'raw': base64.urlsafe_b64encode(d.as_bytes()).decode()}
+        first = self.c.handle('compose_open', {'draft': 'dz'})
+        self.c.handle('compose_save', {'key': first['key'], 'fields': {**first['fields'], 'text': 'edited here'}})
+        mail = raw_of(self.write.drafts['dz'])
+        self.assertEqual((mail['In-Reply-To'], mail['References']), ('<p@x>', '<o@x> <p@x>'))  # reply headers kept
+        self.assertEqual(self.c.handle('compose_open', {'draft': 'dz'})['fields']['text'], 'edited here')  # unchanged: ours
+        d.replace_header('To', 'zed@example.org')
+        self.write.drafts['dz'] = {'raw': base64.urlsafe_b64encode(d.as_bytes()).decode()}
+        self.write.n_msg = True
+        again = self.c.handle('compose_open', {'draft': 'dz'})
+        self.assertEqual(again['fields']['to'], 'zed@example.org')
+        self.assertNotEqual(again['key'], first['key'])
+
     def test_sender_survives_a_database_error(self):
         key = self.queue()
         calls = {'n': 0}

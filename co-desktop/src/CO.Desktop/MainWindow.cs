@@ -198,7 +198,7 @@ public sealed class MainWindow : Window
         // F14e.2: the apps of the launcher in the tray menu and in the jump list of the CO button; a later start of
         // CO Desktop (a jump list task, a pinned app window) hands its request over the instance pipe
         RefreshApps();
-        s.ModuleLoader.Applied += () => Dispatcher.BeginInvoke(RefreshApps);
+        s.ModuleLoader.Applied += () => Dispatcher.BeginInvoke(() => { _appsListed = true; RefreshApps(); });
         _ = Platform.InstancePipe.ListenAsync(line => Dispatcher.BeginInvoke(() => OnInstanceRequest(line)), _cts.Token);
 
         s.Approvals.Pending += _ => Dispatcher.BeginInvoke(() =>
@@ -377,7 +377,7 @@ public sealed class MainWindow : Window
                 }
             };
             _web.Source = new Uri(_s.Settings.WebUrl);
-            if (_pendingApp != null) OpenApp(_pendingApp);   // started with --app
+            OpenPendingApps();   // started with --app, or asked for while the web view was starting
         }
         catch (Exception ex)
         {
@@ -392,7 +392,9 @@ public sealed class MainWindow : Window
 
     // ------------------------------------------------------------------ apps (F14e.2)
 
-    private string? _pendingApp = App.StartupApp;   // an app asked for before the web view or the module list was ready
+    // apps asked for before the web view or the module list was ready, in order, each once
+    private readonly List<string> _pendingApps = App.StartupApp is { } first ? new() { first } : new();
+    private bool _appsListed;   // the module list was applied once (maybe empty); before that an unknown app may still come
     private string _appsShown = "\0";               // what the tray menu and the jump list show now
 
     private void ShowMain()
@@ -414,14 +416,13 @@ public sealed class MainWindow : Window
     {
         if (CO.Core.Modules.ModuleList.ParseAppKey(key) is not { } k) { Log.Write("open app: bad key"); return; }
         var app = CO.Core.Modules.ModuleList.Apps(_s.ModuleLoader.Modules).FirstOrDefault(a => a.Key == key);
-        if (_webEnv == null || _webOrigin.Length == 0 || app == null)
+        if (_webEnv == null || _webOrigin.Length == 0 || (app == null && !AppsKnown))
         {
-            // the web view or the module list is not there yet: opened when it comes; an app no longer in the list is dropped
-            _pendingApp = _webEnv == null || _s.ModuleLoader.Modules.Count == 0 ? key : null;
-            if (_pendingApp == null) { Log.Write("open app: " + key + " is not an app of this workbench"); ShowMain(); }
+            // the web view or the module list is not there yet: opened when it comes
+            if (!_pendingApps.Contains(key)) _pendingApps.Add(key);
             return;
         }
-        _pendingApp = null;
+        if (app == null) { Log.Write("open app: " + key + " is not an app of this workbench"); ShowMain(); return; }
         string path = app.Page.Path.Length > 0 ? app.Page.Path : "/x/" + k.Module + "/" + k.Page;
         if (app.Page.Window)
         {
@@ -432,10 +433,20 @@ public sealed class MainWindow : Window
         ShowMain();
     }
 
+    private bool AppsKnown => _appsListed || _s.ModuleLoader.Modules.Count > 0;
+
+    private void OpenPendingApps()
+    {
+        if (_webEnv == null || !AppsKnown || _pendingApps.Count == 0) return;
+        var keys = _pendingApps.ToList();
+        _pendingApps.Clear();
+        foreach (var key in keys) OpenApp(key);
+    }
+
     private void RefreshApps()
     {
         var apps = CO.Core.Modules.ModuleList.Apps(_s.ModuleLoader.Modules);
-        if (_pendingApp != null && _webEnv != null && apps.Count > 0) OpenApp(_pendingApp);   // the list came after --app
+        OpenPendingApps();   // the list came after --app
         string shown = string.Join("\n", apps.Select(a => a.Key + "\t" + a.Label + "\t" + a.Icon + "\t" + a.Page.Window));
         if (shown == _appsShown) return;
         _appsShown = shown;

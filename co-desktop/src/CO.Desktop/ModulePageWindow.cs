@@ -27,6 +27,9 @@ public sealed class ModulePageWindow : Window
     private readonly HashSet<string> _origins;    // https origins of the module's navigate list
     private readonly string _appId, _relaunch, _label, _iconPath;
     private string _query;                        // the query the window was opened with (without window=1)
+    private Uri? _next;                           // an address asked for before the page started (opened instead of _start)
+    private bool _started;                        // the web view got its first address
+    private Action? _reopen;                      // asked for while closing: opened again once this window is gone
     private readonly WebView2 _web = new();
     private bool _closing;   // close asked: the page is being unloaded first (it may still send what it holds)
     private bool _unloaded;  // the page is gone, the window may close
@@ -38,12 +41,21 @@ public sealed class ModulePageWindow : Window
         string key = m.Id + "/" + ui.Id + " " + value;
         if (Windows.TryGetValue(key, out var open))
         {
-            // the app asked again with other parameters (a link to one letter): the open window goes there
+            // the window is closing (its page is being unloaded): a new one opens when it is gone; if the page keeps it
+            // open, this request only focuses it
+            if (open._closing)
+            {
+                open._reopen = () => Open(main, env, url, m, ui);
+                return;
+            }
+            // the app asked again with other parameters (a link to one letter): the open window goes there, also
+            // when its page has not started yet
             string q = PageQuery(url);
-            if (q.Length > 0 && q != open._query && open._web.CoreWebView2 != null && !open._closing)
+            if (q.Length > 0 && q != open._query)
             {
                 open._query = q;
-                open._web.CoreWebView2.Navigate(url.AbsoluteUri);
+                if (open._started && open._web.CoreWebView2 != null) open._web.CoreWebView2.Navigate(url.AbsoluteUri);
+                else open._next = url;
             }
             if (open.WindowState == WindowState.Minimized) open.WindowState = WindowState.Normal;
             open.Activate();
@@ -69,7 +81,9 @@ public sealed class ModulePageWindow : Window
         _query = PageQuery(url);
         _label = ui.Label.Length > 0 ? ui.Label : ui.Title.Length > 0 ? ui.Title : m.Title;
         _appId = Platform.WindowAppId.For(m.Id, ui.Id);
-        _relaunch = "\"" + (Environment.ProcessPath ?? "CO.Desktop.exe") + "\" --app " + m.Id + "/" + ui.Id;
+        // only an app of the launcher can be pinned (CO Desktop --app opens it again); another page window, e.g. a
+        // file of an editor, gets its own button but no pin
+        _relaunch = ui.App ? "\"" + (Environment.ProcessPath ?? "CO.Desktop.exe") + "\" --app " + m.Id + "/" + ui.Id : "";
         _iconPath = "";
         try
         {
@@ -90,6 +104,7 @@ public sealed class ModulePageWindow : Window
             Platform.WindowAppId.Clear(new WindowInteropHelper(this).Handle);
             Windows.Remove(_key);
             _web.Dispose();
+            if (_reopen is { } again) Dispatcher.BeginInvoke(again);
         };
     }
 
@@ -185,11 +200,16 @@ public sealed class ModulePageWindow : Window
             {
                 if (!_closing) return;
                 if (core.Source == "about:blank") { _unloaded = true; Close(); }
-                else _closing = false;   // the page asked to stay (beforeunload): the window stays too
+                else
+                {
+                    _closing = false;   // the page asked to stay (beforeunload): the window stays too
+                    if (_reopen != null) { _reopen = null; Activate(); }
+                }
             };
             core.NewWindowRequested += OnNewWindowRequested;
             core.WindowCloseRequested += (_, _) => Close();   // a Close button of the page (window.close)
-            _web.Source = _start;
+            _web.Source = _next ?? _start;
+            _started = true;
         }
         catch (Exception ex)
         {

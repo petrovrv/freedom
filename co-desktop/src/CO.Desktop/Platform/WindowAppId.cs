@@ -14,12 +14,15 @@ internal static class WindowAppId
     private static readonly PropertyKey PKEY_RelaunchIconResource = new(AppUserModelFmtId, 3);
     private static readonly PropertyKey PKEY_RelaunchDisplayNameResource = new(AppUserModelFmtId, 4);
     private static readonly PropertyKey PKEY_AppUserModel_ID = new(AppUserModelFmtId, 5);
+    private static readonly PropertyKey PKEY_AppUserModel_PreventPinning = new(AppUserModelFmtId, 9);
     private const ushort VT_EMPTY = 0;
     private const ushort VT_LPWSTR = 31;
+    private const ushort VT_BOOL = 11;
 
     /// <summary>AppUserModelID of an app window: at most 128 characters, no spaces.</summary>
     public static string For(string module, string page) => ("Freedom.CO.App." + module + "." + page) is var s && s.Length <= 128 ? s : s[..128];
 
+    /// <summary>Gives the window its own app id; without a relaunch command the window cannot be pinned.</summary>
     public static void Set(IntPtr hwnd, string appId, string relaunchCommand, string displayName, string iconPath)
     {
         try
@@ -27,9 +30,18 @@ internal static class WindowAppId
             Apply(hwnd, store =>
             {
                 // the relaunch properties first, the id last (the shell reads them when the id is set)
-                if (iconPath.Length > 0) SetString(store, PKEY_RelaunchIconResource, iconPath + ",0");
-                SetString(store, PKEY_RelaunchCommand, relaunchCommand);
-                SetString(store, PKEY_RelaunchDisplayNameResource, displayName);
+                if (relaunchCommand.Length > 0)
+                {
+                    if (iconPath.Length > 0) SetString(store, PKEY_RelaunchIconResource, iconPath + ",0");
+                    SetString(store, PKEY_RelaunchCommand, relaunchCommand);
+                    SetString(store, PKEY_RelaunchDisplayNameResource, displayName);
+                }
+                else
+                {
+                    var key = PKEY_AppUserModel_PreventPinning;
+                    var pv = new PropVariant { vt = VT_BOOL, p = new IntPtr(-1) };   // VARIANT_TRUE
+                    Check(store.SetValue(ref key, ref pv));
+                }
                 SetString(store, PKEY_AppUserModel_ID, appId);
             });
         }
@@ -42,7 +54,8 @@ internal static class WindowAppId
         {
             Apply(hwnd, store =>
             {
-                foreach (var k in new[] { PKEY_AppUserModel_ID, PKEY_RelaunchCommand, PKEY_RelaunchDisplayNameResource, PKEY_RelaunchIconResource })
+                foreach (var k in new[] { PKEY_AppUserModel_ID, PKEY_RelaunchCommand, PKEY_RelaunchDisplayNameResource, PKEY_RelaunchIconResource,
+                             PKEY_AppUserModel_PreventPinning })
                 {
                     var key = k;
                     var pv = new PropVariant { vt = VT_EMPTY };

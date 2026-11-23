@@ -58,6 +58,28 @@ $ok('sam sees the app tile', ($sam['ui'][0]['app'] ?? false) === true && ($sam['
 $ok('alex does not see it at all', $listFor('alex', false) === null);
 $own = $listFor('owner', true);
 $ok('the owner manages it but gets no page', $own !== null && $own['enabled'] === true && $own['ui'] === [] && $own['actions'] === []);
+// the files of the app (module.php ?k=): only with the key modules_list gives sam
+$key = (string)($sam['fileKey'] ?? '');
+$m = co_modules($db)['shop'];
+$ok('sam gets a file key, the owner and alex none', preg_match('/^[0-9a-f]{32}$/', $key) === 1 && !isset($own['fileKey']));
+$ok('the key opens the files, others do not', co_module_file_key_ok($m, $key) && !co_module_file_key_ok($m, '')
+    && !co_module_file_key_ok($m, co_module_file_key('shop', 'alex')) && !co_module_file_key_ok($m, co_module_file_key('other', 'sam'))
+    && !co_module_file_key_ok($m, strtoupper($key)));
+$ok('the key is stable', co_module_file_key('shop', 'sam') === $key);
+$ok('a module for everybody needs no key', co_module_file_key_ok(['id' => 'x', 'manifest' => []], ''));
+// notifications of a module of sam: never to alex, and alex has no switch for it
+$nm = $m;
+$nm['manifest']['permissions'][] = 'notify.push';
+$st = $db->prepare('UPDATE modules SET manifest_json = ? WHERE id = ?');
+$st->execute([json_encode($nm['manifest'], JSON_UNESCAPED_UNICODE), 'shop']);
+$st->close();
+co_modules($db, true);
+$ok('notify to another env: refused', co_app_notify($db, 'shop', 'alex', ['title' => 'x'], 'page')['error'] === 'not_your_app');
+$ok('notify switch of another env: refused', co_app_notify_set($db, 'alex', 'shop', false)['error'] === 'not_found');
+$st = $db->prepare('UPDATE modules SET manifest_json = ? WHERE id = ?');
+$st->execute([json_encode($m['manifest'], JSON_UNESCAPED_UNICODE), 'shop']);
+$st->close();
+co_modules($db, true);
 $ok('sam: data actions listed for refresh', ($sam['actions'] ?? []) === ['data_list', 'data_get', 'data_set', 'data_delete']);
 
 // the page's data (user op app_data)
@@ -135,6 +157,9 @@ $install('shop');
 co_module_set($db, 'shop', true, 'owner');
 $ok('remove --data keep, install again: data back', co_app_data($db, 'shop', 'sam', 'get', ['key' => 'items'])['value'] !== null);
 co_module_remove($db, ['id' => 'shop', 'data' => 'erase']);
+// a write that passed its checks before the removal finds no module row under its lock (co_app_data_locked)
+$late = co_app_data_locked($db, 'shop', 'sam', static function (array &$items): array { $items['x'] = ['v' => 'back', 't' => '']; return ['ok' => true]; });
+$ok('a late write after the erase is refused', ($late['error'] ?? '') === 'module_disabled');
 $st = $db->prepare("SELECT COUNT(*) FROM kv WHERE name = 'app-data.shop'");
 $st->execute();
 $ok('remove --data erase deletes the data', (int)$st->get_result()->fetch_row()[0] === 0);

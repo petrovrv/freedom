@@ -161,6 +161,37 @@ function co_module_for_env(array $m, string $env): bool
     return !$e || in_array($env, $e, true);
 }
 
+/**
+ * F14c: the key a person needs to load the files of a module of some environments (module.php ?k=): HMAC of the module
+ * and the env with a secret of this server (created once, 0600). It never changes, so an open app is never reloaded
+ * for a new key; modules_list hands it only to a person the module is for.
+ */
+function co_module_file_key(string $id, string $env): string
+{
+    static $secret = null;
+    if ($secret === null) {
+        $f = dirname(co_module_state_dir('x')) . '/.file-key';
+        if (!is_file($f) && ($h = @fopen($f, 'x')) !== false) {
+            fwrite($h, bin2hex(random_bytes(32)));
+            fclose($h);
+            @chmod($f, 0600);
+        }
+        $secret = trim((string)@file_get_contents($f));
+        if (strlen($secret) < 64) throw new RuntimeException('module file key missing');
+    }
+    return substr(hash_hmac('sha256', "module-file|$id|$env", $secret), 0, 32);
+}
+
+/** Whether $key opens the files of module $m (a module without envs needs none). */
+function co_module_file_key_ok(array $m, string $key): bool
+{
+    $envs = co_module_envs($m);
+    if (!$envs) return true;
+    if (!preg_match('/^[0-9a-f]{32}$/', $key)) return false;
+    foreach ($envs as $e) if (hash_equals(co_module_file_key($m['id'], $e), $key)) return true;
+    return false;
+}
+
 /** Includes the server entry of an enabled standard module after checking every registered file; returns its handlers. */
 function co_module_load(array $m): array
 {
@@ -585,7 +616,11 @@ function co_modules_list(mysqli $db, string $myEnv, bool $owner, array $coreOps 
             'sideJobs' => co_module_side_jobs($m), 'navigate' => $on ? co_module_navigate($m) : [],
             // F14b-2: ops agents may call (apps-lib.php); CO Web listens for their refresh while the module's tray is shown
             'actions' => $on && function_exists('co_app_all_actions') ? array_keys(co_app_all_actions($m)) : []];
-        if (co_module_envs($m)) $row['envs'] = co_module_envs($m);
+        if (co_module_envs($m)) {
+            $row['envs'] = co_module_envs($m);
+            // the key of its files (module.php ?k=) only for a person it is for
+            if ($on) $row['fileKey'] = co_module_file_key($m['id'], $myEnv);
+        }
         // F14b-3: the person's switch of the module's notifications (only modules that may notify)
         if ($on && function_exists('co_app_notify_allowed') && co_app_notify_allowed($m)) {
             $notifyOff ??= co_app_notify_off($db, $myEnv);
@@ -807,22 +842,33 @@ function co_module_remove(mysqli $db, array $in): array
             error_log("module $id remove hook: " . $e->getMessage());
         }
     }
-    $st = $db->prepare('DELETE FROM modules WHERE id = ?');
-    $st->bind_param('s', $id);
-    $st->execute();
-    $st->close();
+    // the row and the app data the core keeps go in one transaction: a write of app data locks the module's row first
+    // (apps-lib.php co_app_data_locked), so one that passed its checks cannot bring the data back after the erase
+    $db->begin_transaction();
+    try {
+        $st = $db->prepare('DELETE FROM modules WHERE id = ?');
+        $st->bind_param('s', $id);
+        $st->execute();
+        $st->close();
+        if ($data === 'erase') {
+            // F14c: what the app kept for people through the core (apps-lib.php co_app_data, kv env/<env> app-data.<id>)
+            $name = 'app-data.' . $id;
+            $st = $db->prepare("DELETE FROM kv WHERE scope LIKE 'env/%' AND name = ?");
+            $st->bind_param('s', $name);
+            $st->execute();
+            $st->close();
+        }
+        $db->commit();
+    } catch (Throwable $e) {
+        $db->rollback();
+        throw $e;
+    }
     if ($data === 'erase') {
         co_module_rmtree(co_module_state_dir($id));
         // the snapshots hold the same personal data
         foreach (glob(dirname(co_module_state_dir($id)) . "/.snap/$id@*") ?: [] as $o) co_module_rmtree($o);
         $st = $db->prepare('DELETE FROM module_people WHERE module_id = ?');
         $st->bind_param('s', $id);
-        $st->execute();
-        $st->close();
-        // F14c: what the app kept for people through the core (apps-lib.php co_app_data, kv env/<env> app-data.<id>)
-        $name = 'app-data.' . $id;
-        $st = $db->prepare("DELETE FROM kv WHERE scope LIKE 'env/%' AND name = ?");
-        $st->bind_param('s', $name);
         $st->execute();
         $st->close();
     }

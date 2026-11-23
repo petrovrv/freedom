@@ -3,6 +3,8 @@
 // module.php (schema 27, Freedom F10, SPEC §3.6): files and routes of enabled modules.
 //   GET ?m=<id>&f=ui/<file>   a file of the module's interface (html, js, css, svg, png, json) - only files registered at
 //                             install whose sha256 still matches; CO Web shows the html in a sandboxed iframe (ext/1)
+//                             F14c: a module of some environments (manifest envs) also needs &k=<file key of a person
+//                             it is for> (modules_list fileKey); its html gets the key into its own ?m=<id>&f= links
 //   GET ?m=<id>&f=device/<file> device code of the module (ext/1 device.tools), as a download; the device checks sha256
 //   GET ?m=<id>&r=<route>     a route of a standard module's server code (manifest server.routes); it checks access itself
 //   POST ?m=<id>&u=<name>     an upload of a standard module (manifest server.uploads): CO Web posts a file for the
@@ -32,6 +34,11 @@ try {
     $m = co_modules($db)[$id] ?? null;
     if ($m === null || !$m['enabled']) co_module_404();
 
+    // F14c: the files, routes and uploads of a module of some environments only for its people (an unknown key: 404)
+    $key = is_string($_GET['k'] ?? null) ? $_GET['k'] : '';
+    $scoped = co_module_envs($m) !== [];
+    if ($scoped && !co_module_file_key_ok($m, $key)) co_module_404();
+
     $f = is_string($_GET['f'] ?? null) ? $_GET['f'] : '';
     if ($f !== '' && str_starts_with($f, 'device/')) {
         // device code of the module (ext/1 device.tools): CO Desktop / CO Resident download it and check its sha256
@@ -59,10 +66,11 @@ try {
         // of CO Web 0.102.0 after 0.103.0 went out): the page names it with the hash of the current file
         $extV = '';
         if ($ext === 'html' && is_file($ep = dirname(__DIR__) . '/ext/ext1.js')) $extV = substr((string)hash_file('sha256', $ep), 0, 12);
-        $etag = substr($sha, 0, 32) . ($extV !== '' ? "-$extV" : '');
+        $etag = substr($sha, 0, 32) . ($extV !== '' ? "-$extV" : '') . ($scoped ? '-' . substr($key, 0, 8) : '');
         header('Content-Type: ' . CO_MODULE_MIME[$ext]);
         header('X-Content-Type-Options: nosniff');
-        header('Cache-Control: no-cache');
+        // a scoped module's files are never kept by a shared cache (the key is in the address)
+        header('Cache-Control: ' . ($scoped ? 'private, no-cache' : 'no-cache'));
         header('ETag: "' . $etag . '"');
         // the page of a module: own scripts and styles only, no network of its own (data comes over postMessage from
         // CO Web), images from this site (routes such as map tiles), framed only by CO Web (and the browser extensions
@@ -76,11 +84,17 @@ try {
             http_response_code(304);
             exit;
         }
-        if ($extV === '') {
+        if ($extV === '' && !$scoped) {
             readfile($path);
             exit;
         }
-        echo str_replace(['src="/ext/ext1.js"', "src='/ext/ext1.js'"], 'src="/ext/ext1.js?v=' . $extV . '"', (string)file_get_contents($path));
+        $body = (string)file_get_contents($path);
+        if ($extV !== '') $body = str_replace(['src="/ext/ext1.js"', "src='/ext/ext1.js'"], 'src="/ext/ext1.js?v=' . $extV . '"', $body);
+        // the page's own files (?m=<id>&f=... as the template writes them) carry the key
+        if ($scoped && $ext === 'html') {
+            $body = str_replace(["?m=$id&amp;f=", "?m=$id&f="], ["?m=$id&amp;k=$key&amp;f=", "?m=$id&k=$key&f="], $body);
+        }
+        echo $body;
         exit;
     }
 

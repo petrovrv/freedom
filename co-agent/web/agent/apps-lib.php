@@ -575,7 +575,8 @@ function co_app_notify_off(mysqli $db, string $env): array
 function co_app_notify_set(mysqli $db, string $env, string $id, bool $on): array
 {
     $m = co_modules($db)[$id] ?? null;
-    if ($m === null || !in_array(CO_APP_NOTIFY_PERMISSION, (array)($m['manifest']['permissions'] ?? []), true)) {
+    if ($m === null || !in_array(CO_APP_NOTIFY_PERMISSION, (array)($m['manifest']['permissions'] ?? []), true)
+        || !co_module_for_env($m, $env)) {
         return ['ok' => false, 'error' => 'not_found'];
     }
     co_app_notify_locked($db, $env, static function (array &$d) use ($id, $on): void {
@@ -644,6 +645,7 @@ function co_app_notify(mysqli $db, string $id, string $env, array $n, string $by
         return ['ok' => false, 'error' => 'permission_not_declared', 'message' => "Module $id does not declare the permission " . CO_APP_NOTIFY_PERMISSION . '.'];
     }
     if (!in_array($env, co_member_envs(), true)) return ['ok' => false, 'error' => 'bad_env', 'message' => 'Not a member environment.'];
+    if (!co_module_for_env($m, $env)) return ['ok' => false, 'error' => 'not_your_app', 'message' => 'This app belongs to another environment.'];
     if (co_module_person_mode($db, $m, $env) === 'off') {
         return ['ok' => false, 'error' => 'person_off', 'message' => 'The person switched this module off for themselves.'];
     }
@@ -747,7 +749,11 @@ function co_app_data_actions(array $m): array
     return $out;
 }
 
-/** The data of module $id for $env under a row lock; $f gets the items by reference and returns the answer. */
+/**
+ * The data of module $id for $env under a row lock; $f gets the items by reference and returns the answer. The module's
+ * own row is read first with a shared lock and checked again (enabled, data.env, for $env): a removal (modules-lib.php
+ * co_module_remove deletes the row and the data in one transaction) waits for this write or makes it fail.
+ */
 function co_app_data_locked(mysqli $db, string $id, string $env, callable $f): mixed
 {
     $scope = 'env/' . $env;
@@ -755,6 +761,17 @@ function co_app_data_locked(mysqli $db, string $id, string $env, callable $f): m
     for ($try = 1; ; $try++) {
         $db->begin_transaction();
         try {
+            $st = $db->prepare('SELECT enabled, standard, manifest_json FROM modules WHERE id = ? LOCK IN SHARE MODE');
+            $st->execute([$id]);
+            $row = $st->get_result()->fetch_assoc();
+            $st->close();
+            $m = $row ? ['id' => $id, 'enabled' => (int)$row['enabled'] === 1,
+                'manifest' => (array)(json_decode((string)$row['manifest_json'], true) ?: [])] : null;
+            if ($m === null || !$m['enabled'] || !co_module_for_env($m, $env)
+                || !in_array(CO_APP_DATA_PERMISSION, (array)($m['manifest']['permissions'] ?? []), true)) {
+                $db->rollback();
+                return ['ok' => false, 'error' => 'module_disabled', 'message' => "Module $id is not enabled for this person."];
+            }
             // a no-op update takes the row's exclusive lock at once (as co_app_notify_locked_once)
             $st = $db->prepare("INSERT INTO kv (scope, name, data, sha, updated_utc) VALUES (?, ?, '{}', '', UTC_TIMESTAMP(3))
                                 ON DUPLICATE KEY UPDATE name = name");

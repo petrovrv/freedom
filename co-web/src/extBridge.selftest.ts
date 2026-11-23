@@ -9,6 +9,9 @@ function ok(name: string, cond: boolean): void {
 }
 
 ok('url of a module page', moduleUrl({ id: 'geo-presence', version: '0.5.0' }, 'ui/header.html') === '/agent/module.php?m=geo-presence&f=ui%2Fheader.html&v=0.5.0');
+ok('url of a page of a module of some environments has the key', moduleUrl({ id: 'shop', version: '0.1.0', fileKey: '0123456789abcdef0123456789abcdef' }, 'ui/main.html')
+  === '/agent/module.php?m=shop&k=0123456789abcdef0123456789abcdef&f=ui%2Fmain.html&v=0.1.0'
+  && moduleUrl({ id: 'shop', version: '1', fileKey: 'x&y' }, 'ui/main.html') === '/agent/module.php?m=shop&f=ui%2Fmain.html&v=1');
 ok('no path outside ui/', moduleUrl({ id: 'geo-presence', version: '1' }, 'server/ops.php') === null);
 ok('no ..', moduleUrl({ id: 'geo-presence', version: '1' }, 'ui/../server/x.html') === null);
 ok('bad id', moduleUrl({ id: '../x', version: '1' }, 'ui/a.html') === null);

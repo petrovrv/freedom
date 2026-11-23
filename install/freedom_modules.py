@@ -833,7 +833,8 @@ def new_app(mid: str, parent, title: str, icon: str, env: str, label: str = "", 
             "placeholder": "Добавить…" if ru else "Add…", "empty": "Пока пусто." if ru else "Nothing here yet."}
     manifest = {
         "schema": 1, "id": mid, "version": "0.1.0", "title": title,
-        "description": f"{title}: an app made on the fly for one person (data kept by the core, no network).",
+        "description": (f"{title}: приложение, сделанное агентом для одного человека (данные хранит ядро, без сети)." if ru
+                        else f"{title}: an app made on the fly for one person (data kept by the core, no network)."),
         "ext": ">=1 <2", "scope": "environment", "envs": [env],
         "platforms": ["windows", "macos", "linux"], "requires": {"core": [], "modules": []},
         "permissions": ["data.env"],
@@ -846,9 +847,9 @@ def new_app(mid: str, parent, title: str, icon: str, env: str, label: str = "", 
     }
     (root / "ui").mkdir(parents=True)
     (root / "tests").mkdir()
-    (root / "module.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (root / "module.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     for rel, text in APP_TEMPLATE.items():
-        (root / rel).write_text(text.format(**fill), encoding="utf-8")
+        (root / rel).write_text(text.format(**fill), encoding="utf-8", newline="\n")
     return root
 
 

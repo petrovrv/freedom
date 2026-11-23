@@ -38,6 +38,8 @@ export interface ModuleInfo {
   installedUtc?: string | null; updatedUtc?: string | null; publisher?: string;
   /** F14c: the environments a module is for (an app made on the fly); absent = everybody */
   envs?: string[];
+  /** F14c: the key of the files of such a module for this person (module.php ?k=) */
+  fileKey?: string;
   // ext/1 declarations CO Web weaves into its own screens (empty while the module is off; older servers send none)
   modes?: ModeDecl[]; context?: string[]; fileActions?: FileAction[]; messageViews?: MessageView[]; sideJobs?: SideJob[];
   navigate?: string[];
@@ -82,9 +84,11 @@ const MODULE_ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const ENTRY = /^ui\/[A-Za-z0-9._/-]+\.html$/;
 
 /** URL of a module page; null for anything that is not a plain ui/ path of a valid module. */
-export function moduleUrl(m: Pick<ModuleInfo, 'id' | 'version'>, entry: string): string | null {
+export function moduleUrl(m: Pick<ModuleInfo, 'id' | 'version' | 'fileKey'>, entry: string): string | null {
   if (!MODULE_ID.test(m.id) || !ENTRY.test(entry) || entry.includes('..')) return null;
-  return `/agent/module.php?m=${encodeURIComponent(m.id)}&f=${encodeURIComponent(entry)}&v=${encodeURIComponent(m.version)}`;
+  // F14c: a module of some environments serves its files only with the person's key
+  const k = m.fileKey && /^[0-9a-f]{32}$/.test(m.fileKey) ? `&k=${m.fileKey}` : '';
+  return `/agent/module.php?m=${encodeURIComponent(m.id)}${k}&f=${encodeURIComponent(entry)}&v=${encodeURIComponent(m.version)}`;
 }
 
 // Capabilities of module pages beyond calls (ext/1, Freedom F10). Each needs a permission in the manifest; the

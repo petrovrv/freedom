@@ -90,27 +90,41 @@ def deploy(args):
     # one Unix user per person (provider-accounts): every clash is found before any unit is stopped
     for slug in people:
         accountctl.ensure_person(args, slug, adopt=[LEGACY_USER + slug], check=True)
-    users, was_active = {}, []
+    users, was_active, legacy, failed = {}, [], [], []
     for slug in people:
         if ssh(args, f'id -u {LEGACY_USER + slug} >/dev/null 2>&1 && echo yes || echo no').strip() == 'yes':
             # also what runs without being enabled (started by hand) comes back below
             was_active += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:3]) + '; do'
                                     ' case $(systemctl is-active "$u") in active|activating|reloading) echo "$u";; esac; done').split()
             ssh(args, 'sudo systemctl stop ' + ' '.join(unit_names(slug)))  # a rename is refused while the old user runs
-        users[slug] = accountctl.ensure_person(args, slug, adopt=[LEGACY_USER + slug])
-    for unit in UNITS:  # stored as name-at.ext: signed module files allow no '@'
-        source = HERE / unit.replace('@', '-at')
-        ssh(args, f'sudo tee /etc/systemd/system/{unit} >/dev/null', source.read_bytes().replace(b'\r\n', b'\n'))
-    ssh(args, 'sudo systemctl daemon-reload')
-    # what a person has enabled runs again (also when an earlier deploy stopped it and failed half way), and what ran before
-    failed = []
-    for slug in people:
-        failed += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:3]) + '; do'
-                            ' if systemctl is-enabled -q "$u"; then sudo systemctl start "$u" || echo "$u"; fi; done').split()
-    if was_active:
-        failed += ssh(args, 'for u in ' + ' '.join(was_active) + '; do sudo systemctl start "$u" || echo "$u"; done').split()
-    if failed:
-        sys.exit('deployed, but these enabled units did not start (see journalctl -u <unit>): ' + ', '.join(failed))
+        try:
+            users[slug] = accountctl.ensure_person(args, slug, adopt=[LEGACY_USER + slug])
+        except SystemExit as e:  # this person keeps the old user (drop-in below) until the next deploy
+            users[slug] = f'kept {LEGACY_USER + slug}: {e}'
+            legacy.append(slug)
+    try:
+        for unit in UNITS:  # stored as name-at.ext: signed module files allow no '@'
+            source = HERE / unit.replace('@', '-at')
+            ssh(args, f'sudo tee /etc/systemd/system/{unit} >/dev/null', source.read_bytes().replace(b'\r\n', b'\n'))
+        for slug in people:
+            for name in unit_names(slug)[2:]:  # the three services of the person
+                conf = f'/etc/systemd/system/{name}.d/10-person-user.conf'
+                if slug in legacy:
+                    ssh(args, f'sudo mkdir -p /etc/systemd/system/{name}.d && sudo tee {conf} >/dev/null',
+                        f'[Service]\nUser={LEGACY_USER + slug}\nGroup={LEGACY_USER + slug}\n'.encode())
+                else:
+                    ssh(args, f'sudo rm -f {conf}')
+        ssh(args, 'sudo systemctl daemon-reload')
+    finally:
+        # what a person has enabled runs again (also when an earlier deploy stopped it and failed half way), and what ran before
+        for slug in people:
+            failed += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:3]) + '; do'
+                                ' if systemctl is-enabled -q "$u"; then sudo systemctl start "$u" || echo "$u"; fi; done', check=False).split()
+        if was_active:
+            failed += ssh(args, 'for u in ' + ' '.join(was_active) + '; do sudo systemctl start "$u" || echo "$u"; done', check=False).split()
+    if failed or legacy:
+        sys.exit(json.dumps({'deployed': '/opt/concierge-mail', 'users': users, 'notStarted': sorted(set(failed)),
+                             'hint': 'persons in "kept" still run as their old user; fix the reason and deploy again'}, ensure_ascii=False))
     print(json.dumps({'deployed': '/opt/concierge-mail', 'units': UNITS, 'users': users}))
 
 
@@ -222,8 +236,11 @@ def run(args):
     rest = [a for a in args.rest if a != '--']
     if any(a in ('--root',) for a in rest):
         sys.exit('--root is fixed to the person directory')
+    user = accountctl.person_user(slug)  # a person a deploy could not move yet still runs as the older user
+    if ssh(args, f'id -u {user} >/dev/null 2>&1 && echo yes || echo no').strip() != 'yes':
+        user = LEGACY_USER + slug
     cmd = ('sudo systemd-run --quiet --wait --pipe --collect'
-           f' -p User={accountctl.person_user(slug)} -p Group={accountctl.person_user(slug)} -p EnvironmentFile=/etc/concierge-mail/{slug}.env'
+           f' -p User={user} -p Group={user} -p EnvironmentFile=/etc/concierge-mail/{slug}.env'
            f' -p LoadCredentialEncrypted=account:/etc/credstore.encrypted/account.{slug}.google.cred'
            f' -p ProtectSystem=strict -p ReadWritePaths=/srv/data/mail/{slug} -p ProtectHome=yes -p PrivateTmp=yes'
            f' /usr/bin/python3 /opt/concierge-mail/modules/concierge-mail/home/mailcli.py --root /srv/data/mail/{slug} '

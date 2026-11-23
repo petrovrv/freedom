@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
  "version": "0.10.1",
- "created": "2026-11-23T13:21:50Z",
+ "created": "2026-11-23T13:22:54Z",
  "files": [
   {
    "path": "context/mail.md",
@@ -75,8 +75,8 @@
   },
   {
    "path": "home/remoteimg.py",
-   "size": 14267,
-   "sha256": "76f8a7cd38d361fff1b9a452fb0a7c7d9aa921413041763130171ec48f8a03a9"
+   "size": 14367,
+   "sha256": "529b74fb50d14cd3027bb612dbf87d0c77a3d7babe3eb0d2624e6176faab70e6"
   },
   {
    "path": "home/seal.py",
@@ -130,8 +130,8 @@
   },
   {
    "path": "home/test_remoteimg.py",
-   "size": 6639,
-   "sha256": "74e1b2179b1aa40888b829a8e86e9a4aca2232aadfabf20b55605b2aa8ce1f5c"
+   "size": 6829,
+   "sha256": "ee0381b256f7bef2ecb7bb7fe120ddc4bf6a88d4ac219ba044f9cceffe5ee7b0"
   },
   {
    "path": "home/test_spam_rescue.py",
@@ -198,7 +198,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "emLSLOs1Gf+K0GuaJ6+kjqNK6axBLeHzjMLkMcN3+vtQon1VE3JMATxr2AyEWN5q9o2coGiltQDoLBFOJ5ObCw=="
+   "sig": "cTY8RTnWks6KwgcB0R/e3NGBJEr3zh0wrXWftCqJLOt35IJiu8SHQTk8uYzFrmFGA7yO365GM+S9wd47xhPrDw=="
   }
  ],
  "module": "concierge-mail"

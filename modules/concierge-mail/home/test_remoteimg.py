@@ -33,6 +33,8 @@ class RemoteImageTests(unittest.TestCase):
                 '<noscript><img src="https://ns.example/n.png"></noscript><svg/><img src="https://after.example/3.png"/>'
                 '<template><img src="https://tpl.example/t.png"></template>')
         self.assertEqual(remoteimg.image_urls(html), ['https://real.example/1.png', 'https://after.example/3.png'])
+        page = '<html><head><title>Mail</title><body><img src="https://example.org/a.png"></body></html>'
+        self.assertEqual(remoteimg.image_urls(page), ['https://example.org/a.png'])
 
     def test_prune_survives_an_unreadable_cache(self):
         with mock.patch.object(Path, 'iterdir', side_effect=PermissionError('denied')), mock.patch.object(Path, 'is_dir', return_value=True):

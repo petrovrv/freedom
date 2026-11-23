@@ -59,8 +59,9 @@ def _attr(value):
 
 
 # containers whose content the page never shows (mail.js drops them with everything inside)
-DROPPED = {'script', 'style', 'iframe', 'frameset', 'object', 'form', 'button', 'textarea', 'select', 'option', 'svg',
-           'math', 'template', 'noscript', 'video', 'audio', 'title', 'head'}
+# (not head: browsers move what follows an unclosed head into the body; not option: closed implicitly, inside select)
+DROPPED = {'script', 'style', 'iframe', 'frameset', 'object', 'form', 'button', 'textarea', 'select', 'svg',
+           'math', 'template', 'noscript', 'video', 'audio', 'title'}
 ATTR_RE = re.compile(r'''[\s/]*([^\s"'>/=]+)(?:\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]*)))?''')
 
 

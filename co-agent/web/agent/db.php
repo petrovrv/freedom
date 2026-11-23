@@ -826,7 +826,7 @@ try {
                 'model_register', 'model_unregister', 'models_host', 'modules_host', 'subtask_spawn', 'subtask_poll', 'model_set',
                 'files_list', 'files_set', 'files_merge', 'files_branch', 'files_restored', 'files_undone',
             'followup_add', 'followup_list', 'followup_take', 'followup_done', 'followup_cancel', 'host_event',
-                'related', 'dossier_put', 'dossier_host', 'find_chats', 'family_chats', 'family_post'], true)
+                'related', 'dossier_put', 'dossier_host', 'find_chats', 'family_chats', 'family_post', 'app_list', 'app_action'], true)
             // Freedom F10: host-key ops of enabled modules may come gzipped too (an indexer posting document text)
             && !(is_string($in['op'] ?? null) && preg_match(CO_MODULE_OP_RE, $in['op']) && co_module_for_op(co_db(), 'host', $in['op']) !== null)) {
             co_json(400, ['error' => 'gz_ops_only']);

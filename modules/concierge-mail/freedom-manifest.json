@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.10.0",
- "created": "2026-11-23T12:40:30Z",
+ "version": "0.10.1",
+ "created": "2026-11-23T13:18:18Z",
  "files": [
   {
    "path": "context/mail.md",
@@ -70,8 +70,13 @@
   },
   {
    "path": "home/relay.py",
-   "size": 13382,
-   "sha256": "233b9221cbdd905d422181530a9e883228a2f94d50da83406a2f11a77d067729"
+   "size": 14532,
+   "sha256": "98c5aee3c2fcbdfc9525a9ac21cb1b3a220e626a2526e3c00949a91f22f218fb"
+  },
+  {
+   "path": "home/remoteimg.py",
+   "size": 12157,
+   "sha256": "8ef917dddd34dfef0fffed7a7420615db4f3c2f45abbdd684a6badbe54bedb1e"
   },
   {
    "path": "home/seal.py",
@@ -120,8 +125,13 @@
   },
   {
    "path": "home/test_relay.py",
-   "size": 5623,
-   "sha256": "eda724f6cfdfeac1b6f23fd8a14f8a785830e3c176576a88aef07bd3d8ca3a18"
+   "size": 6914,
+   "sha256": "449d493e4e57448138aeefe629560d4170b9fac1d3319e55c73409848bdde02f"
+  },
+  {
+   "path": "home/test_remoteimg.py",
+   "size": 5756,
+   "sha256": "05503e1b2bf9973a699223f79d4e428a9d21875b5c02a7e6b57ff73ae5faf2bd"
   },
   {
    "path": "home/test_spam_rescue.py",
@@ -136,7 +146,7 @@
   {
    "path": "module.json",
    "size": 2485,
-   "sha256": "50cc2c3ecd483a9944fe026e826b2aea74156598a1efd9aa11ae75ed7fa03e82"
+   "sha256": "c7171bdd7faaa4a6bc60522edc7558f32bcd4d224c9af0d77fa4a33f7bceb01d"
   },
   {
    "path": "README.md",
@@ -155,8 +165,8 @@
   },
   {
    "path": "ui/mail.css",
-   "size": 4565,
-   "sha256": "8781b51bb1fa1cbd7e4278e7b57126087a41fba58ea30fa2b4426eccddd37f7c"
+   "size": 4651,
+   "sha256": "84459100253c4c760d932e242a7374ff4e8183d5fdb5d85e59f2c2502bf5666b"
   },
   {
    "path": "ui/mail.html",
@@ -165,8 +175,8 @@
   },
   {
    "path": "ui/mail.js",
-   "size": 16284,
-   "sha256": "fc7e9c8338df46ad1339d9904844898eabef537c29dc136b6b9d3750d1b62e69"
+   "size": 17638,
+   "sha256": "485ed49a87cf070dcf3c647cbcfd08b1fde82ce1badfd7f67eaa4467a65e647d"
   },
   {
    "path": "ui/tray.css",
@@ -188,7 +198,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "bFWDNNXfiyJH43wWdt7HwGE1vF8D17eW70vhvHo6od6TtauFiND6ACCwolr8DjlV+lCvIPYup1S2284CW5o9Cw=="
+   "sig": "SsFfWWBi/T5WNU0CjGOC6E6cqATGnJ0JOVBwQVyah4Fumnrl+kMtp3z7hE4x2uel1QCWAkHYqfj9njewK383Bg=="
   }
  ],
  "module": "concierge-mail"

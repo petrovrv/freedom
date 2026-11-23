@@ -8,7 +8,8 @@ Binding: the handler serves the mailbox of /etc/concierge-mail/<slug>.env only w
 environment the worker serves (AIWB_ENV of the mailbox == HOME_RELAY_ENV); otherwise every call gets `not_bound`.
 
 Read only for now: the API reads the store (overview, list, thread, message, attachment, search) and changes nothing,
-neither in the store nor at the provider.
+neither in the store nor at the provider. `images` fetches the remote pictures of one stored message on the person's
+click (home/remoteimg.py); the page itself never loads anything from the internet.
 """
 from __future__ import annotations
 
@@ -20,6 +21,8 @@ import sqlite3
 import sys
 from email import policy
 from email.parser import BytesParser
+
+import remoteimg
 
 PAGE = 50
 INLINE_MAX = 1024 * 1024          # cid: images up to 1 MB go inline as data: URIs
@@ -203,10 +206,24 @@ class MailApi:
             return {'name': row['filename'], 'type': row['content_type'], 'size': row['size'], 'tooBig': True}
         return {'name': row['filename'], 'type': row['content_type'], 'size': row['size'], 'data': b64e(self.store.read_blob(sha))}
 
+    def images(self, args, fetch_all=None):
+        """Remote images of one message, fetched here on the person's click (module remoteimg)."""
+        gid = str(args.get('id') or '')
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', gid):
+            raise ValueError('bad message')
+        row = self.db.execute('SELECT m.html, m.sensitive FROM gmail_messages g JOIN messages m ON m.id=g.message_id'
+                              ' WHERE g.account=? AND g.gmail_id=? AND g.gone=0', (self.account, gid)).fetchone()
+        if not row or row['sensitive']:
+            raise LookupError('no message')
+        cache = getattr(self.store, 'root', None)
+        images, skipped = (fetch_all or remoteimg.fetch_all)(remoteimg.image_urls(row['html']),
+                                                             cache=cache / 'imgcache' if cache else None)
+        return {'id': gid, 'images': images, 'skipped': skipped}
+
     def handle(self, request):
         action = request.get('action') if isinstance(request, dict) else None
         args = request.get('args') or {} if isinstance(request, dict) else {}
-        if action not in ('overview', 'list', 'search', 'thread', 'attachment') or not isinstance(args, dict):
+        if action not in ('overview', 'list', 'search', 'thread', 'attachment', 'images') or not isinstance(args, dict):
             raise ValueError('unknown action')
         return getattr(self, action)(args)
 
@@ -243,6 +260,7 @@ def handler_main(store, stdin=None, stdout=None, environ=None):
     if not bound:
         print('relay-handler: this mailbox does not belong to the environment of the worker', file=sys.stderr, flush=True)
     store.db.execute('PRAGMA busy_timeout=10000')
+    remoteimg.prune(store.root / 'imgcache')
     api = MailApi(store, account)
     for line in iter(stdin.readline, b''):
         out = handle_line(api, bound, line)

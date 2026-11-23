@@ -125,7 +125,7 @@ function showLink(url) {
 }
 // Rebuild an inert allowlist, dropping all email CSS (including obfuscated @import),
 // custom elements, SVG/MathML, active controls and resource-bearing attributes.
-function bodyHTML(html, host) {
+function bodyHTML(html, host, images = {}) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const allowed = new Set('p div span br hr b strong i em u s del blockquote pre code ul ol li table thead tbody tfoot tr td th h1 h2 h3 h4 h5 h6 a img small sup sub center'.split(' '));
   const drop = new Set('script style iframe frame frameset object embed form link meta base input button textarea select option svg math template noscript video audio source'.split(' '));
@@ -138,9 +138,10 @@ function bodyHTML(html, host) {
     const dest = allowed.has(tag) ? el(tag) : document.createDocumentFragment();
     if (tag === 'img') {
       const src = (node.getAttribute('src') || '').trim();
-      if (/^(https?:)?\/\//i.test(src)) remote = true;
+      // A remote picture shows only as the data: copy the home server fetched ("Показать картинки").
+      const data = /^(https?:)?\/\//i.test(src) ? (Object.hasOwn(images, src) ? images[src] : (remote = true, '')) : src;
       // Only embedded raster images; never relative URLs, srcset or SVG data.
-      if (/^data:image\/(png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(src)) dest.setAttribute('src', src);
+      if (/^data:image\/(png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(data)) dest.setAttribute('src', data);
       dest.setAttribute('alt', node.getAttribute('alt') || 'Изображение');
     }
     if (tag === 'a') {
@@ -169,6 +170,27 @@ function bodyText(text, host) {
     host.append(/^https?:\/\//i.test(part) ? el('span', 'plain-url', part) : document.createTextNode(part));
   }
 }
+// The home server fetches the pictures (the sender sees the home server, not this device) and answers data: copies.
+function imagesBar(msg, body) {
+  const bar = el('div', 'images-bar'), note = el('span', 'small', 'Картинки из интернета скрыты');
+  const show = button('Показать картинки', async () => {
+    const ticket = readTicket;
+    show.disabled = true; note.textContent = 'Загрузка картинок…';
+    try {
+      const data = await call('images', {id: msg.id});
+      if (ticket !== readTicket) return;
+      const images = data.images || {}, got = Object.keys(images).length, missed = Object.keys(data.skipped || {}).length;
+      const fresh = el('div', 'mail-body'); bodyHTML(msg.html, fresh, images); body.replaceWith(fresh); body = fresh;
+      note.textContent = missed ? `Показано ${got} из ${got + missed}` : 'Картинки показаны';
+      show.textContent = 'Ещё раз'; show.disabled = !missed;
+    } catch (err) {
+      if (ticket !== readTicket) return;
+      note.textContent = 'Картинки не загрузились'; show.disabled = false;
+    }
+  });
+  bar.append(note, show);
+  return bar;
+}
 function size(bytes) { return new Intl.NumberFormat('ru-RU', {maximumFractionDigits:1}).format((Number(bytes) || 0) / 1024) + ' КБ'; }
 function message(msg, last) {
   const card = el('details', 'message'); card.open = last || (msg.labels || []).includes('UNREAD');
@@ -181,7 +203,7 @@ function message(msg, last) {
   if (msg.tainted) content.append(el('p', 'notice', 'Письмо может содержать попытку управлять ИИ (read-guard): ' + (msg.reasons || []).join('; ')));
   const body = el('div', 'mail-body');
   if (msg.html) {
-    if (bodyHTML(msg.html, body)) head.append(el('span', 'small', 'Картинки из интернета скрыты'));
+    if (bodyHTML(msg.html, body)) content.append(imagesBar(msg, body));
   } else bodyText(msg.text, body);
   content.append(body);
   for (const att of msg.attachments || []) {

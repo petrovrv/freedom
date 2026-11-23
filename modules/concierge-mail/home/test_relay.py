@@ -64,6 +64,26 @@ class RelayTests(unittest.TestCase):
         got = self.ask('attachment', {'sha': att['sha']})['result']
         self.assertEqual(base64.b64decode(got['data']), b'%PDF-1.4 tiny')
 
+    def test_remote_images_come_from_the_stored_message(self):
+        html = EmailMessage()
+        html['From'], html['To'], html['Subject'], html['Message-ID'] = 'Shop <s@example.org>', 'me@example.org', 'Sale', '<a4@x>'
+        html.set_content('plain')
+        html.add_alternative('<p>Hi<img src="https://cdn.example/a.png"><img src="cid:none"></p>', subtype='html')
+        self.api.add('a4', html.as_bytes(), labels=('INBOX',))
+        cred = self.root / 'cred.json'
+        gmailsync.sync_gmail(self.store, gmailsync.TokenSource(cred, request=self.api), request=self.api)
+        asked = {}
+
+        def fake(urls, cache=None):
+            asked['urls'], asked['cache'] = urls, cache
+            return {urls[0]: 'data:image/png;base64,AA'}, {}
+        out = self.mail.images({'id': 'a4', 'url': 'http://192.168.86.1/'}, fetch_all=fake)
+        self.assertEqual(asked['urls'], ['https://cdn.example/a.png'])  # never an address from the page
+        self.assertEqual(asked['cache'], self.store.root / 'imgcache')
+        self.assertEqual(out['images'], {'https://cdn.example/a.png': 'data:image/png;base64,AA'})
+        self.assertEqual(self.ask('images', {'id': 'nope'})['error'], 'no message')
+        self.assertEqual(self.ask('images', {'id': '../x'})['error'], 'bad message')
+
     def test_bad_input_gives_errors_not_content(self):
         self.assertFalse(self.ask('drop_table')['ok'])
         self.assertFalse(self.ask('list', {'label': "INBOX%' OR 1=1 --"})['ok'])

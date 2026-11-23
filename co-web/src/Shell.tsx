@@ -26,7 +26,7 @@ function chatActionsFor(p: { shareRole?: string }, c: { shareRole?: string }): C
   if (p.shareRole === 'editor' || c.shareRole === 'editor') return ['rename', 'title', 'archive'];
   return [];
 }
-import { moveChatGroup, saveProjectMeta, updateChatMeta } from './workbench';
+import { allProjectChats, latestChats, moveChatGroup, saveProjectMeta, updateChatMeta } from './workbench';
 import { projectModeDefault, type ModeDecl } from './moduleModes';
 import { modesOf } from './moduleStore';
 import { importCalls } from './importWriter';
@@ -541,25 +541,29 @@ export default function Shell({ auth }: { auth: Signed }) {
   const exMove = async (c: Chat, d: MoveDest): Promise<() => Promise<void>> => {
     const from = c.projectId;
     const prev = c.folder;
+    const src = projects?.find((p) => p.projectId === from);
+    const dst = projects?.find((p) => p.projectId === d.projectId);
+    if (!src || !dst) throw new Error('The project is not loaded yet.');
     if (d.projectId === from) {
-      const moved = await updateChatMeta(c, { folder: d.folder });
+      await updateChatMeta(c, { folder: d.folder });
       exReload([from]);
       return async () => {
-        await updateChatMeta(moved, { folder: prev });
+        const [now] = await latestChats(src, [c]);
+        await updateChatMeta(now, { folder: prev });
         exReload([from]);
       };
     }
-    const src = projects?.find((p) => p.projectId === from);
-    const dst = projects?.find((p) => p.projectId === d.projectId);
-    if (!root || !src || !dst) throw new Error('The project is not loaded yet.');
+    if (!root) throw new Error('The workbench is not loaded yet.');
     const follow = (group: Chat[], to: string) => {
       if (chatId && group.some((x) => x.chatId === chatId)) navigate(`/e/${env}/p/${to}/c/${chatId}`);
     };
-    const group = await moveChatGroup(root, subtreeOf(c, exChatsOf(from) ?? [c]), dst, d.folder);
+    // the whole project (the list shown is capped), so no chat under it is left behind
+    const group = await moveChatGroup(root, subtreeOf(c, await allProjectChats(src)), src, dst, d.folder);
     exReload([from, d.projectId]);
     follow(group, d.projectId);
     return async () => {
-      const back = await moveChatGroup(root, group, src, prev);
+      const now = await latestChats(dst, group);
+      const back = await moveChatGroup(root, now.map((x, i) => (i === 0 ? { ...x, folder: d.folder } : x)), dst, src, prev);
       exReload([from, d.projectId]);
       follow(back, from);
     };

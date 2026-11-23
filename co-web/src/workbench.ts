@@ -1178,9 +1178,10 @@ export async function moveChat(root: Root, chat: Chat, target: Project, extra: P
   return moveChatFolder(root, chat, target, extra);
 }
 
-// F15.2: the Explorer moves a chat with the chats under it (group[0] = the chat) to another project; none moves while
-// one of them has a running job. The chat gets `folder` there (undefined = back under its lineage parent).
-export async function moveChatGroup(root: Root, group: Chat[], target: Project, folder: string | undefined): Promise<Chat[]> {
+// F15.2: the Explorer moves a chat with the chats under it (group[0] = the chat) from `source` to another project; none
+// moves while one of them has a running job, and a failed move puts the ones already moved back. The chat gets
+// `folder` there (undefined = back under its lineage parent).
+export async function moveChatGroup(root: Root, group: Chat[], source: Project, target: Project, folder: string | undefined): Promise<Chat[]> {
   await mapLimit(group, 4, async (c) => {
     try {
       await assertIdle(c);
@@ -1189,10 +1190,36 @@ export async function moveChatGroup(root: Root, group: Chat[], target: Project, 
     }
   });
   const out: Chat[] = [];
-  for (const [i, c] of group.entries()) {
-    out.push(c.projectId === target.projectId ? c : await moveChatFolder(root, c, target, i === 0 ? { folder } : {}));
+  try {
+    for (const [i, c] of group.entries()) {
+      out.push(c.projectId === target.projectId ? c : await moveChatFolder(root, c, target, i === 0 ? { folder } : {}));
+    }
+  } catch (e) {
+    const back: string[] = [];
+    for (const [i, m] of out.entries()) {
+      if (group[i].projectId === target.projectId) continue;
+      try {
+        await moveChatFolder(root, m, source, i === 0 ? { folder: group[0].folder } : {});
+      } catch {
+        back.push(`“${m.title}”`);
+      }
+    }
+    const why = e instanceof Error ? e.message : String(e);
+    throw new Error(back.length ? `${why} ${back.join(', ')} stayed in “${target.title}”; move them back by hand.` : `${why} Nothing was moved.`);
   }
   return out;
+}
+
+// F15.2: the newest copy of these chats of a project (database or this browser), so an undo keeps later edits
+export async function latestChats(p: Project, chats: Chat[]): Promise<Chat[]> {
+  const ids = new Set(chats.map((c) => c.chatId));
+  let fresh: Chat[] = [];
+  try {
+    fresh = (await listChats(p)).filter((c) => ids.has(c.chatId));
+  } catch {
+    /* keep the copies we have */
+  }
+  return chats.map((c) => fresh.find((x) => x.chatId === c.chatId) ?? c);
 }
 
 // 0.58.0: extra = chat.json fields written together with the move (parent of a folded project's chat)

@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.9.0",
- "created": "2026-11-23T11:07:30Z",
+ "version": "0.10.0",
+ "created": "2026-11-23T12:27:06Z",
  "files": [
   {
    "path": "context/mail.md",
@@ -39,11 +39,6 @@
    "sha256": "a04ace1d0b289d9d3dd2ced8e92aff8a62f097b48f16887186260aac88560ab7"
   },
   {
-   "path": "home/hub/concierge-mail-relay-at.service",
-   "size": 1010,
-   "sha256": "37135a24e25649ba3e90a88ca4391bce144ce5a16ebe9b27650fc14c821d295e"
-  },
-  {
    "path": "home/hub/concierge-mail-sync-at.service",
    "size": 893,
    "sha256": "775ef97f5b6f726bd453529d0439ccd71ef908dd96afe1d08818bde8c4c17300"
@@ -55,8 +50,8 @@
   },
   {
    "path": "home/hub/hubctl.py",
-   "size": 18683,
-   "sha256": "f49689455054e9660a5d3e487170f43f40f701d40adcd8255f4cf53c85514f13"
+   "size": 20974,
+   "sha256": "923b1a88d451a2463f84747f5173ecb42ad6531f43d0a461ca392fe6fbbc8b21"
   },
   {
    "path": "home/hubbackup.py",
@@ -65,8 +60,8 @@
   },
   {
    "path": "home/mailcli.py",
-   "size": 15131,
-   "sha256": "5c400f07dec26fc91212ade842bc34d7a8b858619843ee9494066c847b6af438"
+   "size": 15416,
+   "sha256": "560ca06142295c507795037d99fa070084cf08ae9064398bb73c275c7ed23cb2"
   },
   {
    "path": "home/mailstore.py",
@@ -75,8 +70,8 @@
   },
   {
    "path": "home/relay.py",
-   "size": 19671,
-   "sha256": "85f2d834d8d340f21ee2a87313a95d39bdeb62318bc6ad331cf8e6536210c534"
+   "size": 13632,
+   "sha256": "d924ae3fde256d3b403380f0e48bf4399a23e87a34dbf9b56255ed8191c34024"
   },
   {
    "path": "home/seal.py",
@@ -125,8 +120,8 @@
   },
   {
    "path": "home/test_relay.py",
-   "size": 10936,
-   "sha256": "ed13277bc30d0662af2a65bc09b6315cf2bd697311557caa47de81d646417d1b"
+   "size": 5722,
+   "sha256": "23ac358c40132a0ce57b74d7c9b39aa2d517841ca7e2af5c7153d4ec1fa47340"
   },
   {
    "path": "home/test_spam_rescue.py",
@@ -140,23 +135,23 @@
   },
   {
    "path": "module.json",
-   "size": 2662,
-   "sha256": "54ffa86a250fb48593ba46f68635164b3a8347cf120dad594822a26495ae99ac"
+   "size": 2388,
+   "sha256": "825c80de0378e173d2ee0e5c7ccc6d0e12e2119341309dc097d014d9d0f2dd60"
   },
   {
    "path": "README.md",
-   "size": 13893,
-   "sha256": "bf5711c4e4aaaa6fc8840609a2c08e9293da16b52becc3f1db11def4a49ba39e"
+   "size": 12683,
+   "sha256": "69c5e7cd27eb164c162be7359390151032f50b675d04cd9062d0ab8d5e4449d9"
   },
   {
    "path": "server/ops.php",
-   "size": 11130,
-   "sha256": "5cd232db48b3c46e047fc0c949a13d3b7b7dbd3d51c4bee29ce34b20a21d829f"
+   "size": 2776,
+   "sha256": "c8d3d62dbba5430dfa50d1e1c44c7556924deef9dd89348d3bf5daaf946ca4bc"
   },
   {
    "path": "tests/server.php",
-   "size": 5308,
-   "sha256": "1c777e9835ef40ce6f58e428f956800c571d62402b064b4ffd04af44c69219a6"
+   "size": 2976,
+   "sha256": "169cab6ba9f13f48f91e3477734c8811acc23bc7560ede0073a19ebbabd7d23e"
   },
   {
    "path": "ui/mail.css",
@@ -165,18 +160,13 @@
   },
   {
    "path": "ui/mail.html",
-   "size": 1881,
-   "sha256": "7b7e6be67a79d3f925ed68288ce05fb56d4f4fd8ec32790c69ae9db40d1e308b"
+   "size": 1890,
+   "sha256": "967c03135470f6b06d856c3536831cf8692f457bae33faa5058d685649070ad8"
   },
   {
    "path": "ui/mail.js",
-   "size": 15964,
-   "sha256": "aeced5f07d77053c9391c57ee695763006d950d1ba52bf6fa7332bfbb1835921"
-  },
-  {
-   "path": "ui/relay.js",
-   "size": 3385,
-   "sha256": "ca56f3a110c1884344aed62b6301a138c29a5cf797847f2eb72d59c1bc81f370"
+   "size": 16526,
+   "sha256": "97d7ec4366314738e785949d891ae5e6f869b4b458804f1a78b2e5d38b118f6a"
   },
   {
    "path": "ui/tray.css",
@@ -198,7 +188,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "3Ai0kuH2LdhbWQZA5mm/rzV/76eNzvOn3+iDrBp4WBSG0mXTwOw+2aCT/vqXZ58a119VgSEHUO4dk95GNIp6CQ=="
+   "sig": "E7CjjdHr2o7Q+KzuWUIPcla/rF4ov1DIottysMrXKl265w9R7AbZFMLEyltXZ4iekowpP8X8sjBE95/ETbzFCA=="
   }
  ],
  "module": "concierge-mail"

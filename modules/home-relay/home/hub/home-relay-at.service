@@ -1,0 +1,35 @@
+# One worker per person (%i = person slug): the pages of that person's modules (mail, calendar, ...) reach this home
+# server through the site (sealed requests and answers; the site never sees content in clear). The module handlers are
+# named in /etc/home-relay/modules.d/; each module's drop-in in home-relay@.service.d/ adds the folders it may write.
+[Unit]
+Description=Freedom home-relay: pages of %i reach this home server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aiwb-%i
+Group=aiwb-%i
+EnvironmentFile=/etc/home-relay/%i.env
+LoadCredentialEncrypted=relay:/etc/credstore.encrypted/home-relay.%i.cred
+StateDirectory=home-relay/%i
+StateDirectoryMode=0700
+ExecStart=/usr/bin/python3 -I /opt/home-relay/modules/home-relay/home/relayd.py %i
+Restart=always
+RestartSec=10
+Nice=5
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryMax=768M
+
+[Install]
+WantedBy=multi-user.target

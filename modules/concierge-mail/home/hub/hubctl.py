@@ -1,16 +1,14 @@
 """Mail store on the home server, managed from a PC over SSH (Linux host with systemd).
 
-  deploy                      copy the module code and read-guard to /opt/concierge-mail, install the unit templates
+  deploy                      copy the module code and read-guard to /opt/concierge-mail, install the unit templates,
+                              register the Mail page handler with the home relay (module home-relay)
   add SLUG --account A --env E [--backup-public KEY]   person user aiwb-SLUG (provider-accounts), /srv/data/mail/SLUG (0700), /etc/concierge-mail/SLUG.env
   connect SLUG --client-json F | --client-credman TARGET   the person allows mail.read + drive.appfiles of their shared
                               account (module provider-accounts: one sign-in for all modules of the person, missing rights are
                               added incrementally); the token goes straight into the encrypted systemd credential
                               /etc/credstore.encrypted/account.SLUG.google.cred (never into a file or keyring of this PC)
   migrate SLUG                re-encrypt the older concierge-mail.SLUG.cred as the shared account credential
-  pair SLUG [--site URL]      the Mail page of SLUG's environment reaches this mailbox: the site (push key of this PC)
-                              issues the worker token, it goes straight into the encrypted credential
-                              concierge-mail-relay.SLUG.cred; RELAY_URL is written to SLUG.env and the worker started
-  unpair SLUG                 stop the worker and revoke its token on the site
+  (the Mail page reaches a mailbox through the person's home-relay worker: modules/home-relay/home/hub/relayctl.py pair SLUG)
   start SLUG / stop SLUG      enable/disable the sync timer (and the backup timer when a backup key is set)
   status [SLUG]               timers, last run, per-mailbox counters (no message content)
   run SLUG -- ARGS            mailcli.py as aiwb-SLUG with its credential (diagnostics: gmail-status, search ...)
@@ -34,11 +32,14 @@ MODULE = HERE.parents[1]
 REPO = HERE.parents[3]
 CAPABILITIES = ['mail.read', 'drive.appfiles']
 sys.path.insert(0, str(MODULE.parent / 'provider-accounts' / 'home' / 'hub'))
+sys.path.insert(0, str(MODULE.parent / 'home-relay' / 'home' / 'hub'))
 import accountctl  # noqa: E402  (module provider-accounts)
+import relayctl  # noqa: E402  (module home-relay)
 SLUG = re.compile(r'^[a-z][a-z0-9-]{0,20}$')
 LEGACY_USER = 'cmail-'  # concierge-mail 0.7-0.8 ran as its own user; 0.9 runs as the person user aiwb-SLUG
-UNITS = ['concierge-mail-sync@.service', 'concierge-mail-sync@.timer', 'concierge-mail-backup@.service', 'concierge-mail-backup@.timer',
-         'concierge-mail-relay@.service']
+UNITS = ['concierge-mail-sync@.service', 'concierge-mail-sync@.timer', 'concierge-mail-backup@.service', 'concierge-mail-backup@.timer']
+OLD_RELAY = 'concierge-mail-relay@'  # 0.8-0.9 had its own page worker; 0.10 is a handler of the person's home-relay worker
+HANDLER = ['/usr/bin/python3', '/opt/concierge-mail/modules/concierge-mail/home/mailcli.py', '--root', '/srv/data/mail/{slug}', 'relay-handler']
 
 
 def ssh(args, cmd, data=None, check=True):
@@ -58,6 +59,23 @@ def slug_ok(slug):
 def deploy(args):
     import io
     import tarfile
+    # 0.8-0.9 -> 0.10: the old Mail page worker goes away (the new code has no relay-serve). A person paired with it (its
+    # credential is there) must first run as aiwb-SLUG (0.9 renames cmail-SLUG) and be paired with the home relay, whose
+    # worker runs. Checked before anything changes; an unclear answer counts as "not ready".
+    blocked = {}
+    for slug in slugs(args):
+        got = ssh(args, f'if sudo test -f /etc/credstore.encrypted/{OLD_RELAY[:-1]}.{slug}.cred; then echo old; elif sudo true; then echo none; fi',
+                  check=False).strip()
+        if got == 'none':
+            continue
+        if got != 'old':  # no clear answer: change nothing
+            sys.exit(f'deploy: could not check the old worker of {slug}; nothing was changed')
+        if ssh(args, f'id -u {LEGACY_USER + slug} >/dev/null 2>&1 && echo legacy || echo moved', check=False).strip() != 'moved':
+            blocked[slug] = 'deploy concierge-mail 0.9.0 first (it moves the person to aiwb-' + slug + ')'
+        elif not relayctl.serving(args, slug):
+            blocked[slug] = f'relayctl.py deploy; relayctl.py pair {slug}'
+    if blocked:
+        sys.exit(json.dumps({'refused': "these persons' Mail page still runs on the old worker; nothing was changed", 'do': blocked}))
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode='w:gz') as tar:
         def add(src, arc):
@@ -96,9 +114,10 @@ def deploy(args):
         for slug in people:
             if ssh(args, f'id -u {LEGACY_USER + slug} >/dev/null 2>&1 && echo yes || echo no').strip() == 'yes':
                 # also what runs without being enabled (started by hand) comes back below
-                was_active += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:3]) + '; do'
+                was_active += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:2]) + '; do'
                                         ' case $(systemctl is-active "$u") in active|activating|reloading) echo "$u";; esac; done').split()
                 ssh(args, 'sudo systemctl stop ' + ' '.join(unit_names(slug)))  # a rename is refused while the old user runs
+                ssh(args, f'sudo systemctl stop {OLD_RELAY}{slug}.service', check=False)  # the 0.8-0.9 worker, removed below
             try:
                 users[slug] = accountctl.ensure_person(args, slug, adopt=[LEGACY_USER + slug])
                 legacy.remove(slug)
@@ -108,14 +127,50 @@ def deploy(args):
         _units(args, people, legacy)
         # what a person has enabled runs again (also when an earlier deploy stopped it and failed half way), and what ran before
         for slug in people:
-            failed += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:3]) + '; do'
+            failed += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:2]) + '; do'
                                 ' if systemctl is-enabled -q "$u"; then sudo systemctl start "$u" || echo "$u"; fi; done', check=False).split()
         if was_active:
             failed += ssh(args, 'for u in ' + ' '.join(was_active) + '; do sudo systemctl start "$u" || echo "$u"; done', check=False).split()
+    # the Mail page handler of the home relay (every person whose mailbox is set up here); the older own worker goes
+    failed += relayctl.register(args, 'concierge-mail', HANDLER, env_file='/etc/concierge-mail/{slug}.env',
+                                write=['/srv/data/mail/{slug}'], only_if='/etc/concierge-mail/{slug}.env')
+    # the old worker of a person goes only when that person's relay worker is verified running with the new handler
+    removed = []
+    for slug in people:
+        if ssh(args, f'systemctl cat {OLD_RELAY}{slug}.service >/dev/null 2>&1 || sudo test -f /etc/credstore.encrypted/{OLD_RELAY[:-1]}.{slug}.cred'
+                     ' && echo old || echo none', check=False).strip() != 'old':
+            continue
+        if f'home-relay@{slug}.service' in failed or not relayctl.serving(args, slug) or not handler_bound(args, slug):
+            failed.append(f'{OLD_RELAY}{slug}.service (kept: home-relay@{slug} not running)')
+            continue
+        ssh(args, f'sudo systemctl disable --now {OLD_RELAY}{slug}.service; sudo rm -rf /etc/systemd/system/{OLD_RELAY}{slug}.service.d'
+                  f' /etc/credstore.encrypted/{OLD_RELAY[:-1]}.{slug}.cred; sudo sed -i "/^RELAY_URL=/d" /etc/concierge-mail/{slug}.env', check=False)
+        removed.append(slug)
+    if ssh(args, f"if sudo sh -c 'ls /etc/credstore.encrypted/{OLD_RELAY[:-1]}.*.cred' >/dev/null 2>&1; then echo some; elif sudo true; then echo none; fi",
+           check=False).strip() == 'none':
+        ssh(args, f'sudo rm -f /etc/systemd/system/{OLD_RELAY}.service; sudo systemctl daemon-reload', check=False)
     if failed or legacy:
         sys.exit(json.dumps({'deployed': '/opt/concierge-mail', 'users': users, 'notStarted': sorted(set(failed)),
                              'hint': 'persons in "kept" still run as their old user; fix the reason and deploy again'}, ensure_ascii=False))
-    print(json.dumps({'deployed': '/opt/concierge-mail', 'units': UNITS, 'users': users}))
+    print(json.dumps({'deployed': '/opt/concierge-mail', 'units': UNITS, 'users': users, 'relayHandler': 'concierge-mail',
+                      'oldWorkerRemoved': removed}))
+
+
+def handler_bound(args, slug):
+    """The Mail handler answers for this person exactly as the relay worker starts it (person user, the mailbox's env file,
+    the worker's environment) and reports a mailbox bound to that environment; anything else is False."""
+    env = ssh(args, f"sudo sed -n 's/^AIWB_ENV=//p' /etc/home-relay/{slug}.env", check=False).strip()
+    if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,39}', env):
+        return False
+    cmd = ('sudo systemd-run --quiet --wait --pipe --collect'
+           f' -p User={accountctl.person_user(slug)} -p Group={accountctl.person_user(slug)} -p EnvironmentFile=/etc/concierge-mail/{slug}.env'
+           f' --setenv=HOME_RELAY_ENV={env} -p ProtectSystem=strict -p ReadWritePaths=/srv/data/mail/{slug} -p ProtectHome=yes -p PrivateTmp=yes'
+           ' ' + ' '.join(a.replace('{slug}', slug) for a in HANDLER))
+    try:
+        out = json.loads(ssh(args, cmd, b'{"op": "status"}\n', check=False).strip().splitlines()[0])
+    except (ValueError, IndexError):
+        return False
+    return isinstance(out, dict) and isinstance(out.get('status'), dict) and out['status'].get('bound') is True
 
 
 def _units(args, people, legacy):
@@ -125,7 +180,7 @@ def _units(args, people, legacy):
         source = HERE / unit.replace('@', '-at')
         ssh(args, f'sudo tee /etc/systemd/system/{unit} >/dev/null', source.read_bytes().replace(b'\r\n', b'\n'))
     for slug in people:
-        for name in unit_names(slug)[2:]:  # the three services of the person
+        for name in unit_names(slug)[2:]:  # the services of the person
             d = f'/etc/systemd/system/{name}.d'
             if slug in legacy:
                 ssh(args, f'set -e; u={LEGACY_USER + slug}; id -u $u >/dev/null 2>&1 || u={accountctl.person_user(slug)};'
@@ -142,8 +197,8 @@ def slugs(args):
 
 
 def unit_names(slug):
-    """The units of a person: timers and the worker (what may be enabled), then the oneshot services."""
-    return [f'concierge-mail-sync@{slug}.timer', f'concierge-mail-backup@{slug}.timer', f'concierge-mail-relay@{slug}.service',
+    """The units of a person: timers (what may be enabled), then the oneshot services."""
+    return [f'concierge-mail-sync@{slug}.timer', f'concierge-mail-backup@{slug}.timer',
             f'concierge-mail-sync@{slug}.service', f'concierge-mail-backup@{slug}.service']
 
 
@@ -186,38 +241,6 @@ def migrate(args):
     args.account = re.search(r'^ACCOUNT=(.+)$', env, re.M).group(1).strip()
     args.source, args.from_name, args.provider = f'/etc/credstore.encrypted/concierge-mail.{slug}.cred', 'gmail', 'google'
     accountctl.migrate(args)
-
-
-def _site(args):
-    sys.path.insert(0, str(MODULE / 'home'))
-    import deliver
-    return deliver.Site(args.site or None)
-
-
-def pair(args):
-    slug = slug_ok(args.slug)
-    env = re.search(r'^AIWB_ENV=(.+)$', ssh(args, f'sudo cat /etc/concierge-mail/{slug}.env'), re.M).group(1).strip()
-    site = _site(args)
-    got = site.call({'op': 'mail_worker_token', 'env': env})
-    token = got.get('token') if isinstance(got, dict) else None
-    if not token:
-        sys.exit('the site gave no worker token: ' + str((got or {}).get('error', 'no answer')))
-    url = site.url + '/agent/module.php?m=concierge-mail&r=worker'
-    cred = f'/etc/credstore.encrypted/concierge-mail-relay.{slug}.cred'
-    ssh(args, f'sudo systemd-creds encrypt --name=relay - {cred}.new && sudo chmod 0600 {cred}.new && sudo mv {cred}.new {cred}', token.encode())
-    del token, got
-    ssh(args, f"set -e; f=/etc/concierge-mail/{slug}.env; sudo sed -i '/^RELAY_URL=/d' $f; echo {shlex.quote('RELAY_URL=' + url)} | sudo tee -a $f >/dev/null")
-    ssh(args, f'sudo systemctl enable concierge-mail-relay@{slug}.service && sudo systemctl restart concierge-mail-relay@{slug}.service')
-    print(json.dumps({'slug': slug, 'env': env, 'relay': url, 'credential': cred, 'worker': f'concierge-mail-relay@{slug}'}))
-
-
-def unpair(args):
-    slug = slug_ok(args.slug)
-    env = re.search(r'^AIWB_ENV=(.+)$', ssh(args, f'sudo cat /etc/concierge-mail/{slug}.env'), re.M).group(1).strip()
-    ssh(args, f'sudo systemctl disable --now concierge-mail-relay@{slug}.service', check=False)
-    got = _site(args).call({'op': 'mail_worker_token', 'env': env, 'revoke': True})
-    ssh(args, f'sudo rm -f /etc/credstore.encrypted/concierge-mail-relay.{slug}.cred')
-    print(json.dumps({'slug': slug, 'env': env, 'revoked': bool(got.get('ok'))}))
 
 
 def start(args, on=True):
@@ -263,7 +286,7 @@ def status(args):
         slug = name.removesuffix('.env')
         timers = ssh(args, f'systemctl show -p ActiveState,LastTriggerUSec concierge-mail-sync@{slug}.timer concierge-mail-backup@{slug}.timer', check=False)
         result = ssh(args, f'systemctl show -p Result,ExecMainExitTimestamp concierge-mail-sync@{slug}.service concierge-mail-backup@{slug}.service', check=False)
-        worker = ssh(args, f'systemctl is-active concierge-mail-relay@{slug}.service', check=False).strip()
+        worker = ssh(args, f'systemctl is-active home-relay@{slug}.service', check=False).strip()
         size = ssh(args, f'sudo du -sh /srv/data/mail/{slug} 2>/dev/null | cut -f1', check=False).strip()
         cred = ssh(args, f'sudo test -f /etc/credstore.encrypted/account.{slug}.google.cred && echo yes || echo no', check=False).strip()
         out.append({'slug': slug, 'credential': cred, 'size': size, 'timers': timers.split(), 'services': result.split(), 'worker': worker})
@@ -287,12 +310,6 @@ def main():
     accountctl.add_connect_args(c)
     c.add_argument('--start', action='store_true', help='enable the timers right after the credential is saved')
     sub.add_parser('migrate').add_argument('slug')
-    pr = sub.add_parser('pair')
-    pr.add_argument('slug')
-    pr.add_argument('--site', help='site URL (default: install.json site.url)')
-    up = sub.add_parser('unpair')
-    up.add_argument('slug')
-    up.add_argument('--site')
     for name in ('start', 'stop'):
         sub.add_parser(name).add_argument('slug')
     s = sub.add_parser('status')
@@ -301,7 +318,7 @@ def main():
     r.add_argument('slug')
     r.add_argument('rest', nargs=argparse.REMAINDER)
     args = p.parse_args()
-    {'deploy': deploy, 'add': add, 'connect': connect, 'migrate': migrate, 'pair': pair, 'unpair': unpair, 'start': start, 'stop': lambda a: start(a, False),
+    {'deploy': deploy, 'add': add, 'connect': connect, 'migrate': migrate, 'start': start, 'stop': lambda a: start(a, False),
      'status': status, 'run': run}[args.cmd](args)
 
 

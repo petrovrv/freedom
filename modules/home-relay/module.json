@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "id": "home-relay",
+  "version": "0.1.0",
+  "title": "Home relay",
+  "description": "The site as a postman between the pages of a person's modules (mail, calendar, ...) and that person's worker on the home server: requests and answers are end-to-end encrypted, the site keeps only ciphertext for at most a minute, and the home server alone decides which person, account and data a request reaches.",
+  "ext": ">=1 <2",
+  "scope": "environment",
+  "platforms": ["linux", "windows", "macos"],
+  "requires": { "core": ["push"], "modules": ["provider-accounts"] },
+  "permissions": [
+    "push.key",
+    "route.public"
+  ],
+  "isolation": "host",
+  "isolationReason": "the worker is a systemd service of the home server under the person's own user (aiwb-<slug>); the site only carries sealed items",
+  "defaults": { "enabled": false },
+  "dataPolicy": { "onDisable": "keep", "onRemove": "keep", "migrations": "additive" },
+  "provides": {
+    "data": {
+      "server": "files: workers.json (sha256 of each environment's worker token), q/<env>/ sealed requests and answers kept only until taken (at most 60 s) and status.json (worker key, small status per module)",
+      "home": "on the home server: /etc/home-relay/<slug>.env (environment, site route), /etc/home-relay/modules.d/<module>.json (handlers), /var/lib/home-relay/<slug>/relay-key.pem, credential home-relay.<slug>.cred"
+    },
+    "context": [], "models": [], "deviceTools": [], "services": []
+  },
+  "server": {
+    "entry": "server/ops.php",
+    "ops": { "user": [], "push": ["relay_worker_token"], "host": [] },
+    "routes": ["worker"]
+  }
+}

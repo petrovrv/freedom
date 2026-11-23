@@ -95,7 +95,7 @@ def main():
     gb.add_argument('--before', help='YYYY-MM-DD')
     gb.add_argument('--query', help='Gmail search query')
     sub.add_parser('gmail-status', help='sync state and counters per mailbox (no content)')
-    sub.add_parser('relay-serve', help="answer the person's Mail page through the site (hub unit concierge-mail-relay@; read only)")
+    sub.add_parser('relay-handler', help="answer the person's Mail page: handler of the home-relay worker (JSON lines on stdin/stdout; read only)")
     sub.add_parser('backup-keygen', help='new backup key pair: the private key goes to the keyring of THIS device (aiwb/concierge-mail-backup), the public one is printed for the hub')
     bd = sub.add_parser('backup-drive', help="encrypted incremental backup into the person's own Google Drive (public key from BACKUP_PUBLIC_KEY)")
     bd.add_argument('--cred')
@@ -130,9 +130,9 @@ def main():
             result = sync_imap(store, args.account, folder=args.folder, limit=args.limit, refetch=args.refetch) if args.folder else sync_account(store, args.account, sent_folder=args.sent_folder, limit=args.limit, refetch=args.refetch)
         elif command in ('gmail-sync', 'gmail-backfill', 'backup-drive'):
             result = run_hub(args, store)
-        elif command == 'relay-serve':
+        elif command == 'relay-handler':
             import relay
-            relay.main(store, args.root)
+            relay.handler_main(store)
             return
         elif command == 'gmail-status':
             result = gmailsync.status(store)

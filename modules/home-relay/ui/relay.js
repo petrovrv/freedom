@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// The Mail page's end of the sealed channel to the person's mail worker (home/relay.py is the other end).
-// ECDH P-256 (session key of this page, the worker's key from mail_status) -> HKDF-SHA256 (salt "<env>|<id>", info
-// "freedom-mail-relay/1 req|res") -> AES-256-GCM, 12-byte nonce, AAD = id. The site carries ciphertext only.
-//   const relay = MailRelay(callOp, env); await relay.call('list', {label: 'INBOX'})  -> result or throws Error(code)
+// The page's end of the sealed channel to the person's relay worker on the home server (home/relayd.py is the other
+// end), for the pages of any module (mail, calendar, ...): load it with <script src="?m=home-relay&f=ui/relay.js">.
+// ECDH P-256 (session key of this page, the worker's key from the module's status op) -> HKDF-SHA256 (salt
+// "<env>|<module>|<id>", info "freedom-home-relay/1 req|res") -> AES-256-GCM, 12-byte nonce, AAD = id. The site carries
+// ciphertext only; the module name in the salt keeps the site from handing a request to another module's handler.
+//   const relay = HomeRelay((op, args, opts) => coExt.call(op, args, opts), {env, module: 'concierge-mail', op: 'mail_call'});
+//   await relay.call('list', {label: 'INBOX'}, status.pub)  -> result, or throws Error(code)
 (() => {
 'use strict';
 const subtle = globalThis.crypto && globalThis.crypto.subtle;
@@ -11,8 +14,10 @@ const b64 = buf => { const b = new Uint8Array(buf); let s = ''; for (let i = 0; 
 const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 const hex = n => Array.from(globalThis.crypto.getRandomValues(new Uint8Array(n)), x => x.toString(16).padStart(2, '0')).join('');
 
-function MailRelay(callOp, env) {
+function HomeRelay(callOp, opts) {
   if (!subtle) throw new Error('no_webcrypto');
+  const env = String(opts.env || ''), mod = String(opts.module || ''), op = String(opts.op || '');
+  if (!env || !mod || !op) throw new Error('bad_relay_options');
   let mine = null, pkB64 = '', peer = null, peerB64 = '';
   async function session() {
     if (!mine) {
@@ -29,7 +34,7 @@ function MailRelay(callOp, env) {
   async function key(id, dir) {
     const shared = await subtle.deriveBits({name: 'ECDH', public: peer}, mine.privateKey, 256);
     const ikm = await subtle.importKey('raw', shared, 'HKDF', false, ['deriveKey']);
-    return subtle.deriveKey({name: 'HKDF', hash: 'SHA-256', salt: enc.encode(env + '|' + id), info: enc.encode('freedom-mail-relay/1 ' + dir)},
+    return subtle.deriveKey({name: 'HKDF', hash: 'SHA-256', salt: enc.encode(env + '|' + mod + '|' + id), info: enc.encode('freedom-home-relay/1 ' + dir)},
       ikm, {name: 'AES-GCM', length: 256}, false, ['encrypt', 'decrypt']);
   }
   async function seal(id, value) {
@@ -41,12 +46,12 @@ function MailRelay(callOp, env) {
     const plain = await subtle.decrypt({name: 'AES-GCM', iv: unb64(ans.iv), additionalData: enc.encode(id)}, await key(id, 'res'), unb64(ans.ct));
     return JSON.parse(dec.decode(plain));
   }
-  // pub: the worker's public key (mail_status.pub); refreshed by the caller when the worker restarts with a new key
+  // pub: the worker's public key (from the module's status op); refreshed by the caller when the worker gets a new key
   async function call(action, args, pub, timeoutMs) {
     await session();
     await worker(pub);
     const id = hex(16);
-    const ans = await callOp('mail_call', await seal(id, {action, args: args || {}, ts: Date.now()}), {timeoutMs: timeoutMs || 20000});
+    const ans = await callOp(op, await seal(id, {action, args: args || {}, ts: Date.now()}), {timeoutMs: timeoutMs || 20000});
     if (!ans || ans.error) throw new Error((ans && ans.error) || 'no_answer');
     const out = await open(id, ans);
     if (!out.ok) throw new Error(out.error || 'worker_error');
@@ -54,5 +59,5 @@ function MailRelay(callOp, env) {
   }
   return {call, _seal: async (id, v, pub) => { await session(); await worker(pub); return seal(id, v); }, _open: open};
 }
-if (typeof module !== 'undefined' && module.exports) module.exports = MailRelay; else globalThis.MailRelay = MailRelay;
+if (typeof module !== 'undefined' && module.exports) module.exports = HomeRelay; else globalThis.HomeRelay = HomeRelay;
 })();

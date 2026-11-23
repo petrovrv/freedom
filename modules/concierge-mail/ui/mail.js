@@ -17,7 +17,7 @@ function theme(ctx) { document.documentElement.dataset.theme = ['dark','light'].
 function title(n) { coExt.title('Почта' + (n > 0 ? ' (' + n + ')' : '')); }
 function pane(name) { document.body.dataset.pane = name; $('link-bar').hidden = true; }
 function error(target, err, retry) {
-  const messages = {offline:'Домашний сервер не отвечает', timeout:'Сервер не успел ответить', not_paired:'Почта ещё не подключена', bad_request:'Не удалось прочитать запрос', worker_error:'Не удалось получить почту', no_webcrypto:'Шифрование недоступно в этом браузере'};
+  const messages = {offline:'Домашний сервер не отвечает', timeout:'Сервер не успел ответить', not_paired:'Почта ещё не подключена', not_served:'Домашний сервер не обслуживает почту', not_bound:'Ящик на домашнем сервере принадлежит другому окружению', bad_request:'Не удалось прочитать запрос', worker_error:'Не удалось получить почту', no_webcrypto:'Шифрование недоступно в этом браузере', busy:'Слишком много запросов, повторите'};
   target.replaceChildren(el('span', '', messages[err.message] || 'Не удалось загрузить почту'), button('Повторить', retry));
 }
 // Serialize calls: relay.js holds a mutable peer key. Do not rotate it mid-response.
@@ -51,7 +51,7 @@ async function status() {
     if (!st.paired) $('connection').textContent = 'Почта ещё не подключена: хозяин подключает ваш ящик на домашнем сервере.';
     else if (!st.online) error($('connection'), new Error('offline'), status);
     else {
-      if (!relay) relay = MailRelay((op, args, opts) => coExt.call(op, args, opts), st.env);
+      if (!relay) relay = HomeRelay((op, args, opts) => coExt.call(op, args, opts), {env: st.env, module: 'concierge-mail', op: 'mail_call'});
       $('connection').textContent = st.account || 'Почта подключена';
       if (st.synced) $('connection').append(document.createTextNode(' · Синхронизация: ' + st.synced));
       if (!initialized) { initialized = true; overview(); loadList(); }

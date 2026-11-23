@@ -265,13 +265,16 @@ class ComposeTests(unittest.TestCase):
         d.set_content('See the plan')
         d.add_alternative('<p>See <a href="https://plan.example/p">the plan</a></p>', subtype='html')
         d.add_attachment(b'GIF89a...', maintype='image', subtype='gif', filename='p.gif')
+        inner = EmailMessage(); inner['Subject'] = 'Inner'; inner.set_content('inner body')
+        d.add_attachment(inner, filename='inner.eml')
         self.write.drafts['dx'] = {'raw': base64.urlsafe_b64encode(d.as_bytes()).decode()}
         listed = self.c.handle('compose_gmail_drafts', {})['drafts']
         self.assertEqual([(x['draft'], x['subject'], x['snippet'], x['key']) for x in listed], [('dx', 'S dx', 'snip & more', '')])
         opened = self.c.handle('compose_open', {'draft': 'dx'})
         self.assertNotIn('base', opened['fields'])  # the original stays on the home server
         self.assertEqual((opened['fields']['to'], opened['fields']['text'].strip()), ('eve@example.org', 'See the plan'))
-        self.assertEqual([a['name'] for a in opened['attachments']], ['p.gif'])
+        self.assertEqual([a['name'] for a in opened['attachments']], ['p.gif', 'inner.eml'])
+        self.assertTrue(all(a['size'] > 0 for a in opened['attachments']))
         key = opened['key']
         self.assertEqual(self.c.handle('compose_open', {'draft': 'dx'})['key'], key)
         self.c.handle('compose_save', {'key': key, 'fields': {**opened['fields'], 'to': 'eve@example.org, dan@example.org'}})
@@ -283,7 +286,8 @@ class ComposeTests(unittest.TestCase):
         mail = raw_of(self.write.drafts['dx'])
         self.assertIn('New plan', mail.get_body(('plain',)).get_content())
         self.assertNotIn('plan.example', mail.get_body(('html',)).get_content())
-        self.assertEqual([p.get_filename() for p in mail.iter_attachments()], ['p.gif'])
+        self.assertEqual([p.get_filename() for p in mail.iter_attachments()], ['p.gif', 'inner.eml'])
+        self.assertIn('inner body', [p for p in mail.iter_attachments()][1].get_content().get_body().get_content())
     def test_db_error_after_a_send_never_allows_a_resend(self):
         key = self.queue()
         self.now[0] += 11

@@ -322,8 +322,11 @@ class Composer:
         for att in attachments:
             data = self.store.read_blob(att['sha'])
             maintype, _, subtype = (att.get('type') or 'application/octet-stream').partition('/')
-            msg.add_attachment(data, maintype=maintype or 'application', subtype=subtype or 'octet-stream',
-                               filename=att.get('name') or 'file')
+            if (maintype, subtype) == ('message', 'rfc822'):  # an attached letter goes as a letter, whole
+                msg.add_attachment(BytesParser(policy=policy.default).parsebytes(data), filename=att.get('name') or 'message.eml')
+            else:
+                msg.add_attachment(data, maintype=maintype or 'application', subtype=subtype or 'octet-stream',
+                                   filename=att.get('name') or 'file')
         return msg.as_bytes(), mid
 
     def _rebuild_base(self, fields):
@@ -397,7 +400,7 @@ class Composer:
             else:
                 fields['subject'] = subject if re.match(r'(?i)^(re|отв)\s*:', subject) else 'Re: ' + subject
                 reply_to = str(head.get('Reply-To') or '') or orig['sender']
-                mine = orig['is_sent'] or self.account in orig['sender'].lower()
+                mine = bool(orig['is_sent']) or any(a.lower() == self.account for _, a in getaddresses([orig['sender']]))
                 to = [orig['recipients'] if mine else reply_to]
                 fields['to'] = ', '.join(a for a in _addresses(', '.join(to), 'to'))
                 if kind == 'replyall':
@@ -603,9 +606,14 @@ class Composer:
         base = self.store._blob(raw)
         attachments = []
         for part in mail.iter_attachments():
-            payload = part.get_payload(decode=True) or b''
-            attachments.append({'sha': self.store._blob(payload), 'name': part.get_filename() or 'file',
-                                'type': part.get_content_type(), 'size': len(payload)})
+            if part.get_content_maintype() in ('message', 'multipart'):
+                payload = part.get_payload()[0].as_bytes() if part.get_content_type() == 'message/rfc822' and part.get_payload() \
+                    else part.as_bytes()  # an attached letter keeps its whole MIME
+                name, ctype = part.get_filename() or 'message.eml', 'message/rfc822'
+            else:
+                payload = part.get_payload(decode=True) or b''
+                name, ctype = part.get_filename() or 'file', part.get_content_type()
+            attachments.append({'sha': self.store._blob(payload), 'name': name, 'type': ctype, 'size': len(payload)})
         body = mail.get_body(('plain', 'html'))
         text = ''
         if body is not None:

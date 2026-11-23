@@ -277,10 +277,10 @@ class Composer:
         orig = self._original(fields.get('of')) if fields.get('of') else None
         if orig is not None:
             head = self._headers_of(orig)
-            mid = orig['message_id'] or head.get('Message-ID', '')
-            if fields.get('kind') in ('reply', 'replyall') and mid:
-                refs = ' '.join(x for x in [str(head.get('References') or '').strip(), mid] if x)
-                msg['In-Reply-To'] = mid
+            parent = orig['message_id'] or head.get('Message-ID', '')  # the letter answered (never this letter's own mid)
+            if fields.get('kind') in ('reply', 'replyall') and parent:
+                refs = ' '.join(x for x in [str(head.get('References') or '').strip(), parent] if x)
+                msg['In-Reply-To'] = parent
                 msg['References'] = refs[-4000:]
             when = orig['date'] or ''
             body = orig['body'] or _text_of_html(orig['html'])

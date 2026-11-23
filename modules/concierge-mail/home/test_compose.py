@@ -108,6 +108,9 @@ class ComposeTests(unittest.TestCase):
         self.assertEqual(draft['threadId'], 'ta1')
         mail = raw_of(draft)
         self.assertEqual(mail['In-Reply-To'], '<a1@x>')
+        stored = self.store.db.execute('SELECT mid FROM compose WHERE key=?', (start['key'],)).fetchone()[0]
+        self.assertEqual(stored, mail['Message-ID'])  # the reply's own id, never the original's
+        self.assertNotEqual(stored, '<a1@x>')
         self.assertEqual(mail['References'], '<a0@x> <a1@x>')
         self.assertEqual(mail['From'], 'Me Person <me@example.org>')
         text = mail.get_body(('plain',)).get_content()

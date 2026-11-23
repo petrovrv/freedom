@@ -124,13 +124,13 @@ function render() { renderFrame(); if (view === 'agenda') renderAgenda(); else r
 
 function cls(i) {
   return ['ev', i.my === 'declined' ? 'declined' : '', i.my === 'needsAction' || i.my === 'tentative' || i.status === 'tentative' ? 'tentative' : '',
-    i.transparency === 'transparent' ? 'free' : '', i.conflict ? 'conflict' : ''].filter(Boolean).join(' ');
+    i.transparency === 'transparent' ? 'free' : '', i.conflict ? 'conflict' : i.softConflict ? 'soft' : ''].filter(Boolean).join(' ');
 }
 function evButton(i, extra) {
   const b = button('', () => openCard(i), cls(i) + (extra ? ' ' + extra : ''));
   b.style.setProperty('--c', safeColor(i.color));
   const label = (i.summary || '(без названия)') + (i.allDay ? '' : ', ' + fmtTime.format(new Date(i.start)) + '–' + fmtTime.format(new Date(i.end)))
-    + (i.conflict ? ', пересечение' : '') + (i.my === 'needsAction' ? ', нет ответа' : '');
+    + (i.conflict ? ', пересечение' : i.softConflict ? ', приходится на занятый день' : '') + (i.my === 'needsAction' ? ', нет ответа' : '');
   b.setAttribute('aria-label', label); b.title = label;
   return b;
 }
@@ -148,12 +148,14 @@ function renderGrid() {
   const hourPx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hour')) || 48;
   for (const d of ds) {
     const next = addDays(d, 1), cell = el('div', 'cell'), col = el('div', 'col');
-    for (const i of items.filter(i => i.allDay && localDate(i.date) < next && localDate(i.endDate) > d)) cell.append(evButton(i, 'chip'));
+    for (const i of items.filter(i => i.allDay && localDate(i.date) < next && localDate(i.endDate) > d)) { const b = evButton(i, 'chip'); b.textContent = i.summary || '(без названия)'; cell.append(b); }
     const timed = items.filter(i => !i.allDay && new Date(i.start) < next && new Date(i.end) > d)
       .map(i => ({i, s: Math.max(new Date(i.start), d), e: Math.min(new Date(i.end), next)}));
     layout(timed);
     for (const t of timed) {
-      const top = (t.s - d) / 3600000 * hourPx, h = Math.max((t.e - t.s) / 3600000 * hourPx - 2, 18);
+      // wall-clock minutes of the local day (a DST day has 23 or 25 hours, the hour labels stay 00..23)
+      const m0 = wall(t.s, d), m1 = +t.e >= +next ? 1440 : wall(t.e, d);
+      const top = m0 / 60 * hourPx, h = Math.max((m1 - m0) / 60 * hourPx - 2, 18);
       const b = evButton(t.i);
       b.style.top = top + 'px'; b.style.height = h + 'px';
       b.style.left = 'calc(' + (100 * t.col / t.cols) + '% + 2px)'; b.style.right = 'auto'; b.style.width = 'calc(' + (100 / t.cols) + '% - 4px)';
@@ -161,13 +163,14 @@ function renderGrid() {
       if (h > 30) b.append(el('span', 't', fmtTime.format(new Date(t.i.start)) + '–' + fmtTime.format(new Date(t.i.end))));
       col.append(b);
     }
-    if (sameDay(d, today)) { const n = el('div', 'now'); n.style.top = ((today - d) / 3600000 * hourPx) + 'px'; col.append(n); }
+    if (sameDay(d, today)) { const n = el('div', 'now'); n.style.top = (wall(today, d) / 60 * hourPx) + 'px'; col.append(n); }
     all.append(cell); body.append(col);
   }
   g.append(head, all, body);
   all.style.top = head.getBoundingClientRect().height + 'px';
   if (!g.dataset.scrolled) { g.dataset.scrolled = '1'; g.scrollTop = 7.5 * hourPx; }
 }
+function wall(t, day) { const x = new Date(t); return +x <= +day ? 0 : x.getHours() * 60 + x.getMinutes(); }
 // side-by-side columns for overlapping events of one day
 function layout(list) {
   list.sort((a, b) => a.s - b.s || b.e - a.e);
@@ -221,6 +224,7 @@ async function openCard(i) {
       body.append(el('p', 'small', 'В часовом поясе события (' + e.tz + '): ' + there));
     }
     if (i.conflict) body.append(el('p', 'notice', 'Пересекается с другой встречей'));
+    else if (i.softConflict) body.append(el('p', 'notice', 'Приходится на занятый день (отпуск, поездка или другое событие на весь день)'));
     if (e.location) body.append(el('p', '', '📍 ' + e.location));
     if (e.video) body.append(link('🎥 Видеозвонок', e.video));
     if (e.series) body.append(el('p', 'small', 'Повторяющееся событие'));

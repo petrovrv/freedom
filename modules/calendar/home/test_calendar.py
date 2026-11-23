@@ -192,3 +192,15 @@ def test_calendar_set_hides_and_frees(setup):
     assert api.range({'from': '2026-11-24T00:00:00Z', 'to': '2026-11-25T00:00:00Z'})['items'] == []
     with pytest.raises(LookupError):
         api.calendar_set({'id': 'someone-else'})
+
+
+def test_cancelled_series_takes_its_exceptions(setup):
+    g, store = setup
+    g.items = [ev('s', dt('2026-11-23T10:00:00+01:00'), dt('2026-11-23T11:00:00+01:00'), recurrence=['RRULE:FREQ=DAILY;COUNT=3']),
+               ev('s_x', dt('2026-11-24T15:00:00+01:00'), dt('2026-11-24T16:00:00+01:00'), recurringEventId='s',
+                  originalStartTime=dt('2026-11-24T10:00:00+01:00'))]
+    calcli.sync(store, CAL, request=g, token=tok)
+    assert len(store.instances(*window('2026-11-23T00:00:00Z', '2026-11-27T00:00:00Z'))) == 3
+    g.items = [{'id': 's', 'status': 'cancelled'}]
+    calcli.sync(store, CAL, request=g, token=tok)
+    assert store.instances(*window('2026-11-23T00:00:00Z', '2026-11-27T00:00:00Z')) == []

@@ -218,7 +218,9 @@ class CalStore:
                 if inst and _overlaps(inst, start, end):
                     out.append(inst)
         # exceptions whose series we do not have (e.g. an invitation to one occurrence only)
-        series_ids = {(r['provider'], r['account'], r['cal_id'], r['id']) for r in rows}
+        # a master we know (also a cancelled one: its exceptions go with it) is not 'missing'
+        series_ids = {(r['provider'], r['account'], r['cal_id'], r['id'])
+                      for r in self.db.execute("SELECT provider, account, cal_id, id FROM events WHERE recurring_id = ''")}
         for skey, exc in exceptions.items():
             if skey in series_ids:
                 continue

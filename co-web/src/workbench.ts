@@ -1210,16 +1210,19 @@ export async function moveChatGroup(root: Root, group: Chat[], source: Project, 
   return out;
 }
 
-// F15.2: the newest copy of these chats of a project (database or this browser), so an undo keeps later edits
+// F15.2: the newest copy of these chats of a project (database, this browser or chat.json, by updatedUtc), so an undo
+// keeps later edits; throws when a copy cannot be read (the undo is not done then)
 export async function latestChats(p: Project, chats: Chat[]): Promise<Chat[]> {
-  const ids = new Set(chats.map((c) => c.chatId));
-  let fresh: Chat[] = [];
-  try {
-    fresh = (await listChats(p)).filter((c) => ids.has(c.chatId));
-  } catch {
-    /* keep the copies we have */
-  }
-  return chats.map((c) => fresh.find((x) => x.chatId === c.chatId) ?? c);
+  const listed = new Map((await listChats(p)).map((c) => [c.chatId, c]));
+  const newest = (xs: Array<Chat | undefined>): Chat =>
+    xs.filter((x): x is Chat => !!x).reduce((a, b) => ((b.updatedUtc || '') > (a.updatedUtc || '') ? b : a));
+  return mapLimit(chats, 4, async (c) => {
+    const l = listed.get(c.chatId);
+    if (l) return newest([c, l]);
+    const cj = await findChild(c.folderId, 'chat.json');
+    const drive = cj ? { ...(await getJson<Omit<Chat, 'folderId'>>(cj.id)), folderId: c.folderId } : undefined;
+    return newest([c, localChats.get(c.chatId)?.chat, drive]);
+  });
 }
 
 // 0.58.0: extra = chat.json fields written together with the move (parent of a folded project's chat)
@@ -1229,8 +1232,17 @@ async function moveChatFolder(root: Root, chat: Chat, target: Project, extra: Pa
   const toChats = await ensurePath(target.folderId, ['chats']);
   await moveFile(chat.folderId, fromChats, toChats);
   forgetFolder(fromChats, chat.chatId);
-  const moved = await updateChatMeta({ ...chat }, { ...extra, projectId: target.projectId, movedUtc: nowUtc() });
-  await updateImportIndex(root, chat, target.projectId);
+  let moved: Chat;
+  try {
+    moved = await updateChatMeta({ ...chat }, { ...extra, projectId: target.projectId, movedUtc: nowUtc() });
+  } catch (e) {
+    // F15.2: the folder goes back where its chat.json says it is
+    await moveFile(chat.folderId, toChats, fromChats).catch(() => undefined);
+    forgetFolder(toChats, chat.chatId);
+    throw e;
+  }
+  // F15.2: the import index is a lookup aid; a failed update must not split a move
+  await updateImportIndex(root, chat, target.projectId).catch((e) => console.warn('import index', e));
   return moved;
 }
 

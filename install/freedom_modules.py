@@ -696,7 +696,7 @@ form{{display:flex;gap:8px;margin:18px 0}}input{{flex:1;min-width:0;font:inherit
 button{{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:8px 14px;background:var(--accent,#2b6cb0);color:var(--accent-fg,#fff)}}
 ul{{list-style:none;margin:0;padding:0}}li{{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--line,#e3e7ec)}}
 li span{{flex:1;overflow-wrap:anywhere}}li.done span{{text-decoration:line-through;color:var(--muted,#6b7785)}}
-li button{{background:none;color:var(--muted,#6b7785);padding:4px 8px}}.muted{{color:var(--muted,#6b7785);font-size:13px}}
+li input{{flex:none;width:18px;height:18px}}li button{{background:none;color:var(--muted,#6b7785);padding:4px 8px}}.muted{{color:var(--muted,#6b7785);font-size:13px}}
 """,
     "ui/main.js": """// Made from the Freedom app template (freedom_modules.py new --app): a list kept by the core for the signed-in person
 // (ext/1 coExt.data, permission data.env; one key "items" with a JSON array). No network, no other storage.

@@ -139,7 +139,7 @@ export default function ChatView(props: Props) {
     return caps.includes('db-queue');
   }, [hostOf, host, capabilities, props.owners]);
   const [chat, setChat] = useState(props.chat);
-  useEffect(() => setChat(props.chat), [props.chat.title, props.chat.projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setChat(props.chat), [props.chat.title, props.chat.projectId, props.chat.trashedUtc, props.chat.archived]); // F15.2: trash and archive state too; eslint-disable-line react-hooks/exhaustive-deps
   const [events, setEvents] = useState<ChatEvent[] | null>(null);
   // 0.55.0: files of this chat (from its messages), to recognise an upload as a new version of one of them
   const composerStreams = useMemo<ChatStream[]>(() => buildStreams(events || [], null, project.projectId, chat.chatId), [events, project.projectId, chat.chatId]);

@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
  "version": "0.9.0",
- "created": "2026-11-23T11:04:42Z",
+ "created": "2026-11-23T11:07:30Z",
  "files": [
   {
    "path": "context/mail.md",
@@ -55,8 +55,8 @@
   },
   {
    "path": "home/hub/hubctl.py",
-   "size": 18285,
-   "sha256": "d72b0914320827bb72b1e0e3c29d703ed17c36164aa7c2725221c0b5bfda02bc"
+   "size": 18683,
+   "sha256": "f49689455054e9660a5d3e487170f43f40f701d40adcd8255f4cf53c85514f13"
   },
   {
    "path": "home/hubbackup.py",
@@ -198,7 +198,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "oFnnYOwOiAH0Rt8NF+bYv3T9frVzfFstZ608AmSwCtJYtKTnDJl416bUcmh8zIIBKc4c87/vUQxsu+N4NZUdAQ=="
+   "sig": "3Ai0kuH2LdhbWQZA5mm/rzV/76eNzvOn3+iDrBp4WBSG0mXTwOw+2aCT/vqXZ58a119VgSEHUO4dk95GNIp6CQ=="
   }
  ],
  "module": "concierge-mail"

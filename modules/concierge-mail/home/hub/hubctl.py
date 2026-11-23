@@ -90,32 +90,22 @@ def deploy(args):
     # one Unix user per person (provider-accounts): every clash is found before any unit is stopped
     for slug in people:
         accountctl.ensure_person(args, slug, adopt=[LEGACY_USER + slug], check=True)
-    users, was_active, legacy, failed = {}, [], [], []
-    for slug in people:
-        if ssh(args, f'id -u {LEGACY_USER + slug} >/dev/null 2>&1 && echo yes || echo no').strip() == 'yes':
-            # also what runs without being enabled (started by hand) comes back below
-            was_active += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:3]) + '; do'
-                                    ' case $(systemctl is-active "$u") in active|activating|reloading) echo "$u";; esac; done').split()
-            ssh(args, 'sudo systemctl stop ' + ' '.join(unit_names(slug)))  # a rename is refused while the old user runs
-        try:
-            users[slug] = accountctl.ensure_person(args, slug, adopt=[LEGACY_USER + slug])
-        except SystemExit as e:  # this person keeps the old user (drop-in below) until the next deploy
-            users[slug] = f'kept {LEGACY_USER + slug}: {e}'
-            legacy.append(slug)
+    users, was_active, failed = {}, [], []
+    legacy = list(people)  # until its rename is done a person keeps the user it has (drop-in below)
     try:
-        for unit in UNITS:  # stored as name-at.ext: signed module files allow no '@'
-            source = HERE / unit.replace('@', '-at')
-            ssh(args, f'sudo tee /etc/systemd/system/{unit} >/dev/null', source.read_bytes().replace(b'\r\n', b'\n'))
         for slug in people:
-            for name in unit_names(slug)[2:]:  # the three services of the person
-                conf = f'/etc/systemd/system/{name}.d/10-person-user.conf'
-                if slug in legacy:
-                    ssh(args, f'sudo mkdir -p /etc/systemd/system/{name}.d && sudo tee {conf} >/dev/null',
-                        f'[Service]\nUser={LEGACY_USER + slug}\nGroup={LEGACY_USER + slug}\n'.encode())
-                else:
-                    ssh(args, f'sudo rm -f {conf}')
-        ssh(args, 'sudo systemctl daemon-reload')
+            if ssh(args, f'id -u {LEGACY_USER + slug} >/dev/null 2>&1 && echo yes || echo no').strip() == 'yes':
+                # also what runs without being enabled (started by hand) comes back below
+                was_active += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:3]) + '; do'
+                                        ' case $(systemctl is-active "$u") in active|activating|reloading) echo "$u";; esac; done').split()
+                ssh(args, 'sudo systemctl stop ' + ' '.join(unit_names(slug)))  # a rename is refused while the old user runs
+            try:
+                users[slug] = accountctl.ensure_person(args, slug, adopt=[LEGACY_USER + slug])
+                legacy.remove(slug)
+            except SystemExit as e:
+                users[slug] = f'kept: {e}'
     finally:
+        _units(args, people, legacy)
         # what a person has enabled runs again (also when an earlier deploy stopped it and failed half way), and what ran before
         for slug in people:
             failed += ssh(args, 'for u in ' + ' '.join(unit_names(slug)[:3]) + '; do'
@@ -126,6 +116,24 @@ def deploy(args):
         sys.exit(json.dumps({'deployed': '/opt/concierge-mail', 'users': users, 'notStarted': sorted(set(failed)),
                              'hint': 'persons in "kept" still run as their old user; fix the reason and deploy again'}, ensure_ascii=False))
     print(json.dumps({'deployed': '/opt/concierge-mail', 'units': UNITS, 'users': users}))
+
+
+def _units(args, people, legacy):
+    """Unit templates (User=aiwb-%i) and, for a person not moved yet, a drop-in with the user and primary group that
+    person has now (cmail-SLUG, or aiwb-SLUG with the older group after an interrupted rename)."""
+    for unit in UNITS:  # stored as name-at.ext: signed module files allow no '@'
+        source = HERE / unit.replace('@', '-at')
+        ssh(args, f'sudo tee /etc/systemd/system/{unit} >/dev/null', source.read_bytes().replace(b'\r\n', b'\n'))
+    for slug in people:
+        for name in unit_names(slug)[2:]:  # the three services of the person
+            d = f'/etc/systemd/system/{name}.d'
+            if slug in legacy:
+                ssh(args, f'set -e; u={LEGACY_USER + slug}; id -u $u >/dev/null 2>&1 || u={accountctl.person_user(slug)};'
+                          f' g=$(id -gn $u); sudo mkdir -p {d};'
+                          f' printf "[Service]\\nUser=%s\\nGroup=%s\\n" "$u" "$g" | sudo tee {d}/10-person-user.conf >/dev/null')
+            else:
+                ssh(args, f'sudo rm -f {d}/10-person-user.conf')
+    ssh(args, 'sudo systemctl daemon-reload')
 
 
 def slugs(args):

@@ -4,7 +4,7 @@
 //   GET ?m=<id>&f=ui/<file>   a file of the module's interface (html, js, css, svg, png, json) - only files registered at
 //                             install whose sha256 still matches; CO Web shows the html in a sandboxed iframe (ext/1)
 //                             F14c: a module of some environments (manifest envs) also needs &k=<file key of a person
-//                             it is for> (modules_list fileKey); its html gets the key into its own ?m=<id>&f= links
+//                             it is for> (modules_list fileKey); its html, css and js get the key into their ?m=<id>&f= links
 //   GET ?m=<id>&f=device/<file> device code of the module (ext/1 device.tools), as a download; the device checks sha256
 //   GET ?m=<id>&r=<route>     a route of a standard module's server code (manifest server.routes); it checks access itself
 //   POST ?m=<id>&u=<name>     an upload of a standard module (manifest server.uploads): CO Web posts a file for the
@@ -90,8 +90,8 @@ try {
         }
         $body = (string)file_get_contents($path);
         if ($extV !== '') $body = str_replace(['src="/ext/ext1.js"', "src='/ext/ext1.js'"], 'src="/ext/ext1.js?v=' . $extV . '"', $body);
-        // the page's own files (?m=<id>&f=... as the template writes them) carry the key
-        if ($scoped && $ext === 'html') {
+        // the module's own files (?m=<id>&f=... in its html, css and js, as the template writes them) carry the key
+        if ($scoped && in_array($ext, ['html', 'css', 'js'], true)) {
             $body = str_replace(["?m=$id&amp;f=", "?m=$id&f="], ["?m=$id&amp;k=$key&amp;f=", "?m=$id&k=$key&f="], $body);
         }
         echo $body;

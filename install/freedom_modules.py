@@ -682,7 +682,7 @@ APP_TEMPLATE = {
 <title>{title}</title><link rel="stylesheet" href="?m={id}&amp;f=ui/main.css"></head>
 <body><main>
 <header><span class="icon" aria-hidden="true">{icon}</span><h1>{title}</h1></header>
-<form id="add"><input id="text" maxlength="300" autocomplete="off" placeholder="{placeholder}" aria-label="{placeholder}"><button>+</button></form>
+<form id="add"><input id="text" maxlength="300" autocomplete="off" placeholder="{placeholder}" aria-label="{placeholder}" disabled><button disabled>+</button></form>
 <ul id="items"></ul>
 <p id="empty" class="muted">{empty}</p>
 <p id="status" class="muted" role="status"></p>
@@ -730,16 +730,34 @@ function render() {{
   $('empty').hidden = items.length > 0;
 }}
 
+// editing waits for a good load: a change made before it (or after a failed one) would overwrite the saved list
+let loaded = false;
+function editable(on) {{
+  loaded = on;
+  $('text').disabled = !on;
+  $('add').querySelector('button').disabled = !on;
+}}
+
 async function load() {{
   const r = await coExt.data.get(KEY);
-  try {{
-    const v = r && r.value ? JSON.parse(r.value) : [];
-    items = Array.isArray(v) ? v.filter((x) => x && typeof x.text === 'string') : [];
-  }} catch {{ items = []; }}
+  if (!r || !r.ok) throw new Error((r && (r.message || r.error)) || 'no answer');
+  const v = r.value ? JSON.parse(r.value) : [];   // data it cannot read is an error, never overwritten
+  if (!Array.isArray(v)) throw new Error('unexpected data');
+  items = v.filter((x) => x && typeof x.text === 'string');
   render();
+  editable(true);
+  $('status').textContent = '';
+}}
+
+// (re)load after the writes already queued, never in between
+function reload() {{
+  editable(false);
+  saving = saving.then(load).catch((e) => {{ $('status').textContent = 'Not loaded: ' + e.message; }});
+  return saving;
 }}
 
 function save() {{
+  if (!loaded) return;
   render();
   const value = JSON.stringify(items);
   saving = saving.then(() => coExt.data.set(KEY, value)).then((r) => {{
@@ -759,8 +777,8 @@ $('add').onsubmit = (e) => {{
 coExt.ready.then(() => {{
   coExt.title({title_js});
   // an agent changed the data (app_action data_set): read it again
-  coExt.on('refresh', () => {{ load().catch(() => {{}}); }});
-  return load();
+  coExt.on('refresh', () => {{ reload(); }});
+  return reload();
 }}).catch((e) => {{ $('status').textContent = e.message; }});
 }})();
 """,

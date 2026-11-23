@@ -31,6 +31,7 @@ API = 'https://gmail.googleapis.com/gmail/v1/users/me/'
 UPLOAD = 'https://gmail.googleapis.com/upload/gmail/v1/users/me/'
 CAPABILITIES = ['mail.compose', 'mail.modify']
 UNDO_SECONDS = 10
+RECONCILE = 20                       # seconds between provider checks of a send with an unknown outcome
 ATTACH_TOTAL = 20 * 1024 * 1024      # Gmail takes 25 MB per letter, encoding included
 CHUNK_MAX = 512 * 1024               # bytes of one upload piece from the page (the site takes ~1 MB per sealed request)
 FIELD_MAX = 512 * 1024               # characters of the text of a letter
@@ -57,13 +58,19 @@ class NeedsConsent(Exception):
     pass
 
 
+class Uncertain(Exception):
+    """The provider may or may not have done it (no answer, 5xx): a send is reconciled, never repeated blindly."""
+
+
 class GmailWrite:
     """The few write calls of the Gmail API the page needs; retries rate limits, one re-auth on 401."""
 
     def __init__(self, token, request, sleep=time.sleep):
         self.token, self._request, self._sleep = token, request, sleep
 
-    def call(self, method, path, body=None, upload=False):
+    def call(self, method, path, body=None, upload=False, once=False):
+        """once: a call that must not be repeated after an unclear outcome (sending) — a 5xx or a lost answer raises
+        Uncertain instead of retrying; 401 (re-auth) and 429 (refused before work) are still retried."""
         url = (UPLOAD if upload else API) + path
         data, ctype = None, None
         if body is not None:
@@ -77,7 +84,15 @@ class GmailWrite:
             headers = {'Authorization': 'Bearer ' + access}
             if ctype:
                 headers['Content-Type'] = ctype
-            status, out = self._request(method, url, headers, data)
+            try:
+                status, out = self._request(method, url, headers, data)
+            except Exception as exc:  # noqa: BLE001 - a lost connection or timeout
+                if once:
+                    raise Uncertain(type(exc).__name__) from exc
+                if attempt == 4:
+                    raise RuntimeError('provider unreachable') from exc
+                self._sleep(min(16, 2 ** attempt))
+                continue
             if status == 401 and not retried:
                 retried = True
                 invalidate = getattr(self.token, 'invalidate', None)
@@ -90,6 +105,8 @@ class GmailWrite:
                 raise NeedsConsent('the account did not allow writing mail')
             if status == 404:
                 raise LookupError('gone at the provider')
+            if once and status >= 500:
+                raise Uncertain(f'provider {status}')
             if status in (429, 500, 502, 503, 504) or (status == 403 and 'rate' in json.dumps(out).lower()):
                 self._sleep(min(16, 2 ** attempt))
                 continue
@@ -108,7 +125,14 @@ class GmailWrite:
         return self.call('DELETE', 'drafts/' + draft_id)
 
     def draft_send(self, draft_id):
-        return self.call('POST', 'drafts/send', {'id': draft_id})
+        return self.call('POST', 'drafts/send', {'id': draft_id}, once=True)
+
+    def draft_exists(self, draft_id):
+        try:
+            self.call('GET', 'drafts/' + draft_id + '?format=minimal')
+            return True
+        except LookupError:
+            return False
 
     def drafts(self):
         out, page = [], None
@@ -296,7 +320,7 @@ class Composer:
 
     def _waiting(self, key):
         row = self.db.execute("SELECT state FROM outbox WHERE key=?", (key,)).fetchone()
-        return row and row['state'] in ('wait', 'sending', 'sent')
+        return row and row['state'] in ('wait', 'sending', 'unknown', 'sent')
 
     # -- actions of the page
 
@@ -539,34 +563,66 @@ class Composer:
         db.row_factory = sqlite3.Row
         db.execute('PRAGMA busy_timeout=10000')
         stop = stop or threading.Event()
-        # a letter caught mid-send by a restart is not sent twice blindly: it goes back to the person as failed
+        # a letter caught mid-send by a restart is not sent twice blindly: its fate is asked from the provider first
         with db:
-            db.execute("UPDATE outbox SET state='failed', error='interrupted, check Sent' WHERE state='sending' AND account=?", (self.account,))
+            db.execute("UPDATE outbox SET state='unknown', error='interrupted', updated=0 WHERE state='sending' AND account=?", (self.account,))
         while not stop.is_set():
             self.send_due(db)
+            self.reconcile(db)
             nxt = db.execute("SELECT MIN(due) FROM outbox WHERE state='wait' AND account=?", (self.account,)).fetchone()[0]
+            if db.execute("SELECT 1 FROM outbox WHERE state='unknown' AND account=? LIMIT 1", (self.account,)).fetchone():
+                nxt = min(nxt or 1e18, self.clock() + RECONCILE)
             self._wake.wait(max(0.2, min(30.0, (nxt - self.clock()) if nxt else 30.0)))
             self._wake.clear()
         db.close()
 
     def send_due(self, db):
         now = self.clock()
-        for r in db.execute("SELECT key, draft_id FROM outbox WHERE state='wait' AND due<=? AND account=?", (now, self.account)).fetchall():
+        for r in db.execute("SELECT key FROM outbox WHERE state='wait' AND due<=? AND account=?", (now, self.account)).fetchall():
+            # claim only a row still due now: after a cancel and a new Send meanwhile its due is later
             with db:
-                took = db.execute("UPDATE outbox SET state='sending', updated=? WHERE key=? AND state='wait'", (now, r['key'])).rowcount
+                took = db.execute("UPDATE outbox SET state='sending', updated=? WHERE key=? AND state='wait' AND due<=?",
+                                  (now, r['key'], now)).rowcount
+                draft_id = db.execute('SELECT draft_id FROM outbox WHERE key=?', (r['key'],)).fetchone()['draft_id'] if took else None
             if not took:
-                continue  # cancelled at the last moment
+                continue  # cancelled (or sent again) at the last moment
             try:
-                out = self.gmail().draft_send(r['draft_id'])
+                out = self.gmail().draft_send(draft_id)
                 with db:
                     db.execute("UPDATE outbox SET state='sent', sent_id=?, updated=? WHERE key=?", (out.get('id') or '', self.clock(), r['key']))
                     db.execute('DELETE FROM compose WHERE key=?', (r['key'],))
             except NeedsConsent:
                 with db:
                     db.execute("UPDATE outbox SET state='failed', error='needs_consent', updated=? WHERE key=?", (self.clock(), r['key']))
-            except Exception as exc:  # noqa: BLE001 - the person sees the failure and the draft stays
+            except LookupError:  # a send is never repeated, so a missing draft was removed in Gmail, not sent by us
+                with db:
+                    db.execute("UPDATE outbox SET state='failed', error='draft gone', updated=? WHERE key=?", (self.clock(), r['key']))
+            except Uncertain as exc:
+                # maybe sent (a lost answer or a 5xx): asked from the provider before anything else
+                with db:
+                    db.execute("UPDATE outbox SET state='unknown', error=?, updated=? WHERE key=?", (str(exc)[:200], self.clock(), r['key']))
+            except Exception as exc:  # noqa: BLE001 - a definite refusal: the person sees it and the draft stays
                 with db:
                     db.execute("UPDATE outbox SET state='failed', error=?, updated=? WHERE key=?", (str(exc)[:200], self.clock(), r['key']))
+
+    def reconcile(self, db):
+        """Letters whose send outcome is unknown: drafts.send removes the draft, so a draft that is gone was sent and a
+        draft still there was not (then the person may send again). Asked at most every RECONCILE seconds."""
+        now = self.clock()
+        for r in db.execute("SELECT key, draft_id FROM outbox WHERE state='unknown' AND updated<=? AND account=?",
+                            (now - RECONCILE, self.account)).fetchall():
+            try:
+                there = self.gmail().draft_exists(r['draft_id'])
+            except Exception:  # noqa: BLE001 - still unclear: ask again later
+                with db:
+                    db.execute("UPDATE outbox SET updated=? WHERE key=? AND state='unknown'", (now, r['key']))
+                continue
+            with db:
+                if there:
+                    db.execute("UPDATE outbox SET state='failed', error='not sent', updated=? WHERE key=? AND state='unknown'", (now, r['key']))
+                else:
+                    db.execute("UPDATE outbox SET state='sent', updated=? WHERE key=? AND state='unknown'", (now, r['key']))
+                    db.execute('DELETE FROM compose WHERE key=?', (r['key'],))
 
     def handle(self, action, args):
         fn = {'compose_start': self.start, 'compose_save': self.save, 'compose_upload': self.upload,

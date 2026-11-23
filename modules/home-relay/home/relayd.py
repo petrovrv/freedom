@@ -29,6 +29,7 @@ import queue
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -214,6 +215,21 @@ def _env_file(path):
     return out
 
 
+def _own_credentials(module, names, source):
+    """A folder with copies of only the credentials this module declared (the unit loads them per person: relayctl
+    drop-in credentials.conf), never the worker's own `relay` token. All handlers of a person run as that person's
+    user, so this keeps modules from reading each other's credentials by mistake; the user is the hard boundary."""
+    target = Path(tempfile.mkdtemp(prefix=f'cred-{module}-'))
+    os.chmod(target, 0o700)
+    for name in names:
+        src = Path(source) / str(name)
+        if re.fullmatch(r'[a-z][a-z0-9_-]{0,30}', str(name)) and name != 'relay' and src.is_file():
+            dst = target / str(name)
+            dst.write_bytes(src.read_bytes())
+            os.chmod(dst, 0o400)
+    return str(target)
+
+
 def load_handlers(config_dir, slug, env, log=None):
     """{module: Handler} from <config_dir>/modules.d/<module>.json: {"exec": [...], "envFile": "...", "if": "<path>",
     "credentials": {name: path}} with {slug} filled in; a module whose "if" path does not exist for this person is not
@@ -237,8 +253,7 @@ def load_handlers(config_dir, slug, env, log=None):
             if spec.get('envFile'):
                 child = {**_env_file(str(spec['envFile']).replace('{slug}', slug)), **child}
             if spec.get('credentials') and os.environ.get('CREDENTIALS_DIRECTORY'):
-                # the unit loads them (relayctl: drop-in credentials.conf); only a module that asked sees the folder
-                child['CREDENTIALS_DIRECTORY'] = os.environ['CREDENTIALS_DIRECTORY']
+                child['CREDENTIALS_DIRECTORY'] = _own_credentials(module, spec['credentials'], os.environ['CREDENTIALS_DIRECTORY'])
             out[module] = Handler(module, argv, child)
         except Exception as exc:  # one broken registration does not stop the others
             if log:

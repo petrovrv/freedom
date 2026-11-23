@@ -109,10 +109,18 @@ class RelaydTests(unittest.TestCase):
         exe = os.path.abspath(sys.executable)
         (conf / 'modules.d' / 'mail.json').write_text(json.dumps({'exec': [exe, '-c', 'pass'], 'credentials': {'account': '/etc/credstore.encrypted/account.{slug}.google.cred'}}))
         (conf / 'modules.d' / 'notes.json').write_text(json.dumps({'exec': [exe, '-c', 'pass']}))
-        with unittest.mock.patch.dict(os.environ, {'CREDENTIALS_DIRECTORY': '/run/credentials/home-relay@alice.service'}):
+        unit = self.root / 'unit-creds'
+        unit.mkdir()
+        (unit / 'account').write_text('{"secret": 1}')
+        (unit / 'relay').write_text('worker-token')
+        with unittest.mock.patch.dict(os.environ, {'CREDENTIALS_DIRECTORY': str(unit)}):
             got = relayd.load_handlers(conf, 'alice', 'enva')
-        self.assertEqual(got['mail'].env['CREDENTIALS_DIRECTORY'], '/run/credentials/home-relay@alice.service')
+        own = Path(got['mail'].env['CREDENTIALS_DIRECTORY'])
+        self.assertNotEqual(own, unit)
+        self.assertEqual(sorted(p.name for p in own.iterdir()), ['account'])  # never the worker's relay token
+        self.assertEqual((own / 'account').read_text(), '{"secret": 1}')
         self.assertNotIn('CREDENTIALS_DIRECTORY', got['notes'].env)
+        shutil.rmtree(own, ignore_errors=True)
 
     def test_key_is_kept_private_and_reused(self):
         path = self.root / 'relay-key.pem'

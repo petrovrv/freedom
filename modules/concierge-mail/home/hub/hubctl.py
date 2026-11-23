@@ -251,6 +251,9 @@ def connect(args):
     granted = record.get('providers', {}).get('google', {}).get('capabilities', [])
     if 'mail.read' not in granted:
         sys.exit('Gmail read access was not granted')
+    # the Mail page's worker loads the account credential at its start: give it (again) and restart it
+    relayctl.credentials_dropin(args)
+    ssh(args, f'sudo systemctl daemon-reload; sudo systemctl try-restart home-relay@{slug}.service', check=False)
     if args.start:
         start(args)
 

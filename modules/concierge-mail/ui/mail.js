@@ -269,139 +269,173 @@ async function openThread(index, markRead = true) {
 }
 
 // ---- writing (module home/compose.py on the home server; everything only on the person's click)
-let draft = null, saveTimer = 0, saving = null, undoTimer = 0;
+// One letter = one object d; every server call of a letter goes through its own chain d.ops (saves, uploads, send,
+// discard never overtake each other, and always use that letter's key even if another letter is open meanwhile).
+// d.rev counts the person's edits, d.savedRev the edit the server has; closing waits until they meet.
+let draft = null, saveTimer = 0, undoGen = 0;
 const fieldIds = {to:'c-to', cc:'c-cc', bcc:'c-bcc', subject:'c-subject', text:'c-text'};
 function fields() { const f = {}; for (const [k, id] of Object.entries(fieldIds)) f[k] = $(id).value; return f; }
 function cstate(text, bad) { $('c-note').textContent = text || ''; $('c-note').className = 'small' + (bad ? ' err' : ''); }
+function sync() { if (draft) draft.local = fields(); }
+function later(d, fn) { const p = d.ops.then(fn); d.ops = p.catch(() => {}); return p; }
 function showComposer(d) {
-  draft = d; const f = d.fields || {};
+  d.ops = d.ops || Promise.resolve(); d.rev = d.rev || 0; d.savedRev = d.savedRev ?? (d.draft ? 0 : -1);
+  draft = d; const f = {...(d.fields || {}), ...(d.local || {})};
   for (const [k, id] of Object.entries(fieldIds)) $(id).value = f[k] || '';
+  d.local = fields();
   for (const n of document.querySelectorAll('.cc')) n.hidden = !(f.cc || f.bcc);
   $('c-more').hidden = !!(f.cc || f.bcc);
-  $('composer-title').textContent = {reply:'Ответ', replyall:'Ответ всем', forward:'Пересылка'}[f.kind] || 'Новое письмо';
+  $('composer-title').textContent = {reply:'Ответ', replyall:'Ответ всем', forward:'Пересылка'}[(d.fields || {}).kind] || 'Новое письмо';
   renderAttachments(); cstate(''); $('composer-state').textContent = d.draft ? 'Черновик сохранён' : '';
-  $('composer').hidden = false;
+  $('c-send').disabled = false; $('composer').hidden = false;
   (f.to ? $('c-text') : $('c-to')).focus();
-  if (f.kind === 'reply' || f.kind === 'replyall') $('c-text').setSelectionRange(0, 0);
+  if ((d.fields || {}).kind === 'reply' || (d.fields || {}).kind === 'replyall') $('c-text').setSelectionRange(0, 0);
 }
 function renderAttachments() {
   const box = $('c-attachments'); box.replaceChildren();
-  for (const a of draft?.attachments || []) {
+  const d = draft;
+  for (const a of d?.attachments || []) {
     const chip = el('span', 'chip', '📎 ' + a.name + ' · ' + size(a.size));
-    chip.append(button('×', async () => {
-      try { await flush(); const out = await call('compose_detach', {key: draft.key, sha: a.sha}); Object.assign(draft, out); renderAttachments(); }
-      catch (err) { cstate(writeError(err), true); }
-    }));
+    chip.append(button('×', () => later(d, async () => {
+      await saveNow(d);
+      const out = await call('compose_detach', {key: d.key, sha: a.sha}); d.draft = out.draft; d.attachments = out.attachments;
+      if (d === draft) renderAttachments();
+    }).catch(err => { if (d === draft) cstate(writeError(err), true); })));
     box.append(chip);
   }
 }
+function isEmpty(d) { const f = d.local || {}; return !f.to && !f.cc && !f.bcc && !f.subject && !(f.text || '').trim() && !(d.attachments || []).length; }
+async function saveNow(d) {
+  // inside d.ops only: one save of the newest edit, if the server does not have it yet
+  if (d.draft && d.savedRev === d.rev) return;
+  const rev = d.rev, snap = {...d.local};
+  const out = await call('compose_save', {key: d.key, fields: {...d.fields, ...snap}, ...(d.pending?.length && !d.draft ? {pending: d.pending} : {})});
+  d.draft = out.draft; d.attachments = out.attachments; d.fields = {...d.fields, ...snap}; d.savedRev = rev;
+  if (d === draft) { $('composer-state').textContent = d.savedRev === d.rev ? 'Черновик сохранён' : 'Изменено'; renderAttachments(); cstate(''); }
+}
+async function flush(d) {
+  // until the server has the newest edit (edits made while a save runs are saved by the next round)
+  while (!(d.draft && d.savedRev === d.rev)) await later(d, () => saveNow(d));
+}
+function edited() {
+  if (!draft) return;
+  sync(); draft.rev++;
+  clearTimeout(saveTimer); $('composer-state').textContent = 'Изменено';
+  const d = draft; saveTimer = setTimeout(() => flush(d).catch(err => { if (d === draft) cstate(writeError(err), true); }), 1500);
+}
+async function closeComposer() {
+  const d = draft; if (!d) return true;
+  sync(); clearTimeout(saveTimer);
+  if (!(isEmpty(d) && !d.draft)) {
+    $('composer-state').textContent = 'Сохранение…';
+    try { await flush(d); } catch (err) { if (d === draft) cstate(writeError(err) + ' — окно не закрыто, чтобы не потерять текст', true); return false; }
+  }
+  if (d === draft) { $('composer').hidden = true; draft = null; }
+  return true;
+}
 async function compose(kind, of) {
-  if (draft && !$('composer').hidden) await closeComposer();
+  if (!(await closeComposer())) return;
   try { showComposer(await call('compose_start', {kind, of})); }
   catch (err) { note(writeError(err)); }
 }
 async function openDraft(id) {
-  if (draft && !$('composer').hidden) await closeComposer();
+  if (!(await closeComposer())) return;
   try { showComposer(await call('compose_open', {id})); }
   catch (err) { note(writeError(err)); }
 }
-function scheduleSave() { clearTimeout(saveTimer); $('composer-state').textContent = 'Изменено'; saveTimer = setTimeout(flush, 2500); }
-async function flush() {
-  clearTimeout(saveTimer);
-  if (!draft) return;
-  if (saving) return saving;
-  const d = draft;
-  saving = (async () => {
-    try {
-      const out = await call('compose_save', {key: d.key, fields: {...d.fields, ...fields()}, ...(d.pending?.length && !d.draft ? {pending: d.pending} : {})});
-      d.draft = out.draft; d.attachments = out.attachments; d.fields = {...d.fields, ...fields()};
-      if (d === draft) { $('composer-state').textContent = 'Черновик сохранён'; renderAttachments(); cstate(''); }
-    } catch (err) { if (d === draft) cstate(writeError(err), true); throw err; }
-    finally { saving = null; }
-  })();
-  return saving;
-}
-async function closeComposer() {
-  const empty = !fields().to && !fields().subject && !fields().text.trim() && !(draft?.attachments || []).length;
-  try { if (draft && !(empty && !draft.draft)) await flush(); } catch (_) { return; }
-  $('composer').hidden = true; draft = null;
-}
-async function attach(files) {
-  if (!draft) return;
-  try { if (!draft.draft) await flush(); } catch (_) { return; }
-  for (const file of files) {
+function attach(files) {
+  const d = draft; if (!d) return;
+  sync();
+  for (const file of files) later(d, async () => {
+    await saveNow(d);
     const upload = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
     const bytes = new Uint8Array(await file.arrayBuffer()), PIECE = 384 * 1024;
-    try {
-      for (let offset = 0; offset < bytes.length || offset === 0; offset += PIECE) {
-        const piece = bytes.subarray(offset, offset + PIECE), last = offset + PIECE >= bytes.length;
-        cstate(`Загрузка ${file.name}: ${Math.round(100 * Math.min(bytes.length, offset + PIECE) / Math.max(1, bytes.length))}%`);
-        let bin = ''; for (let i = 0; i < piece.length; i += 8192) bin += String.fromCharCode(...piece.subarray(i, i + 8192));
-        const out = await call('compose_upload', {key: draft.key, upload, name: file.name, type: file.type || 'application/octet-stream', offset, last, data: btoa(bin)});
-        if (last) { Object.assign(draft, {draft: out.draft, attachments: out.attachments}); renderAttachments(); break; }
-      }
-      cstate('');
-    } catch (err) { cstate(file.name + ': ' + writeError(err), true); }
-  }
+    for (let offset = 0; ; offset += PIECE) {
+      const piece = bytes.subarray(offset, offset + PIECE), last = offset + PIECE >= bytes.length;
+      if (d === draft) cstate(`Загрузка ${file.name}: ${Math.round(100 * Math.min(bytes.length, offset + PIECE) / Math.max(1, bytes.length))}%`);
+      let bin = ''; for (let i = 0; i < piece.length; i += 8192) bin += String.fromCharCode(...piece.subarray(i, i + 8192));
+      const out = await call('compose_upload', {key: d.key, upload, name: file.name, type: file.type || 'application/octet-stream', offset, last, data: btoa(bin)});
+      if (last) { d.draft = out.draft; d.attachments = out.attachments; break; }
+    }
+    if (d === draft) { renderAttachments(); cstate(''); }
+  }).catch(err => { if (d === draft) cstate(file.name + ': ' + writeError(err), true); });
 }
 async function send() {
-  if (!draft) return;
-  clearTimeout(saveTimer);
-  const d = draft;
-  try { if (saving) await saving; } catch (_) {}
-  $('c-send').disabled = true;
+  const d = draft; if (!d || d.sending) return;
+  sync(); clearTimeout(saveTimer);
+  d.sending = true; $('c-send').disabled = true; cstate('Отправка…');
   try {
-    const out = await call('compose_send', {key: d.key, fields: {...d.fields, ...fields()}, ...(d.pending?.length && !d.draft ? {pending: d.pending} : {})});
-    d.fields = {...d.fields, ...fields()};
-    $('composer').hidden = true; draft = null;
+    // after every earlier save and upload of this letter; the server saves the last fields and queues the draft
+    const out = await later(d, async () => {
+      const rev = d.rev, snap = {...d.local};
+      const res = await call('compose_send', {key: d.key, fields: {...d.fields, ...snap}, ...(d.pending?.length && !d.draft ? {pending: d.pending} : {})});
+      d.fields = {...d.fields, ...snap}; d.savedRev = rev; if (res.draft) d.draft = res.draft;
+      return res;
+    });
+    if (d === draft) { $('composer').hidden = true; draft = null; }
     undo(d, out.undo || 10);
-  } catch (err) { cstate(writeError(err), true); }
-  finally { $('c-send').disabled = false; }
+  } catch (err) { if (d === draft) { cstate(writeError(err), true); $('c-send').disabled = false; } }
+  finally { d.sending = false; }
 }
 function undo(d, seconds) {
-  clearInterval(undoTimer);
-  let left = seconds;
-  const bar = $('undo-bar'); bar.hidden = false; $('undo').hidden = false; $('undo').textContent = 'Отменить';
-  const tick = () => { $('undo-text').textContent = left > 0 ? `Отправка через ${left} с` : 'Отправляется…'; left--; };
-  tick(); undoTimer = setInterval(() => { tick(); if (left < -1) { clearInterval(undoTimer); $('undo').hidden = true; result(d, 0); } }, 1000);
-  $('undo').onclick = async () => {
-    clearInterval(undoTimer);
+  const gen = ++undoGen;
+  let left = seconds, timer = 0;
+  const bar = $('undo-bar'), btn = $('undo');
+  bar.hidden = false; btn.hidden = false; btn.textContent = 'Отменить';
+  const text = t => { if (gen === undoGen) $('undo-text').textContent = t; };
+  const tick = () => { text(left > 0 ? `Отправка через ${left} с` : 'Отправляется…'); left--; };
+  tick(); timer = setInterval(() => { tick(); if (left < 0) { clearInterval(timer); if (gen === undoGen) btn.hidden = true; result(d, gen, Date.now()); } }, 1000);
+  btn.onclick = async () => {
+    clearInterval(timer); btn.hidden = true;
     try {
       const out = await call('compose_unsend', {key: d.key});
-      if (out.cancelled) { bar.hidden = true; showComposer(d); cstate('Отправка отменена, письмо — снова черновик'); }
-      else { $('undo').hidden = true; result(d, 0); }
-    } catch (err) { $('undo-text').textContent = writeError(err); }
+      if (gen !== undoGen) return;
+      if (out.cancelled) { bar.hidden = true; if (await closeComposer()) { showComposer(d); cstate('Отправка отменена, письмо — снова черновик'); } }
+      else result(d, gen, Date.now());
+    } catch (err) { text('Не удалось отменить: ' + writeError(err)); result(d, gen, Date.now()); }
   };
 }
-async function result(d, tries) {
-  try {
-    const items = (await call('compose_outbox', {})).items || [];
-    const it = items.find(i => i.key === d.key);
-    if (it && (it.state === 'wait' || it.state === 'sending') && tries < 10) { setTimeout(() => result(d, tries + 1), 1500); return; }
-    if (it && it.state === 'sent') { $('undo-text').textContent = 'Письмо отправлено'; setTimeout(() => { $('undo-bar').hidden = true; }, 6000); refreshList(); return; }
-    $('undo-text').textContent = 'Не отправлено' + (it?.error ? ': ' + writeError(it.error) : '') + ' — письмо осталось в черновиках';
-    $('undo').hidden = false; $('undo').textContent = 'Открыть';
-    $('undo').onclick = () => { $('undo-bar').hidden = true; $('undo').textContent = 'Отменить'; showComposer(d); };
-  } catch (err) { if (tries < 10) setTimeout(() => result(d, tries + 1), 3000); }
+async function result(d, gen, started) {
+  // polls until the home server says sent or failed; never "not sent" while the outcome is open
+  if (gen !== undoGen) return;
+  let it = null;
+  try { it = ((await call('compose_outbox', {})).items || []).find(i => i.key === d.key); } catch (_) {}
+  if (gen !== undoGen) return;
+  const btn = $('undo'), text = t => { $('undo-text').textContent = t; };
+  if (it && it.state === 'sent') { text('Письмо отправлено'); setTimeout(() => { if (gen === undoGen) $('undo-bar').hidden = true; }, 6000); refreshList(); return; }
+  if (it && it.state === 'failed') {
+    text('Не отправлено' + (it.error && it.error !== 'not sent' ? ': ' + writeError(it.error) : '') + ' — письмо осталось в черновиках');
+    btn.hidden = false; btn.textContent = 'Открыть';
+    btn.onclick = async () => { $('undo-bar').hidden = true; d.sending = false; if (await closeComposer()) showComposer(d); };
+    return;
+  }
+  if (it && it.state === 'cancelled') { $('undo-bar').hidden = true; return; }
+  if (it && it.state === 'unknown') text('Проверяю, ушло ли письмо…');
+  else text('Отправляется…');
+  if (Date.now() - started < 180000) setTimeout(() => result(d, gen, started), 2000);
+  else text('Статус отправки неизвестен — проверьте «Отправленные»');
 }
 $('compose-new').addEventListener('click', () => compose('new'));
 $('composer-close').addEventListener('click', closeComposer);
 $('c-more').addEventListener('click', () => { for (const n of document.querySelectorAll('.cc')) n.hidden = false; $('c-more').hidden = true; $('c-cc').focus(); });
-for (const id of Object.values(fieldIds)) $(id).addEventListener('input', scheduleSave);
+for (const id of Object.values(fieldIds)) $(id).addEventListener('input', edited);
 $('c-file').addEventListener('change', e => { const files = [...e.target.files]; e.target.value = ''; attach(files); });
 $('c-send').addEventListener('click', send);
-$('c-discard').addEventListener('click', async () => {
-  if (!draft) return;
+$('c-discard').addEventListener('click', () => {
+  const d = draft; if (!d) return;
   clearTimeout(saveTimer);
-  try { if (saving) await saving; } catch (_) {}
-  try { await call('compose_discard', {key: draft.key}); $('composer').hidden = true; draft = null; }
-  catch (err) { cstate(writeError(err), true); }
+  later(d, async () => {
+    if (d.key) await call('compose_discard', {key: d.key});
+    if (d === draft) { $('composer').hidden = true; draft = null; }
+  }).catch(err => { if (d === draft) cstate(writeError(err), true); });
 });
 $('composer').addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); send(); }
   else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeComposer(); }
 });
 $('undo-close').addEventListener('click', () => { $('undo-bar').hidden = true; });
+// leaving the page or the app: the newest edit goes to the server at once (a closed tab may still cut it short)
+document.addEventListener('visibilitychange', () => { if (document.hidden && draft) { sync(); clearTimeout(saveTimer); flush(draft).catch(() => {}); } });
 function back() {
   if (document.body.dataset.pane === 'reader') { pane('list'); $('threads').children[selected]?.focus(); }
   else { pane(document.body.dataset.pane === 'labels' ? 'list' : 'labels'); }
@@ -433,5 +467,5 @@ coExt.ready.then(ctx => {
   coExt.on('context', nextCtx => { theme(nextCtx); status(); });
   status();
 }).catch(err => error($('connection'), err, () => location.reload()));
-window.addEventListener('pagehide', () => { if (draft) flush().catch(() => {}); clearTimeout(timer); statusTicket++; listTicket++; readTicket++; });
+window.addEventListener('pagehide', () => { if (draft) { sync(); flush(draft).catch(() => {}); } clearTimeout(timer); statusTicket++; listTicket++; readTicket++; });
 })();

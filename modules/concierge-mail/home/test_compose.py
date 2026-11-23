@@ -21,7 +21,7 @@ class FakeWrite:
 
     def __init__(self):
         self.drafts, self.sent, self.calls, self.n = {}, [], [], 0
-        self.fail_send = None
+        self.fail_send, self.send_calls = None, 0
 
     def __call__(self, method, url, headers, body=None):
         assert headers['Authorization'] == 'Bearer tok'
@@ -46,12 +46,18 @@ class FakeWrite:
             self.drafts.pop(path.split('/')[1], None)
             return 204, {}
         if path == 'drafts/send':
+            self.send_calls += 1
+            if self.fail_send == 'lost':  # sent, but the answer never came
+                self.sent.append(self.drafts.pop(data['id']))
+                raise TimeoutError('read timed out')
             if self.fail_send:
                 return self.fail_send, {}
             self.sent.append(self.drafts.pop(data['id']))
             return 200, {'id': 'sent1', 'threadId': 't'}
         if path.startswith('threads/'):
             return 200, {}
+        if path.startswith('drafts/') and method == 'GET':
+            return (200, {'id': path.split('/')[1]}) if path.split('/')[1] in self.drafts else (404, {})
         if path.startswith('drafts'):
             return 200, {'drafts': [{'id': k, 'message': {'id': 'm' + k}} for k in self.drafts]}
         return 400, {}
@@ -171,6 +177,59 @@ class ComposeTests(unittest.TestCase):
         item = self.c.handle('compose_outbox', {})['items'][0]
         self.assertEqual(item['state'], 'failed')
         self.assertIn('d1', self.write.drafts)
+
+    def queue(self):
+        key = self.c.handle('compose_start', {'kind': 'new'})['key']
+        self.c.handle('compose_send', {'key': key, 'fields': {'kind': 'new', 'to': 'dan@example.org', 'subject': 'Hi', 'text': 'Yo'}})
+        return key
+
+    def test_lost_answer_is_never_sent_twice(self):
+        self.write.fail_send = 'lost'
+        key = self.queue()
+        self.now[0] += 11
+        self.c.send_due(self.store.db)
+        self.assertEqual(self.c.handle('compose_outbox', {})['items'][0]['state'], 'unknown')
+        with self.assertRaises(ValueError):  # no new Send / save while the outcome is unknown
+            self.c.handle('compose_send', {'key': key, 'fields': {'text': 'again'}})
+        self.now[0] += compose.RECONCILE + 1
+        self.c.reconcile(self.store.db)
+        self.assertEqual(self.c.handle('compose_outbox', {})['items'][0]['state'], 'sent')
+        self.assertEqual((self.write.send_calls, len(self.write.sent)), (1, 1))
+
+    def test_5xx_then_draft_still_there_allows_sending_again(self):
+        self.write.fail_send = 503
+        key = self.queue()
+        self.now[0] += 11
+        self.c.send_due(self.store.db)
+        self.assertEqual(self.write.send_calls, 1)  # a 5xx of a send is not retried
+        self.now[0] += compose.RECONCILE + 1
+        self.c.reconcile(self.store.db)
+        self.assertEqual(self.c.handle('compose_outbox', {})['items'][0]['state'], 'failed')
+        self.write.fail_send = None
+        self.c.handle('compose_send', {'key': key})
+        self.now[0] += 11
+        self.c.send_due(self.store.db)
+        self.assertEqual(len(self.write.sent), 1)
+
+    def test_restart_mid_send_is_reconciled_not_resent(self):
+        key = self.queue()
+        self.store.db.execute("UPDATE outbox SET state='sending' WHERE key=?", (key,))
+        self.store.db.commit()
+        stop = threading.Event()
+        stop.set()
+        self.c.run_sender(self.store.root / 'mail.sqlite3', stop)
+        self.assertEqual(self.store.db.execute('SELECT state FROM outbox WHERE key=?', (key,)).fetchone()[0], 'unknown')
+        self.assertEqual(self.write.send_calls, 0)
+
+    def test_cancel_and_send_again_restarts_the_undo_window(self):
+        key = self.queue()
+        self.now[0] += 11
+        due_rows = self.store.db.execute("SELECT key FROM outbox WHERE state='wait'").fetchall()
+        self.assertEqual(len(due_rows), 1)
+        self.c.handle('compose_unsend', {'key': key})
+        self.c.handle('compose_send', {'key': key})  # a new 10 s window from now
+        self.c.send_due(self.store.db)
+        self.assertEqual(self.write.send_calls, 0)
 
     def test_header_injection_and_bad_addresses_refused(self):
         key = self.c.handle('compose_start', {'kind': 'new'})['key']

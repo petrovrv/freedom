@@ -174,8 +174,9 @@ def register(args, module, exec_argv, env_file=None, write=(), only_if=None, cre
 
 
 def credentials_dropin(args):
-    """One drop-in credentials.conf with the credentials all registered modules ask for (a name appears once: two
-    modules naming one credential share it; the same name with two different files is refused)."""
+    """Drop-ins home-relay@<slug>.service.d/credentials.conf with the credentials the registered modules ask for (a name
+    appears once: two modules naming one credential share it; the same name with two different files is refused).
+    Written again on every register/unregister/pair, so a person who connects an account later gets it then."""
     want = {}
     for module in registered(args):
         try:
@@ -185,12 +186,21 @@ def credentials_dropin(args):
         for name, path in (spec.get('credentials') or {}).items():
             if want.setdefault(name, path) != path:
                 sys.exit(f'register: credential {name!r} names two files ({want[name]}, {path})')
-    drop = f'/etc/systemd/system/{UNIT}.d/credentials.conf'
-    if want:
-        body = '[Service]\n' + ''.join(f'LoadCredentialEncrypted={n}:{p.replace("{slug}", "%i")}\n' for n, p in sorted(want.items()))
-        ssh(args, f'sudo tee {drop} >/dev/null', body.encode())
-    else:
-        ssh(args, f'sudo rm -f {drop}')
+    # per person, and only the credentials whose file exists for that person: systemd refuses to start a unit whose
+    # LoadCredentialEncrypted file is missing (a person without a Google account must keep their worker)
+    ssh(args, f'sudo rm -f /etc/systemd/system/{UNIT}.d/credentials.conf')
+    for slug in people(args):
+        have = []
+        for name, path in sorted(want.items()):
+            real = path.replace('{slug}', slug)
+            if ssh(args, f'sudo test -f {shlex.quote(real)} && echo yes || echo no', check=False).strip() == 'yes':
+                have.append((name, real))
+        drop = f'/etc/systemd/system/home-relay@{slug}.service.d/credentials.conf'
+        if have:
+            body = '[Service]\n' + ''.join(f'LoadCredentialEncrypted={n}:{p}\n' for n, p in have)
+            ssh(args, f'sudo mkdir -p /etc/systemd/system/home-relay@{slug}.service.d; sudo tee {drop} >/dev/null', body.encode())
+        else:
+            ssh(args, f'sudo rm -f {drop}')
 
 
 def unregister(args, module):
@@ -235,6 +245,8 @@ def pair(args):
     body = f'AIWB_ENV={env}\nRELAY_URL={worker}\n'
     ssh(args, f'set -e; f={CONF}/{slug}.env; sudo mkdir -p {CONF}; sudo tee $f.new >/dev/null; sudo chown root:{user} $f.new;'
               f' sudo chmod 0640 $f.new; sudo mv $f.new $f', body.encode())
+    credentials_dropin(args)  # the new person's own credentials drop-in (only files that exist for them)
+    ssh(args, 'sudo systemctl daemon-reload')
     ssh(args, f'sudo systemctl enable home-relay@{slug}.service && sudo systemctl restart home-relay@{slug}.service')
     print(json.dumps({'slug': slug, 'env': env, 'relay': worker, 'credential': cred, 'worker': f'home-relay@{slug}', 'modules': registered(args)}))
 

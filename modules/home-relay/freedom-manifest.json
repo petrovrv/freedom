@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
  "version": "0.1.0",
- "created": "2026-11-23T12:27:07Z",
+ "created": "2026-11-23T12:28:23Z",
  "files": [
   {
    "path": "home/hub/home-relay-at.service",
@@ -10,8 +10,8 @@
   },
   {
    "path": "home/hub/relayctl.py",
-   "size": 12684,
-   "sha256": "09de0907d58de46f846a842f5205ad8ce67a6c5fb35baf9ac81b9f7cb242e01c"
+   "size": 12436,
+   "sha256": "c3c5ad1152e5e2127bfb4f89de3a8fc5b278c1dfe5f87944eb5beffae9cb8f7f"
   },
   {
    "path": "home/relayd.py",
@@ -53,7 +53,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "2/4hiJsmJNAjtZj2OJlhmfgDnals8J3j0RUe0F70l219WexzMTqNdhjPN6U7EWCAWV9+c+bakDE3doxLTIdYAQ=="
+   "sig": "1+i4HUy7ggFxapy8BwVTPyB/GuSgOL1hrnnJm1sNfiDQNSHGOic483HT8SBSwJAM9LJespi09M2YHy/SVqmOAg=="
   }
  ],
  "module": "home-relay"

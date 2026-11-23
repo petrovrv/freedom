@@ -337,7 +337,7 @@ function driveLater(key: string, what: string, fn: () => Promise<unknown>): void
 }
 
 // patch: fields of the chat document, plus the fields of chat modes of modules (<key>, <key>Log, <key>Doc; F10)
-export async function updateChatMeta(chat: Chat, patch: Partial<Pick<Chat, 'title' | 'titleAuto' | 'defaultMode' | 'projectId' | 'movedUtc' | 'permissions' | 'archived' | 'parent' | 'contextMode' | 'autoSwitch' | 'browser' | 'family'>> & Record<string, unknown>): Promise<Chat> {
+export async function updateChatMeta(chat: Chat, patch: Partial<Pick<Chat, 'title' | 'titleAuto' | 'defaultMode' | 'projectId' | 'movedUtc' | 'permissions' | 'archived' | 'parent' | 'folder' | 'contextMode' | 'autoSwitch' | 'browser' | 'family'>> & Record<string, unknown>): Promise<Chat> {
   const next = { ...chat, ...patch, updatedUtc: nowUtc() };
   // 0.45.0: shareRole is server-only, never written to chat.json
   const { folderId, legacy, shareRole, ...doc } = next;
@@ -1171,14 +1171,32 @@ export function wantsTitle(chat: Chat, events: ChatEvent[]): boolean {
 }
 
 // Moves the chat folder with its whole history, files and scratch to another project.
-export async function moveChat(root: Root, chat: Chat, target: Project): Promise<Chat> {
+// F15.2: extra.folder = its place in the target project (the Explorer's move of a chat with its subchats)
+export async function moveChat(root: Root, chat: Chat, target: Project, extra: Partial<Pick<Chat, 'folder'>> = {}): Promise<Chat> {
   if (target.projectId === chat.projectId) return chat;
   await assertIdle(chat);
-  return moveChatFolder(root, chat, target);
+  return moveChatFolder(root, chat, target, extra);
+}
+
+// F15.2: the Explorer moves a chat with the chats under it (group[0] = the chat) to another project; none moves while
+// one of them has a running job. The chat gets `folder` there (undefined = back under its lineage parent).
+export async function moveChatGroup(root: Root, group: Chat[], target: Project, folder: string | undefined): Promise<Chat[]> {
+  await mapLimit(group, 4, async (c) => {
+    try {
+      await assertIdle(c);
+    } catch {
+      throw new Error(`“${c.title}” has a running job. Wait for it to finish or stop it first.`);
+    }
+  });
+  const out: Chat[] = [];
+  for (const [i, c] of group.entries()) {
+    out.push(c.projectId === target.projectId ? c : await moveChatFolder(root, c, target, i === 0 ? { folder } : {}));
+  }
+  return out;
 }
 
 // 0.58.0: extra = chat.json fields written together with the move (parent of a folded project's chat)
-async function moveChatFolder(root: Root, chat: Chat, target: Project, extra: Partial<Pick<Chat, 'parent'>> = {}): Promise<Chat> {
+async function moveChatFolder(root: Root, chat: Chat, target: Project, extra: Partial<Pick<Chat, 'parent' | 'folder'>> = {}): Promise<Chat> {
   const projectsId = await ensurePath(root.id, ['projects']);
   const fromChats = await ensurePath(projectsId, [chat.projectId, 'chats']);
   const toChats = await ensurePath(target.folderId, ['chats']);

@@ -52,6 +52,9 @@ export interface Chat {
   summary?: string;
   // 0.33.0: branch / follow-up / side question / subtask of another chat (lineage.ts)
   parent?: ChatParent;
+  // F15.2: the chat's one place in the Explorer and the chat tree - the chat it sits under, '' = top of the project.
+  // Absent = under its lineage parent. Moving changes only this; the lineage snapshot (parent) stays as it was.
+  folder?: string;
   // 0.36.0: what the agent is told (contextLevels.ts); absent = 'full'
   contextMode?: 'full' | 'reference' | 'clean';
   shareRole?: 'editor' | 'viewer'; // 0.45.0: role of a chat shared one by one (server)

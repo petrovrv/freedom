@@ -26,7 +26,7 @@ function chatActionsFor(p: { shareRole?: string }, c: { shareRole?: string }): C
   if (p.shareRole === 'editor' || c.shareRole === 'editor') return ['rename', 'title', 'archive'];
   return [];
 }
-import { saveProjectMeta, updateChatMeta } from './workbench';
+import { moveChatGroup, saveProjectMeta, updateChatMeta } from './workbench';
 import { projectModeDefault, type ModeDecl } from './moduleModes';
 import { modesOf } from './moduleStore';
 import { importCalls } from './importWriter';
@@ -35,7 +35,7 @@ import Inspector from './Inspector';
 import FamilyPanel from './FamilyPanel';
 import Launcher from './Launcher';
 import Explorer from './Explorer';
-import { readExplorerOn, writeExplorerOn } from './explorerTree';
+import { readExplorerOn, subtreeOf, writeExplorerOn, type MoveDest } from './explorerTree';
 import AppHost, { RecentApps, useAppEvents } from './AppHost';
 import { trayWantsRefresh } from './appEvents';
 import { appKey, exitTarget, findApp, findPage, liveLimit, loadRecent, pruneApps, RECENT_MAX, saveRecent, touchApp, type AppRef } from './appStack';
@@ -530,6 +530,41 @@ export default function Shell({ auth }: { auth: Signed }) {
     [projectId, chatsPid, chats, exChats],
   );
 
+  // F15.2: a move in the Explorer - inside a project only the chat's place changes; to another project the chat goes
+  // with the chats under it. Resolves to the undo, which puts everything back where it was.
+  const exReload = (pids: string[]) => {
+    for (const pid of new Set(pids)) {
+      if (pid === projectId) void refreshChats();
+      else void exLoad(pid, exGen.current);
+    }
+  };
+  const exMove = async (c: Chat, d: MoveDest): Promise<() => Promise<void>> => {
+    const from = c.projectId;
+    const prev = c.folder;
+    if (d.projectId === from) {
+      const moved = await updateChatMeta(c, { folder: d.folder });
+      exReload([from]);
+      return async () => {
+        await updateChatMeta(moved, { folder: prev });
+        exReload([from]);
+      };
+    }
+    const src = projects?.find((p) => p.projectId === from);
+    const dst = projects?.find((p) => p.projectId === d.projectId);
+    if (!root || !src || !dst) throw new Error('The project is not loaded yet.');
+    const follow = (group: Chat[], to: string) => {
+      if (chatId && group.some((x) => x.chatId === chatId)) navigate(`/e/${env}/p/${to}/c/${chatId}`);
+    };
+    const group = await moveChatGroup(root, subtreeOf(c, exChatsOf(from) ?? [c]), dst, d.folder);
+    exReload([from, d.projectId]);
+    follow(group, d.projectId);
+    return async () => {
+      const back = await moveChatGroup(root, group, src, prev);
+      exReload([from, d.projectId]);
+      follow(back, from);
+    };
+  };
+
   // F10 (ext/1 chat.mode viewer): "?<param>=<path relative to AI-Workbench>" of a mode with a viewer shows the module's
   // viewer (ui.panel) left of the chat of that document. On a project URL the chat of the document (chat[<key>Doc])
   // opens if there is one; otherwise a new chat with the mode on is made by the first question.
@@ -942,6 +977,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                 chatWait={chatWaitRank}
                 onOpenChat={(pid, cid) => { navigate(`/e/${env}/p/${pid}/c/${cid}`); setLeftOpen(false); }}
                 onOpenProject={(pid) => { navigate(`/e/${env}/p/${pid}`); setLeftOpen(false); }}
+                onMove={exMove}
               />
             )}
             {!explorerOn && (<>

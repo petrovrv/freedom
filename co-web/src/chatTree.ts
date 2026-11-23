@@ -4,6 +4,12 @@
 import type { Chat } from './types';
 import { compareBy, ts, type SortMode } from './sidebarSort.ts';
 
+/** F15.2: the chat a chat sits under (its folder), else its lineage parent; undefined = top of the project. */
+export function placeParent(c: Chat): string | undefined {
+  if (typeof c.folder === 'string') return c.folder || undefined;
+  return c.parent?.chatId || undefined;
+}
+
 export interface ChatTreeRow {
   chat: Chat;
   depth: number;
@@ -63,7 +69,7 @@ export function buildChatTree(
 
   // Parent only counts when present in the given list
   const rawParent = (c: Chat): string | undefined => {
-    const pid = c.parent?.chatId;
+    const pid = placeParent(c);
     return pid && pid !== c.chatId && byId.has(pid) ? pid : undefined;
   };
 
@@ -183,7 +189,7 @@ export function archiveScope(chats: Chat[], chatId: string, archive: boolean): C
   if (!self) return [];
   const kids = new Map<string, Chat[]>();
   for (const c of byId.values()) {
-    const pid = c.parent?.chatId;
+    const pid = placeParent(c);
     if (!pid || pid === c.chatId || !byId.has(pid)) continue;
     const arr = kids.get(pid);
     if (arr) arr.push(c);
@@ -200,7 +206,7 @@ export function archiveScope(chats: Chat[], chatId: string, archive: boolean): C
     stack.push(...(kids.get(c.chatId) ?? []));
   }
   if (!archive) {
-    for (let cur = byId.get(self.parent?.chatId || ''); cur && !seen.has(cur.chatId); cur = byId.get(cur.parent?.chatId || '')) {
+    for (let cur = byId.get(placeParent(self) || ''); cur && !seen.has(cur.chatId); cur = byId.get(placeParent(cur) || '')) {
       seen.add(cur.chatId);
       if (cur.archived) out.push(cur);
     }

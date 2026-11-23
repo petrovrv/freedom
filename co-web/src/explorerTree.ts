@@ -4,6 +4,7 @@
 // Pure logic here (Explorer.tsx draws it); the tree view of the panel stays the default (co.explorer, off).
 import type { Chat, Project } from './types';
 import { compareBy, sortTitle, ts, type SortMode } from './sidebarSort.ts';
+import { placeParent } from './chatTree.ts';
 
 /** Where the Explorer is: the root (projects), a project (its top chats) or a chat with child chats (chain of chat ids). */
 export interface ExplorerPath {
@@ -63,7 +64,7 @@ export function chatParents(chats: Chat[]): Map<string, string> {
   const byId = new Map<string, Chat>();
   for (const c of chats) if (c?.chatId && !byId.has(c.chatId)) byId.set(c.chatId, c);
   const raw = (c: Chat): string | undefined => {
-    const pid = c.parent?.chatId;
+    const pid = placeParent(c);
     return pid && pid !== c.chatId && byId.has(pid) ? pid : undefined;
   };
   const out = new Map<string, string>();
@@ -325,4 +326,109 @@ export function shortDate(utc: string | undefined | null, now = new Date()): str
   if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+// ---------- F15.2: moving a chat (drag and drop, "Move to…") ----------
+
+/** Where a chat goes: a project and the chat it will sit under there ('' = top of the project). */
+export interface MoveDest {
+  projectId: string;
+  folder: string;
+}
+
+/** The place a dropped item stands for: a project (its top), a chat or the open folder's own chat (inside it). */
+export function destOfItem(p: ExplorerPath, item: ExplorerItem): MoveDest | null {
+  if (item.kind === 'project') return { projectId: item.project.projectId, folder: '' };
+  return p.projectId ? { projectId: p.projectId, folder: item.chat.chatId } : null;
+}
+
+/** The place a path-bar folder stands for; the root (the list of projects) is no place for a chat. */
+export function destOfPath(p: ExplorerPath): MoveDest | null {
+  return p.projectId ? { projectId: p.projectId, folder: p.chatIds[p.chatIds.length - 1] ?? '' } : null;
+}
+
+/** The chat and every chat under it (archived ones too), the chat first; they move to another project together. */
+export function subtreeOf(chat: Chat, chats: Chat[]): Chat[] {
+  const kids = new Map<string, Chat[]>();
+  for (const c of chats) {
+    const pid = placeParent(c);
+    if (!pid || pid === c.chatId) continue;
+    const arr = kids.get(pid);
+    if (arr) arr.push(c);
+    else kids.set(pid, [c]);
+  }
+  const seen = new Set<string>([chat.chatId]);
+  const out: Chat[] = [chat];
+  const stack = [...(kids.get(chat.chatId) ?? [])];
+  while (stack.length) {
+    const c = stack.pop()!;
+    if (seen.has(c.chatId)) continue;
+    seen.add(c.chatId);
+    out.push(c);
+    stack.push(...(kids.get(c.chatId) ?? []));
+  }
+  return out;
+}
+
+/**
+ * Why the chat cannot go there, or null when it can. Only chats of the person's own projects move (a shared chat
+ * stays where its owner keeps it), never into the family room, an archived project, itself or a chat under it.
+ * `destChats` are the chats of the target project (null: not loaded - a target chat cannot be checked yet).
+ */
+export function moveBlock(chat: Chat, dest: MoveDest, projects: Project[], destChats: Chat[] | null): string | null {
+  if (chat.draft) return 'Send the first message first.';
+  if (chat.shareRole) return 'A shared chat stays where its owner keeps it.';
+  const from = projects.find((x) => x.projectId === chat.projectId);
+  const to = projects.find((x) => x.projectId === dest.projectId);
+  if (!from || from.shareRole) return 'Only chats of your own projects move.';
+  if (!to || to.shareRole || to.family || to.archived) return 'Only into your own projects.';
+  if (dest.folder) {
+    if (dest.folder === chat.chatId) return 'A chat cannot go inside itself.';
+    if (!destChats) return 'Open that project first.';
+    const target = destChats.find((c) => c.chatId === dest.folder);
+    if (!target || target.archived || target.draft) return 'That chat is not there any more.';
+    if (dest.projectId === chat.projectId && subtreeOf(chat, destChats).some((c) => c.chatId === dest.folder)) {
+      return 'A chat cannot go inside a chat under it.';
+    }
+  }
+  if (dest.projectId === chat.projectId && (placeParent(chat) ?? '') === dest.folder) return 'It is already there.';
+  return null;
+}
+
+export interface MoveTarget {
+  dest: MoveDest;
+  title: string;
+  depth: number; // 0 = a project, 1+ = a chat under it
+}
+
+/** "Move to…": each own project and, when its chats are loaded, its chats as a tree; the ones it cannot go to left out. */
+export function moveTargets(chat: Chat, projects: Project[], chatsOf: (projectId: string) => Chat[] | null | undefined): MoveTarget[] {
+  const out: MoveTarget[] = [];
+  for (const p of projects) {
+    if (p.family || p.archived || p.shareRole) continue;
+    const list = chatsOf(p.projectId) ?? null;
+    const top: MoveDest = { projectId: p.projectId, folder: '' };
+    if (!moveBlock(chat, top, projects, list)) out.push({ dest: top, title: p.title || p.projectId, depth: 0 });
+    if (!list) continue;
+    const live = list.filter((c) => !c.archived && !c.draft);
+    const parents = chatParents(live);
+    const kids = new Map<string, Chat[]>();
+    for (const c of live) {
+      const k = parents.get(c.chatId) ?? '';
+      const arr = kids.get(k);
+      if (arr) arr.push(c);
+      else kids.set(k, [c]);
+    }
+    const walk = (under: string, depth: number) => {
+      if (depth > 32) return;
+      const arr = [...(kids.get(under) ?? [])].sort((a, b) => norm(itemTitle(a.title)).localeCompare(norm(itemTitle(b.title))));
+      for (const c of arr) {
+        const dest = { projectId: p.projectId, folder: c.chatId };
+        if (!moveBlock(chat, dest, projects, list)) out.push({ dest, title: itemTitle(c.title), depth });
+        if (c.chatId !== chat.chatId) walk(c.chatId, depth + 1);
+      }
+    };
+    walk('', 1);
+  }
+  return out;
 }

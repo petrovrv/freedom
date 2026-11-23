@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // node src/explorerTree.selftest.ts - the Explorer view: folders, path bar, Ctrl+K jump (F15.1).
-import { childPath, crumbs, shortDate, explorerItems, itemTitle, moveFocus, parentPath, pathOfChat, quickJump, ROOT_PATH, samePath, validPath, type ExplorerPath } from './explorerTree.ts';
+import { childPath, crumbs, destOfItem, destOfPath, moveBlock, moveTargets, subtreeOf, shortDate, explorerItems, itemTitle, moveFocus, parentPath, pathOfChat, quickJump, ROOT_PATH, samePath, validPath, type ExplorerPath } from './explorerTree.ts';
 import type { Chat, Project } from './types';
 
 let fail = 0;
@@ -97,6 +97,30 @@ ok('short date today is a time', /\d{1,2}.\d{2}/.test(shortDate(new Date(2026, 1
 ok('short date other year has the year', shortDate(new Date(2024, 1, 2).toISOString(), now).includes('2024'));
 ok('short date bad', shortDate('x', now) === '' && shortDate(null, now) === '');
 ok('itemTitle empty', itemTitle('') === '(untitled)');
+
+// F15.2: moving
+const byId = (id: string) => chats.find((c) => c.chatId === id)!;
+ok('subtree of c1', subtreeOf(byId('c1'), chats).map((c) => c.chatId).join() === 'c1,c3,c4');
+ok('move into itself blocked', !!moveBlock(byId('c1'), { projectId: 'alpha', folder: 'c1' }, projects, chats));
+ok('move under own child blocked', !!moveBlock(byId('c1'), { projectId: 'alpha', folder: 'c4' }, projects, chats));
+ok('move to the same place blocked', !!moveBlock(byId('c3'), { projectId: 'alpha', folder: 'c1' }, projects, chats));
+ok('move up to top ok', moveBlock(byId('c4'), { projectId: 'alpha', folder: '' }, projects, chats) === null);
+ok('move under a sibling ok', moveBlock(byId('c2'), { projectId: 'alpha', folder: 'c4' }, projects, chats) === null);
+ok('move to another project ok', moveBlock(byId('c1'), { projectId: 'beta', folder: '' }, projects, []) === null);
+ok('no family / archived project', !!moveBlock(byId('c1'), { projectId: 'fam', folder: '' }, projects, []) && !!moveBlock(byId('c1'), { projectId: 'old', folder: '' }, projects, []));
+ok('shared chat stays', !!moveBlock({ ...byId('c2'), shareRole: 'editor' } as Chat, { projectId: 'beta', folder: '' }, projects, []));
+ok('shared project stays', !!moveBlock(byId('c2'), { projectId: 'sh', folder: '' }, [...projects, proj('sh', 'Shared', { shareRole: 'editor' })], []));
+ok('into archived chat blocked', !!moveBlock(byId('c2'), { projectId: 'alpha', folder: 'c5' }, projects, chats));
+ok('unloaded target chats', !!moveBlock(byId('c2'), { projectId: 'beta', folder: 'b1' }, projects, null));
+// folder overrides the lineage parent; '' = top
+const moved = [...chats.filter((c) => c.chatId !== 'c4'), { ...byId('c4'), folder: '' }];
+ok('folder "" puts a subchat on top', explorerItems({ projectId: 'alpha', chatIds: [] }, projects, moved, { sort: 'title' }).some((x) => x.key === 'c:c4'));
+const moved2 = [...chats.filter((c) => c.chatId !== 'c2'), { ...byId('c2'), folder: 'c4' }];
+ok('folder puts a chat under another', pathOfChat('alpha', 'c2', moved2).chatIds.join() === 'c1,c3,c4');
+ok('dest of item / path', destOfItem(ROOT_PATH, { kind: 'project', key: 'p:beta', project: projects[1], title: 'B' })?.projectId === 'beta' && destOfPath(ROOT_PATH) === null && destOfPath({ projectId: 'alpha', chatIds: ['c1', 'c3'] })?.folder === 'c3');
+
+const tg = moveTargets(byId('c3'), projects, (pid) => (pid === 'alpha' ? chats : []));
+ok('targets: own projects, not itself, not the current place', tg.some((t) => t.dest.projectId === 'beta' && t.depth === 0) && tg.some((t) => t.dest.projectId === 'alpha' && t.dest.folder === '') && !tg.some((t) => t.dest.folder === 'c3' || t.dest.folder === 'c4' || t.dest.folder === 'c1') && tg.some((t) => t.dest.folder === 'c2') && !tg.some((t) => t.dest.projectId === 'fam' || t.dest.projectId === 'old'));
 
 if (fail) throw new Error(`explorerTree selftest: ${fail} failed`);
 console.log('explorerTree selftest OK');

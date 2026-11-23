@@ -97,6 +97,9 @@ public sealed class DeviceRuntime : IAsyncDisposable
     public DriveMailboxChannel? DriveChannel { get; private set; }
 
     public DeviceUpdater Updater { get; }
+    // 0.16.1: the version of the app that installs updates (CO Desktop numbers its releases apart from Core); the offered
+    // installer is compared with it, not with Core (0.16.0 / Core 0.15.0 reinstalled itself every 75 s).
+    public string AppVersion { get; set; } = Version;
     // Mac resident: the Windows installer channel is not used (false skips update files and the update loop).
     public bool AutoUpdate { get; set; } = true;
     // false: calls come only through the Drive mailbox (the Mac resident's safe start after repeated crashes).
@@ -346,7 +349,7 @@ public sealed class DeviceRuntime : IAsyncDisposable
         if (!await _updateGate.WaitAsync(0, ct)) return;
         try
         {
-            var ready = await Updater.CheckAsync(State, Version, ct);
+            var ready = await Updater.CheckAsync(State, AppVersion, ct);
             if (ready != null) UpdateReady?.Invoke(ready);
         }
         finally { _updateGate.Release(); }

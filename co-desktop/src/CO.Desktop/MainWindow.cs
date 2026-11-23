@@ -126,7 +126,7 @@ public sealed class MainWindow : Window
     public MainWindow(Services s)
     {
         _s = s;
-        Title = $"CO Desktop {Core.Runtime.DeviceRuntime.Version} — {s.Runtime.State.Name}";
+        Title = $"CO Desktop {App.AppVersion} — {s.Runtime.State.Name}";
         var area = SystemParameters.WorkArea;
         Width = Math.Min(1400, area.Width * 0.95);
         Height = Math.Min(900, area.Height * 0.95);
@@ -489,7 +489,7 @@ public sealed class MainWindow : Window
     {
         var info = new
         {
-            app = "co-desktop", version = Core.Runtime.DeviceRuntime.Version,
+            app = "co-desktop", version = App.AppVersion,
             deviceId = _s.Runtime.State.DeviceId, deviceShort = _s.Runtime.State.Short, managed = _s.Runtime.State.Managed,
         };
         // Connector modules add their own methods (e.g. the toggle of an external AI in CO Web).

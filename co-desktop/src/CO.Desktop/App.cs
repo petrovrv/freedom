@@ -16,6 +16,12 @@ public sealed class App : Application
 {
     private static Mutex? _single;
 
+    // 0.16.1: <Version> of this csproj; updates are compared with it, not with Core.
+    public static string AppVersion => typeof(App).Assembly
+        .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+        .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion.Split('+')[0]
+        ?? DeviceRuntime.Version;
+
     /// <summary>F14e.2: the app asked for on the command line (--app &lt;module&gt;/&lt;page&gt;, a jump list task or a
     /// pinned app window), opened once the web view is ready.</summary>
     public static string? StartupApp { get; private set; }
@@ -103,7 +109,7 @@ public sealed class Services
             auth = new InstalledAppAuth(http, OAuthClient.FromJson(File.ReadAllText(clientFile)), secrets, CredentialTarget);
         IDriveFiles drive = auth != null ? new DriveRest(http, auth) : new UnconfiguredDrive();
         var approvals = new WpfApprovalService();
-        var runtime = new DeviceRuntime(DesktopSettings.DataDir, keys, drive, approvals);
+        var runtime = new DeviceRuntime(DesktopSettings.DataDir, keys, drive, approvals) { AppVersion = App.AppVersion };
         runtime.Updater.SiteTokens = auth;   // 0.9.1: installer from the CO site
         // Freedom 0.4.0: a neutral build downloads updates from the site of this computer; a build with its site built in
         // keeps that one (a WebUrl switched to a test site never gets the token for installers)

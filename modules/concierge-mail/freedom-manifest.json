@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.11.4",
- "created": "2026-11-24T10:12:26Z",
+ "version": "0.11.5",
+ "created": "2026-11-24T11:49:12Z",
  "files": [
   {
    "path": "context/mail.md",
@@ -75,8 +75,8 @@
   },
   {
    "path": "home/relay.py",
-   "size": 16324,
-   "sha256": "7f4fcf2a25f7bf0ac7836a9230f10acbca9304aaf5b51a996f89d2d064de4efe"
+   "size": 16665,
+   "sha256": "2cdd4e643d3b3441f0e452c6172b946d7510ade698703f352c0b4f63dce6c48d"
   },
   {
    "path": "home/remoteimg.py",
@@ -135,8 +135,8 @@
   },
   {
    "path": "home/test_relay.py",
-   "size": 6914,
-   "sha256": "449d493e4e57448138aeefe629560d4170b9fac1d3319e55c73409848bdde02f"
+   "size": 7950,
+   "sha256": "7dbbd5426fd5adeba5ff6110316f2f831d6d4a7b492a4191f3b3bd6e766e5544"
   },
   {
    "path": "home/test_remoteimg.py",
@@ -156,7 +156,7 @@
   {
    "path": "module.json",
    "size": 2388,
-   "sha256": "9a35465100c2e690c46a33d4053a76c97ed2f8d4a7f20ae66e435b93611f8baa"
+   "sha256": "134725498054411d5c967332ae1e7242d1cb2749a9941a09b46e2afc0e0ae30a"
   },
   {
    "path": "README.md",
@@ -185,8 +185,8 @@
   },
   {
    "path": "ui/mail.js",
-   "size": 40116,
-   "sha256": "b78f61dbb4a53bd350cd8942a8bdcae3f47f9c3d0d43f28ec11a1417e6123999"
+   "size": 40473,
+   "sha256": "4215ba666c06b358f2e146c64056edef00fe477248fbe5babd0cf6ebd1e760fb"
   },
   {
    "path": "ui/tray.css",
@@ -208,7 +208,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "V7//y6gGLxoJph295iV1MsreBPDgFOGW7vrWTtH+bYZeeh55Muy4LBYdLjpKzqH6AlZBs5O9j6dbxppIQRg+AQ=="
+   "sig": "alJeVx1+dcZxnCEvQVIyrgps0emQiG0YX5Te7oupvXegTmsghitOv044UF0vpvJAe0fmGj0jza1JT+AJzBoEBw=="
   }
  ],
  "module": "concierge-mail"

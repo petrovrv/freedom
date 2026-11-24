@@ -152,6 +152,7 @@ export default function Explorer(props: ExplorerProps) {
   const open = (item: ExplorerItem, byKey = false) => {
     const next = childPath(path, item);
     if (next) return go(next, byKey);
+    moved.current = Date.now();
     if (item.kind !== 'project' && pid) props.onOpenChat(pid, item.chat.chatId);
   };
   const up = (byKey = false) => {
@@ -178,7 +179,7 @@ export default function Explorer(props: ExplorerProps) {
     }
   };
 
-  // 0.128.1: one click (or tap) opens, as on a web page; selecting is by keyboard, right click or ⋮
+  // 0.128.1: one click (or tap) opens, as on a web page; selecting is by keyboard or right click
 
   // Ctrl+K (⌘K) anywhere while the Explorer is shown
   useEffect(() => {
@@ -352,7 +353,8 @@ ${formatLocal(date)}` : '';
                 onClick={() => {
                   setFocus(i);
                   // a habitual double click (or a quick second tap) after entering a folder must not open an item of the new folder
-                  if (Date.now() - moved.current > 450) open(it);
+                  // the focus goes into the opened folder (also after Space), so the arrows and Backspace keep working
+                  if (Date.now() - moved.current > 450) open(it, true);
                 }}
                 onContextMenu={props.onProperties ? (e) => {
                   e.preventDefault();

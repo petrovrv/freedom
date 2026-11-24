@@ -106,8 +106,12 @@ export function togglePanel(kind: PanelKind, target: { projectId?: string; chatI
   else openPanel(kind, target);
 }
 
-export function closePanel() {
-  if (state.panel && mayLeave()) set({ panel: null });
+/** false when the person kept unsaved edits (the panel stays open) */
+export function closePanel(): boolean {
+  if (!state.panel) return true;
+  if (!mayLeave()) return false;
+  set({ panel: null });
+  return true;
 }
 
 export function setPanelPinned(pinned: boolean) {

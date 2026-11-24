@@ -278,7 +278,7 @@ export function MemoryReviewDialog({ candidates, locked, onClose, onDecided, onE
 
         {locked && (
           <div className="memreview-locked muted tiny">
-            Accepting is disabled: save the memory edits in the inspector first.
+            Accepting is disabled: save the memory edits in the project's Properties first.
           </div>
         )}
 

@@ -1049,6 +1049,8 @@ function DossierEditor({ env, onError }: { env: string; onError: (m: string) => 
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('');
   const [editing, setEditing] = useState<{ id: number | null; section: DossierRow['section']; subject: string; text: string; rev?: string } | null>(null);
+  useEffect(() => setPanelDirty('dossier', editing !== null), [editing]);
+  useEffect(() => () => setPanelDirty('dossier', false), []);
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => {
     dbDossierGet(env).then(setRows).catch((e) => { onError(categorize(e).message); setRows([]); });

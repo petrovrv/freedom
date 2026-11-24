@@ -149,7 +149,11 @@ export default function Shell({ auth }: { auth: Signed }) {
   useEffect(() => {
     if (!drawerOpen || !window.matchMedia('(max-width: 1100px)').matches) return;
     if (!window.history.state?.coDrawer) window.history.pushState({ ...window.history.state, coDrawer: true }, '');
-    const onPop = () => { setLeftOpen(false); closePanel(); };
+    const onPop = () => {
+      setLeftOpen(false);
+      // unsaved edits kept: the panel stays, and so does the entry Back closes it with
+      if (!closePanel()) window.history.pushState({ ...window.history.state, coDrawer: true }, '');
+    };
     window.addEventListener('popstate', onPop);
     return () => {
       window.removeEventListener('popstate', onPop);

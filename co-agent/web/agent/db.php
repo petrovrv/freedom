@@ -1472,7 +1472,13 @@ try {
             // and with no job still queued or running (job_submit refuses a trashed chat under the same row lock)
             if (array_key_exists('ifTrashedUtc', $in)) {
                 $want = (string)$in['ifTrashedUtc'];
-                if ($want === '' || share_chat_trashed($db, $chatId, true) !== $want || share_chat_active_jobs($db, $chatId) > 0) {
+                $now = share_chat_trashed($db, $chatId, true);
+                if ($now === null) {
+                    // gone meanwhile (another tab's clean-up or Delete forever): 'missing' for the client
+                    $db->rollback();
+                    co_json(200, ['deleted' => 0]);
+                }
+                if ($want === '' || $now !== $want || share_chat_active_jobs($db, $chatId) > 0) {
                     $db->rollback();
                     co_json(200, ['deleted' => 0, 'kept' => 1]);
                 }

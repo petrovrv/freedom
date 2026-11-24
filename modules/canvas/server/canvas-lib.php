@@ -210,16 +210,30 @@ function co_canvas_job(mysqli $db, array $in): array
         'contextFolders' => [],
         'canvas' => $canvas,
     ];
+    // core with the CO trash (F15.2): no message or job for a trashed chat
+    $guard = function_exists('share_job_insert_untrashed');
+    if ($guard && (string)share_chat_trashed($db, $chatId) !== '') return ['error' => 'chat_trashed'];
     db_append_event(['event' => $ev]);
     $json = co_db_json($req);
     $sha = hash('sha256', co_db_json(['request' => $req, 'result' => null]));
-    $st = $db->prepare(
-        "INSERT INTO jobs (job_id, host_id, env, project_id, chat_id, agent, mode, model, state, origin, queued_utc,
-                           request, sha, synced_utc, actor_env)
-         VALUES (?, 'home-main', ?, ?, ?, ?, ?, ?, 'inbox', 'db', UTC_TIMESTAMP(3), ?, ?, UTC_TIMESTAMP(3), ?)"
-    );
-    $st->execute([$jobId, $chat['env'], $projectId, $chatId, $agent, $mode, $model, $json, $sha, $env]);
-    $st->close();
+    $insert = static function () use ($db, $jobId, $chat, $projectId, $chatId, $agent, $mode, $model, $json, $sha, $env): void {
+        $st = $db->prepare(
+            "INSERT INTO jobs (job_id, host_id, env, project_id, chat_id, agent, mode, model, state, origin, queued_utc,
+                               request, sha, synced_utc, actor_env)
+             VALUES (?, 'home-main', ?, ?, ?, ?, ?, ?, 'inbox', 'db', UTC_TIMESTAMP(3), ?, ?, UTC_TIMESTAMP(3), ?)"
+        );
+        $st->execute([$jobId, $chat['env'], $projectId, $chatId, $agent, $mode, $model, $json, $sha, $env]);
+        $st->close();
+    };
+    if (!$guard) {
+        $insert();
+    } elseif (!share_job_insert_untrashed($db, $chatId, $insert)) {
+        // trashed meanwhile: take the message back, as the auto-switch does
+        $d = $db->prepare('DELETE FROM events WHERE chat_id = ? AND job_id = ? AND type = ?');
+        $d->execute([$chatId, $jobId, 'user_message']);
+        $d->close();
+        return ['error' => 'chat_trashed'];
+    }
     return ['jobId' => $jobId, 'resume' => $resume, 'agent' => $agent];
 }
 

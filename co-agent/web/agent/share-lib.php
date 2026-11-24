@@ -132,28 +132,43 @@ function share_chat_trashed(mysqli $db, string $chatId, bool $lock = false): ?st
 /**
  * F15.2: run $insert (the INSERT of a job) unless the chat is in the CO trash - check and INSERT in one transaction holding
  * the chat row, so the trash clean-up (delete_chat ifTrashedUtc) sees the job or the job sees the trash. False = trashed.
+ * Inside a caller's open transaction it runs in that one (a new begin_transaction would commit it silently).
+ * Modules that queue jobs themselves (voice, whatsapp, canvas) call it too.
  */
 function share_job_insert_untrashed(mysqli $db, string $chatId, callable $insert): bool
 {
-    $db->begin_transaction();
+    $outer = (int)(share_q($db, 'SELECT @@in_transaction AS t', [])[0]['t'] ?? 0) === 1;
+    if (!$outer) {
+        $db->begin_transaction();
+    }
     try {
         if ((string)share_chat_trashed($db, $chatId, true) !== '') {
-            $db->rollback();
+            if (!$outer) {
+                $db->rollback();
+            }
             return false;
         }
         $insert();
-        $db->commit();
+        if (!$outer) {
+            $db->commit();
+        }
         return true;
     } catch (Throwable $e) {
-        $db->rollback();
+        if (!$outer) {
+            $db->rollback();
+        }
         throw $e;
     }
 }
 
-/** F15.2: jobs of a chat still queued or running (the trash clean-up keeps such a chat). */
+/**
+ * F15.2: jobs of a chat still queued or running (the trash clean-up keeps such a chat; a job stuck in claimed keeps it
+ * until the job is ended - the safe side). A locking read: the latest committed rows whatever was read before.
+ */
 function share_chat_active_jobs(mysqli $db, string $chatId): int
 {
-    $rows = share_q($db, "SELECT COUNT(*) AS n FROM jobs WHERE chat_id = ? AND state IN ('inbox', 'claimed') AND result IS NULL", [$chatId]);
+    $rows = share_q($db, "SELECT COUNT(*) AS n FROM jobs WHERE chat_id = ? AND state IN ('inbox', 'claimed') AND result IS NULL
+                          LOCK IN SHARE MODE", [$chatId]);
     return (int)($rows[0]['n'] ?? 0);
 }
 

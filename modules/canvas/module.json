@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "canvas",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "title": "Canvas",
   "description": "Chat and project files (Word, Excel, PowerPoint; Markdown and text as a Word notebook) open in the ONLYOFFICE editor on the home PC and save back to Drive. Comment threads in the document are answered by the chat's agent; Share puts the document into a Gmail draft (never sent).",
   "ext": ">=1 <2",

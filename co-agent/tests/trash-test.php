@@ -46,6 +46,13 @@ try {
 }
 $ok('duplicate job id: error passed on, transaction closed', $dup && share_q($db, 'SELECT @@in_transaction AS t', [])[0]['t'] == 0);
 
+// inside a caller's transaction the guard uses that transaction (no silent commit of the outer one)
+$db->begin_transaction();
+$ok('inside an open transaction: queued', share_job_insert_untrashed($db, 'CHAT-A', $insert('J-O', 'CHAT-A')) === true
+    && (int)share_q($db, 'SELECT @@in_transaction AS t', [])[0]['t'] === 1);
+$db->rollback();
+$ok('the outer rollback takes the job back', (int)share_q($db, "SELECT COUNT(*) AS n FROM jobs WHERE job_id = 'J-O'", [])[0]['n'] === 0);
+
 $ok('active jobs counted', share_chat_active_jobs($db, 'CHAT-A') === 1);
 $db->query("UPDATE jobs SET state = 'done', result = '{}' WHERE job_id = 'J-A'");
 $ok('finished job not active', share_chat_active_jobs($db, 'CHAT-A') === 0);

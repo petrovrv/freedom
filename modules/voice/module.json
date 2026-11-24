@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "voice",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "title": "Voice assistant",
   "description": "Talk to the workbench. The heavy work runs on the family server (the voice hub: speech to text and text to speech through speaches, Home Assistant for home commands); devices only listen and speak. In CO Web a 🗣 button in the composer: home commands are answered aloud at once, anything else goes into the chat and the agent's answer is read aloud. On a PC or a small Linux box a voice point with a wake word (off until the device's owner turns it on). Optional speaker recognition: the wake word answers only enrolled voices, the hub routes a recognised voice to that person's chat and gives strangers home commands only.",
   "ext": ">=1 <2",

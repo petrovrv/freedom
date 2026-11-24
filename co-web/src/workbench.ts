@@ -1392,20 +1392,28 @@ async function stopChatJobs(chat: Chat, hosts: Record<string, HostDirs>): Promis
   );
 }
 
+// F15.2: the chat document as the database row (trash and restore wait for the database: the server reads it)
+function putChatRow(chat: Chat): Promise<boolean> {
+  const { folderId, legacy, shareRole, ...doc } = chat;
+  void legacy;
+  void shareRole;
+  return dbPut({ chats: [{ ...doc, folderId }] });
+}
+
 // F15.2: Delete puts the chat into the CO trash: its jobs stop, it is hidden like an archived chat and comes back with
-// restoreChat; deleteChat (the owner's "Delete forever", or 30 days later) removes it for good.
+// restoreChat; deleteChat (the owner's "Delete forever", or 30 days later) removes it for good. The mark goes first:
+// once the database has it the server refuses new jobs of the chat, so none slips in between the stop and the mark.
 export async function trashChat(chat: Chat, hosts: Record<string, HostDirs>): Promise<Chat> {
+  const next = await updateChatMeta(chat, { trashedUtc: nowUtc(), archived: true, trashedArchived: !!chat.archived });
+  if (!chat.legacy) await putChatRow(next);
   await stopChatJobs(chat, hosts);
-  return updateChatMeta(chat, { trashedUtc: nowUtc(), archived: true, trashedArchived: !!chat.archived });
+  return next;
 }
 
 // The restore counts only when the database has it (the clean-up of another tab reads the database)
 export async function restoreChat(chat: Chat): Promise<Chat> {
   const next = await updateChatMeta(chat, { trashedUtc: '', archived: !!chat.trashedArchived, trashedArchived: false });
-  const { folderId, legacy, shareRole, ...doc } = next;
-  void legacy;
-  void shareRole;
-  if (!chat.legacy && !(await dbPut({ chats: [{ ...doc, folderId }] }))) {
+  if (!chat.legacy && !(await putChatRow(next))) {
     throw new Error('The database did not confirm the restore; try again.');
   }
   return next;

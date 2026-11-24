@@ -250,13 +250,21 @@ function co_voice_queue(mysqli $db, string $chatId, string $env, array $chat, st
     ];
     $json = co_db_json($req);
     $sha = hash('sha256', co_db_json(['request' => $req, 'result' => null]));
-    $st = $db->prepare(
-        "INSERT INTO jobs (job_id, host_id, env, project_id, chat_id, agent, mode, model, state, origin, queued_utc,
-                           request, sha, synced_utc, actor_env)
-         VALUES (?, ?, ?, ?, ?, ?, 'chat', ?, 'inbox', 'db', UTC_TIMESTAMP(3), ?, ?, UTC_TIMESTAMP(3), ?)"
-    );
-    $st->execute([$jobId, $host, $chat['env'], $chat['project_id'], $chatId, $agent, $model, $json, $sha, $env]);
-    $st->close();
+    $insert = static function () use ($db, $jobId, $host, $chat, $chatId, $agent, $model, $json, $sha, $env): void {
+        $st = $db->prepare(
+            "INSERT INTO jobs (job_id, host_id, env, project_id, chat_id, agent, mode, model, state, origin, queued_utc,
+                               request, sha, synced_utc, actor_env)
+             VALUES (?, ?, ?, ?, ?, ?, 'chat', ?, 'inbox', 'db', UTC_TIMESTAMP(3), ?, ?, UTC_TIMESTAMP(3), ?)"
+        );
+        $st->execute([$jobId, $host, $chat['env'], $chat['project_id'], $chatId, $agent, $model, $json, $sha, $env]);
+        $st->close();
+    };
+    // core with the CO trash (F15.2): no job for a trashed chat
+    if (function_exists('share_job_insert_untrashed')) {
+        if (!share_job_insert_untrashed($db, $chatId, $insert)) return ['error' => 'chat_trashed'];
+    } else {
+        $insert();
+    }
     // the message after the job: a message without its job would hold the chat back for ever
     db_append_event(['event' => $event]);
     return ['jobId' => $jobId, 'resume' => $resume, 'agent' => $agent, 'host' => $host];

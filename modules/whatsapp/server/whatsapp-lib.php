@@ -70,7 +70,9 @@ function co_wa_model(mysqli $db, string $host): ?string
 function co_wa_chat(mysqli $db, string $env, string $title): ?array
 {
     $row = co_wa_one($db, 'SELECT c.chat_id, c.project_id FROM chats c JOIN projects p ON p.project_id = c.project_id
-                           WHERE p.env = ? AND p.archived = 0 AND c.title = ? ORDER BY c.updated_utc DESC LIMIT 1', [$env, $title]);
+                           WHERE p.env = ? AND p.archived = 0 AND c.title = ?
+                             AND COALESCE(JSON_VALUE(c.data, \'$.trashedUtc\'), \'\') = \'\'
+                           ORDER BY c.updated_utc DESC LIMIT 1', [$env, $title]);
     if ($row) return [$row['chat_id'], $row['project_id']];
     $p = co_wa_one($db, "SELECT project_id, folder_id FROM projects WHERE env = ? AND archived = 0
                          ORDER BY (LOWER(COALESCE(title, '')) REGEXP '^(home|дом|personal|личное)') DESC, updated_utc DESC LIMIT 1", [$env]);
@@ -145,6 +147,8 @@ function co_wa_ask(mysqli $db, array $in): array
     if ($kind !== 'family' && !co_is_owner_env((string)$env)) return ['error' => 'forbidden'];
     $title = co_wa_line($in['chatTitle'] ?? null, 80) ?: ($kind === 'family' ? '💬 WhatsApp' : '💬 WhatsApp: contacts');
     $chatId = $in['chatId'] ?? null;
+    // F15.2: a chat in the CO trash is not used any more; the turn goes to the chat of that title (made anew if needed)
+    if (co_db_id_ok($chatId) && function_exists('share_chat_trashed') && (string)share_chat_trashed($db, (string)$chatId) !== '') $chatId = null;
     if (co_db_id_ok($chatId)) {
         $c = co_wa_one($db, 'SELECT c.project_id, p.env FROM chats c JOIN projects p ON p.project_id = c.project_id WHERE c.chat_id = ?', [$chatId]);
         if (!$c || $c['env'] !== $env) return ['error' => 'forbidden'];
@@ -236,13 +240,21 @@ function co_wa_ask(mysqli $db, array $in): array
         if ($isolated) $req['permissions'] = ['files' => 'isolated', 'shell' => false, 'web' => true];
         $json = co_db_json($req);
         $sha = hash('sha256', co_db_json(['request' => $req, 'result' => null]));
-        $st = $db->prepare(
-            "INSERT INTO jobs (job_id, host_id, env, project_id, chat_id, agent, mode, model, state, origin, queued_utc,
-                               request, sha, synced_utc, actor_env)
-             VALUES (?, ?, ?, ?, ?, ?, 'chat', ?, 'inbox', 'db', UTC_TIMESTAMP(3), ?, ?, UTC_TIMESTAMP(3), ?)"
-        );
-        $st->execute([$jobId, $host, $env, $projectId, $chatId, $agent, $model, $json, $sha, $env]);
-        $st->close();
+        $insert = static function () use ($db, $jobId, $host, $env, $projectId, $chatId, $agent, $model, $json, $sha): void {
+            $st = $db->prepare(
+                "INSERT INTO jobs (job_id, host_id, env, project_id, chat_id, agent, mode, model, state, origin, queued_utc,
+                                   request, sha, synced_utc, actor_env)
+                 VALUES (?, ?, ?, ?, ?, ?, 'chat', ?, 'inbox', 'db', UTC_TIMESTAMP(3), ?, ?, UTC_TIMESTAMP(3), ?)"
+            );
+            $st->execute([$jobId, $host, $env, $projectId, $chatId, $agent, $model, $json, $sha, $env]);
+            $st->close();
+        };
+        // core with the CO trash (F15.2): no job for a trashed chat (a chat found by title skips trashed ones)
+        if (function_exists('share_job_insert_untrashed')) {
+            if (!share_job_insert_untrashed($db, (string)$chatId, $insert)) return ['error' => 'chat_trashed'];
+        } else {
+            $insert();
+        }
         // the message after the job: a message without its job would hold the chat back for ever
         db_append_event(['event' => $event]);
         return ['jobId' => $jobId, 'chatId' => $chatId, 'resume' => $resume];

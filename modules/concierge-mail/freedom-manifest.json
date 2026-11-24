@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.11.5",
- "created": "2026-11-24T11:49:12Z",
+ "version": "0.11.6",
+ "created": "2026-11-24T22:11:11Z",
  "files": [
   {
    "path": "context/mail.md",
@@ -75,8 +75,8 @@
   },
   {
    "path": "home/relay.py",
-   "size": 16665,
-   "sha256": "2cdd4e643d3b3441f0e452c6172b946d7510ade698703f352c0b4f63dce6c48d"
+   "size": 21324,
+   "sha256": "74e120ff3cbf71dccf33bc98960f4873c3ed874e2fb050da5c381ed8abbef0a2"
   },
   {
    "path": "home/remoteimg.py",
@@ -135,8 +135,8 @@
   },
   {
    "path": "home/test_relay.py",
-   "size": 7950,
-   "sha256": "7dbbd5426fd5adeba5ff6110316f2f831d6d4a7b492a4191f3b3bd6e766e5544"
+   "size": 10855,
+   "sha256": "c550945ad0d372034325b74c46af8aa5aaf8eed684f95b1d012fe61aae665646"
   },
   {
    "path": "home/test_remoteimg.py",
@@ -156,7 +156,7 @@
   {
    "path": "module.json",
    "size": 2388,
-   "sha256": "134725498054411d5c967332ae1e7242d1cb2749a9941a09b46e2afc0e0ae30a"
+   "sha256": "8534f88bd2b5a378f76deecedf0d6268b4f0211a14989a4b57d10da21b923d97"
   },
   {
    "path": "README.md",
@@ -208,7 +208,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "alJeVx1+dcZxnCEvQVIyrgps0emQiG0YX5Te7oupvXegTmsghitOv044UF0vpvJAe0fmGj0jza1JT+AJzBoEBw=="
+   "sig": "adwgUWEw6u/+i6LfsRSnQde/sC5uRIYsZoiOjmhl/Qy9hkfrLXBA4JUwPYnj1+5rKT7FEgdu5W+KZ7Ups/IuCw=="
   }
  ],
  "module": "concierge-mail"

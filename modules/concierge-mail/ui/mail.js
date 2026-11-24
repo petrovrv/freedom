@@ -133,7 +133,8 @@ async function loadDrafts(ticket) {
   finally { if (ticket === listTicket) { listBusy = false; $('more').hidden = true; } }
 }
 function renderThreads() {
-  // a redraw (e.g. the overview arriving) keeps the row the person moved to with j/k or Tab focused
+  // a redraw (e.g. the overview arriving) keeps the row the person moved to with j/k or Tab focused;
+  // by position: rows are only appended or the list is emptied - remember the thread id if rows ever move in place
   const focused = [...$('threads').children].indexOf(document.activeElement);
   $('threads').replaceChildren();
   threads.forEach((t, index) => {

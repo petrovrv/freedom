@@ -73,6 +73,10 @@ class RelayTests(unittest.TestCase):
         db.commit()
         thread = next(t for t in self.ask('list', {'label': 'ALL'})['result']['threads'] if t['thread'] == first)
         self.assertEqual((thread['count'], thread['subject'], thread['tainted']), (2, 'Hello heat pump', True))
+        db.execute("UPDATE gmail_messages SET gone=1 WHERE gmail_id='a2'")
+        db.commit()
+        thread = next(t for t in self.ask('list', {'label': 'ALL'})['result']['threads'] if t['thread'] == first)
+        self.assertEqual((thread['count'], thread['tainted']), (1, False))
 
     def test_remote_images_come_from_the_stored_message(self):
         html = EmailMessage()

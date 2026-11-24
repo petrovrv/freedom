@@ -85,15 +85,24 @@ async function overview() {
     const data = await call('overview', {});
     if (env !== st.env || account !== st.account || !st.paired) return;
     labels = data.labels || []; renderLabels(); title(data.unread);
+    if (threads.length) renderThreads(); // the label chips need the names, which may come after the list
   } catch (err) { if (env === st.env && account === st.account) error($('labels'), err, overview); }
 }
+// a label of the person keeps one muted hue (by its id) in the folder list and on the rows; system folders stay grey
+function hue(id) { let h = 0; for (const c of String(id)) h = (h * 31 + c.codePointAt(0)) >>> 0; return 'h' + (h % 8); }
+function userLabels() { return labels.filter(l => !l.system && !names[l.id]); }
 function renderLabels() {
   $('labels').replaceChildren();
   const system = Object.keys(names).map(id => ({id, name:names[id], ...labels.find(l => l.id === id)}));
-  for (const item of [...system, ...labels.filter(l => !l.system && !names[l.id])]) {
+  const own = new Set(userLabels().map(l => l.id));
+  for (const item of [...system, ...userLabels()]) {
     const b = button('', () => { label = item.id; query = ''; $('search').value = ''; renderLabels(); pane('list'); loadList(); });
-    b.append(el('span', '', names[item.id] || item.name));
-    if (item.unread) b.append(el('span', 'small', item.unread));
+    const name = el('span', 'name');
+    if (own.has(item.id)) name.append(el('span', 'dot ' + hue(item.id)));
+    name.append(el('span', '', names[item.id] || item.name));
+    b.append(name);
+    // only the inbox count is "new for you"; counts of other folders stay grey
+    if (item.unread) b.append(el('span', 'small count' + (item.id === 'INBOX' ? ' fresh' : ''), item.unread));
     if (!query && item.id === label) b.setAttribute('aria-current', 'page');
     $('labels').append(b);
   }
@@ -128,10 +137,20 @@ function renderThreads() {
   threads.forEach((t, index) => {
     const b = button('', () => openThread(index)); b.className = 'thread' + (t.unread ? ' unread' : '');
     b.setAttribute('aria-current', String(index === selected));
-    const row = el('span', 'row');
-    row.append(el('span', 'sender', (t.from || []).map(sender).join(', ') + (t.count > 1 ? ' (' + t.count + ')' : '')), el('span', 'date', date(t.date)));
+    const row = el('span', 'row'), marks = el('span', 'marks'), tl = t.labels || [];
+    if (t.tainted) { const f = el('span', 'flag', '⚠\uFE0E'); f.title = 'read-guard: возможна попытка управлять ИИ'; marks.append(f); }
+    if (tl.includes('STARRED')) { const s = el('span', 'star', '★'); s.title = 'Помечено'; marks.append(s); }
+    marks.append(el('span', 'date', date(t.date)));
+    row.append(el('span', 'sender', (t.from || []).map(sender).join(', ') + (t.count > 1 ? ' (' + t.count + ')' : '')), marks);
     b.append(row, el('span', 'subject', (t.attachments ? '📎 ' : '') + (t.sensitive ? 'Защищённое письмо' : t.subject || '(без темы)')),
       el('span', 'snippet', t.sensitive ? privateNote : t.snippet || ''));
+    // the person's labels as chips (not the folder being shown), at most three
+    const chips = userLabels().filter(l => tl.includes(l.id) && (query || l.id !== label)).slice(0, 3);
+    if (chips.length) {
+      const line = el('span', 'labels-row');
+      for (const l of chips) line.append(el('span', 'lbl ' + hue(l.id), l.name));
+      b.append(line);
+    }
     $('threads').append(b);
   });
 }
@@ -279,6 +298,9 @@ function toolbar(thread, messages) {
     overview();
     const row = threads.find(t => t.thread === thread.thread);
     if (row && (what === 'read' || what === 'unread')) { row.unread = what === 'unread'; renderThreads(); }
+    if (row && (what === 'star' || what === 'unstar')) {
+      row.labels = (row.labels || []).filter(l => l !== 'STARRED').concat(what === 'star' ? ['STARRED'] : []); renderThreads();
+    }
     if (ticket === readTicket && threads[selected] === row && document.body.dataset.pane === 'reader') openThread(selected, false);
   };
   if (labels.has('INBOX')) act('📥 В архив', mark('archive', () => pane('list')));
@@ -286,7 +308,7 @@ function toolbar(thread, messages) {
   act(labels.has('UNREAD') ? '✉ Прочитано' : '✉ Не прочитано', markOpen(labels.has('UNREAD') ? 'read' : 'unread'));
   act(labels.has('STARRED') ? '★ Снять' : '☆ Пометить', markOpen(labels.has('STARRED') ? 'unstar' : 'star'));
   if (labels.has('TRASH')) act('↺ Восстановить', mark('untrash', () => pane('list')));
-  else act('🗑 Удалить', mark('trash', () => pane('list')));
+  else act('🗑 Удалить', mark('trash', () => pane('list'))).classList.add('danger');
 }
 function note(text) { const n = el('p', 'notice', text); $('reading').prepend(n); setTimeout(() => n.remove(), 8000); }
 function refreshList() { overview(); loadList(); }

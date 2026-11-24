@@ -196,20 +196,22 @@ function modeLabel(modes: { key: string; label: string; on: boolean }[], key: st
   return m ? (m.on ? `${m.label}: on (turn off)` : m.label) : key;
 }
 
-type ProjectMenuProps = { onPick: (a: ProjectAction) => void; archived?: boolean; modes?: { key: string; label: string; on: boolean }[]; actions: ProjectAction[] };
+// 0.128.0: onProperties - the first item "Properties" (the project folder's Properties), also for a shared project
+type ProjectMenuProps = { onPick: (a: ProjectAction) => void; archived?: boolean; modes?: { key: string; label: string; on: boolean }[]; actions: ProjectAction[]; onProperties?: () => void };
 
 export function ProjectMenu(props: ProjectMenuProps) {
-  if (!props.actions.length) return null;
+  if (!props.actions.length && !props.onProperties) return null;
   return <ProjectMenuInner {...props} />;
 }
 
-function ProjectMenuInner({ onPick, archived, modes = [], actions }: ProjectMenuProps) {
+function ProjectMenuInner({ onPick, archived, modes = [], actions, onProperties }: ProjectMenuProps) {
   const [open, setOpen] = useState(false);
   return (
     <span className="chat-menu" onClick={(e) => e.stopPropagation()}>
       <button className="icon-btn small" aria-label="Project actions" aria-expanded={open} onClick={() => setOpen(!open)}>⋯</button>
       {open && (
         <span className="menu" role="menu" onMouseLeave={() => setOpen(false)}>
+          {onProperties && <button role="menuitem" onClick={() => { setOpen(false); onProperties(); }}>Properties</button>}
           {actions.map((a) => (
             <button
               key={a}

@@ -6,7 +6,7 @@
 // (+ an optional pinned host): routeHost, templates, retries and old events work as before.
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { dbModels, dbModelSet, type ModelResource } from './dbapi';
-import { openInspectorTab } from './chatPanel';
+import { openPanel } from './chatPanel';
 import { HOSTS } from './config';
 import { hostAlive, hostHealth, label as hostLabel } from './routing';
 import { currentLead, helperGroup, helperResources, leadEntries, type LeadEntry } from './modelPick';
@@ -47,7 +47,7 @@ function useModelResources(env: string): ModelResource[] | null {
 let loadedEnv = '';
 
 export function openModelsSettings() {
-  openInspectorTab('host');
+  openPanel('system');
   setTimeout(() => document.getElementById('models-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 250);
 }
 

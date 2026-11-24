@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // F15.1 (SPEC §3.6b п. 1): the Explorer view of the left panel over today's projects and chats. Projects and chats are
 // folders (child chats are nested folders), a path bar leads back up, Ctrl+K jumps to any project or chat by its title.
-// Pure logic here (Explorer.tsx draws it); the tree view of the panel stays the default (co.explorer, off).
+// Pure logic here (Explorer.tsx draws it). 0.128.0: the default view of the panel; the tree is a switch in ☰ (co.explorer).
 import type { Chat, Project } from './types';
 import { compareBy, sortTitle, ts, type SortMode } from './sidebarSort.ts';
 import { placeParent } from './chatTree.ts';
@@ -46,7 +46,9 @@ function writeKey(key: string, v: string): void {
 }
 
 /** The Explorer view is off unless switched on in this browser. */
-export const readExplorerOn = (): boolean => readKey(ON_KEY) === '1';
+/** 0.128.0: the Explorer is the default view; a stored '0' (the tree chosen in ☰ by hand) is kept. */
+export const explorerOnFrom = (stored: string | null): boolean => stored !== '0';
+export const readExplorerOn = (): boolean => explorerOnFrom(readKey(ON_KEY));
 export const writeExplorerOn = (on: boolean): void => writeKey(ON_KEY, on ? '1' : '0');
 export const readExplorerView = (): ExplorerView => (readKey(VIEW_KEY) === 'list' ? 'list' : 'icons');
 export const writeExplorerView = (v: ExplorerView): void => writeKey(VIEW_KEY, v);

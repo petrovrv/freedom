@@ -24,8 +24,10 @@ export interface Project {
   shareRole?: 'editor' | 'viewer';
   shareVia?: 'project' | 'chat';
   sharedChatIds?: string[];
-  // 0.90.0: the hidden project that holds the family room (right-panel tab "Family"); not listed in the sidebar
+  // 0.90.0: the hidden project that holds the family room (app 👪); not listed in the sidebar
   family?: boolean;
+  // F15.2 part 4 (folderContext.ts): what the chats of the project get from it (instructions, memory); absent = 'full'
+  folderContext?: 'full' | 'summary' | 'off';
 }
 
 export interface Chat {
@@ -61,6 +63,8 @@ export interface Chat {
   folder?: string;
   // 0.36.0: what the agent is told (contextLevels.ts); absent = 'full'
   contextMode?: 'full' | 'reference' | 'clean';
+  // F15.2 part 4 (folderContext.ts): what the chats inside this chat (as a folder) get from it; absent = 'auto'
+  folderContext?: 'auto' | 'full' | 'summary' | 'off';
   shareRole?: 'editor' | 'viewer'; // 0.45.0: role of a chat shared one by one (server)
   // 0.71.0: false = no automatic retry on the other agent after a limit / sign-in / model error (autoswitch-lib.php)
   autoSwitch?: boolean;
@@ -217,6 +221,8 @@ export interface ChatEvent {
   gatewayBlocked?: string;
   // user_message (0.36.0): context mode of the turn and what the new/resumed session got (protocol, history, resume).
   contextMode?: 'full' | 'reference' | 'clean';
+  // F15.2 part 4: what the folders above gave (folderContext.ts folderKey; absent = nothing / the old rule)
+  folderKey?: string;
   contextPack?: 'resume' | 'protocol' | 'history' | 'none';
   contextReason?: string;
   // user_message (0.19.0): the job went through the database queue, not the Drive inbox.

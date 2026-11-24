@@ -19,7 +19,8 @@ import { remoteDevice, useDeviceToggle, useInterval, useLocalDevice } from './ho
 import { WebDevicePicker, useWebDevicePick } from './WebDevicePicker';
 import { createPortal } from 'react-dom';
 import { BrowserSettingsPanel } from './BrowserSettings';
-import { openInspectorTab, useChatPanel } from './chatPanel';
+import { openPanel, useChatPanel } from './chatPanel';
+import { buildFolderBlock, folderKey, folderLevels, levelsToSend, memoryDigest, projectCtxOf, type FolderLevel, type LevelContent } from './folderContext';
 import type { ChatAction } from './ChatActions';
 import { FolderPicker } from './FolderPicker';
 import { FileMenu, googleDocsUrl, hasGoogleDocs, moduleFileItems, viewerHref } from './FileMenu';
@@ -38,7 +39,7 @@ import { formatBytes, formatLocal, safeFileName, sha256Hex } from './util';
 import { buildStreams, fetchVersion, isWorkingFile, matchUpload, uploadTarget, type ChatStream } from './chatFiles';
 import { UndoPanel } from './UndoPanel';
 import {
-  appendEvent, copyToFolder, DbUnavailableError, fetchArtifact, finalizeTurn, locateArtifact, loadChatEvents, newCursor, readBridgeEvents, readJob, envProfileBlock, projectMemoryBlock, readProjectInstructions, speaker,
+  appendEvent, copyToFolder, DbUnavailableError, fetchArtifact, finalizeTurn, locateArtifact, loadChatEvents, newCursor, readBridgeEvents, readJob, envProfileBlock, projectMemoryBlock, readProjectContextFile, readProjectInstructions, speaker,
   appendFamilyMessage, appendReaction, familyTranscript, createChat, eventHost, requestCancel, sendTurn, updateChatMeta, wantsTitle, type EventCursor, type HostDirs, type HostHealth, type Root,
 } from './workbench';
 import { dbDossierContext, dbFollowupAdd, dbFollowupCancel, dbFollowupDone, dbFollowupList, dbFollowupTake, dbGetTemplates, dbProtocol, dbPutTemplates, dbQueueOn, dbRelated, dbSharesGet, dbToolStarted, type Followup } from './dbapi';
@@ -65,8 +66,10 @@ import { ModelPicker } from './ModelPicker';
 import { assistantName } from './members';
 
 interface Props {
-  // 0.90.0: the family room in the right-panel tab (FamilyPanel): no head, no Inspector slots, no navigation state
+  // 0.90.0: the family room (FamilyPanel, app 👪): no head, no panel slots, no navigation state
   docked?: boolean;
+  // F15.2 part 4: the chats of the project, for the folders above this chat (folderContext.ts)
+  projectChats?: Chat[] | null;
   root: Root;
   host: HostDirs;
   // All executors by hostId: a job is observed on the host that received it.
@@ -617,6 +620,26 @@ export default function ChatView(props: Props) {
     props.onChatUpdated();
   }
 
+  // F15.2 part 4: protocols of the folders above (and the newest messages of the full ones) as one block
+  async function folderContents(levels: FolderLevel[]): Promise<string> {
+    const items: LevelContent[] = await Promise.all(levels.map(async (level) => {
+      const [p, evs] = await Promise.all([
+        dbProtocol(level.chat.chatId).catch(() => null),
+        level.mode === 'full' ? loadChatEvents(level.chat).catch(() => [] as ChatEvent[]) : Promise.resolve([] as ChatEvent[]),
+      ]);
+      const messages = evs
+        .filter((e) => (e.type === 'user_message' && !e.followupOf) || e.type === 'assistant_message')
+        .slice(-12)
+        .map((e) => {
+          const who = e.type === 'user_message' ? 'User' : speaker(e);
+          const t = (e.type === 'assistant_message' ? stripTitleMarker(e.text || '') || e.error || '' : e.text || '').trim();
+          return `#${e.sequence} ${who}: ${t.length > 1500 ? t.slice(0, 1500) + ' …' : t}`;
+        });
+      return { level, protocol: p?.entries ?? null, messages };
+    }));
+    return buildFolderBlock(items);
+  }
+
   // One turn into `chat` (this chat, or a child such as a /btw side chat): context blocks, lineage snapshot, routing.
   async function sendToChat(chat: Chat, current: ChatEvent[], input: SendForm, progress: (s: string) => void): Promise<ChatEvent> {
     const instr = await readProjectInstructions(project);
@@ -640,6 +663,14 @@ export default function ChatView(props: Props) {
     // the transcript; a failed protocol read also falls back to it.
     const cmode: ContextMode = chat.contextMode || 'full';
     const proto = chat.draft || chat.parent ? null : await dbProtocol(chat.chatId);
+    // F15.2 part 4: the folders above the chat (full / summary / off) and the project folder's switch, only in full mode
+    const pctx = cmode === 'full' ? projectCtxOf(project) : 'full';
+    const above = cmode === 'full' && !chat.family && !chat.draft ? folderLevels(chat, props.projectChats || []) : [];
+    const fKey = cmode === 'full' ? folderKey(above, pctx) : '';
+    const toSend = levelsToSend(above);
+    const folderBlock = toSend.length
+      ? await Promise.race([folderContents(toSend).catch(() => ''), new Promise<string>((r) => setTimeout(() => r(''), 6000))])
+      : '';
     // 0.29.0: device tools and the gateway agents only at home; failover when the selected executor is offline.
     // 0.45.0: no devices in shared chats. 0.66.0: gateway module disabled (paused) - a message still addressed to one of its
     // agents (offline outbox, old template) goes to the first agent the project allows instead of failing on every resend.
@@ -661,12 +692,15 @@ export default function ChatView(props: Props) {
     // 0.73.0: memory on demand - an index of memory.md for Claude/GPT on a home host with shell access (aiwb-memory)
     const memIndexOk = !shared && target.hostId !== 'site' && (input.sel.agent === 'claude' || input.sel.agent === 'codex')
       && chatPermissions(chat.permissions).shell !== false;
-    const memory = await projectMemoryBlock(project, chat.chatId, memIndexOk).catch(() => '');
+    const memory = pctx === 'off' ? ''
+      : pctx === 'summary' ? await readProjectContextFile(project, 'memory.md').then((r) => memoryDigest(r.text), () => '')
+      : await projectMemoryBlock(project, chat.chatId, memIndexOk).catch(() => '');
+    const instrText = pctx === 'off' ? '' : instr.text;
     // 0.76.0: work plans of long jobs (workPlan.ts) where the agent can write the chat scratch on Drive: the rule in
     // level 3 and, after a broken-off job, its unfinished plan as a hidden preamble of this message
     const planOk = target.hostId !== 'site' && !project.legacy;
     const pPath = planPath(project.projectId, chat.chatId);
-    const levels = buildLevels({ mode: cmode, envProfile, projectInstructions: instr.text, projectMemory: memory, workPlan: planOk ? planHeuristic(pPath) : '', modes: modesText(chat, project, modes), moduleContext: contextOf(mods), dossier });
+    const levels = buildLevels({ mode: cmode, envProfile, projectInstructions: instrText, projectMemory: memory, workPlan: planOk ? planHeuristic(pPath) : '', modes: modesText(chat, project, modes), moduleContext: contextOf(mods), dossier });
     // 0.89.0: family chats - who called and why goes as a hidden preamble (FamilyChat.tsx familyBlock)
     const planResume = planOk ? await readResume(chat, current, pPath) : '';
     // an @co turn started later for a message posted while the agent was busy (coFor) or any other path keeps "called"
@@ -703,9 +737,9 @@ export default function ChatView(props: Props) {
     });
     const ev = await sendTurn({
       root, host: target, env: project.environmentId, project, chat, events: [...(cmode === 'full' ? inheritedNow : []), ...current.filter((e) => !isSide(e))], agent: input.sel.agent, text: input.text,
-      files: input.files, fileTargets, returnFiles: input.returnFiles, projectInstructions: [envProfile, instr.text, memory, parentProto, snap?.protocol || ''].filter((x) => x.trim()).join('\n\n'), author: props.author,
+      files: input.files, fileTargets, returnFiles: input.returnFiles, projectInstructions: [envProfile, instrText, memory, parentProto, snap?.protocol || '', folderBlock].filter((x) => x.trim()).join('\n\n'), author: props.author,
       levels,
-      live: { protocol: proto, contextMode: cmode, title: chat.title, chatId: chat.chatId, parentProtocol: cmode === 'full' ? snap?.protocol || '' : '' },
+      live: { protocol: proto, contextMode: cmode, title: chat.title, chatId: chat.chatId, parentProtocol: cmode === 'full' ? snap?.protocol || '' : '', folderBlock, folderKey: fKey },
       forceNewSession: input.forceNew || !capabilities.includes('conversation-resume'), onProgress: progress,
       mode: input.sel.mode, model: input.sel.model, effort: input.sel.effort, protocolMinor: tOwner?.protocolMinor || 0,
       autoExport: true,
@@ -943,7 +977,7 @@ export default function ChatView(props: Props) {
   }, [inboxReply, events, quickFor, navigate, location.pathname, location.search, props.docked]);
   // 0.74.0: which folded part of the chat head is open on a phone (CSS ignores it on wider screens)
   const [headOpen, setHeadOpen] = useState<'info' | null>(null);
-  const panel = useChatPanel(); // 0.86.0: Inspector slots for the chat controls
+  const panel = useChatPanel(); // 0.86.0: slots of the side panel (chat Properties) for the chat controls
   const headRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!headOpen) return;
@@ -1015,7 +1049,7 @@ export default function ChatView(props: Props) {
       {!props.docked && <div ref={headRef} className={`chat-head${headOpen ? ' open-' + headOpen : ''}`}>
         <div className="head-main">
           <h2 className="chat-title">{chat.title}</h2>
-          {/* 0.74.0: on a phone the info folds behind ⓘ; 0.86.0: settings and actions are in the Inspector Chat tab */}
+          {/* 0.74.0: on a phone the info folds behind ⓘ; 0.128.0: settings and actions are in the chat's Properties */}
           <div className="head-info">
           <div className="muted small">
             {chat.draft ? <>{project.title} · new chat, saved with the first message</> : <>{project.title} · <code>{chat.chatId}</code></>}
@@ -1027,10 +1061,10 @@ export default function ChatView(props: Props) {
             </div>
           )}
           </div>
-          <button type="button" className="head-status small" title="Chat settings and actions: right panel, Chat tab"
-            onClick={() => openInspectorTab('chat')}>
+          <button type="button" className="head-status small" title="Properties of this chat: settings, actions, context and usage (Alt+Enter)"
+            onClick={() => openPanel('chat', { projectId: project.projectId, chatId: chat.chatId })}>
             {headStatus.map((t, i) => <span key={i} className={t.warn ? 'warn' : ''}>{t.text}</span>)}
-            <span className="head-status-gear">⚙ Chat settings</span>
+            <span className="head-status-gear">ⓘ Properties</span>
           </button>
           {branchErr && <div className="error-text small">{branchErr}</div>}
         </div>

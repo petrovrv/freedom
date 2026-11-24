@@ -8,11 +8,11 @@ import { dbAppNotifySet, dbModulePerson, dbModules, dbModuleSet } from './dbapi'
 import type { ModuleInfo } from './extBridge';
 import { deviceModules, ModulePages, MODULES_CHANGED } from './ModuleSlot';
 import { ENVIRONMENTS } from './config';
-import { openInspectorTab } from './chatPanel';
+import { openPanel } from './chatPanel';
 
-/** Host → Modules, scrolled to one module; CO Desktop calls it from its Connectors tab (window.coOpenModules). */
+/** Settings → System → Modules, scrolled to one module; CO Desktop calls it from its Connectors tab (window.coOpenModules). */
 export function openModulesSettings(id?: string) {
-  openInspectorTab('host');
+  openPanel('system');
   setTimeout(() => document.getElementById(id ? `module-${id}` : 'modules-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 250);
 }
 (window as unknown as { coOpenModules?: (id?: string) => void }).coOpenModules = (id?: string) => openModulesSettings(typeof id === 'string' ? id : undefined);

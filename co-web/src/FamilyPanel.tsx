@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// 0.90.0: the family chat as the first tab of the right panel ("👪 Family") instead of a chat in the project list.
+// 0.90.0: the family chat as its own place instead of a chat in the project list; 0.128.0: the core app 👪 of the
+// launcher (▦, with the count of new messages) opens it in the side panel (a full-screen sheet on a phone).
 // The room is a chat with chat.family in the hidden project with project.family (family-lib.php co_family_state finds
 // both for the signed-in environment); the owner's CO Web creates the room on the first open. The tab shows the number
 // of new messages of the others (read mark per environment on the server) and renders the room with ChatView docked.
@@ -30,13 +31,13 @@ export default function FamilyPanel(props: {
   limits: LimitsFile | null;
   authOk: boolean;
 }) {
-  const { familySlot, tab } = useChatPanel();
+  const { familySlot, panel } = useChatPanel();
   const [project, setProject] = useState<Project | null>(null);
   const [chat, setChat] = useState<Chat | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const creating = useRef(false);
-  const shown = tab === 'family' && !!familySlot;
+  const shown = panel?.kind === 'family' && !!familySlot;
 
   const poll = useCallback(async () => {
     if (!props.authOk) return;

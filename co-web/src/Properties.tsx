@@ -7,8 +7,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatEvent, ContextFolder } from './types';
 import { dbDossierGet, dbDossierPut, dbGetProfile, dbMemoryCandidates, dbPutProfile, type EnvProfile, type MemoryCandidate } from './dbapi';
 import { DOSSIER_SECTION_LABEL, type DossierRow } from './secretaryHints';
-import { FilesTab } from './FilesPanel';
-import { setChatSlot, setFamilySlot, setFilesSlot, setShownTab, useChatPanel, type InspectorTab } from './chatPanel';
+import { closePanel, setChatSlot, setFamilySlot, setPanelPinned, useChatPanel, type PanelTarget } from './chatPanel';
+import { FOLDER_CTX_HINT, FOLDER_CTX_LABEL, PROJECT_CTX_HINT, folderCtxOf, folderLevels, projectCtxOf, type FolderCtx, type ProjectCtx } from './folderContext';
+import { CONTEXT_MODE_LABEL } from './contextLevels';
+import { placeParent } from './chatTree';
 import { MemoryReviewDialog } from './MemoryReview';
 import { categorize } from './errors';
 import { FOLDER_MIME, children, getBytes, type DriveFile } from './drive';
@@ -36,81 +38,235 @@ import { label as hostLabel, type HostPref } from './routing';
 import { HOSTS } from './config';
 import { ExecutorsSection } from './ExecutorList';
 import {
-  chatScratchPath, copyToFolder, listProjectFiles, loadChatEvents, readProjectInstructions, resolveDrivePath,
-  saveProjectContextFile, readProjectContextFile, saveProjectInstructions, saveProjectMeta, uploadProjectFile, type HostDirs, type HostHealth, type Root,
+  copyToFolder, listProjectFiles, loadChatEvents, readProjectInstructions, resolveDrivePath,
+  saveProjectContextFile, readProjectContextFile, saveProjectInstructions, saveProjectMeta, updateChatMeta, uploadProjectFile, type HostDirs, type HostHealth, type Root,
 } from './workbench';
-import { memberNames } from './members';
 import { confidentialPatch, gateway, projectConfidential } from './gateway';
 
-type Tab = InspectorTab;
-
-const TAB_LABEL: Record<Tab, string> = { family: '👪 Family', chat: 'Chat', session: 'Session', project: 'Project', workspace: 'Workspace', artifacts: 'Files', host: 'Host' };
-
-export default function Inspector({
-  project, chat, root, owner, health, authOk, host, onProjectChanged, limits, chats, env, onClose, hostPref, onHostPref,
+// 0.128.0 (F15.2 part 4, SPEC §3.6b): the side panel instead of the right panel with tabs. It shows one thing at a
+// time: the Properties of a chat folder (general, settings and actions, context of the folders, sharing, context and
+// usage), the Properties of a project folder, System (Settings → System: host, devices, agents, models, modules, data,
+// limits, health, jobs, connectors) or the family room (app 👪). Computer: slides in from the right over the chat,
+// 📌 pins it as a column; phone: a sheet from the bottom (the family room takes the whole screen).
+export default function SidePanel({
+  projects, project, chat, chats, owner, health, authOk, host, onProjectChanged, onChatChanged, limits, env, hostPref, onHostPref,
 }: {
-  onClose?: () => void;
-  // S2 (0.98.0): executor preference, chosen by hand only here
+  projects: Project[] | null;
+  /** the open project and chat of the route (chat null on a project page or a new chat) */
+  project: Project | null;
+  chat: Chat | null;
+  chats: Chat[] | null;
+  owner: OwnerInfo | null;
+  health: HostHealth;
+  authOk: boolean;
+  host: HostDirs | null;
+  onProjectChanged: (p: Project) => void;
+  onChatChanged: (c: Chat) => void;
+  limits: LimitsFile | null;
+  env: string;
   hostPref?: HostPref;
   onHostPref?: (p: HostPref) => void;
-  chats?: Chat[] | null;
-  env?: string;
-  limits: LimitsFile | null;
-  project: Project | null; chat: Chat | null; root: Root | null; owner: OwnerInfo | null; health: HostHealth; authOk: boolean;
-  host: HostDirs | null; onProjectChanged: (p: Project) => void;
 }) {
-  // 0.86.0: the Chat tab holds the chat's own controls (ChatView renders them into the slot); default when a chat is open
-  const [tab, setTab] = useState<Tab>(() => (localStorage.getItem('co.inspectorTab') as Tab | null) || 'chat');
-  const { want, familyUnread } = useChatPanel();
-  useEffect(() => { if (want) setTab(want.tab); }, [want]);
-  useEffect(() => { localStorage.setItem('co.inspectorTab', tab); setShownTab(tab); }, [tab]);
+  const { panel, pinned } = useChatPanel();
+  const box = useRef<HTMLDivElement>(null);
+  // Esc closes a panel that is not pinned (before an app takes Esc to exit)
+  useEffect(() => {
+    if (!panel || pinned) return;
+    const f = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
+      if (document.querySelector('.modal, .ex-jump-scrim, .launcher-pop, .app-menu-scrim')) return;
+      e.preventDefault();
+      closePanel();
+    };
+    window.addEventListener('keydown', f, true);
+    return () => window.removeEventListener('keydown', f, true);
+  }, [panel, pinned]);
+  // on a computer a panel that is not pinned closes on a click in the chat (the projects panel, the header and menus
+  // stay usable: an item's Properties replace the shown ones); a phone has the sheet's scrim
+  useEffect(() => {
+    if (!panel || pinned) return;
+    const f = (e: PointerEvent) => {
+      if (window.matchMedia('(max-width: 760px)').matches) return;
+      const t = e.target as Element | null;
+      if (!t || box.current?.contains(t) || !t.isConnected) return;
+      if (t.closest('.left, .topbar, .ex-menu-scrim, .ex-jump-scrim, .modal-back, .launcher-pop, .app-menu-list, .resizer, .menu')) return;
+      closePanel();
+    };
+    document.addEventListener('pointerdown', f);
+    return () => document.removeEventListener('pointerdown', f);
+  }, [panel, pinned]);
+  if (!panel) return null;
+  const pj = panel.kind === 'project' ? (panel.projectId ? projects?.find((p) => p.projectId === panel.projectId) ?? null : project) : null;
+  const title = panel.kind === 'family' ? '👪 Family'
+    : panel.kind === 'system' ? '🖥 System'
+    : panel.kind === 'project' ? `📁 ${pj?.title || 'Project'}`
+    : `💬 ${chat?.title || (project && !chat ? 'New chat' : 'Chat')}`;
+  const sub = panel.kind === 'family' ? '' : panel.kind === 'system' ? 'Settings of this computer, the executors and the modules' : 'Properties';
   return (
-    <div className={`inspector${tab === 'family' ? ' family-on' : ''}`}>
-      <div className="tabs" role="tablist">
-        {(['family', 'chat', 'session', 'project', 'workspace', 'artifacts', 'host'] as Tab[]).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}
-            title={t === 'family' ? `Family chat of ${memberNames()}: messages, photos, emoji; @co calls AI Workbench` : undefined}>
-            {TAB_LABEL[t]}
-            {t === 'family' && familyUnread > 0 && <span className="fam-badge" aria-label={`${familyUnread} new`}>{familyUnread > 99 ? '99+' : familyUnread}</span>}
-          </button>
-        ))}
-        {/* 0.90.3: the panel is a drawer on narrow screens - close it here, not only through the scrim */}
-        {onClose && <button type="button" className="tabs-close" aria-label="Close panel" title="Close panel" onClick={onClose}>✕</button>}
+    <div ref={box} className={`side-panel kind-${panel.kind}`} role="dialog" aria-label={`${sub ? sub + ': ' : ''}${title}`}>
+      <div className="sp-head">
+        <div className="sp-title">
+          <span className="sp-name" title={title}>{title}</span>
+          {sub && <span className="sp-sub muted tiny">{sub}</span>}
+        </div>
+        <button type="button" className={`sp-pin hide-mobile${pinned ? ' on' : ''}`} aria-pressed={pinned}
+          title={pinned ? 'Unpin: the panel slides over the chat and closes with Esc' : 'Pin the panel next to the chat'}
+          onClick={() => setPanelPinned(!pinned)}>📌</button>
+        <button type="button" className="sp-close" aria-label="Close panel" title="Close (Esc)" onClick={closePanel}>✕</button>
       </div>
-      {/* 0.90.0: the family room (FamilyPanel renders it here through a portal) */}
-      <div className="family-slot" ref={setFamilySlot} hidden={tab !== 'family'} />
-      {tab === 'workspace' &&
-        (root && authOk && project ? (
-          <WorkspaceTab
-            key={(project.folderId || '') + (chat?.folderId || '')}
-            root={root}
-            workspacePath={owner?.projects?.[project.projectId]?.workspaceDriveRelativePath || null}
-            scratchPath={chat ? chatScratchPath(chat) : null}
-          />
+      <div className={`sp-body${panel.kind === 'family' ? ' family-on' : ''}`}>
+        {panel.kind === 'family' && <div className="family-slot" ref={setFamilySlot} />}
+        {panel.kind === 'system' && <HostTab owner={owner} health={health} limits={limits} host={host} hostPref={hostPref} onHostPref={onHostPref} env={env} />}
+        {panel.kind === 'project' && (pj && authOk
+          ? <ProjectTab key={pj.folderId} project={pj} owner={owner} host={host} onProjectChanged={onProjectChanged} />
+          : <p className="muted pad">{authOk ? 'No project selected.' : 'Sign in to Google Drive to see the project.'}</p>)}
+        {panel.kind === 'chat' && (
+          <ChatProps panel={panel} project={project} chat={chat} chats={chats} env={env} authOk={authOk}
+            onProjectChanged={onProjectChanged} onChatChanged={onChatChanged} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// The Properties of a chat folder: the open chat (a chat's Properties open it first) or the new chat of the project
+function ChatProps({ panel, project, chat, chats, env, authOk, onProjectChanged, onChatChanged }: {
+  panel: PanelTarget; project: Project | null; chat: Chat | null; chats: Chat[] | null; env: string; authOk: boolean;
+  onProjectChanged: (p: Project) => void; onChatChanged: (c: Chat) => void;
+}) {
+  const [msg, setMsg] = useState<string | null>(null);
+  if (panel.chatId && panel.chatId !== chat?.chatId) return <p className="muted pad">Opening the chat…</p>;
+  if (!project) return <p className="muted pad">Open a chat to see its properties.</p>;
+  if (!chat) {
+    return (
+      <div className="pad">
+        <p className="muted small">{project.title} · a new chat: these settings go with its first message.</p>
+        <div className="chat-slot" ref={setChatSlot} />
+      </div>
+    );
+  }
+  // where the chat sits: the project and the chats above it
+  const byId = new Map((chats || []).map((c) => [c.chatId, c]));
+  const place: string[] = [];
+  const seen = new Set<string>([chat.chatId]);
+  for (let id = placeParent(chat); id && !seen.has(id) && byId.has(id); id = placeParent(byId.get(id)!)) {
+    seen.add(id);
+    place.unshift(byId.get(id)!.title || id);
+  }
+  return (
+    <div className="pad">
+      <dl className="kv">
+        <dt>Project</dt>
+        <dd>{project.title}</dd>
+        <dt>Place</dt>
+        <dd>{[project.title, ...place].join(' › ')}</dd>
+        <dt>Id</dt>
+        <dd><code>{chat.chatId}</code></dd>
+        <dt>Created</dt>
+        <dd>{formatLocal(chat.createdUtc)}</dd>
+        <dt>Last activity</dt>
+        <dd>{formatLocal(chat.updatedUtc)}</dd>
+        {chat.trashedUtc && (<><dt>In the trash</dt><dd>since {formatLocal(chat.trashedUtc)}</dd></>)}
+      </dl>
+      {/* ChatView renders the chat's settings and actions here (permissions, device, modes, context mode, browser, protocol … delete) */}
+      <div className="chat-slot" ref={setChatSlot} />
+      <h5>Context and usage</h5>
+      <FolderCtxSection chat={chat} chats={chats} project={project} readOnly={!authOk || chat.shareRole === 'viewer' || project.shareRole === 'viewer'}
+        onChatChanged={onChatChanged} onError={setMsg} />
+      {authOk && !chat.draft && <SessionTab key={chat.chatId} chat={chat} chats={chats} env={env} contextFolders={project.contextFolders} />}
+      {authOk && (
+        <>
+          <h5>Sharing of this chat</h5>
+          <SharingSection kind="chat" id={chat.chatId} project={project} transferable={false} onProjectChanged={onProjectChanged} onError={setMsg} />
+        </>
+      )}
+      {msg && <p className="error-text small">{msg}</p>}
+    </div>
+  );
+}
+
+// F15.2 part 4: the context switch of this chat as a folder, and what the chat itself gets from the folders above it
+function FolderCtxSection({ chat, chats, project, readOnly, onChatChanged, onError }: {
+  chat: Chat; chats: Chat[] | null; project: Project; readOnly: boolean; onChatChanged: (c: Chat) => void; onError: (m: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const set = folderCtxOf(chat);
+  const levels = folderLevels(chat, chats || []);
+  const cmode = chat.contextMode || 'full';
+  const pctx = projectCtxOf(project);
+  const inside = (chats || []).filter((c) => placeParent(c) === chat.chatId && !c.archived).length;
+  return (
+    <div className="small folder-ctx">
+      <label className="fc-row">
+        <span>For the chats inside it</span>
+        <select value={set} disabled={readOnly || busy} title={FOLDER_CTX_HINT[set]}
+          onChange={async (e) => {
+            setBusy(true);
+            try {
+              onChatChanged(await updateChatMeta(chat, { folderContext: e.target.value as FolderCtx }));
+            } catch (x) {
+              onError(categorize(x).message);
+            } finally {
+              setBusy(false);
+            }
+          }}>
+          {(Object.keys(FOLDER_CTX_LABEL) as FolderCtx[]).map((k) => <option key={k} value={k} title={FOLDER_CTX_HINT[k]}>{FOLDER_CTX_LABEL[k]}</option>)}
+        </select>
+      </label>
+      <div className="muted tiny">{FOLDER_CTX_HINT[set]} {inside ? `${inside} chat${inside === 1 ? '' : 's'} inside now.` : 'No chats inside yet.'}</div>
+      <div className="fc-gets">
+        <b>This chat gets</b> in a new agent session
+        {cmode !== 'full' ? (
+          <div className="muted">{CONTEXT_MODE_LABEL[cmode]}: no project and no folders above (the context mode of the chat, in Settings above).</div>
         ) : (
-          <p className="muted pad">No project selected.</p>
-        ))}
-      {tab === 'project' && (project && authOk ? <ProjectTab key={project.folderId} project={project} owner={owner} host={host} chat={chat ?? null} onProjectChanged={onProjectChanged} /> : <p className="muted pad">No project selected.</p>)}
-      <div className="pad chat-slot" ref={setChatSlot} hidden={tab !== 'chat' || !chat} />
-      {tab === 'chat' && !chat && <p className="muted pad">Open a chat to see its settings.</p>}
-      <div className="pad files-slot" ref={setFilesSlot} hidden={tab !== 'artifacts' || !chat} />
-      {tab === 'artifacts' && (chat && root && authOk && !chat.draft
-        ? <FilesTab key={chat.folderId} chat={chat} root={root} canWrite={chat.shareRole !== 'viewer' && project?.shareRole !== 'viewer'} />
-        : <p className="muted pad">Open a chat to see its files.</p>)}
-      {tab === 'host' && <HostTab owner={owner} health={health} limits={limits} host={host} hostPref={hostPref} onHostPref={onHostPref} env={env} />}
-      {tab === 'session' &&
-        (chat && !chat.draft && authOk ? (
-          <SessionTab key={chat.chatId} chat={chat} chats={chats ?? null} env={env || ''} contextFolders={project?.contextFolders} />
-        ) : (
-          <p className="muted pad">Open a chat to see its session.</p>
-        ))}
+          <ul>
+            <li>Project «{project.title}»: {pctx === 'full' ? 'full' : pctx === 'summary' ? 'summary' : 'off'}</li>
+            {levels.map((l) => (
+              <li key={l.chat.chatId}>
+                «{l.chat.title || l.chat.chatId}»: {l.lineage ? 'the messages this chat started from' : l.mode}
+                {!l.lineage && l.set === 'auto' ? <span className="muted"> (automatic, {l.depth === 1 ? 'nearest' : `${l.depth} up`})</span> : null}
+              </li>
+            ))}
+            {!levels.length && <li className="muted">no chat folders above it</li>}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// F15.2 part 4: the project folder's switch (instructions and memory for its chats)
+function ProjectCtxSwitch({ project, onProjectChanged, onError }: { project: Project; onProjectChanged: (p: Project) => void; onError: (m: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const v = projectCtxOf(project);
+  return (
+    <div className="small folder-ctx">
+      <label className="fc-row">
+        <span>Instructions and memory</span>
+        <select value={v} disabled={busy || !!project.shareRole} title={PROJECT_CTX_HINT[v]}
+          onChange={async (e) => {
+            setBusy(true);
+            try {
+              onProjectChanged(await saveProjectMeta(project, { folderContext: e.target.value as ProjectCtx }));
+            } catch (x) {
+              onError(categorize(x).message);
+            } finally {
+              setBusy(false);
+            }
+          }}>
+          <option value="full" title={PROJECT_CTX_HINT.full}>Full</option>
+          <option value="summary" title={PROJECT_CTX_HINT.summary}>Summary</option>
+          <option value="off" title={PROJECT_CTX_HINT.off}>Off</option>
+        </select>
+      </label>
+      <div className="muted tiny">{PROJECT_CTX_HINT[v]} A chat in Reference or Clean view gets none of it anyway.</div>
     </div>
   );
 }
 
 function ProjectTab({
-  project, owner, host, chat, onProjectChanged,
-}: { project: Project; owner: OwnerInfo | null; host: HostDirs | null; chat: Chat | null; onProjectChanged: (p: Project) => void }) {
+  project, owner, host, onProjectChanged,
+}: { project: Project; owner: OwnerInfo | null; host: HostDirs | null; onProjectChanged: (p: Project) => void }) {
   const [instr, setInstr] = useState<string | null>(null);
   const [fileId, setFileId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -148,7 +304,6 @@ function ProjectTab({
   if (project.shareRole === 'viewer') {
     return (
       <div className="pad">
-        <h4>{project.title}</h4>
         <p className="muted small"><code>{project.projectId}</code> - shared with you as a viewer (read only)</p>
         {msg && <p className="error-text small">{msg}</p>}
         <h5>Sharing</h5>
@@ -170,7 +325,6 @@ function ProjectTab({
 
   return (
     <div className="pad">
-      <h4>{project.title}</h4>
       <p className="muted small">
         <code>{project.projectId}</code> · {project.environmentId}
         {project.legacy ? ' · legacy (no project.json)' : ''}
@@ -237,19 +391,9 @@ function ProjectTab({
         onProjectChanged={onProjectChanged}
         onError={setMsg}
       />
-      {chat && !chat.draft && !!chat.chatId && (
-        <>
-          <h5>This chat</h5>
-          <SharingSection
-            kind="chat"
-            id={chat.chatId}
-            project={project}
-            transferable={false}
-            onProjectChanged={onProjectChanged}
-            onError={setMsg}
-          />
-        </>
-      )}
+      {/* F15.2 part 4: what the chats of the project get from it */}
+      <h5>Context for the chats inside</h5>
+      <ProjectCtxSwitch project={project} onProjectChanged={onProjectChanged} onError={setMsg} />
 
       <h5>Instructions</h5>
       <p className="muted tiny">Sent at the start of every new agent session in this project.</p>
@@ -317,6 +461,8 @@ function ProjectTab({
       <ContextFileEditor key={memRev} project={project} name="memory.md" label="Save memory" onError={setMsg} onDirty={setMemDirty} />
 
       <h5>Context folders</h5>
+      <p className="muted tiny">Folders of this computer or Drive the agents of this project may read or write. The files of a chat and the
+        project workspace are in the Explorer, inside their folders.</p>
       {host && <ContextFoldersSection project={project} owner={owner} host={host} onChanged={onProjectChanged} />}
 
       <h5>Schedules</h5>
@@ -465,26 +611,8 @@ function HostTab({ owner, health, limits, host, hostPref, onHostPref, env }: {
   );
 }
 
-function WorkspaceTab({ root, workspacePath, scratchPath }: { root: Root; workspacePath: string | null; scratchPath: string | null }) {
-  return (
-    <div className="pad">
-      <h5>Project workspace</h5>
-      {workspacePath ? (
-        <DriveTree root={root} path={workspacePath} />
-      ) : (
-        <p className="muted small">The workspace is on the home computer, outside Google Drive. Changed files arrive as artifacts.</p>
-      )}
-      {scratchPath && (
-        <>
-          <h5>Chat scratch</h5>
-          <DriveTree root={root} path={scratchPath} emptyText="Empty. Chat-mode agents work here." />
-        </>
-      )}
-    </div>
-  );
-}
-
-function DriveTree({ root, path, emptyText }: { root: Root; path: string; emptyText?: string }) {
+// 0.128.0: also the scratch of a chat and the workspace of a project in the Explorer (FolderContents.tsx)
+export function DriveTree({ root, path, emptyText }: { root: Root; path: string; emptyText?: string }) {
   const [folderId, setFolderId] = useState<string | null | undefined>(undefined);
   useEffect(() => {
     resolveDrivePath(root, path).then(setFolderId).catch(() => setFolderId(null));

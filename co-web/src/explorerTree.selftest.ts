@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // node src/explorerTree.selftest.ts - the Explorer view: folders, path bar, Ctrl+K jump (F15.1).
-import { childPath, crumbs, destOfItem, destOfPath, moveBlock, moveTargets, subtreeOf, shortDate, explorerItems, itemTitle, moveFocus, parentPath, pathOfChat, quickJump, ROOT_PATH, samePath, validPath, type ExplorerPath } from './explorerTree.ts';
+import { childPath, crumbs, explorerOnFrom, destOfItem, destOfPath, moveBlock, moveTargets, subtreeOf, shortDate, explorerItems, itemTitle, moveFocus, parentPath, pathOfChat, quickJump, ROOT_PATH, samePath, validPath, type ExplorerPath } from './explorerTree.ts';
 import type { Chat, Project } from './types';
 
 let fail = 0;
@@ -121,6 +121,10 @@ ok('dest of item / path', destOfItem(ROOT_PATH, { kind: 'project', key: 'p:beta'
 
 const tg = moveTargets(byId('c3'), projects, (pid) => (pid === 'alpha' ? chats : []));
 ok('targets: own projects, not itself, not the current place', tg.some((t) => t.dest.projectId === 'beta' && t.depth === 0) && tg.some((t) => t.dest.projectId === 'alpha' && t.dest.folder === '') && !tg.some((t) => t.dest.folder === 'c3' || t.dest.folder === 'c4' || t.dest.folder === 'c1') && tg.some((t) => t.dest.folder === 'c2') && !tg.some((t) => t.dest.projectId === 'fam' || t.dest.projectId === 'old'));
+
+// 0.128.0: the Explorer is the default view; a tree chosen by hand stays
+ok('default view: Explorer when never chosen', explorerOnFrom(null) === true);
+ok('default view: a stored tree choice is kept', explorerOnFrom('0') === false && explorerOnFrom('1') === true);
 
 if (fail) throw new Error(`explorerTree selftest: ${fail} failed`);
 console.log('explorerTree selftest OK');

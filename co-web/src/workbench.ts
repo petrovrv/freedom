@@ -503,6 +503,9 @@ export interface LiveContext {
   title: string;
   chatId: string;
   parentProtocol?: string;
+  // F15.2 part 4 (folderContext.ts): the block of the folders above the chat and its key (a change starts a new session)
+  folderBlock?: string;
+  folderKey?: string;
   nowMs: number;
 }
 
@@ -613,6 +616,7 @@ export function planConversation(
       if (e.type !== 'user_message') continue;
       if (e.conversation?.sessionId === cand.sessionId || (cand.jobId && e.jobId === cand.jobId)) {
         if ((e.contextMode ?? 'full') !== live.contextMode) reason = 'context mode changed';
+        else if ((e.folderKey ?? '') !== (live.folderKey ?? '')) reason = 'folder context changed';
         break;
       }
     }
@@ -650,7 +654,7 @@ export function planConversation(
       minTail: 6,
       maxChars: CONTEXT_PACKAGE_MAX_CHARS,
       retrievalHint: hostId === HOST_ID,
-      parentProtocol: live.parentProtocol,
+      parentProtocol: [live.folderBlock ?? '', live.parentProtocol ?? ''].filter((x) => x.trim()).join('\n\n'),
     });
     const hasText = mem.text.trim().length > 0;
     if (hasText) parts.push(mem.text);
@@ -893,7 +897,7 @@ export async function sendTurn(input: SendInput): Promise<ChatEvent> {
   return appendEvent(chat, input.events, {
     type: 'user_message', branchId, jobId, hostId: host.hostId, agent, text, author: input.author, attachments,
     returnFiles: input.returnFiles, conversation: { operation: plan.operation, sessionId: plan.sessionId },
-    contextMode: input.live?.contextMode ?? 'full', contextPack: plan.contextPack, ...(plan.reason ? { contextReason: plan.reason } : {}),
+    contextMode: input.live?.contextMode ?? 'full', ...(input.live?.folderKey ? { folderKey: input.live.folderKey } : {}), contextPack: plan.contextPack, ...(plan.reason ? { contextReason: plan.reason } : {}),
     mode, model: input.model || null, effort: input.effort || null, ...(withNote ? { workbenchNote: true } : {}),
     ...(viaDb ? { queue: 'db' as const } : {}),
     ...(input.hintsStored?.length ? { hints: input.hintsStored } : {}),

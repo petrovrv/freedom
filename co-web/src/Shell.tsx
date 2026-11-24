@@ -31,11 +31,13 @@ import { projectModeDefault, type ModeDecl } from './moduleModes';
 import { modesOf } from './moduleStore';
 import { importCalls } from './importWriter';
 import { LimitsBar } from './Limits';
-import Inspector from './Inspector';
+import SidePanel from './Properties';
+import { ChatFiles, ProjectWorkspace } from './FolderContents';
 import FamilyPanel from './FamilyPanel';
 import Launcher from './Launcher';
 import Explorer from './Explorer';
-import { readExplorerOn, subtreeOf, writeExplorerOn, type MoveDest } from './explorerTree';
+import { readExplorerOn, subtreeOf, writeExplorerOn, type ExplorerPath, type MoveDest } from './explorerTree';
+import { placeParent } from './chatTree';
 import AppHost, { RecentApps, useAppEvents } from './AppHost';
 import { trayWantsRefresh } from './appEvents';
 import { appKey, exitTarget, findApp, findPage, liveLimit, loadRecent, pruneApps, RECENT_MAX, saveRecent, touchApp, type AppRef } from './appStack';
@@ -57,9 +59,8 @@ import {
 import { useBridgeWatch } from './bridgeWatch';
 import { ShareDialog } from './ShareDialog';
 import MacOffer from './MacOffer';
-import { openInspectorTab, useChatPanel, type InspectorTab } from './chatPanel';
+import { closePanel, openPanel, togglePanel, useChatPanel } from './chatPanel';
 import { dropShare, latestShare, type SharedItem } from './share';
-import { memberNames } from './members';
 import { gateway, projectConfidential } from './gateway';
 
 type Signed = Exclude<AuthState, { status: 'signed_out' }>;
@@ -115,7 +116,7 @@ export default function Shell({ auth }: { auth: Signed }) {
   const [chats, setChats] = useState<Chat[] | null>(null);
   // F15.1: the project whose chats `chats` holds (null while the open project's list loads)
   const [chatsPid, setChatsPid] = useState<string | null>(null);
-  // F15.1: Explorer view of the left panel (off by default, ☰ menu) and the chats of the other projects it shows
+  // F15.1: Explorer view of the left panel (0.128.0: the default; ☰ → Tree view) and the chats of the other projects it shows
   const [explorerOn, setExplorerOnState] = useState(readExplorerOn);
   const setExplorerOn = (on: boolean) => {
     writeExplorerOn(on);
@@ -138,29 +139,28 @@ export default function Shell({ auth }: { auth: Signed }) {
     setSortModeState(m);
   };
   const [leftOpen, setLeftOpen] = useState(false);
-  const [rightOpen, setRightOpen] = useState(false);
-  // 0.86.0: ☰ menu (panels, account) and requests to show an Inspector tab (opens the drawer on narrow screens)
+  // 0.86.0: ☰ menu (navigation, account). 0.128.0: the side panel (Properties of a folder, System, the family room;
+  // chatPanel.ts) instead of the right panel with tabs
   const [menuOpen, setMenuOpen] = useState(false);
-  const { want: wantTab, familyUnread } = useChatPanel();
-  useEffect(() => { if (wantTab) { setRightOpen(true); setLeftOpen(false); } }, [wantTab]);
+  const { panel, nonce: panelNonce, pinned: panelPinned, familyUnread } = useChatPanel();
   // 0.90.3: an open drawer (narrow screens) holds one history entry, so the phone's Back closes it;
   // closing it otherwise (✕, scrim) drops that entry again
-  const drawerOpen = leftOpen || rightOpen;
+  const drawerOpen = leftOpen || !!panel;
   useEffect(() => {
     if (!drawerOpen || !window.matchMedia('(max-width: 1100px)').matches) return;
     if (!window.history.state?.coDrawer) window.history.pushState({ ...window.history.state, coDrawer: true }, '');
-    const onPop = () => { setLeftOpen(false); setRightOpen(false); };
+    const onPop = () => { setLeftOpen(false); closePanel(); };
     window.addEventListener('popstate', onPop);
     return () => {
       window.removeEventListener('popstate', onPop);
       if (window.history.state?.coDrawer) window.history.back();
     };
   }, [drawerOpen]);
-  // 0.90.0: a family push opens /e/<env>?family=1 -> the Family tab of the right panel
+  // 0.90.0: a family push opens /e/<env>?family=1 -> the family room (app 👪)
   const loc = useLocation();
   useEffect(() => {
     if (!new URLSearchParams(loc.search).has('family')) return;
-    openInspectorTab('family');
+    openPanel('family');
     navigate(loc.pathname, { replace: true });
   }, [loc.search, loc.pathname, navigate]);
   const [showNewProject, setShowNewProject] = useState(false);
@@ -522,6 +522,31 @@ export default function Shell({ auth }: { auth: Signed }) {
 
   const chat = useMemo(() => chats?.find((c) => c.chatId === chatId) || null, [chats, chatId]);
 
+  // 0.128.0: the Properties of a chat show the open chat - another chat is opened first (its settings live in its
+  // ChatView); any open request closes the projects drawer of a phone
+  useEffect(() => {
+    if (!panel) return;
+    if (window.matchMedia('(max-width: 1100px)').matches) setLeftOpen(false);
+    if (panel.kind === 'chat' && panel.chatId && panel.projectId && panel.chatId !== chatId) {
+      navigate(`/e/${env}/p/${panel.projectId}/c/${panel.chatId}`);
+      openPanel('chat');
+    }
+  }, [panelNonce]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Alt+Enter: the Properties of the open chat, else of the open project, else System (the Explorer handles its items)
+  useEffect(() => {
+    const f = (e: globalThis.KeyboardEvent) => {
+      if (!e.altKey || e.key !== 'Enter' || e.defaultPrevented || e.isComposing || e.ctrlKey || e.metaKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      e.preventDefault();
+      if (projectId && chatId) togglePanel('chat');
+      else if (projectId) togglePanel('project');
+      else togglePanel('system');
+    };
+    window.addEventListener('keydown', f);
+    return () => window.removeEventListener('keydown', f);
+  }, [projectId, chatId]);
+
   // F15.1: the Explorer browses any project; chats of the open project come from `chats`, the others load on demand.
   // A generation per environment: answers and queued loads of the previous environment are dropped.
   const exGen = useRef(0);
@@ -672,7 +697,7 @@ export default function Shell({ auth }: { auth: Signed }) {
     waiting: inboxByProject.get(p.projectId) || 0,
   });
   const visibleProjects = (projects || [])
-    .filter((p) => !p.family) // 0.90.0: the family room lives in the right-panel tab
+    .filter((p) => !p.family) // 0.90.0: the family room lives in its own place (0.128.0: the app 👪)
     .filter((p) => !f || p.title.toLowerCase().includes(f) || p.projectId.toLowerCase().includes(f))
     .map((p) => ({ p, k: projectSortKey(p) }))
     .sort((a, b) => projectCmp(a.k, b.k))
@@ -707,6 +732,118 @@ export default function Shell({ auth }: { auth: Signed }) {
   // F15.1: the Explorer view sorts projects like the tree (newest chat activity, waiting items)
   const exProjectFresh = (p: Project) => projectFreshness(p, activity);
   const exProjectWait = (p: Project) => inboxByProject.get(p.projectId) || 0;
+
+  // F15.2: the archived chats and the trash of the open project - under its chats in the tree, in its folder in the Explorer
+  const archiveAndTrash = (p: Project) => (
+    <>
+      {archivedChats.length > 0 && (
+        <>
+          <button className="btn tiny ghost" onClick={() => setShowArchivedChats((v) => !v)} aria-expanded={showArchivedChats}>
+            {showArchivedChats ? '▾' : '▸'} Archived ({archivedChats.length})
+          </button>
+          {showArchivedChats && (
+            <ul className="archived-list">
+              {archivedRows.map(({ chat: c, depth, hasChildren, open }) => (
+                <li
+                  key={c.folderId}
+                  className={'chat-li tree-d' + (depth > 0 ? ' tree-child' : '')}
+                  style={{ paddingLeft: depth * 14, ['--tree-x' as string]: depth * 14 - 8 + 'px' }}
+                >
+                  <button
+                    className={c.chatId === chatId ? 'active' : ''}
+                    title={c.summary || undefined}
+                    onClick={() => {
+                      if (c.chatId === chatId && hasChildren) {
+                        writeTreeOpen(c.chatId, !open);
+                        setTreeOpenTick((n) => n + 1);
+                        return;
+                      }
+                      navigate(`/e/${env}/p/${p.projectId}/c/${c.chatId}`);
+                      setLeftOpen(false);
+                    }}
+                  >
+                    {hasChildren ? (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="tree-toggle"
+                        aria-expanded={open}
+                        aria-label={open ? 'Collapse child chats' : 'Expand child chats'}
+                        onClick={(e) => toggleTree(e, c.chatId, open)}
+                        onKeyDown={(e) => onToggleKey(e, c.chatId, open)}
+                        onKeyUp={(e) => {
+                          if (e.key === ' ') {
+                            e.stopPropagation();
+                            e.preventDefault();
+                          }
+                        }}
+                      >
+                        {open ? '\u{1F4C2}' : '\u{1F4C1}'}
+                      </span>
+                    ) : (
+                      <span className="tree-spacer" aria-hidden="true" />
+                    )}
+                    <span className="nav-title">{shownTitle(treeTitle(c.title || '', depth))}</span>
+                    <span className="nav-date">{formatLocal(c.updatedUtc)}</span>
+                  </button>
+                  <ChatMenu archived actions={chatActionsFor(p, c)} onPick={(action) => void pickChatAction(action, c)} onProperties={() => openPanel('chat', { projectId: p.projectId, chatId: c.chatId })} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+      {trashedChats.length > 0 && (
+        <>
+          <button className="btn tiny ghost" onClick={() => setShowTrash((v) => !v)} aria-expanded={showTrash}>
+            {showTrash ? '▾' : '▸'} 🗑 Trash ({trashedChats.length})
+          </button>
+          {showTrash && (
+            <ul className="archived-list">
+              <li className="hint small">Deleted for good {TRASH_DAYS} days after deletion.</li>
+              {trashedChats.map((c) => (
+                <li key={c.folderId} className="chat-li">
+                  <button
+                    className={c.chatId === chatId ? 'active' : ''}
+                    title={c.summary || undefined}
+                    onClick={() => {
+                      navigate(`/e/${env}/p/${p.projectId}/c/${c.chatId}`);
+                      setLeftOpen(false);
+                    }}
+                  >
+                    <span className="nav-title">{shownTitle(c.title || '')}</span>
+                    <span className="nav-date" title="Moved to trash">{formatLocal(c.trashedUtc || '')}</span>
+                  </button>
+                  <ChatMenu actions={chatActionsFor(p, c).includes('delete') ? ['restore', 'purge'] : []} onPick={(action) => void pickChatAction(action, c)} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </>
+  );
+
+  // 0.128.0: content of a folder in the Explorer besides its chats: the files of the open chat (in its own folder and
+  // in the folder it sits in), the workspace of a project, the archive and trash of the open project
+  const exFolderExtra = (path: ExplorerPath) => {
+    const p = path.projectId ? projects?.find((x) => x.projectId === path.projectId) : undefined;
+    if (!p) return null;
+    const here = path.chatIds[path.chatIds.length - 1];
+    let filesHere = false;
+    if (chat && p.projectId === projectId) {
+      const up = placeParent(chat);
+      const shownIn = up && chats?.some((c) => c.chatId === up && !c.archived) ? up : undefined;
+      filesHere = here === chat.chatId || here === shownIn;
+    }
+    return (
+      <>
+        {filesHere && chat && <ChatFiles chat={chat} project={p} root={root} authOk={authOk} />}
+        {!here && <ProjectWorkspace project={p} owner={owner} root={root} authOk={authOk} />}
+        {!here && p.projectId === projectId && <div className="ex-archive">{archiveAndTrash(p)}</div>}
+      </>
+    );
+  };
 
   async function pickProjectAction(action: ProjectAction, p: Project) {
     // F10: a chat mode of a module for new chats of the project (<key>Default)
@@ -866,22 +1003,18 @@ export default function Shell({ auth }: { auth: Signed }) {
 
       <header className="topbar">
         <div className="app-menu">
-          <button className="icon-btn" aria-label="Menu" data-email={auth.email} aria-expanded={menuOpen} title="Menu: projects, family, files, account (settings are in ▦)" onClick={() => setMenuOpen((v) => !v)}>☰</button>
+          <button className="icon-btn" aria-label="Menu" data-email={auth.email} aria-expanded={menuOpen} title="Menu: projects, the view of the panel, account (apps, family and settings are in ▦)" onClick={() => setMenuOpen((v) => !v)}>☰</button>
           {menuOpen && (
             <>
               <div className="app-menu-scrim" onClick={() => setMenuOpen(false)} />
               <div className="app-menu-list" role="menu" onClick={() => setMenuOpen(false)}>
-                <button role="menuitem" className="only-mobile" onClick={() => { setRightOpen(false); setLeftOpen((v) => !v); }}>📂 Projects and chats</button>
-                {([
-                  ['family', `👪 Family${familyUnread ? ` (${familyUnread} new)` : ''}`, `Family chat of ${memberNames()}`],
-                  ['artifacts', '📁 Files and folders', 'Files of this chat and the context folders of the project'],
-                ] as [InspectorTab, string, string][]).map(([t, label, hint]) => (
-                  <button key={t} role="menuitem" title={hint} onClick={() => openInspectorTab(t)}>{label}</button>
-                ))}
-                {/* F15.1: Explorer view of the left panel instead of the tree, remembered in this browser */}
-                <button role="menuitemcheckbox" aria-checked={explorerOn} title="Projects and chats as folders with a path bar and Ctrl+K; off: the tree" onClick={() => setExplorerOn(!explorerOn)}>
-                  🗂 Explorer view{explorerOn ? ' ✓' : ''}
+                <button role="menuitem" className="only-mobile" onClick={() => { closePanel(); setLeftOpen((v) => !v); }}>📂 Projects and chats</button>
+                {/* 0.128.0: the Explorer is the default view of the panel; the tree is a switch, remembered in this browser */}
+                <button role="menuitemcheckbox" aria-checked={!explorerOn} title="Projects and chats as a tree instead of the Explorer (folders with a path bar, Properties, Ctrl+K)" onClick={() => setExplorerOn(!explorerOn)}>
+                  🌳 Tree view{explorerOn ? '' : ' ✓'}
                 </button>
+                <button role="menuitem" title="Properties of the open chat or project (Alt+Enter)" disabled={!projectId}
+                  onClick={() => openPanel(chatId ? 'chat' : 'project')}>ⓘ Properties</button>
                 <div className="app-menu-sep" />
                 <div className="app-menu-who small muted">{envName} · {auth.email}</div>
                 <button role="menuitem" onClick={signOut}>Sign out</button>
@@ -895,16 +1028,16 @@ export default function Shell({ auth }: { auth: Signed }) {
           <span className="dot" />
           {envName}
         </div>
-        <HostLight owners={owners} ids={execOrder} env={env} pref={hostPref} effective={hostId} onAdvanced={() => openInspectorTab('host')} />
+        <HostLight owners={owners} ids={execOrder} env={env} pref={hostPref} effective={hostId} onAdvanced={() => openPanel('system')} />
         <div className="spacer" />
         {/* ext/1 shell: the tray (small ui.header status pages of enabled modules, SPEC §3.6) and the launcher of apps */}
         <div className="module-tray">
           <ModuleSlots slot="ui.header" modules={modules} me={auth.homeEnv} owner={!!auth.owner} />
         </div>
         <RecentApps modules={modules} recent={recentApps.filter((r) => r.env === env).slice(0, 5)} current={appNow} onOpen={openApp} className="hide-mobile" />
-        <Launcher modules={modules} env={env} current={modulePageRoute} />
+        <Launcher modules={modules} env={env} current={modulePageRoute} familyUnread={familyUnread} />
         {familyUnread > 0 && (
-          <button type="button" className="fam-top" title="New messages in the family chat" onClick={() => openInspectorTab('family')}>
+          <button type="button" className="fam-top" title="New messages in the family chat" onClick={() => openPanel('family')}>
             👪 <span className="fam-badge">{familyUnread > 99 ? '99+' : familyUnread}</span>
           </button>
         )}
@@ -917,9 +1050,9 @@ export default function Shell({ auth }: { auth: Signed }) {
           <p>{fatal}</p>
         </div>
       ) : (
-        <div className="panes">
+        <div className={`panes${panel ? ' panel-on' : ''}${panel && panelPinned ? ' panel-pinned' : ''}`}>
           <Resizer cssVar="--left-w" storageKey="co.leftW" side="left" def={270} min={180} max={560} />
-          <Resizer cssVar="--right-w" storageKey="co.rightW" side="right" def={300} min={220} max={640} />
+          {panel && <Resizer cssVar="--right-w" storageKey="co.rightW" side="right" def={340} min={260} max={720} />}
           <aside className={`left ${leftOpen ? 'open' : ''}`}>
             {auth.owner && (
               <div className="env-switch" role="tablist" aria-label="Environment">
@@ -1045,6 +1178,8 @@ export default function Shell({ auth }: { auth: Signed }) {
                 onOpenChat={(pid, cid) => { navigate(`/e/${env}/p/${pid}/c/${cid}`); setLeftOpen(false); }}
                 onOpenProject={(pid) => { navigate(`/e/${env}/p/${pid}`); setLeftOpen(false); }}
                 onMove={exMove}
+                onProperties={(t) => (t.projectId ? openPanel(t.chatId ? 'chat' : 'project', t) : openPanel('system'))}
+                folderExtra={exFolderExtra}
               />
             )}
             {!explorerOn && (<>
@@ -1119,6 +1254,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                     modes={modes.filter((m) => m.projectLabel).map((m) => ({ key: m.key, label: `${m.icon} ${m.projectLabel}`.trim(), on: projectModeDefault(p, m.key) }))}
                     actions={projectActionsFor(p, p.projectId === projectId && !!chats?.some((c) => c.parent), modes.filter((m) => m.projectLabel).map((m) => m.key))}
                     onPick={(action) => void pickProjectAction(action, p)}
+                    onProperties={() => openPanel('project', { projectId: p.projectId })}
                   />
                   </div>
                   {p.projectId === projectId && !projectCollapsed && (
@@ -1175,95 +1311,11 @@ export default function Shell({ auth }: { auth: Signed }) {
                               <span className="nav-title">{shownTitle(treeTitle(c.title || '', depth))}</span>
                               <span className="nav-date" title={sortMode === 'created' ? 'Created' : 'Last activity'}>{formatLocal(sortMode === 'created' ? c.createdUtc : c.updatedUtc)}</span>
                             </button>
-                            <ChatMenu actions={chatActionsFor(p, c)} onPick={(action) => void pickChatAction(action, c)} />
+                            <ChatMenu actions={chatActionsFor(p, c)} onPick={(action) => void pickChatAction(action, c)} onProperties={() => openPanel('chat', { projectId: p.projectId, chatId: c.chatId })} />
                           </li>
                         ))}
                       </ul>
-                      {archivedChats.length > 0 && (
-                        <>
-                          <button className="btn tiny ghost" onClick={() => setShowArchivedChats((v) => !v)} aria-expanded={showArchivedChats}>
-                            {showArchivedChats ? '▾' : '▸'} Archived ({archivedChats.length})
-                          </button>
-                          {showArchivedChats && (
-                            <ul className="archived-list">
-                              {archivedRows.map(({ chat: c, depth, hasChildren, open }) => (
-                                <li
-                                  key={c.folderId}
-                                  className={'chat-li tree-d' + (depth > 0 ? ' tree-child' : '')}
-                                  style={{ paddingLeft: depth * 14, ['--tree-x' as string]: depth * 14 - 8 + 'px' }}
-                                >
-                                  <button
-                                    className={c.chatId === chatId ? 'active' : ''}
-                                    title={c.summary || undefined}
-                                    onClick={() => {
-                                      if (c.chatId === chatId && hasChildren) {
-                                        writeTreeOpen(c.chatId, !open);
-                                        setTreeOpenTick((n) => n + 1);
-                                        return;
-                                      }
-                                      navigate(`/e/${env}/p/${p.projectId}/c/${c.chatId}`);
-                                      setLeftOpen(false);
-                                    }}
-                                  >
-                                    {hasChildren ? (
-                                      <span
-                                        role="button"
-                                        tabIndex={0}
-                                        className="tree-toggle"
-                                        aria-expanded={open}
-                                        aria-label={open ? 'Collapse child chats' : 'Expand child chats'}
-                                        onClick={(e) => toggleTree(e, c.chatId, open)}
-                                        onKeyDown={(e) => onToggleKey(e, c.chatId, open)}
-                                        onKeyUp={(e) => {
-                                          if (e.key === ' ') {
-                                            e.stopPropagation();
-                                            e.preventDefault();
-                                          }
-                                        }}
-                                      >
-                                        {open ? '\u{1F4C2}' : '\u{1F4C1}'}
-                                      </span>
-                                    ) : (
-                                      <span className="tree-spacer" aria-hidden="true" />
-                                    )}
-                                    <span className="nav-title">{shownTitle(treeTitle(c.title || '', depth))}</span>
-                                    <span className="nav-date">{formatLocal(c.updatedUtc)}</span>
-                                  </button>
-                                  <ChatMenu archived actions={chatActionsFor(p, c)} onPick={(action) => void pickChatAction(action, c)} />
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </>
-                      )}
-                      {trashedChats.length > 0 && (
-                        <>
-                          <button className="btn tiny ghost" onClick={() => setShowTrash((v) => !v)} aria-expanded={showTrash}>
-                            {showTrash ? '▾' : '▸'} 🗑 Trash ({trashedChats.length})
-                          </button>
-                          {showTrash && (
-                            <ul className="archived-list">
-                              <li className="hint small">Deleted for good {TRASH_DAYS} days after deletion.</li>
-                              {trashedChats.map((c) => (
-                                <li key={c.folderId} className="chat-li">
-                                  <button
-                                    className={c.chatId === chatId ? 'active' : ''}
-                                    title={c.summary || undefined}
-                                    onClick={() => {
-                                      navigate(`/e/${env}/p/${p.projectId}/c/${c.chatId}`);
-                                      setLeftOpen(false);
-                                    }}
-                                  >
-                                    <span className="nav-title">{shownTitle(c.title || '')}</span>
-                                    <span className="nav-date" title="Moved to trash">{formatLocal(c.trashedUtc || '')}</span>
-                                  </button>
-                                  <ChatMenu actions={chatActionsFor(p, c).includes('delete') ? ['restore', 'purge'] : []} onPick={(action) => void pickChatAction(action, c)} />
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </>
-                      )}
+                      {archiveAndTrash(p)}
                     </div>
                   )}
                 </li>
@@ -1286,6 +1338,13 @@ export default function Shell({ auth }: { auth: Signed }) {
                     ))}
                   </ul>
                 )}
+              </div>
+            )}
+            {/* 0.128.0: the files of the open chat and the project workspace (in the Explorer: inside their folders) */}
+            {project && (
+              <div className="tree-extra">
+                {chat && <ChatFiles chat={chat} project={project} root={root} authOk={authOk} />}
+                <ProjectWorkspace project={project} owner={owner} root={root} authOk={authOk} />
               </div>
             )}
             </>)}
@@ -1341,6 +1400,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                 owner={owner}
                 limits={limits}
                 onChatUpdated={refreshChats}
+                projectChats={chats}
                 onChatAction={(action) => void pickChatAction(action, chat)}
                 onChatCreated={(c) => {
                   // 0.33.0: branch / follow-up opened from this chat
@@ -1412,25 +1472,28 @@ export default function Shell({ auth }: { auth: Signed }) {
             limits={limits}
             authOk={authOk}
           />
-          <aside className={`right ${rightOpen ? 'open' : ''}`}>
-            <Inspector
-              chats={chats}
-              env={env}
-              limits={limits}
-              project={project}
-              chat={chat}
-              root={root}
-              owner={owner}
-              health={health}
-              authOk={authOk}
-              host={host}
-              hostPref={hostPref}
-              onHostPref={setHostPref}
-              onProjectChanged={(p) => setProjects((prev) => (prev || []).map((x) => (x.folderId === p.folderId ? p : x)))}
-              onClose={() => setRightOpen(false)}
-            />
-          </aside>
-          {(leftOpen || rightOpen) && <div className="scrim only-mobile drawer-scrim" onClick={() => { setLeftOpen(false); setRightOpen(false); }} />}
+          {panel && (
+            <aside className={`right side ${panelPinned ? 'pinned' : 'overlay'} kind-${panel.kind}`}>
+              <SidePanel
+                projects={projects}
+                chats={chats}
+                env={env}
+                limits={limits}
+                project={project}
+                chat={chat}
+                owner={owner}
+                health={health}
+                authOk={authOk}
+                host={host}
+                hostPref={hostPref}
+                onHostPref={setHostPref}
+                onProjectChanged={(p) => setProjects((prev) => (prev || []).map((x) => (x.folderId === p.folderId ? p : x)))}
+                onChatChanged={(c) => setChats((prev) => (prev || []).map((x) => (x.folderId === c.folderId ? c : x)))}
+              />
+            </aside>
+          )}
+          {leftOpen && <div className="scrim only-mobile drawer-scrim" onClick={() => setLeftOpen(false)} />}
+          {panel && <div className={`scrim side-scrim${panelPinned ? ' pinned' : ''}`} onClick={closePanel} />}
         </div>
       )}
 

@@ -1,34 +1,37 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // ext/1 shell (SPEC §3.6a): the launcher of the header. Every enabled module page that declares itself an app
 // (ui.page app: true, icon) is one tile here, the same on a phone (a full-screen grid) and on a computer (a popover);
-// the header itself keeps only the tray (small ui.header status pages). The last tile is the core app Settings (the
-// control panel): the core settings panels grouped like an OS (this chat, project, system) and one tile per module
-// with own settings (Host → Modules at that module). The ☰ menu keeps navigation only. The launcher knows no module
-// by name.
+// the header itself keeps only the tray (small ui.header status pages). Core apps: 👪 Family first (the family room,
+// with the count of new messages) and Settings last (the control panel): the Properties of this chat and of the
+// project, System, and one tile per module with own settings (System → Modules at that module), grouped like an OS.
+// The ☰ menu keeps navigation only. The launcher knows no module by name.
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { openInspectorTab, type InspectorTab } from './chatPanel';
+import { openPanel } from './chatPanel';
 import { moduleBadges, onModuleBadges, shellApps, shellOpen, shellSettings, type ModuleInfo } from './extBridge';
 import { openModulesSettings } from './Modules';
 import { LAUNCHER_OPEN } from './appStack';
 
-type Core = [InspectorTab | 'modules', string, string, string];
-// the control panel: core settings panels of the inspector, grouped
+type Core = ['chat' | 'project' | 'system' | 'modules', string, string, string];
+// the control panel (0.128.0): the Properties of the open chat and project folders and System, grouped
 export const SETTINGS_GROUPS: [string, Core[]][] = [
   ['This chat', [
-    ['chat', '⚙', 'Chat', 'Permissions, device, modes, protocol, rename, move, delete'],
-    ['session', '🧾', 'Session', 'What the agent of this chat gets and spends'],
+    ['chat', 'ⓘ', 'Chat properties', 'Permissions, device, modes, context of the folders, sharing, what the agent gets and spends, rename, move, delete (Alt+Enter)'],
   ]],
   ['Project', [
-    ['project', '🗂', 'Project', 'Instructions, memory, schedules, sharing'],
+    ['project', '📁', 'Project properties', 'Instructions, memory, context for its chats, schedules, sharing, files'],
   ]],
   ['System', [
-    ['host', '🖥', 'Host and devices', 'Bridge, agents, CO Desktop, browser devices, notifications'],
+    ['system', '🖥', 'System', 'Host and executors, CO Desktop, browser devices, notifications, agents, models, data, limits, health, jobs, connectors'],
     ['modules', '🧩', 'Modules', 'Install, switch on and off, the switch about you (programs and features)'],
   ]],
 ];
 
-export default function Launcher({ modules, env, current }: { modules: ModuleInfo[]; env: string; current?: { moduleId: string; pageId: string } | null }) {
+export default function Launcher({ modules, env, current, familyUnread = 0 }: {
+  modules: ModuleInfo[]; env: string; current?: { moduleId: string; pageId: string } | null;
+  /** new messages of the others in the family room (the core app 👪) */
+  familyUnread?: number;
+}) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<'apps' | 'settings'>('apps');
   const navigate = useNavigate();
@@ -38,7 +41,7 @@ export default function Launcher({ modules, env, current }: { modules: ModuleInf
   const [, setBadgeTick] = useState(0);
   useEffect(() => onModuleBadges(() => setBadgeTick((n) => n + 1)), []);
   const badges = moduleBadges();
-  const anyBadge = apps.some((a) => badges.has(a.m.id));
+  const anyBadge = familyUnread > 0 || apps.some((a) => badges.has(a.m.id));
   // ▦ of the app bar (F14e.1) opens this launcher
   useEffect(() => {
     const f = () => { setView('apps'); setOpen(true); };
@@ -64,7 +67,7 @@ export default function Launcher({ modules, env, current }: { modules: ModuleInf
     // app to app replaces the entry: Back leaves the apps for the page they were opened from (F14e.1)
     else navigate(o.href, { replace: !!current });
   };
-  const core = (t: Core[0]) => { close(); if (t === 'modules') openModulesSettings(); else openInspectorTab(t); };
+  const core = (t: Core[0]) => { close(); if (t === 'modules') openModulesSettings(); else openPanel(t); };
   const tile = (key: string, icon: string, label: string, title: string, onClick: () => void, here = false, badge = '') => (
     <button key={key} type="button" className={`launcher-app ${here ? 'here' : ''}`} title={badge ? `${title} (${badge})` : title} onClick={onClick}>
       <span className="launcher-icon" aria-hidden="true">{icon}{badge && <span className="launcher-badge">{badge}</span>}</span>
@@ -89,6 +92,8 @@ export default function Launcher({ modules, env, current }: { modules: ModuleInf
                   <button type="button" className="launcher-close" aria-label="Close" onClick={close}>×</button>
                 </div>
                 <div className="launcher-grid">
+                  {tile('core/family', '👪', 'Family', 'The family chat: messages, photos, emoji; @co calls AI Workbench', () => { close(); openPanel('family'); },
+                    false, familyUnread > 0 ? (familyUnread > 99 ? '99+' : String(familyUnread)) : '')}
                   {apps.map((a) => tile(`${a.m.id}/${a.ui.id}`, a.icon, a.label, a.ui.title || a.m.description || a.label, () => go(a),
                     current?.moduleId === a.m.id && current?.pageId === a.ui.id, badges.get(a.m.id) || ''))}
                   {tile('core/settings', '⚙️', 'Settings', 'Settings of the chat, the project, the host and the modules', () => setView('settings'))}

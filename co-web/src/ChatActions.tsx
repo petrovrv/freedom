@@ -133,21 +133,23 @@ export function ChatActionDialog({
 
 // Compact "⋯" menu used in the sidebar.
 const ALL_CHAT_ACTIONS: ChatAction[] = ['rename', 'title', 'move', 'archive', 'delete'];
-type ChatMenuProps = { onPick: (a: ChatAction) => void; archived?: boolean; actions?: ChatAction[] };
+// 0.128.0: onProperties - the first item "Properties" (the chat folder's Properties), also for a viewer
+type ChatMenuProps = { onPick: (a: ChatAction) => void; archived?: boolean; actions?: ChatAction[]; onProperties?: () => void };
 
 // 0.45.0: no permitted actions -> no menu (wrapper keeps hooks unconditional)
 export function ChatMenu(props: ChatMenuProps) {
-  if (props.actions && !props.actions.length) return null;
+  if (props.actions && !props.actions.length && !props.onProperties) return null;
   return <ChatMenuInner {...props} />;
 }
 
-function ChatMenuInner({ onPick, archived, actions = ALL_CHAT_ACTIONS }: ChatMenuProps) {
+function ChatMenuInner({ onPick, archived, actions = ALL_CHAT_ACTIONS, onProperties }: ChatMenuProps) {
   const [open, setOpen] = useState(false);
   return (
     <span className="chat-menu" onClick={(e) => e.stopPropagation()}>
       <button className="icon-btn small" aria-label="Chat actions" aria-expanded={open} onClick={() => setOpen(!open)}>⋯</button>
       {open && (
         <span className="menu" role="menu" onMouseLeave={() => setOpen(false)}>
+          {onProperties && <button role="menuitem" onClick={() => { setOpen(false); onProperties(); }}>Properties</button>}
           {actions.map((a) => (
             <button
               key={a}

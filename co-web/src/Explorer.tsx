@@ -2,10 +2,14 @@
 // F15.1 (SPEC §3.6b п. 1): the Explorer view of the left panel. Projects and chats as folders (child chats are nested
 // folders), a path bar with a way up, icons or a list, Ctrl+K to jump to any project or chat. A mouse opens with a
 // double click (one click selects), a touch opens with a tap; the keyboard moves with the arrows, Enter opens,
-// Backspace or Alt+Up goes up. Logic: explorerTree.ts. The tree view stays the default (☰ → Explorer view).
+// Backspace or Alt+Up goes up. Logic: explorerTree.ts. 0.128.0: the default view of the panel (☰ → the tree).
 // F15.2: a chat moves by dragging it onto a project, a chat or a folder of the path bar, or with "Move to…" (F6 on
 // the selected chat); a bar under the path offers Undo for a while.
-import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from 'react';
+// 0.128.0 (F15.2 part 4): Properties of a folder - right click (a long press on a touch screen), ⋮ or Shift+F10 opens
+// the item's menu (Open, Properties, Move to…), Alt+Enter opens the Properties of the selected item, ⓘ of the path
+// bar those of the folder shown. Under the items: the content of the folder that is not a chat (files, workspace,
+// archive, trash) from the shell.
+import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Chat, Project } from './types';
 import type { SortMode } from './sidebarSort';
@@ -41,7 +45,13 @@ export interface ExplorerProps {
   onOpenProject: (projectId: string) => void;
   /** F15.2: move a chat (with the chats under it); resolves to the undo of the move */
   onMove?: (chat: Chat, dest: MoveDest) => Promise<() => Promise<void>>;
+  /** 0.128.0: Properties of a project (no chatId), a chat, or of the environment (System, no projectId) */
+  onProperties?: (t: { projectId?: string; chatId?: string }) => void;
+  /** 0.128.0: content of the folder shown, under its items (files of the open chat, workspace, archive, trash) */
+  folderExtra?: (path: ExplorerPath) => ReactNode;
 }
+
+type ItemMenu = { item: ExplorerItem; x: number; y: number };
 
 const DRAG_TYPE = 'application/x-co-chat';
 const UNDO_MS = 15000;
@@ -58,6 +68,7 @@ export default function Explorer(props: ExplorerProps) {
   const [focusAt, setFocusAt] = useState<{ key: string; item: string; idx: number }>({ key: '', item: '', idx: 0 });
   const [jumpOpen, setJumpOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState<Chat | null>(null);
+  const [menu, setMenu] = useState<ItemMenu | null>(null);
   const [notice, setNotice] = useState<{ text: string; undo?: () => Promise<void>; at: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const drag = useRef<Chat | null>(null);
@@ -249,6 +260,16 @@ export default function Explorer(props: ExplorerProps) {
       : {};
   const selected = items[focusIdx];
   const selChat = selected && selected.kind !== 'project' ? selected.chat : null;
+  const propsOf = (it: ExplorerItem) => props.onProperties?.(it.kind === 'project' ? { projectId: it.project.projectId } : { projectId: pid, chatId: it.chat.chatId });
+  const movable = (it: ExplorerItem) => !!props.onMove && it.kind !== 'project' && !it.chat.shareRole;
+  const menuAt = (it: ExplorerItem, el: Element | null, x?: number, y?: number) => {
+    const r = el?.getBoundingClientRect();
+    setMenu({ item: it, x: x ?? (r ? r.left + 12 : 40), y: y ?? (r ? r.bottom - 4 : 40) });
+  };
+  // the folder shown: a project or the chat at the end of the path
+  const herePropsTarget = path.projectId
+    ? (path.chatIds.length ? { projectId: path.projectId, chatId: path.chatIds[path.chatIds.length - 1] } : { projectId: path.projectId })
+    : {};
 
   return (
     <div className="explorer" onKeyDown={onKey}>
@@ -266,6 +287,10 @@ export default function Explorer(props: ExplorerProps) {
             </span>
           ))}
         </nav>
+        {props.onProperties && (
+          <button type="button" className="ex-info" onClick={() => props.onProperties?.(herePropsTarget)}
+            title={path.projectId ? 'Properties of this folder (Alt+Enter on an item: its Properties)' : 'System settings'} aria-label="Properties of this folder">ⓘ</button>
+        )}
       </div>
       <div className="ex-tools">
         <button type="button" className="btn tiny" onClick={() => setJumpOpen(true)} title="Go to a project or chat (Ctrl+K)">🔍 Go to… <kbd>Ctrl K</kbd></button>
@@ -274,6 +299,10 @@ export default function Explorer(props: ExplorerProps) {
           <button type="button" className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => setView('list')} title="List">☰</button>
         </span>
         {pid && <button type="button" className="btn tiny" onClick={() => props.onOpenProject(pid)} title="Start a new chat in this project">+ Chat</button>}
+        {props.onProperties && selected && (
+          <button type="button" className="btn tiny" title="Menu of the selected item: Open, Properties, Move to… (right click, Shift+F10)" aria-label="Menu of the selected item"
+            onClick={(e) => menuAt(selected, e.currentTarget)}>⋮</button>
+        )}
         {props.onMove && selChat && !selChat.shareRole && (
           <button type="button" className="btn tiny" disabled={busy} onClick={() => { props.loadAll(); setMoveOpen(selChat); }} title="Move the selected chat (F6), or drag it onto a project, a chat or the path">
             Move to…
@@ -331,7 +360,23 @@ ${formatLocal(date)}` : '';
                   if (pointer.current !== 'mouse' && Date.now() - moved.current > 450) open(it);
                 }}
                 onDoubleClick={() => open(it)}
+                onContextMenu={props.onProperties ? (e) => {
+                  e.preventDefault();
+                  setFocus(i);
+                  menuAt(it, e.currentTarget, e.clientX, e.clientY);
+                } : undefined}
                 onKeyDown={(e) => {
+                  if (props.onProperties && e.altKey && e.key === 'Enter') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    propsOf(it);
+                    return;
+                  }
+                  if (props.onProperties && ((e.shiftKey && e.key === 'F10') || e.key === 'ContextMenu')) {
+                    e.preventDefault();
+                    menuAt(it, e.currentTarget);
+                    return;
+                  }
                   if (e.key === 'F6' && props.onMove && it.kind !== 'project' && !it.chat.shareRole) {
                     e.preventDefault();
                     props.loadAll();
@@ -358,6 +403,19 @@ ${formatLocal(date)}` : '';
           );
         })}
       </ul>
+      {props.folderExtra && !loading && <div className="ex-extra">{props.folderExtra(path)}</div>}
+      {menu &&
+        createPortal(
+          <ItemMenuPop
+            menu={menu}
+            canMove={movable(menu.item)}
+            onClose={() => setMenu(null)}
+            onOpen={() => { setMenu(null); open(menu.item); }}
+            onProps={() => { setMenu(null); propsOf(menu.item); }}
+            onMove={() => { const it = menu.item; setMenu(null); if (it.kind !== 'project') { props.loadAll(); setMoveOpen(it.chat); } }}
+          />,
+          document.body,
+        )}
       {moveOpen &&
         createPortal(
           <MoveTo
@@ -388,6 +446,42 @@ ${formatLocal(date)}` : '';
           />,
           document.body,
         )}
+    </div>
+  );
+}
+
+// 0.128.0: the menu of an item (right click, ⋮, Shift+F10): Open, Properties, Move to…
+function ItemMenuPop(props: { menu: ItemMenu; canMove: boolean; onClose: () => void; onOpen: () => void; onProps: () => void; onMove: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const back = useRef<Element | null>(document.activeElement);
+  useEffect(() => {
+    ref.current?.querySelector('button')?.focus();
+    const el = back.current;
+    return () => {
+      if (el instanceof HTMLElement && el.isConnected) el.focus();
+    };
+  }, []);
+  const onKey = (e: KeyboardEvent) => {
+    const btns = [...(ref.current?.querySelectorAll('button') || [])];
+    const i = btns.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === 'Escape' || e.key === 'Tab') {
+      e.preventDefault();
+      props.onClose();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      btns[(i + (e.key === 'ArrowDown' ? 1 : btns.length - 1)) % btns.length]?.focus();
+    }
+  };
+  const x = Math.min(props.menu.x, window.innerWidth - 190);
+  const y = Math.min(props.menu.y, window.innerHeight - 130);
+  const it = props.menu.item;
+  return (
+    <div className="ex-menu-scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) props.onClose(); }} onContextMenu={(e) => { e.preventDefault(); props.onClose(); }}>
+      <div ref={ref} className="ex-menu" role="menu" aria-label={it.title} style={{ left: Math.max(4, x), top: Math.max(4, y) }} onKeyDown={onKey}>
+        <button type="button" role="menuitem" onClick={props.onOpen}>{it.kind === 'project' || (it.kind === 'chat' && it.folder) ? 'Open' : 'Open chat'}</button>
+        <button type="button" role="menuitem" onClick={props.onProps}>Properties <kbd>Alt+Enter</kbd></button>
+        {props.canMove && <button type="button" role="menuitem" onClick={props.onMove}>Move to… <kbd>F6</kbd></button>}
+      </div>
     </div>
   );
 }

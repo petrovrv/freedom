@@ -86,7 +86,9 @@ code, pre { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; fon
 .host-switch { display: flex; gap: 4px; }
 .host-switch .host-pill { background: none; cursor: pointer; opacity: .55; }
 .host-switch .host-pill.active { opacity: 1; font-weight: 600; box-shadow: 0 0 0 1px currentColor; }
-.panes { flex: 1; display: grid; grid-template-columns: var(--left-w, 270px) minmax(0, 1fr) var(--right-w, 300px); min-height: 0; position: relative; }
+.panes { flex: 1; display: grid; grid-template-columns: var(--left-w, 270px) minmax(0, 1fr); min-height: 0; position: relative; }
+/* 0.128.0: a pinned side panel is the third column; otherwise it slides over the chat */
+.panes.panel-pinned { grid-template-columns: var(--left-w, 270px) minmax(0, 1fr) var(--right-w, 340px); }
 .left, .right { background: var(--panel); overflow: auto; min-height: 0; }
 .left { border-right: 1px solid var(--line); padding: 10px; }
 .right { border-left: 1px solid var(--line); }
@@ -208,8 +210,8 @@ code, pre { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; fon
 .check { display: inline-flex; gap: 4px; align-items: center; }
 
 /* Inspector */
-.inspector h4 { margin: 0 0 2px; }
-.inspector h5 { margin: 18px 0 4px; font-size: 13px; }
+.side-panel h4 { margin: 0 0 2px; }
+.side-panel h5 { margin: 18px 0 4px; font-size: 13px; }
 .tabs { display: flex; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); }
 .tabs button { flex: 1; border: 0; background: none; padding: 9px; cursor: pointer; border-bottom: 2px solid transparent; }
 .tabs button.active { border-bottom-color: var(--accent); font-weight: 600; }
@@ -236,8 +238,8 @@ code, pre { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; fon
 @media (max-width: 1100px) {
   .panes { grid-template-columns: var(--left-w, 250px) minmax(0, 1fr); }
   .resizer-right { display: none; }
-  .right { display: none; }
-  .right.open { display: block; position: absolute; right: 0; top: 0; bottom: 0; width: min(320px, 90vw); z-index: 30; box-shadow: -4px 0 16px rgba(0,0,0,.15); }
+  .panes.panel-pinned { grid-template-columns: var(--left-w, 250px) minmax(0, 1fr); }
+  .right.side.pinned { position: absolute; right: 0; top: 0; bottom: 0; width: min(var(--right-w, 340px), 92vw); z-index: 30; box-shadow: -4px 0 16px rgba(0,0,0,.15); }
   .topbar .only-mobile:last-child { display: inline-block; }
 }
 @media (max-width: 760px) {
@@ -613,12 +615,32 @@ button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
 @media (max-width: 760px) {
   .app-menu-list .only-mobile { display: block; }
 }
-.inspector > .tabs { overflow-x: auto; scrollbar-width: none; }
-.inspector > .tabs button { flex: 1 1 auto; padding: 9px 4px; font-size: 12.5px; white-space: nowrap; }
-/* 0.90.3: ✕ of the right drawer, pinned at the right end of the scrolling tab row */
-.inspector > .tabs .tabs-close { display: none; }
-@media (max-width: 1100px) {
-  .inspector > .tabs .tabs-close { display: block; flex: none; position: sticky; right: 0; padding: 9px 12px; font-size: 16px; background: var(--panel); box-shadow: -6px 0 6px -4px rgba(0,0,0,.15); }
+/* 0.128.0 (F15.2 part 4): the side panel - Properties of a folder, System, the family room (chatPanel.ts, Properties.tsx).
+   Computer: slides in from the right over the chat, 📌 pins it as a column; phone: a sheet from the bottom. */
+.right.side.overlay { position: absolute; right: 0; top: 0; bottom: 0; width: min(var(--right-w, 340px), 92vw); z-index: 30; box-shadow: -4px 0 16px rgba(0,0,0,.15); }
+.right.side { overflow: hidden; display: flex; flex-direction: column; }
+.side-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.sp-head { display: flex; align-items: center; gap: 4px; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 2; }
+.sp-title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sp-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-pin, .sp-close { border: 0; background: none; cursor: pointer; padding: 4px 7px; border-radius: 6px; font-size: 15px; color: var(--muted); }
+.sp-pin { filter: grayscale(1); opacity: .55; }
+.sp-pin.on { filter: none; opacity: 1; background: var(--panel-2); }
+.sp-pin:hover, .sp-close:hover { background: var(--panel-2); color: inherit; }
+.sp-body { flex: 1; min-height: 0; overflow: auto; }
+.sp-body.family-on { display: flex; flex-direction: column; overflow: hidden; }
+.sp-body.family-on > .family-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.side-scrim { display: none; }
+.folder-ctx .fc-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin: 4px 0; }
+.folder-ctx select { border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; background: var(--bg); }
+.folder-ctx .fc-gets { margin-top: 8px; }
+.folder-ctx .fc-gets ul { margin: 4px 0 0; padding-left: 18px; }
+@media (max-width: 760px) {
+  .right.side.overlay, .right.side.pinned { position: absolute; left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 86%; height: auto;
+    border-left: 0; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; box-shadow: 0 -6px 20px rgba(0,0,0,.2); z-index: 40; }
+  .right.side.kind-family { top: 0; max-height: none; border-radius: 0; }
+  .sp-head::before { content: ''; position: absolute; left: 50%; top: 3px; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--line); }
+  .side-scrim { display: block; position: absolute; inset: 0; background: rgba(0,0,0,.3); z-index: 35; }
 }
 
 /* 0.89.0: family chat (FamilyChat.tsx) - messenger bubbles, avatars, photos, emoji, reactions */
@@ -696,9 +718,6 @@ button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
 .fam-draft { padding: 4px 4px 0; }
 
 /* 0.90.0: family chat in the right-panel tab "👪 Family" (FamilyPanel.tsx) */
-.inspector.family-on { height: 100%; display: flex; flex-direction: column; }
-.inspector.family-on > * { flex: none; }
-.inspector.family-on > .family-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .family-slot .chat.docked { flex: 1; min-height: 0; }
 .family-slot .chat.docked .messages { padding: 10px 8px 14px; gap: 8px; }
 .family-slot .fam-col { max-width: 82%; }
@@ -827,12 +846,11 @@ button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
 /* the document viewer takes the whole width: the projects and the Inspector become drawers like on a narrow screen */
 .shell.viewer-on .panes { grid-template-columns: minmax(0, 1fr); }
 .shell.viewer-on .panes > .resizer { display: none; }
-.shell.viewer-on .panes > .left, .shell.viewer-on .panes > .right { display: none; }
+.shell.viewer-on .panes > .left { display: none; }
 .shell.viewer-on .panes > .left.open { display: block; position: absolute; left: 0; top: 0; bottom: 0; width: min(300px, 88vw); z-index: 30; box-shadow: 4px 0 16px rgba(0,0,0,.15); }
-.shell.viewer-on .panes > .right.open { display: block; position: absolute; right: 0; top: 0; bottom: 0; width: min(360px, 90vw); z-index: 30; box-shadow: -4px 0 16px rgba(0,0,0,.15); }
+.shell.viewer-on .panes > .right.side { position: absolute; right: 0; top: 0; bottom: 0; width: min(var(--right-w, 360px), 90vw); z-index: 30; box-shadow: -4px 0 16px rgba(0,0,0,.15); }
 .shell.viewer-on .drawer-scrim { display: block; position: absolute; inset: 0; background: rgba(0,0,0,.25); z-index: 20; }
 .shell.viewer-on .app-menu-list .only-mobile { display: block; }
-.shell.viewer-on .inspector > .tabs .tabs-close { display: block; flex: none; position: sticky; right: 0; padding: 9px 12px; font-size: 16px; background: var(--panel); box-shadow: -6px 0 6px -4px rgba(0,0,0,.15); }
 @media (max-width: 760px) {
   .viewer-split { flex-direction: column; }
   .viewer-split > .viewer-pane { flex: 0 0 var(--viewer-frac, 50%); max-width: none; }
@@ -919,3 +937,18 @@ button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
 .ex-notice { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
 .ex-notice > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ex-x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
+
+/* 0.128.0: Explorer - ⓘ of the path bar, the item menu, the content of a folder (files, workspace, archive, trash) */
+.ex-info { border: 0; background: none; cursor: pointer; padding: 2px 6px; border-radius: 6px; color: var(--muted); flex: none; }
+.ex-info:hover { background: var(--panel-2); color: inherit; }
+.ex-menu-scrim { position: fixed; inset: 0; z-index: 95; }
+.ex-menu { position: fixed; min-width: 170px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.18); padding: 4px; display: flex; flex-direction: column; }
+.ex-menu button { text-align: left; border: 0; background: none; padding: 7px 10px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; gap: 12px; }
+.ex-menu button:hover, .ex-menu button:focus-visible { background: var(--panel-2); outline: none; }
+.ex-menu kbd { font: inherit; font-size: 10px; color: var(--muted); }
+.ex-extra, .tree-extra { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.ex-extra:empty, .tree-extra:empty { display: none; }
+.ex-archive:empty { display: none; }
+.fold-head { border: 0; background: none; cursor: pointer; padding: 4px 2px; font-weight: 600; font-size: 13px; text-align: left; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fold-body { padding: 0 0 6px 4px; }
+.side-panel .chat-slot .chat-panel h5:first-child { margin-top: 16px; }

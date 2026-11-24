@@ -32,7 +32,7 @@ import { modesOf } from './moduleStore';
 import { importCalls } from './importWriter';
 import { LimitsBar } from './Limits';
 import SidePanel from './Properties';
-import { ChatFiles, ProjectWorkspace } from './FolderContents';
+import { ChatFolder, ProjectWorkspace } from './FolderContents';
 import FamilyPanel from './FamilyPanel';
 import Launcher from './Launcher';
 import Explorer from './Explorer';
@@ -831,8 +831,10 @@ export default function Shell({ auth }: { auth: Signed }) {
     </>
   );
 
+  const exOpenChat = (pid: string, cid: string) => { navigate(`/e/${env}/p/${pid}/c/${cid}`); setLeftOpen(false); };
   // 0.128.0: content of a folder in the Explorer besides its chats: the files of the open chat (in its own folder and
-  // in the folder it sits in), the workspace of a project, the archive and trash of the open project
+  // in the folder it sits in), the workspace of a project, the archive and trash of the open project.
+  // 0.129.0: the folder of the open chat with its parts (FolderContents.tsx ChatFolder) instead of its files
   const exFolderExtra = (path: ExplorerPath) => {
     const p = path.projectId ? projects?.find((x) => x.projectId === path.projectId) : undefined;
     if (!p) return null;
@@ -847,7 +849,7 @@ export default function Shell({ auth }: { auth: Signed }) {
     }
     return (
       <>
-        {filesHere && chat && <ChatFiles chat={chat} project={p} root={root} authOk={authOk} />}
+        {filesHere && chat && <ChatFolder chat={chat} project={p} chats={chats} root={root} authOk={authOk} showSubchats={false} onOpenChat={exOpenChat} />}
         {!here && <ProjectWorkspace project={p} owner={owner} root={root} authOk={authOk} />}
         {!here && p.projectId === projectId && <div className="ex-archive">{archiveAndTrash(p)}</div>}
       </>
@@ -1184,7 +1186,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                 projectFresh={exProjectFresh}
                 projectWait={exProjectWait}
                 chatWait={chatWaitRank}
-                onOpenChat={(pid, cid) => { navigate(`/e/${env}/p/${pid}/c/${cid}`); setLeftOpen(false); }}
+                onOpenChat={exOpenChat}
                 onOpenProject={(pid) => { navigate(`/e/${env}/p/${pid}`); setLeftOpen(false); }}
                 onMove={exMove}
                 onProperties={(t) => (t.projectId ? openPanel(t.chatId ? 'chat' : 'project', t) : openPanel('system'))}
@@ -1349,10 +1351,10 @@ export default function Shell({ auth }: { auth: Signed }) {
                 )}
               </div>
             )}
-            {/* 0.128.0: the files of the open chat and the project workspace (in the Explorer: inside their folders) */}
+            {/* 0.128.0: the files of the open chat and the project workspace (in the Explorer: inside their folders); 0.129.0: the chat folder */}
             {project && (
               <div className="tree-extra">
-                {chat && <ChatFiles chat={chat} project={project} root={root} authOk={authOk} />}
+                {chat && <ChatFolder chat={chat} project={project} chats={chats} root={root} authOk={authOk} showSubchats onOpenChat={exOpenChat} />}
                 <ProjectWorkspace project={project} owner={owner} root={root} authOk={authOk} />
               </div>
             )}

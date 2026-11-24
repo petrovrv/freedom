@@ -3,9 +3,21 @@
 // content of the folders now. A chat folder holds the chat's files (version streams, FilesPanel.tsx), its scratch on
 // Drive and the context folder chips; a project folder holds the project workspace. Shown under the items of the
 // Explorer (and under the tree when the tree view is chosen); each part folds and loads only when unfolded.
-import { useState, type ReactNode } from 'react';
-import { FilesTab } from './FilesPanel';
-import { setFilesSlot } from './chatPanel';
+// 0.129.0 (SPEC §3.6b, «Папка чата»): the chat folder has parts instead of one "Files of …": Subchats · Context ·
+// Correspondence · Events · Watchers · Documents · Products (chatFolder.ts). Documents = files the person added,
+// Products = files the agent made (with the scratch folder); versions stay in each file's ⋯ menu; the context folder
+// chips moved to Context.
+import { useEffect, useState, type ReactNode } from 'react';
+import { FilesTab, useChatStreams } from './FilesPanel';
+import { setCtxListSlot, setFilesSlot } from './chatPanel';
+import { contextInputOf } from './ChatContext';
+import {
+  agreements, chatPartContributions, contextCount, dueState, localDate, onChatPartsChanged, partCounts, splitStreams, visibleParts,
+  type Agreement, type ChatPartId,
+} from './chatFolder';
+import { visible } from './chatFiles';
+import { dbProtocol, type ProtocolEntry } from './dbapi';
+import { placeParent } from './chatTree';
 import { DriveTree } from './Properties';
 import { chatScratchPath, type Root } from './workbench';
 import type { Chat, OwnerInfo, Project } from './types';
@@ -38,20 +50,127 @@ export function Fold({ id, label, hint, children, defOpen = false }: { id: strin
   );
 }
 
-/** Files of the open chat: its files, the scratch folder on Drive and the context folder chips (ChatView portal). */
-export function ChatFiles({ chat, project, root, authOk }: { chat: Chat; project: Project; root: Root | null; authOk: boolean }) {
-  if (!root || !authOk || chat.draft) return null;
+/** 0.129.0: the folder of the open chat - its parts (chatFolder.ts): Subchats · Context · Correspondence · Events ·
+ * Watchers · Documents · Products; Documents and Products always, the others when they hold something. */
+export function ChatFolder({ chat, project, chats, root, authOk, showSubchats, onOpenChat }: {
+  chat: Chat; project: Project; chats: Chat[] | null; root: Root | null; authOk: boolean;
+  /** the tree view lists the chats inside here; the Explorer shows them as its own items */
+  showSubchats: boolean;
+  onOpenChat: (projectId: string, chatId: string) => void;
+}) {
+  const ok = !!root && authOk && !chat.draft;
+  const data = useChatStreams(chat, ok);
+  const [proto, setProto] = useState<ProtocolEntry[] | null>(null);
+  const [, setTick] = useState(0);
+  useEffect(() => onChatPartsChanged(() => setTick((n) => n + 1)), []);
+  useEffect(() => {
+    if (!ok) return;
+    let live = true;
+    setProto(null);
+    dbProtocol(chat.chatId).then((p) => { if (live) setProto(p?.entries ?? []); }, () => { if (live) setProto([]); });
+    return () => { live = false; };
+  }, [ok, chat.chatId, chat.updatedUtc]);
+  if (!ok || !root) return null;
   const canWrite = chat.shareRole !== 'viewer' && project.shareRole !== 'viewer';
+  const shared = !!(project.shareRole || chat.shareRole);
+  const inside = (chats || []).filter((c) => placeParent(c) === chat.chatId && !c.archived && c.chatId !== chat.chatId);
+  // removed and expired files stay in their list behind "Show removed…", they do not count
+  const split = data.streams ? splitStreams(data.streams) : null;
+  const shownCount = (list: typeof data.streams) => (list ? list.filter((x) => visible(x)).length : undefined);
+  const ag = agreements(proto);
+  const ref = { projectId: project.projectId, chatId: chat.chatId };
+  const active = proto ? proto.filter((e) => e.status === 'active').length : null;
+  const counts = partCounts({
+    subchats: showSubchats ? inside.length : 0,
+    context: contextCount(contextInputOf(chat, project, chats, active, shared)),
+    events: ag.open.length + ag.done.length,
+    documents: shownCount(split?.documents ?? null),
+    products: shownCount(split?.products ?? null),
+  }, ref);
+  const more = (part: ChatPartId) => chatPartContributions(part).map((c) => <div key={c.key} className="cf-more">{c.render(ref) as ReactNode}</div>);
+  const body = (part: ChatPartId): ReactNode => {
+    switch (part) {
+      case 'subchats':
+        return (
+          <ul className="cf-list">
+            {inside.map((c) => (
+              <li key={c.chatId}><button type="button" className="link" onClick={() => onOpenChat(project.projectId, c.chatId)}>💬 {c.title || c.chatId}</button></li>
+            ))}
+          </ul>
+        );
+      case 'context':
+        return (
+          <>
+            <div ref={setCtxListSlot} />
+            <div className="files-slot" ref={setFilesSlot} />
+            {more(part)}
+          </>
+        );
+      case 'events':
+        return (<><Agreements open={ag.open} done={ag.done} />{more(part)}</>);
+      case 'documents':
+        return (
+          <>
+            <FilesTab chat={chat} root={root} canWrite={canWrite} data={data} only={split?.documents ?? null}
+              emptyText="No documents yet. Files you attach to a message appear here." />
+            {more(part)}
+          </>
+        );
+      case 'products':
+        return (
+          <>
+            <FilesTab chat={chat} root={root} canWrite={canWrite} data={data} only={split?.products ?? null}
+              emptyText="No products yet. Files the agent writes appear here." />
+            <ChatScratch chat={chat} root={root} />
+            {more(part)}
+          </>
+        );
+      default:
+        return more(part);
+    }
+  };
   return (
-    <Fold id="chatFiles" label={`📄 Files of «${chat.title || chat.chatId}»`} hint="Files of this chat with their versions, its scratch folder and the context folders" defOpen>
-      {() => (
-        <>
-          <FilesTab key={chat.folderId} chat={chat} root={root} canWrite={canWrite} />
-          <div className="files-slot" ref={setFilesSlot} />
-          <ChatScratch chat={chat} root={root} />
-        </>
+    <div className="chat-folder">
+      <div className="cf-head small muted" title={chat.title || chat.chatId}>💬 Folder of «{chat.title || chat.chatId}»</div>
+      {visibleParts(counts).map((p) => (
+        <Fold key={p.id} id={`chat.${p.id}`} label={`${p.icon} ${p.label}${counts[p.id] && p.id !== 'context' ? ` (${counts[p.id]})` : ''}`} hint={p.hint}
+          defOpen={p.id === 'documents' || p.id === 'products' || p.id === 'events'}>
+          {() => body(p.id)}
+        </Fold>
+      ))}
+    </div>
+  );
+}
+
+const DUE_CLASS = { overdue: 'bad', today: 'warn', soon: 'warn', later: '' } as const;
+
+/** Events now: the agreements of the chat's protocol, open ones by due date; a click shows the message they came from. */
+function Agreements({ open, done }: { open: Agreement[]; done: Agreement[] }) {
+  const today = localDate();
+  const jump = (msg: number) => document.querySelector(`.msg[data-seq="${msg}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const row = (a: Agreement) => {
+    const st = dueState(a.due, today);
+    return (
+      <li key={a.no} className={`cf-agree${a.status !== 'active' ? ' done' : ''}`}>
+        <button type="button" className="link" title={`Agreement #${a.no} from message #${a.msg}: show the message`} onClick={() => jump(a.msg)}>
+          🤝 {a.who && <b>{a.who}: </b>}{a.what}
+        </button>
+        {a.due && <span className={`tiny cf-due ${st ? DUE_CLASS[st] : ''}`}> · {st === 'overdue' ? 'overdue since' : st === 'today' ? 'today,' : 'by'} {a.due}</span>}
+      </li>
+    );
+  };
+  if (!open.length && !done.length) return <p className="muted small">No agreements yet. When someone in the chat promises to do something by a date, the protocol keeps it here.</p>;
+  return (
+    <div className="small">
+      <ul className="cf-list">{open.map(row)}</ul>
+      {!!done.length && (
+        <details>
+          <summary className="muted tiny">Done or called off ({done.length})</summary>
+          <ul className="cf-list">{done.map(row)}</ul>
+        </details>
       )}
-    </Fold>
+      <div className="muted tiny">From the protocol of the chat. A reminder or an appointment is made only when you ask for it.</div>
+    </div>
   );
 }
 

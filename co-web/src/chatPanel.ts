@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // 0.86.0: the chat's own controls (permission chips, modes, protocol … delete) are rendered by ChatView with a portal
-// into a slot of the side panel; the context folder chips into the files slot.
+// into a slot of the side panel; the context folder chips into the files slot (0.129.0: in the Context part of the
+// chat folder, next to the context list of ctxListSlot).
 // 0.128.0 (F15.2 part 4, SPEC §3.6b): the right panel with tabs is gone. One side panel shows what was asked for:
 // the Properties of a chat folder or of a project folder, System (Settings → System) or the family room (app 👪).
 // On a computer it slides in from the right and can be pinned (then it is a column of the layout); on a phone it is
@@ -21,6 +22,8 @@ type State = {
   /** the "Context and usage" part of the chat's Properties: ChatView renders the folder's context switch there */
   ctxSlot: HTMLElement | null;
   filesSlot: HTMLElement | null;
+  /** 0.129.0: the Context part of the chat folder: ChatView renders what the chat's agent gets there (ChatContext.tsx) */
+  ctxListSlot: HTMLElement | null;
   familySlot: HTMLElement | null;
   /** the shown panel, null = closed */
   panel: PanelTarget | null;
@@ -39,7 +42,7 @@ function readPin(): boolean {
   }
 }
 
-let state: State = { chatSlot: null, ctxSlot: null, filesSlot: null, familySlot: null, panel: null, nonce: 0, pinned: readPin(), familyUnread: 0 };
+let state: State = { chatSlot: null, ctxSlot: null, filesSlot: null, ctxListSlot: null, familySlot: null, panel: null, nonce: 0, pinned: readPin(), familyUnread: 0 };
 const subs = new Set<() => void>();
 
 function set(patch: Partial<State>) {
@@ -66,6 +69,10 @@ export function setCtxSlot(el: HTMLElement | null) {
 
 export function setFilesSlot(el: HTMLElement | null) {
   if (state.filesSlot !== el) set({ filesSlot: el });
+}
+
+export function setCtxListSlot(el: HTMLElement | null) {
+  if (state.ctxListSlot !== el) set({ ctxListSlot: el });
 }
 
 export function setFamilySlot(el: HTMLElement | null) {

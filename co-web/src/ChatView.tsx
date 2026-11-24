@@ -20,6 +20,7 @@ import { WebDevicePicker, useWebDevicePick } from './WebDevicePicker';
 import { createPortal } from 'react-dom';
 import { BrowserSettingsPanel } from './BrowserSettings';
 import { openPanel, useChatPanel } from './chatPanel';
+import { ChatContext } from './ChatContext';
 import { buildFolderBlock, folderKey, folderLevels, levelsToSend, memoryDigest, projectCtxOf, type FolderLevel, type LevelContent } from './folderContext';
 import { FolderCtxSection } from './FolderCtx';
 import type { ChatAction } from './ChatActions';
@@ -1197,6 +1198,15 @@ export default function ChatView(props: Props) {
           }} />,
         panel.ctxSlot,
       )}
+      {/* 0.129.0: the Context part of the chat folder - what this chat's agent gets, with the chat's context mode */}
+      {!props.docked && !chat.draft && panel.ctxListSlot && createPortal(
+        <ChatContext chat={chat} project={project} chats={props.projectChats ?? null} shared={shared} readOnly={readOnly}
+          onMode={async (contextMode) => {
+            setChat(await updateChatMeta(chat, { contextMode }));
+            props.onChatUpdated();
+          }} />,
+        panel.ctxListSlot,
+      )}
       {!props.docked && panel.filesSlot && createPortal(
         <PermissionsBar
           part="folders"
@@ -1508,7 +1518,7 @@ function UserBubble({ ev, onEdit, onBranch, owner, me, root }: { ev: ChatEvent; 
   const authorEnv = other ? ALLOWLIST[ev.author as string]?.env : undefined;
   const who = other ? (ENVIRONMENTS.find((x) => x.id === authorEnv)?.displayName || (ev.author as string)) : 'You';
   return (
-    <div className="msg user">
+    <div className="msg user" data-seq={ev.sequence}>
       <div className="msg-meta">
         <span className="who">{ev.imported ? 'You' : `${who} → ${agentName(ev.agent)}`}</span>
         {ev.imported ? <span className="tag">imported · {importLabel(ev.imported.source)}</span> : selectionTags(ev, owner)}

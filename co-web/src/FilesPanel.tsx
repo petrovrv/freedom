@@ -2,6 +2,8 @@
 // 0.55.0: Files tab of the inspector - the chat's files as version streams (chatFiles.ts, docs/SPEC-chat-files.md).
 // One row per file with its main (newest) version; ⋯ opens the versions (download, make main, branch, delete), Keep /
 // Temporary and Hide. Dragging a file onto another merges the two streams after a 10 s undo window.
+// 0.129.0: the folder of a chat shows two lists of one load (useChatStreams): Documents (added by the person) and
+// Products (made by the agent), chatFolder.ts splitStreams; a merge stays inside one list.
 import { useEffect, useRef, useState } from 'react';
 import type { Chat } from './types';
 import type { Root } from './workbench';
@@ -25,27 +27,56 @@ function saveBytes(bytes: ArrayBuffer, name: string) {
 
 const baseName = (s: ChatStream) => s.name.split('/').pop() || s.name;
 
-export function FilesTab({ chat, root, canWrite }: { chat: Chat; root: Root; canWrite: boolean }) {
+export interface ChatStreamsData {
+  streams: ChatStream[] | null;
+  dbOk: boolean;
+  err: string | null;
+  reload: () => void;
+}
+
+/** The chat's files as version streams, loaded once for both lists of the chat folder; again when the chat changes. */
+export function useChatStreams(chat: Chat, enabled = true): ChatStreamsData {
   const [streams, setStreams] = useState<ChatStream[] | null>(null);
   const [dbOk, setDbOk] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const seq = useRef(0);
+  const reload = () => {
+    const n = ++seq.current;
+    Promise.all([loadChatEvents(chat), dbFiles(chat.chatId)])
+      .then(([ev, rows]) => {
+        if (n !== seq.current) return;
+        setDbOk(rows !== null);
+        setStreams(buildStreams(ev, rows, chat.projectId, chat.chatId));
+        setErr(null);
+      })
+      .catch((e) => {
+        if (n === seq.current) setErr(categorize(e).message);
+      });
+  };
+  useEffect(() => {
+    setStreams(null);
+  }, [chat.chatId]);
+  useEffect(() => {
+    if (enabled) reload();
+  }, [enabled, chat.chatId, chat.updatedUtc]); // eslint-disable-line react-hooks/exhaustive-deps
+  return { streams, dbOk, err, reload };
+}
+
+export function FilesTab({ chat, root, canWrite, data, only, emptyText }: {
+  chat: Chat; root: Root; canWrite: boolean; data: ChatStreamsData;
+  /** the streams of this list (a part of data.streams); all when absent */
+  only?: ChatStream[] | null;
+  emptyText?: string;
+}) {
+  const { dbOk, reload } = data;
+  const all = data.streams;
+  const streams = only ?? all;
   const [err, setErr] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
   const [pending, setPending] = useState<{ from: ChatStream; into: ChatStream; timer: number } | null>(null);
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
-
-  async function load() {
-    try {
-      const [ev, rows] = await Promise.all([loadChatEvents(chat), dbFiles(chat.chatId)]);
-      setDbOk(rows !== null);
-      setStreams(buildStreams(ev, rows, chat.projectId, chat.chatId));
-    } catch (e) {
-      setErr(categorize(e).message);
-    }
-  }
-  useEffect(() => {
-    void load();
-  }, [chat.chatId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const load = async () => reload();
 
   function proposeMerge(from: ChatStream, into: ChatStream) {
     if (pending) window.clearTimeout(pending.timer);
@@ -58,7 +89,7 @@ export function FilesTab({ chat, root, canWrite }: { chat: Chat; root: Root; can
     setPending({ from, into, timer });
   }
 
-  if (err && !streams) return <p className="error-text pad">{err}</p>;
+  if (data.err && !all) return <p className="error-text pad">{data.err}</p>;
   if (!streams) return <p className="muted pad">Loading…</p>;
   const list = streams.filter((s) => visible(s, showHidden));
   // Service files fold under one line, by the same rule as under a message (isWorkingFile); a kind the user set wins.
@@ -96,14 +127,14 @@ export function FilesTab({ chat, root, canWrite }: { chat: Chat; root: Root; can
         <button className="link small" onClick={() => void load()}>Refresh</button>
       </div>
       {!dbOk && <p className="muted small">The database is not reachable: files from the messages only, without versions actions.</p>}
-      {err && <p className="error-text small">{err}</p>}
+      {(err || data.err) && <p className="error-text small">{err || data.err}</p>}
       {pending && (
         <div className="files-pending small">
           Merging <b>{baseName(pending.from)}</b> into <b>{baseName(pending.into)}</b> in 10 s…{' '}
           <button className="link" onClick={() => { window.clearTimeout(pending.timer); setPending(null); }}>Undo</button>
         </div>
       )}
-      {!list.length && <p className="muted small">No files in this chat yet. Files the agent writes and files you attach appear here.</p>}
+      {!list.length && <p className="muted small">{emptyText ?? 'No files in this chat yet. Files the agent writes and files you attach appear here.'}</p>}
       <ul className="files-list">{docs.map(row)}</ul>
       {!!service.length && (
         <details className="service-files">

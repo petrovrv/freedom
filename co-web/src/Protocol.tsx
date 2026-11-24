@@ -15,6 +15,7 @@ const SECTION_LABEL: Record<ProtocolSection, string> = {
   question: 'Вопрос',
   artifact: 'Артефакт',
   answer: 'Ответ',
+  agreement: 'Договорённость',
 };
 
 export function protocolPaneOn(): boolean {

@@ -632,7 +632,8 @@ export async function dbGatewayResume(
 
 // ---------- 0.32.0: chat protocol kept by the server's secretary (schema 8) ----------
 
-export type ProtocolSection = 'decision' | 'constraint' | 'fact' | 'question' | 'artifact' | 'answer';
+// 0.129.0: agreement - who does what by when ("<who>: <what> [due YYYY-MM-DD]", chatFolder.ts agreementOf)
+export type ProtocolSection = 'decision' | 'constraint' | 'fact' | 'question' | 'artifact' | 'answer' | 'agreement';
 export type ProtocolStatus = 'active' | 'superseded' | 'closed';
 
 export interface ProtocolEntry {

@@ -24,7 +24,7 @@ export const FOLDER_CTX_LABEL: Record<FolderCtx, string> = {
 export const FOLDER_CTX_HINT: Record<FolderCtx, string> = {
   auto: 'Chats right inside get this folder in full, chats deeper down get its summary.',
   full: 'Chats inside get the protocol of this chat and its newest messages.',
-  summary: 'Chats inside get only its summary: the automatic summary and the decisions, constraints and open questions of its protocol.',
+  summary: 'Chats inside get only its summary: the automatic summary and the decisions, constraints, open questions and agreements of its protocol.',
   off: 'Chats inside get nothing from this chat.',
 };
 
@@ -95,11 +95,12 @@ export function folderKey(levels: FolderLevel[], project: ProjectCtx): string {
   return project === 'full' && !parts.length ? '' : [`p:${project}`, ...parts].join(',');
 }
 
-const KEEP_IN_SUMMARY = new Set<ProtocolEntry['section']>(['decision', 'constraint', 'question']);
+const KEEP_IN_SUMMARY = new Set<ProtocolEntry['section']>(['decision', 'constraint', 'question', 'agreement']);
 const SECTION_HEAD: Partial<Record<ProtocolEntry['section'], string>> = {
   decision: 'Decisions',
   constraint: 'Constraints',
   question: 'Open questions',
+  agreement: 'Agreements',
   fact: 'Facts',
   artifact: 'Artifacts',
 };

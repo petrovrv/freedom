@@ -39,6 +39,7 @@ const SECTION_ORDER: ReadonlyArray<[ProtocolEntry['section'], string]> = [
   ['constraint', 'Constraints'],
   ['fact', 'Facts'],
   ['question', 'Open questions'],
+  ['agreement', 'Agreements'],
   ['artifact', 'Artifacts'],
   ['answer', 'Answers'],
 ];

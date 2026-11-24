@@ -11,6 +11,8 @@ declare(strict_types=1);
  * Schema 16 (2026-11-01): and rules from a person's corrections of the agent (memory_candidates kind 'rule').
  * Schema 19 (2026-11-07): and the dossier of the person who writes (dossier-lib.php: me / people / state), applied
  * at once without review (decision of the owner 07.11); only batches with a message written by a person.
+ * CO Web 0.129.0 (SPEC §3.6b): section "agreement" (who does what by when; protocol-apply.php keeps "who" and "due" in
+ * the text) for the Events of the chat folder; new messages carry their date for the due dates.
  * Chats are taken up once they get a message after meta.protocol_since (first run: 24 h back); older chats are
  * not backfilled. A failing batch is retried every run, after 3 failures in a row only once an hour; the cursor
  * (chats.protocol_seq) never moves past an unprocessed batch.
@@ -229,7 +231,8 @@ function co_protocol_run(int $limit = 2, int $budgetSec = 200): array
             $newParts = [];
             foreach ($batch as $seq => $m) {
                 $isUser = $m['type'] === 'user_message';
-                $newParts[] = '[#' . $seq . ' ' . ($isUser ? 'USER' : 'AGENT') . "]\n"
+                // the date (UTC) lets the secretary convert "tomorrow" or "by Friday" of an agreement into a due date
+                $newParts[] = '[#' . $seq . ' ' . ($isUser ? 'USER' : 'AGENT') . (($dates[$seq] ?? '') !== '' ? ' ' . $dates[$seq] : '') . "]\n"
                     . co_protocol_cut($m['text'], $isUser ? 8000 : 12000);
             }
             $newText = implode("\n\n", $newParts);
@@ -309,7 +312,8 @@ Rules:
   - question: open questions, unfinished work, agreed next steps.
   - artifact: files, commits, releases, links produced.
   - answer: the agent's explanation/opinion/overview. ONLY a pointer: the question and the headings of the answer's points in one line; the full text stays in the message.
-- decision, constraint and fact entries need "quote": an exact verbatim fragment (at most 300 characters) copied from that message. Other sections may omit it.
+  - agreement: a promise or arrangement about who does what, usually by a date ("I'll send it by Friday", "the agent checks again tomorrow", "Anna pays on the 5th"). Add "who" (the person, the agent or a named third party, as written) and, when a date is said or clearly meant, "due" as YYYY-MM-DD (a weekday or "tomorrow" counted from the message date). "text" is what is to be done. Close it when it is done or called off.
+- decision, constraint, fact and agreement entries need "quote": an exact verbatim fragment (at most 300 characters) copied from that message. Other sections may omit it.
 - Nothing for small talk, greetings, sign-in problems, "ok", tool noise. Do not duplicate existing active entries. Few, precise entries.
 - If a message changes an existing active entry, use "supersede" (with the replacement). If an open question is resolved or the work is done, use "close".
 
@@ -339,7 +343,7 @@ Usually the answer is an empty array: "memory":[].
 
 {$memoryBlock}{$rulesBlock}{$dossierBlock}
 Answer with JSON only:
-{"ops":[{"op":"add","section":"…","text":"…","quote":"…","msg":<seq>},{"op":"supersede","no":<entry>,"section":"…","text":"…","quote":"…","msg":<seq>},{"op":"close","no":<entry>,"msg":<seq>}],"memory":[{"tag":"decision","text":"…","msg":<seq>}],"rules":[{"scope":"env","text":"…","quote":"…","msg":<seq>}],"dossier":[{"op":"add","section":"people","subject":"…","text":"…","msg":<seq>}]}
+{"ops":[{"op":"add","section":"…","text":"…","quote":"…","msg":<seq>},{"op":"add","section":"agreement","who":"…","text":"…","due":"YYYY-MM-DD","quote":"…","msg":<seq>},{"op":"supersede","no":<entry>,"section":"…","text":"…","quote":"…","msg":<seq>},{"op":"close","no":<entry>,"msg":<seq>}],"memory":[{"tag":"decision","text":"…","msg":<seq>}],"rules":[{"scope":"env","text":"…","quote":"…","msg":<seq>}],"dossier":[{"op":"add","section":"people","subject":"…","text":"…","msg":<seq>}]}
 "msg" must be one of the new message numbers. Answer {"ops":[],"memory":[],"rules":[],"dossier":[]} if there is nothing new.
 PROMPT;
             if ($projectId === '') {

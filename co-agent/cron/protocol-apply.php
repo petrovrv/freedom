@@ -3,7 +3,35 @@
 // Chat protocol (schema 8): validation and application of the secretary's operations. The model's answer is never
 // trusted: the source message must be in the batch, quotes of decisions/constraints/facts must occur in it verbatim,
 // supersede/close must name an active entry.
+// CO Web 0.129.0 (SPEC §3.6b, folder of a chat → Events): section "agreement" - who promised what, by when. No schema
+// change: "who" leads the text ("<who>: <what>") and a valid "due" date ends it as " [due YYYY-MM-DD]", the one form
+// CO Web reads (chatFolder.ts agreementOf).
 declare(strict_types=1);
+
+const CO_PROTOCOL_DUE_RE = '/\s*\[due \d{4}-\d{2}-\d{2}\]/u';
+
+// The stored text of an agreement: the marker of the model's text is dropped, "who" put in front unless the text starts
+// with it, a real date as " [due …]" at the end; null when nothing is left.
+function co_protocol_agreement_text(string $text, mixed $who, mixed $due): ?string
+{
+    $text = trim(preg_replace(CO_PROTOCOL_DUE_RE, '', $text) ?? '');
+    if ($text === '') {
+        return null;
+    }
+    if (is_string($who)) {
+        $who = trim(preg_replace('/[\[\]:\r\n]+/u', ' ', $who) ?? '');
+        $who = trim(mb_substr($who, 0, 60, 'UTF-8'));
+        if ($who !== '' && !str_starts_with(mb_strtolower($text, 'UTF-8'), mb_strtolower($who, 'UTF-8'))) {
+            $text = $who . ': ' . $text;
+        }
+    }
+    $text = trim(mb_substr($text, 0, 580, 'UTF-8'));
+    if (is_string($due) && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', trim($due), $m) === 1
+        && checkdate((int)$m[2], (int)$m[3], (int)$m[1])) {
+        $text .= ' [due ' . trim($due) . ']';
+    }
+    return $text;
+}
 
 function co_protocol_norm(string $s): string
 {
@@ -17,8 +45,8 @@ function co_protocol_norm(string $s): string
 // $extra (schema 9) runs inside the same transaction before the cursor moves: memory candidates of the batch.
 function co_protocol_apply(mysqli $db, string $chatId, array $batch, array $ops, string $model, int $batchEnd, ?callable $extra = null): array
 {
-    $allowedSections = ['decision', 'constraint', 'fact', 'question', 'artifact', 'answer'];
-    $quoteRequired   = ['decision', 'constraint', 'fact'];
+    $allowedSections = ['decision', 'constraint', 'fact', 'question', 'artifact', 'answer', 'agreement'];
+    $quoteRequired   = ['decision', 'constraint', 'fact', 'agreement'];
     $applied  = 0;
     $rejected = 0;
     $total    = count($ops);
@@ -119,6 +147,9 @@ function co_protocol_apply(mysqli $db, string $chatId, array $batch, array $ops,
                 continue;
             }
             $text = trim(mb_substr($text, 0, 600, 'UTF-8'));
+            if ($section === 'agreement') {
+                $text = co_protocol_agreement_text($text, $op['who'] ?? null, $op['due'] ?? null) ?? '';
+            }
             if ($text === '') {
                 $rejected++;
                 continue;

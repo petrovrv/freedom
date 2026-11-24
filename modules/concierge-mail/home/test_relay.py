@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import tempfile
+import time
 import unittest
 from email.message import EmailMessage
 from pathlib import Path
@@ -127,6 +128,37 @@ class RelayTests(unittest.TestCase):
                 self.assertEqual(answer['result']['threads'][0]['subject'], 'Report')
             else:
                 self.assertEqual(answer, {'ok': False, 'error': 'not_bound'})
+
+    def test_snippet_without_style_sheets(self):
+        s = relay._snippet
+        self.assertEqual(s('', '<html><head><title>Title</title><style>body{ width: 100%; }</style></head>'
+                              '<body><!-- x --><p>Hi&nbsp;Alex &amp; co</p></body></html>'), 'Hi Alex & co')
+        self.assertEqual(s('<style type="text/css"> html { height: 100%; } </style><p>Nieuw bericht</p>', ''), 'Nieuw bericht')
+        self.assertEqual(s('Deal 96 * { font-family: Arial; } #outlook a { padding: 0; } [owa] .btn > td { x: 1; }'
+                           ' @import url(https://f.example/css?a=1;b=2); @media screen { @font-face { font-family: X; } } Real', ''),
+                         'Deal 96 Real')
+        self.assertEqual(s('', '<style>table.data td {x:1} a[href^="tel"] {z:3}</style>Text table.data td {x:1} after'), 'Text after')
+        self.assertEqual(s('', '<p>Je pakket wordt bezorgd</p><div>body{ height: 100% !important; }</div>'), 'Je pakket wordt bezorgd')
+        self.assertEqual(s('', '<html><head><meta charset=utf-8><body><p>Hello Alex</p>'), 'Hello Alex')  # no </head>
+        self.assertEqual(s('.editable { background: #EAEAEA } Dear Alex, Stain &amp; Odour&nbsp;Remover', ''), 'Dear Alex, Stain & Odour Remover')
+        for html in ('<p>your code {id: 5} is ready</p>', '<p>Cost {Q3: up 5%} report</p>', '<p>Use {} as placeholder</p>'):
+            self.assertEqual(s('', html), html[3:-4])  # braces in html text that are not CSS
+        self.assertEqual(s('', '<head><meta charset=utf-8><p>No body tag here'), 'No body tag here')
+        for text in ('Price {not css} and a: b', 'Meeting {time: 10:00} ok', 'Hello {} world', 'Price <50 EUR, delivery > 3 days',
+                     'Reading <title of the book> now.', '?a=1&notify=true&copy=2', 'Total: 5 EUR. Fine', 'Your order #12345 {shipped: yes} today'):
+            self.assertEqual(s(text, ''), text)  # a text part keeps its <, & and braces
+        self.assertEqual(s('Hi\u200c\u034f\u2800 there \U0001F468\u200d\U0001F469', ''), 'Hi there \U0001F468\u200d\U0001F469')
+
+    def test_snippet_time_stays_linear(self):
+        for body, html in (('a' * 200000, ''), ('a ' * 100000, ''), ('/* ' * 60000 + '{', ''), ('@import url( ' * 15000 + '{', ''),
+                           ('<' * 200000, ''), ('', '<' * 200000), ('{' * 100000 + '}' * 100000, ''), ('x{a:1;' * 30000 + '}' * 30000, ''),
+                           ('.a ' * 60000 + '{x:1;}', ''), ('', '<head>' * 30000), ('', '<!--' * 50000),
+                           ('a' + '\u200d' * 200000 + 'b', ''), ('x' * 400 + '{}' * 99000, ''),
+                           (('{' + 'a:' * 1999 + '}') * 50, ''), ('@charset' + '\xa0' * 199980 + '{', ''),
+                           (('@import ' + ' ' * 2000) * 95 + '{', '')):
+            t = time.monotonic()
+            relay._snippet(body, html)
+            self.assertLess(time.monotonic() - t, 1.5)
 
 
 if __name__ == '__main__':

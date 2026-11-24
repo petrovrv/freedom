@@ -14,6 +14,7 @@ click (home/remoteimg.py); the page itself never loads anything from the interne
 from __future__ import annotations
 
 import base64
+import html as htmllib
 import json
 import os
 import re
@@ -47,9 +48,98 @@ def _labels_of(text):
         return []
 
 
+_HIDDEN = re.compile('[\u00ad\u034f\u180e\u200b\u200e\u200f\u2060-\u2064\u2800\ufeff]')  # preheader padding of newsletters
+_JOINERS = re.compile('[\u200c\u200d]+')
+_SEL_TOKEN = re.compile(r'[\w.#*:>+~\[\]=\'"()%^$|,-]{1,200}')
+_TAGS = r'(a|p|b|i|u|td|th|tr|table|tbody|body|html|div|span|img|li|ul|ol|h[1-6]|font|center|strong|em)'
+_SEL_MORE = re.compile(r'[.#*\[>+~,]|[\w-]*[.#\[:][\w-]|' + _TAGS + r',?$')  # selector parts before the last one
+_SEL_CSS = re.compile(r'[.\[@*]|#[a-zA-Z_-]|' + _TAGS + r'\b')                     # a selector that is surely CSS (`#12345` is not)
+_DECL = re.compile(r'[a-zA-Z-]{1,60}\s*:[^;{}]{0,200};')
+_BLOCK_MAX = 4000    # characters inside one style block that are examined
+_CSS_BUDGET = 400000  # characters examined per snippet (every block costs at least 400): the work stays linear
+
+
+def _drop_joiners(text):
+    """Zero-width joiners of newsletter padding (next to a space or an edge); inside a word (emoji, scripts) they stay."""
+    def keep(m):
+        a, b = m.start(), m.end()
+        inside = a > 0 and b < len(text) and not text[a - 1].isspace() and not text[b].isspace()
+        return m.group(0) if inside else ''
+    return _JOINERS.sub(keep, text)
+
+
+def _selector_start(out, end):
+    """Index in `out` where the selector of a style block whose `{` is out[end] starts (looks back 400 characters)."""
+    head = ''.join(out[max(0, end - 400):end])
+    base = end - len(head)
+    at = head.rfind('@')
+    if at >= 0 and not re.search(r'[;{}]', head[at:]):  # @media screen and (min-width: 480px)
+        return base + at
+    start = end
+    for n, m in enumerate(reversed(list(re.finditer(r'\S+', head)))):
+        t = m.group(0)
+        if not _SEL_TOKEN.fullmatch(t) or (n and not _SEL_MORE.match(t)):
+            break  # `Deal 96 *{` keeps `Deal 96`; `.x td`, `#outlook a`, `body, td` go
+        start = base + m.start()
+    return start
+
+
+def _drop_style_blocks(text):
+    """Remove `selector { declarations }` and the @media blocks around them in one pass; other braces stay.
+
+    A block goes when it holds `prop: value;`, or holds one declaration without `;` / nothing at all after a selector
+    that is surely CSS (`.x`, `#id`, `[a]`, `@media`, `*`, a tag name): `code {id: 5}`, `Hello {} world` stay."""
+    out, opened, budget = [], [], _CSS_BUDGET
+    for ch in text.replace('\0', ' '):
+        if ch == '{':
+            opened.append(len(out))
+        elif ch == '}' and opened:
+            at = opened.pop()
+            size = len(out) - at - 1
+            budget -= max(400, min(size, _BLOCK_MAX))
+            if size <= _BLOCK_MAX and budget > 0:
+                inner = ''.join(out[at + 1:])
+                start = _selector_start(out, at)
+                sure = start < at and _SEL_CSS.match(''.join(out[start:at]))
+                if '\0' in inner or (';' in inner and _DECL.search(inner)) or (
+                        sure and (not inner.strip() or _DECL.fullmatch(inner.strip() + ';'))):
+                    del out[start:]
+                    out.append('\0' if opened else ' ')  # NUL: the enclosing block held a style block, it goes too
+                    continue
+        out.append(ch)
+    return ''.join(out).replace('\0', ' ')
+
+
 def _snippet(body, html):
-    text = body or re.sub(r'<[^>]*>', ' ', html or '')
-    return re.sub(r'\s+', ' ', text).strip()[:160]
+    """First words of a message for the list: no head, style sheets, comments, tags, entities or hidden padding."""
+    text, from_html = body or '', False
+    if not text.strip() or re.search(r'(?i)<(style|html|head|body|table|div)\b', text[:200000]):  # plain part that is really html
+        text, from_html = (html or text), True
+    text = text[:200000]
+    if from_html:
+        text = re.sub(r'(?is)<!--.*?(-->|$)|<(style|script|title|xml)\b.*?(</\2\s*>|$)'
+                      r'|<head\b.*?(</head\s*>|(?=<(body|p|div|table|span|a|img|h[1-6]|center|font)\b)|$)', ' ', text)
+        text = htmllib.unescape(re.sub(r'<[^<>]*>', ' ', text))
+    else:  # entities some senders put into the text part; only complete ones (`?a=1&copy=2` stays)
+        text = re.sub(r'&(#\d{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z]{2,8});', lambda m: htmllib.unescape(m.group(0)), text)
+    if '{' in text:
+        text = _drop_comments(text)
+        text = re.sub(r'@(import|charset)\s++(url\([^()\s{}]{0,2000}\))?+[^;{}<>\n]{0,500}+;', ' ', text)  # possessive: no backtracking
+        text = _drop_style_blocks(text)
+    return re.sub(r'\s+', ' ', _drop_joiners(_HIDDEN.sub('', text))).strip()[:160]
+
+
+def _drop_comments(text):
+    """CSS comments /* ... */ (an unclosed one stays)."""
+    parts, i = [], 0
+    while True:
+        a = text.find('/*', i)
+        b = text.find('*/', a + 2) if a >= 0 else -1
+        if b < 0:
+            parts.append(text[i:])
+            return ' '.join(parts)
+        parts.append(text[i:a])
+        i = b + 2
 
 
 def _clean_html(html, inline):

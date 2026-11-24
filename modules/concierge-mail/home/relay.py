@@ -129,10 +129,14 @@ class MailApi:
                 'SELECT DISTINCT m.sender FROM gmail_messages g JOIN messages m ON m.id=g.message_id'
                 ' WHERE g.account=? AND g.thread_id=? AND g.gone=0 ORDER BY g.internal_date LIMIT 4', (self.account, r['thread_id']))]
             labels = sorted({l for part in (r['ls'] or '').split('\x1f') for l in _labels_of(part)})
+            # read-guard flag of any message in the thread, not only the newest one
+            tainted = self.db.execute(
+                'SELECT 1 FROM gmail_messages g JOIN messages m ON m.id=g.message_id'
+                ' WHERE g.account=? AND g.thread_id=? AND g.gone=0 AND m.tainted LIMIT 1', (self.account, r['thread_id'])).fetchone()
             items.append({'thread': r['thread_id'], 'date': r['d'], 'count': r['n'], 'unread': int(r['u'] or 0),
                           'labels': labels, 'subject': '' if last['sensitive'] else last['subject'],
                           'from': senders, 'snippet': '' if last['sensitive'] else _snippet(last['body'], last['html']),
-                          'attachments': int(last['att']), 'sensitive': bool(last['sensitive']), 'tainted': bool(last['tainted'])})
+                          'attachments': int(last['att']), 'sensitive': bool(last['sensitive']), 'tainted': tainted is not None})
         return {'threads': items, 'next': f"{items[-1]['date']}:{items[-1]['thread']}" if len(items) == limit else None}
 
     def list(self, args):

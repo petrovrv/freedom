@@ -133,6 +133,8 @@ async function loadDrafts(ticket) {
   finally { if (ticket === listTicket) { listBusy = false; $('more').hidden = true; } }
 }
 function renderThreads() {
+  // a redraw (e.g. the overview arriving) keeps the row the person moved to with j/k or Tab focused
+  const focused = [...$('threads').children].indexOf(document.activeElement);
   $('threads').replaceChildren();
   threads.forEach((t, index) => {
     const b = button('', () => openThread(index)); b.className = 'thread' + (t.unread ? ' unread' : '');
@@ -153,6 +155,7 @@ function renderThreads() {
     }
     $('threads').append(b);
   });
+  if (focused >= 0) $('threads').children[focused]?.focus();
 }
 async function loadList(append = false) {
   if (append && (listBusy || next === null)) return;

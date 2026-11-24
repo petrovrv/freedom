@@ -64,6 +64,16 @@ class RelayTests(unittest.TestCase):
         got = self.ask('attachment', {'sha': att['sha']})['result']
         self.assertEqual(base64.b64decode(got['data']), b'%PDF-1.4 tiny')
 
+    def test_thread_flag_comes_from_any_message(self):
+        db = self.store.db
+        first = db.execute("SELECT thread_id FROM gmail_messages WHERE gmail_id='a1'").fetchone()['thread_id']
+        db.execute("UPDATE gmail_messages SET thread_id=?, internal_date=1 WHERE gmail_id='a2'", (first,))
+        db.execute("UPDATE gmail_messages SET internal_date=2 WHERE gmail_id='a1'")
+        db.execute("UPDATE messages SET tainted=1 WHERE id=(SELECT message_id FROM gmail_messages WHERE gmail_id='a2')")
+        db.commit()
+        thread = next(t for t in self.ask('list', {'label': 'ALL'})['result']['threads'] if t['thread'] == first)
+        self.assertEqual((thread['count'], thread['subject'], thread['tainted']), (2, 'Hello heat pump', True))
+
     def test_remote_images_come_from_the_stored_message(self):
         html = EmailMessage()
         html['From'], html['To'], html['Subject'], html['Message-ID'] = 'Shop <s@example.org>', 'me@example.org', 'Sale', '<a4@x>'

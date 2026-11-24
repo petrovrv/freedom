@@ -155,7 +155,9 @@ export default function Shell({ auth }: { auth: Signed }) {
       window.removeEventListener('popstate', onPop);
       if (window.history.state?.coDrawer) window.history.back();
     };
-  }, [drawerOpen]);
+    // 0.128.0: a new page while a drawer stays open (Properties of another chat) gets its own entry, so Back closes the
+    // drawer on that page
+  }, [drawerOpen, pathname]);
   // 0.90.0: a family push opens /e/<env>?family=1 -> the family room (app 👪)
   const loc = useLocation();
   useEffect(() => {
@@ -240,7 +242,7 @@ export default function Shell({ auth }: { auth: Signed }) {
   }, [appNow, exitApp]);
   useSeenVersion();
   useColumnWidth('--left-w', 'co.leftW', 270, 180, 560);
-  useColumnWidth('--right-w', 'co.rightW', 300, 220, 640);
+  useColumnWidth('--right-w', 'co.rightW', 340, 260, 720);
   // 0.25.0: archive (projects and chats are hidden from the lists, not deleted)
   const [showArchivedChats, setShowArchivedChats] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
@@ -522,13 +524,14 @@ export default function Shell({ auth }: { auth: Signed }) {
 
   const chat = useMemo(() => chats?.find((c) => c.chatId === chatId) || null, [chats, chatId]);
 
-  // 0.128.0: the Properties of a chat show the open chat - another chat is opened first (its settings live in its
-  // ChatView); any open request closes the projects drawer of a phone
+  // 0.128.0: the Properties of a chat show the open chat and follow it - another chat is opened first (its settings
+  // live in its ChatView), then the request drops its ids; any open request closes the projects drawer of a phone
   useEffect(() => {
     if (!panel) return;
     if (window.matchMedia('(max-width: 1100px)').matches) setLeftOpen(false);
-    if (panel.kind === 'chat' && panel.chatId && panel.projectId && panel.chatId !== chatId) {
-      navigate(`/e/${env}/p/${panel.projectId}/c/${panel.chatId}`);
+    if (panel.kind === 'chat' && panel.chatId) {
+      // the drawer's own history entry (a phone) is replaced, so Back does not lead to the chat left behind
+      if (panel.projectId && panel.chatId !== chatId) navigate(`/e/${env}/p/${panel.projectId}/c/${panel.chatId}`, { replace: !!window.history.state?.coDrawer });
       openPanel('chat');
     }
   }, [panelNonce]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1488,7 +1491,6 @@ export default function Shell({ auth }: { auth: Signed }) {
                 hostPref={hostPref}
                 onHostPref={setHostPref}
                 onProjectChanged={(p) => setProjects((prev) => (prev || []).map((x) => (x.folderId === p.folderId ? p : x)))}
-                onChatChanged={(c) => setChats((prev) => (prev || []).map((x) => (x.folderId === c.folderId ? c : x)))}
               />
             </aside>
           )}

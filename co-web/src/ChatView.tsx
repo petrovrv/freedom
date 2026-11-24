@@ -21,6 +21,7 @@ import { createPortal } from 'react-dom';
 import { BrowserSettingsPanel } from './BrowserSettings';
 import { openPanel, useChatPanel } from './chatPanel';
 import { buildFolderBlock, folderKey, folderLevels, levelsToSend, memoryDigest, projectCtxOf, type FolderLevel, type LevelContent } from './folderContext';
+import { FolderCtxSection } from './FolderCtx';
 import type { ChatAction } from './ChatActions';
 import { FolderPicker } from './FolderPicker';
 import { FileMenu, googleDocsUrl, hasGoogleDocs, moduleFileItems, viewerHref } from './FileMenu';
@@ -142,7 +143,7 @@ export default function ChatView(props: Props) {
     return caps.includes('db-queue');
   }, [hostOf, host, capabilities, props.owners]);
   const [chat, setChat] = useState(props.chat);
-  useEffect(() => setChat(props.chat), [props.chat.title, props.chat.projectId, props.chat.trashedUtc, props.chat.archived]); // eslint-disable-line react-hooks/exhaustive-deps -- F15.2: trash and archive state too
+  useEffect(() => setChat(props.chat), [props.chat.title, props.chat.projectId, props.chat.trashedUtc, props.chat.archived, props.chat.folderContext]); // eslint-disable-line react-hooks/exhaustive-deps -- F15.2: trash and archive state, the folder switch (another device) too
   const [events, setEvents] = useState<ChatEvent[] | null>(null);
   // 0.55.0: files of this chat (from its messages), to recognise an upload as a new version of one of them
   const composerStreams = useMemo<ChatStream[]>(() => buildStreams(events || [], null, project.projectId, chat.chatId), [events, project.projectId, chat.chatId]);
@@ -1186,6 +1187,15 @@ export default function ChatView(props: Props) {
           )}
         </div>,
         panel.chatSlot,
+      )}
+      {/* F15.2 part 4: the context switch of this chat as a folder ("Context and usage" of its Properties) */}
+      {!props.docked && !chat.draft && panel.ctxSlot && createPortal(
+        <FolderCtxSection chat={chat} chats={props.projectChats ?? null} project={project} readOnly={readOnly}
+          onSet={async (folderContext) => {
+            setChat(await updateChatMeta(chat, { folderContext }));
+            props.onChatUpdated(); // the shell's list: the chats inside read their folders from it
+          }} />,
+        panel.ctxSlot,
       )}
       {!props.docked && panel.filesSlot && createPortal(
         <PermissionsBar

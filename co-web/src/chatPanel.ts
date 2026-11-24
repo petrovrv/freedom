@@ -18,6 +18,8 @@ export interface PanelTarget {
 
 type State = {
   chatSlot: HTMLElement | null;
+  /** the "Context and usage" part of the chat's Properties: ChatView renders the folder's context switch there */
+  ctxSlot: HTMLElement | null;
   filesSlot: HTMLElement | null;
   familySlot: HTMLElement | null;
   /** the shown panel, null = closed */
@@ -37,7 +39,7 @@ function readPin(): boolean {
   }
 }
 
-let state: State = { chatSlot: null, filesSlot: null, familySlot: null, panel: null, nonce: 0, pinned: readPin(), familyUnread: 0 };
+let state: State = { chatSlot: null, ctxSlot: null, filesSlot: null, familySlot: null, panel: null, nonce: 0, pinned: readPin(), familyUnread: 0 };
 const subs = new Set<() => void>();
 
 function set(patch: Partial<State>) {
@@ -58,6 +60,10 @@ export function setChatSlot(el: HTMLElement | null) {
   if (state.chatSlot !== el) set({ chatSlot: el });
 }
 
+export function setCtxSlot(el: HTMLElement | null) {
+  if (state.ctxSlot !== el) set({ ctxSlot: el });
+}
+
 export function setFilesSlot(el: HTMLElement | null) {
   if (state.filesSlot !== el) set({ filesSlot: el });
 }
@@ -70,20 +76,38 @@ export function setFamilyUnread(n: number) {
   if (state.familyUnread !== n) set({ familyUnread: n });
 }
 
+// Editors of the panel with unsaved text (project instructions, memory, environment profile): closing the panel or
+// replacing what it shows asks first, so a click or a key does not throw the text away
+const dirty = new Set<string>();
+export function setPanelDirty(id: string, on: boolean) {
+  if (on) dirty.add(id);
+  else dirty.delete(id);
+}
+function mayLeave(): boolean {
+  if (!dirty.size) return true;
+  if (!window.confirm('The panel has unsaved changes. Discard them?')) return false;
+  dirty.clear();
+  return true;
+}
+
 /** Opens the side panel: Properties of a chat or project (the open one by default), System or the family room. */
 export function openPanel(kind: PanelKind, target: { projectId?: string; chatId?: string } = {}) {
+  const p = state.panel;
+  // the same content stays mounted (a chat's Properties follow the open chat; a project's are keyed by the project)
+  const same = !!p && p.kind === kind && (kind !== 'project' || (p.projectId || '') === (target.projectId || ''));
+  if (!same && !mayLeave()) return;
   set({ panel: { kind, ...target }, nonce: state.nonce + 1 });
 }
 
-/** The same panel again closes it (a second Alt+Enter, ⓘ or tile), another one replaces it. */
+/** The same kind again closes it (a second Alt+Enter, ⓘ or tile), another one replaces it. */
 export function togglePanel(kind: PanelKind, target: { projectId?: string; chatId?: string } = {}) {
   const p = state.panel;
-  if (p && p.kind === kind && (p.projectId || '') === (target.projectId || '') && (p.chatId || '') === (target.chatId || '')) closePanel();
+  if (p && p.kind === kind && (kind !== 'project' || !target.projectId || (p.projectId || '') === target.projectId)) closePanel();
   else openPanel(kind, target);
 }
 
 export function closePanel() {
-  if (state.panel) set({ panel: null });
+  if (state.panel && mayLeave()) set({ panel: null });
 }
 
 export function setPanelPinned(pinned: boolean) {

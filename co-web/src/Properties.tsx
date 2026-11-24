@@ -7,9 +7,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatEvent, ContextFolder } from './types';
 import { dbDossierGet, dbDossierPut, dbGetProfile, dbMemoryCandidates, dbPutProfile, type EnvProfile, type MemoryCandidate } from './dbapi';
 import { DOSSIER_SECTION_LABEL, type DossierRow } from './secretaryHints';
-import { closePanel, setChatSlot, setFamilySlot, setPanelPinned, useChatPanel, type PanelTarget } from './chatPanel';
-import { FOLDER_CTX_HINT, FOLDER_CTX_LABEL, PROJECT_CTX_HINT, folderCtxOf, folderLevels, projectCtxOf, type FolderCtx, type ProjectCtx } from './folderContext';
-import { CONTEXT_MODE_LABEL } from './contextLevels';
+import { closePanel, setChatSlot, setCtxSlot, setFamilySlot, setPanelDirty, setPanelPinned, useChatPanel } from './chatPanel';
+import { ProjectCtxSwitch } from './FolderCtx';
+import { Fold } from './FolderContents';
 import { placeParent } from './chatTree';
 import { MemoryReviewDialog } from './MemoryReview';
 import { categorize } from './errors';
@@ -39,17 +39,18 @@ import { HOSTS } from './config';
 import { ExecutorsSection } from './ExecutorList';
 import {
   copyToFolder, listProjectFiles, loadChatEvents, readProjectInstructions, resolveDrivePath,
-  saveProjectContextFile, readProjectContextFile, saveProjectInstructions, saveProjectMeta, updateChatMeta, uploadProjectFile, type HostDirs, type HostHealth, type Root,
+  saveProjectContextFile, readProjectContextFile, saveProjectInstructions, saveProjectMeta, uploadProjectFile, type HostDirs, type HostHealth, type Root,
 } from './workbench';
 import { confidentialPatch, gateway, projectConfidential } from './gateway';
 
 // 0.128.0 (F15.2 part 4, SPEC §3.6b): the side panel instead of the right panel with tabs. It shows one thing at a
 // time: the Properties of a chat folder (general, settings and actions, context of the folders, sharing, context and
 // usage), the Properties of a project folder, System (Settings → System: host, devices, agents, models, modules, data,
-// limits, health, jobs, connectors) or the family room (app 👪). Computer: slides in from the right over the chat,
-// 📌 pins it as a column; phone: a sheet from the bottom (the family room takes the whole screen).
+// limits, health, jobs, connectors) or the family room (app 👪). Computer: slides in from the right over the chat and
+// stays until ✕, Esc or another panel (a click in the chat does not close it: no half-typed edit is lost), 📌 pins it
+// as a column; phone: a sheet from the bottom, closed by its scrim too (the family room takes the whole screen).
 export default function SidePanel({
-  projects, project, chat, chats, owner, health, authOk, host, onProjectChanged, onChatChanged, limits, env, hostPref, onHostPref,
+  projects, project, chat, chats, owner, health, authOk, host, onProjectChanged, limits, env, hostPref, onHostPref,
 }: {
   projects: Project[] | null;
   /** the open project and chat of the route (chat null on a project page or a new chat) */
@@ -61,39 +62,25 @@ export default function SidePanel({
   authOk: boolean;
   host: HostDirs | null;
   onProjectChanged: (p: Project) => void;
-  onChatChanged: (c: Chat) => void;
   limits: LimitsFile | null;
   env: string;
   hostPref?: HostPref;
   onHostPref?: (p: HostPref) => void;
 }) {
   const { panel, pinned } = useChatPanel();
-  const box = useRef<HTMLDivElement>(null);
-  // Esc closes a panel that is not pinned (before an app takes Esc to exit)
+  // Esc closes a panel that is not pinned (before an app takes Esc to exit); not while typing, so no edit is lost
   useEffect(() => {
     if (!panel || pinned) return;
     const f = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
-      if (document.querySelector('.modal, .ex-jump-scrim, .launcher-pop, .app-menu-scrim')) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (document.querySelector('.modal, .ex-jump-scrim, .ex-menu-scrim, .launcher-pop, .app-menu-scrim, .fam-lightbox, .file-menu .menu-pop, .chat-menu .menu')) return;
       e.preventDefault();
       closePanel();
     };
     window.addEventListener('keydown', f, true);
     return () => window.removeEventListener('keydown', f, true);
-  }, [panel, pinned]);
-  // on a computer a panel that is not pinned closes on a click in the chat (the projects panel, the header and menus
-  // stay usable: an item's Properties replace the shown ones); a phone has the sheet's scrim
-  useEffect(() => {
-    if (!panel || pinned) return;
-    const f = (e: PointerEvent) => {
-      if (window.matchMedia('(max-width: 760px)').matches) return;
-      const t = e.target as Element | null;
-      if (!t || box.current?.contains(t) || !t.isConnected) return;
-      if (t.closest('.left, .topbar, .ex-menu-scrim, .ex-jump-scrim, .modal-back, .launcher-pop, .app-menu-list, .resizer, .menu')) return;
-      closePanel();
-    };
-    document.addEventListener('pointerdown', f);
-    return () => document.removeEventListener('pointerdown', f);
   }, [panel, pinned]);
   if (!panel) return null;
   const pj = panel.kind === 'project' ? (panel.projectId ? projects?.find((p) => p.projectId === panel.projectId) ?? null : project) : null;
@@ -103,7 +90,7 @@ export default function SidePanel({
     : `💬 ${chat?.title || (project && !chat ? 'New chat' : 'Chat')}`;
   const sub = panel.kind === 'family' ? '' : panel.kind === 'system' ? 'Settings of this computer, the executors and the modules' : 'Properties';
   return (
-    <div ref={box} className={`side-panel kind-${panel.kind}`} role="dialog" aria-label={`${sub ? sub + ': ' : ''}${title}`}>
+    <div className={`side-panel kind-${panel.kind}`} role="dialog" aria-label={`${sub ? sub + ': ' : ''}${title}`}>
       <div className="sp-head">
         <div className="sp-title">
           <span className="sp-name" title={title}>{title}</span>
@@ -121,21 +108,19 @@ export default function SidePanel({
           ? <ProjectTab key={pj.folderId} project={pj} owner={owner} host={host} onProjectChanged={onProjectChanged} />
           : <p className="muted pad">{authOk ? 'No project selected.' : 'Sign in to Google Drive to see the project.'}</p>)}
         {panel.kind === 'chat' && (
-          <ChatProps panel={panel} project={project} chat={chat} chats={chats} env={env} authOk={authOk}
-            onProjectChanged={onProjectChanged} onChatChanged={onChatChanged} />
+          <ChatProps project={project} chat={chat} chats={chats} env={env} authOk={authOk} onProjectChanged={onProjectChanged} />
         )}
       </div>
     </div>
   );
 }
 
-// The Properties of a chat folder: the open chat (a chat's Properties open it first) or the new chat of the project
-function ChatProps({ panel, project, chat, chats, env, authOk, onProjectChanged, onChatChanged }: {
-  panel: PanelTarget; project: Project | null; chat: Chat | null; chats: Chat[] | null; env: string; authOk: boolean;
-  onProjectChanged: (p: Project) => void; onChatChanged: (c: Chat) => void;
+// The Properties of a chat folder: the open chat (a chat's Properties open it first, the shell) or the new chat of the project
+function ChatProps({ project, chat, chats, env, authOk, onProjectChanged }: {
+  project: Project | null; chat: Chat | null; chats: Chat[] | null; env: string; authOk: boolean;
+  onProjectChanged: (p: Project) => void;
 }) {
   const [msg, setMsg] = useState<string | null>(null);
-  if (panel.chatId && panel.chatId !== chat?.chatId) return <p className="muted pad">Opening the chat…</p>;
   if (!project) return <p className="muted pad">Open a chat to see its properties.</p>;
   if (!chat) {
     return (
@@ -171,9 +156,13 @@ function ChatProps({ panel, project, chat, chats, env, authOk, onProjectChanged,
       {/* ChatView renders the chat's settings and actions here (permissions, device, modes, context mode, browser, protocol … delete) */}
       <div className="chat-slot" ref={setChatSlot} />
       <h5>Context and usage</h5>
-      <FolderCtxSection chat={chat} chats={chats} project={project} readOnly={!authOk || chat.shareRole === 'viewer' || project.shareRole === 'viewer'}
-        onChatChanged={onChatChanged} onError={setMsg} />
-      {authOk && !chat.draft && <SessionTab key={chat.chatId} chat={chat} chats={chats} env={env} contextFolders={project.contextFolders} />}
+      {/* ChatView renders the folder's context switch here (it owns the chat's settings, so one writer of chat.json) */}
+      <div className="ctx-slot" ref={setCtxSlot} />
+      {authOk && !chat.draft && (
+        <Fold id="sessionInfo" label="Where it runs, usage, lineage" hint="The last answer's executor, agent and model, tokens and cost, permissions, exported files, branches">
+          {() => <SessionTab key={chat.chatId} chat={chat} chats={chats} env={env} contextFolders={project.contextFolders} />}
+        </Fold>
+      )}
       {authOk && (
         <>
           <h5>Sharing of this chat</h5>
@@ -181,85 +170,6 @@ function ChatProps({ panel, project, chat, chats, env, authOk, onProjectChanged,
         </>
       )}
       {msg && <p className="error-text small">{msg}</p>}
-    </div>
-  );
-}
-
-// F15.2 part 4: the context switch of this chat as a folder, and what the chat itself gets from the folders above it
-function FolderCtxSection({ chat, chats, project, readOnly, onChatChanged, onError }: {
-  chat: Chat; chats: Chat[] | null; project: Project; readOnly: boolean; onChatChanged: (c: Chat) => void; onError: (m: string) => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const set = folderCtxOf(chat);
-  const levels = folderLevels(chat, chats || []);
-  const cmode = chat.contextMode || 'full';
-  const pctx = projectCtxOf(project);
-  const inside = (chats || []).filter((c) => placeParent(c) === chat.chatId && !c.archived).length;
-  return (
-    <div className="small folder-ctx">
-      <label className="fc-row">
-        <span>For the chats inside it</span>
-        <select value={set} disabled={readOnly || busy} title={FOLDER_CTX_HINT[set]}
-          onChange={async (e) => {
-            setBusy(true);
-            try {
-              onChatChanged(await updateChatMeta(chat, { folderContext: e.target.value as FolderCtx }));
-            } catch (x) {
-              onError(categorize(x).message);
-            } finally {
-              setBusy(false);
-            }
-          }}>
-          {(Object.keys(FOLDER_CTX_LABEL) as FolderCtx[]).map((k) => <option key={k} value={k} title={FOLDER_CTX_HINT[k]}>{FOLDER_CTX_LABEL[k]}</option>)}
-        </select>
-      </label>
-      <div className="muted tiny">{FOLDER_CTX_HINT[set]} {inside ? `${inside} chat${inside === 1 ? '' : 's'} inside now.` : 'No chats inside yet.'}</div>
-      <div className="fc-gets">
-        <b>This chat gets</b> in a new agent session
-        {cmode !== 'full' ? (
-          <div className="muted">{CONTEXT_MODE_LABEL[cmode]}: no project and no folders above (the context mode of the chat, in Settings above).</div>
-        ) : (
-          <ul>
-            <li>Project «{project.title}»: {pctx === 'full' ? 'full' : pctx === 'summary' ? 'summary' : 'off'}</li>
-            {levels.map((l) => (
-              <li key={l.chat.chatId}>
-                «{l.chat.title || l.chat.chatId}»: {l.lineage ? 'the messages this chat started from' : l.mode}
-                {!l.lineage && l.set === 'auto' ? <span className="muted"> (automatic, {l.depth === 1 ? 'nearest' : `${l.depth} up`})</span> : null}
-              </li>
-            ))}
-            {!levels.length && <li className="muted">no chat folders above it</li>}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// F15.2 part 4: the project folder's switch (instructions and memory for its chats)
-function ProjectCtxSwitch({ project, onProjectChanged, onError }: { project: Project; onProjectChanged: (p: Project) => void; onError: (m: string) => void }) {
-  const [busy, setBusy] = useState(false);
-  const v = projectCtxOf(project);
-  return (
-    <div className="small folder-ctx">
-      <label className="fc-row">
-        <span>Instructions and memory</span>
-        <select value={v} disabled={busy || !!project.shareRole} title={PROJECT_CTX_HINT[v]}
-          onChange={async (e) => {
-            setBusy(true);
-            try {
-              onProjectChanged(await saveProjectMeta(project, { folderContext: e.target.value as ProjectCtx }));
-            } catch (x) {
-              onError(categorize(x).message);
-            } finally {
-              setBusy(false);
-            }
-          }}>
-          <option value="full" title={PROJECT_CTX_HINT.full}>Full</option>
-          <option value="summary" title={PROJECT_CTX_HINT.summary}>Summary</option>
-          <option value="off" title={PROJECT_CTX_HINT.off}>Off</option>
-        </select>
-      </label>
-      <div className="muted tiny">{PROJECT_CTX_HINT[v]} A chat in Reference or Clean view gets none of it anyway.</div>
     </div>
   );
 }
@@ -276,6 +186,10 @@ function ProjectTab({
   const [memRev, setMemRev] = useState(0);
   const [memDirty, setMemDirty] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  // 0.128.0: unsaved edits hold the side panel (closing or replacing it asks first)
+  useEffect(() => setPanelDirty('instructions', dirty), [dirty]);
+  useEffect(() => setPanelDirty('memory', memDirty), [memDirty]);
+  useEffect(() => () => { setPanelDirty('instructions', false); setPanelDirty('memory', false); }, []);
 
   useEffect(() => {
     void (async () => {
@@ -1067,6 +981,8 @@ function EnvProfileEditor({ env, onError }: { env: string; onError: (m: string) 
   const [saved, setSaved] = useState<EnvProfile | null>(null);
   const [text, setText] = useState('');
   const [saving, setSaving] = useState(false);
+  useEffect(() => setPanelDirty('profile', !!saved && text !== saved.text), [saved, text]);
+  useEffect(() => () => setPanelDirty('profile', false), []);
   useEffect(() => {
     let cancelled = false;
     setSaved(null);

@@ -10,7 +10,7 @@ import { DriveTree } from './Properties';
 import { chatScratchPath, type Root } from './workbench';
 import type { Chat, OwnerInfo, Project } from './types';
 
-function Fold({ id, label, hint, children, defOpen = false }: { id: string; label: string; hint?: string; children: () => ReactNode; defOpen?: boolean }) {
+export function Fold({ id, label, hint, children, defOpen = false }: { id: string; label: string; hint?: string; children: () => ReactNode; defOpen?: boolean }) {
   const key = `co.fold.${id}`;
   const [open, setOpen] = useState(() => {
     try {
@@ -67,7 +67,8 @@ function ChatScratch({ chat, root }: { chat: Chat; root: Root }) {
 
 /** The workspace of a project (its Drive folder when the home computer keeps it on Drive). */
 export function ProjectWorkspace({ project, owner, root, authOk }: { project: Project; owner: OwnerInfo | null; root: Root | null; authOk: boolean }) {
-  if (!root || !authOk) return null;
+  // a project shared with me has no workspace of mine
+  if (!root || !authOk || project.shareRole) return null;
   const path = owner?.projects?.[project.projectId]?.workspaceDriveRelativePath || null;
   return (
     <Fold id="workspace" label="🗂 Workspace" hint="The working folder of the project">

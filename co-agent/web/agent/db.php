@@ -361,21 +361,27 @@ function db_job_submit(array $in, callable $envAllowed, array $acc): array
         throw new InvalidArgumentException('request too large');
     }
     $sha = hash('sha256', co_db_json(['request' => $req, 'result' => null]));
-    $st = $db->prepare(
-        "INSERT INTO jobs (job_id, host_id, env, project_id, chat_id, agent, mode, model, state, origin, queued_utc,
-                           request, sha, synced_utc, actor_env)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'inbox', 'db', UTC_TIMESTAMP(3), ?, ?, UTC_TIMESTAMP(3), ?)"
-    );
+    // F15.2: no job for a chat in the CO trash; the check and the INSERT hold the chat row, like the trash clean-up
     try {
-        $st->execute([$req['jobId'], $host, $req['environmentId'], $pid, $cid, $req['agent'],
-            co_db_s($req, 'mode'), co_db_s($req, 'model'), $json, $sha, $myEnv]);
+        $queued = share_job_insert_untrashed($db, $cid, static function () use ($db, $req, $host, $pid, $cid, $json, $sha, $myEnv): void {
+            $st = $db->prepare(
+                "INSERT INTO jobs (job_id, host_id, env, project_id, chat_id, agent, mode, model, state, origin, queued_utc,
+                                   request, sha, synced_utc, actor_env)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'inbox', 'db', UTC_TIMESTAMP(3), ?, ?, UTC_TIMESTAMP(3), ?)"
+            );
+            $st->execute([$req['jobId'], $host, $req['environmentId'], $pid, $cid, $req['agent'],
+                co_db_s($req, 'mode'), co_db_s($req, 'model'), $json, $sha, $myEnv]);
+            $st->close();
+        });
     } catch (mysqli_sql_exception $e) {
         if ($e->getCode() === 1062) {
             co_json(409, ['error' => 'exists']);
         }
         throw $e;
     }
-    $st->close();
+    if (!$queued) {
+        co_json(403, ['error' => 'chat_trashed', 'detail' => 'The chat is in the trash; restore it first.']);
+    }
     return ['queued' => true];
 }
 
@@ -1463,12 +1469,10 @@ try {
             }
             $db->begin_transaction();
             // F15.2: the 30-day trash clean-up deletes only a chat still trashed at the same moment (not restored since)
+            // and with no job still queued or running (job_submit refuses a trashed chat under the same row lock)
             if (array_key_exists('ifTrashedUtc', $in)) {
-                $st = $db->prepare('SELECT data FROM chats WHERE chat_id = ? FOR UPDATE');
-                $st->execute([$chatId]);
-                $data = json_decode((string)($st->get_result()->fetch_assoc()['data'] ?? ''), true);
                 $want = (string)$in['ifTrashedUtc'];
-                if ($want === '' || !is_array($data) || (string)($data['trashedUtc'] ?? '') !== $want) {
+                if ($want === '' || share_chat_trashed($db, $chatId, true) !== $want || share_chat_active_jobs($db, $chatId) > 0) {
                     $db->rollback();
                     co_json(200, ['deleted' => 0, 'kept' => 1]);
                 }

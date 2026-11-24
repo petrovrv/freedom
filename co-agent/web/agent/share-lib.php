@@ -114,6 +114,49 @@ function share_chat_project(mysqli $db, string $chatId): ?string
     return ($rows && $rows[0]['project_id'] !== null) ? (string)$rows[0]['project_id'] : null;
 }
 
+/**
+ * F15.2: trashedUtc of a chat in the CO trash ('' = not trashed, null = no row). $lock (inside a transaction) holds the chat
+ * row FOR UPDATE, so a job queued under it and the trash clean-up (delete_chat ifTrashedUtc) are serialized on that row.
+ */
+function share_chat_trashed(mysqli $db, string $chatId, bool $lock = false): ?string
+{
+    $rows = share_q($db, 'SELECT data FROM chats WHERE chat_id = ?' . ($lock ? ' FOR UPDATE' : ''), [$chatId]);
+    if (!$rows) {
+        return null;
+    }
+    $data = json_decode((string)$rows[0]['data'], true);
+    $t = is_array($data) ? ($data['trashedUtc'] ?? '') : '';
+    return is_string($t) ? $t : '';
+}
+
+/**
+ * F15.2: run $insert (the INSERT of a job) unless the chat is in the CO trash - check and INSERT in one transaction holding
+ * the chat row, so the trash clean-up (delete_chat ifTrashedUtc) sees the job or the job sees the trash. False = trashed.
+ */
+function share_job_insert_untrashed(mysqli $db, string $chatId, callable $insert): bool
+{
+    $db->begin_transaction();
+    try {
+        if ((string)share_chat_trashed($db, $chatId, true) !== '') {
+            $db->rollback();
+            return false;
+        }
+        $insert();
+        $db->commit();
+        return true;
+    } catch (Throwable $e) {
+        $db->rollback();
+        throw $e;
+    }
+}
+
+/** F15.2: jobs of a chat still queued or running (the trash clean-up keeps such a chat). */
+function share_chat_active_jobs(mysqli $db, string $chatId): int
+{
+    $rows = share_q($db, "SELECT COUNT(*) AS n FROM jobs WHERE chat_id = ? AND state IN ('inbox', 'claimed') AND result IS NULL", [$chatId]);
+    return (int)($rows[0]['n'] ?? 0);
+}
+
 function share_chat_role(mysqli $db, string $myEnv, bool $admin, string $chatId): ?string
 {
     $rows = share_q($db, 'SELECT project_id FROM chats WHERE chat_id = ?', [$chatId]);

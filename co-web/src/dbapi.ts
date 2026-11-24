@@ -340,7 +340,8 @@ async function post(body: Record<string, unknown>, gz: boolean, timeoutMs = TIME
 }
 
 // Queues a job; 'queued' also when the jobId is already there (an earlier attempt whose answer was lost).
-// 0.45.0: { refused } when the server rejects the job (400/403); the message is user-facing.
+// 0.45.0: { refused } when the server rejects the job (400/403); the message is user-facing. F15.2: 403 chat_trashed for a
+// chat in the CO trash (not 409, which means an earlier attempt already queued it).
 export async function dbJobSubmit(
   request: Record<string, unknown>,
 ): Promise<'queued' | 'failed' | { refused: string }> {
@@ -352,6 +353,8 @@ export async function dbJobSubmit(
     let msg: string;
     if (/^shared_chat_no_/.test(String(j.error || ''))) {
       msg = j.detail || 'A shared chat cannot use devices or context folders.';
+    } else if (j.error === 'chat_trashed') {
+      msg = 'This chat is in the trash. Restore it to write here.';
     } else if (j.error === 'forbidden') {
       msg = 'You cannot send messages in this chat.';
     } else {

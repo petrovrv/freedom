@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/gateway-lib.php';
 require_once __DIR__ . '/executors-lib.php';
+require_once __DIR__ . '/share-lib.php';
 
 /** Errors where a repeat on the same agent is pointless; matched on the error and on a short reply. */
 const CO_AUTOSWITCH_PATTERNS = [
@@ -174,6 +175,8 @@ function co_autoswitch_try(array $req, array $res, array $u, ?string $error, str
     $st->close();
     $chat = $row ? json_decode((string)$row[0], true) : null;
     if (!is_array($chat) || ($chat['autoSwitch'] ?? true) === false) return null;
+    // F15.2: a chat in the CO trash gets no new job
+    if ((string)($chat['trashedUtc'] ?? '') !== '') return null;
     // messages waiting for this chat would go to the failing agent after the retry: leave the chat to the user
     $st = $db->prepare("SELECT 1 FROM job_followups WHERE (job_id = ? AND state IN ('offered', 'delivered'))
                            OR (chat_id = ? AND state IN ('pending', 'offered', 'sending')) LIMIT 1");
@@ -268,13 +271,19 @@ function co_autoswitch_try(array $req, array $res, array $u, ?string $error, str
     if (!empty($put['rejected'])) throw new RuntimeException('user_message rejected');
 
     try {
-        $st = $db->prepare(
-            "INSERT INTO jobs (job_id, host_id, env, project_id, chat_id, agent, mode, model, state, origin, queued_utc,
-                               request, sha, synced_utc, actor_env)
-             VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'inbox', 'db', UTC_TIMESTAMP(3), ?, ?, UTC_TIMESTAMP(3), ?)"
-        );
-        $st->execute([$new['jobId'], $new['hostId'], $env, $pid, $chatId, $to, co_db_s($new, 'mode'), $json, $sha, $env]);
-        $st->close();
+        // F15.2: the trash check and the INSERT hold the chat row (as job_submit and the trash clean-up do)
+        $queued = share_job_insert_untrashed($db, $chatId, static function () use ($db, $new, $env, $pid, $chatId, $to, $json, $sha): void {
+            $st = $db->prepare(
+                "INSERT INTO jobs (job_id, host_id, env, project_id, chat_id, agent, mode, model, state, origin, queued_utc,
+                                   request, sha, synced_utc, actor_env)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'inbox', 'db', UTC_TIMESTAMP(3), ?, ?, UTC_TIMESTAMP(3), ?)"
+            );
+            $st->execute([$new['jobId'], $new['hostId'], $env, $pid, $chatId, $to, co_db_s($new, 'mode'), $json, $sha, $env]);
+            $st->close();
+        });
+        if (!$queued) {
+            throw new RuntimeException('chat_trashed');
+        }
     } catch (Throwable $e) {
         // no job: take the message back so the chat does not show a request nobody runs
         $d = $db->prepare('DELETE FROM events WHERE chat_id = ? AND job_id = ? AND type = ?');

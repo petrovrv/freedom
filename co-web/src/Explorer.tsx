@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // F15.1 (SPEC §3.6b п. 1): the Explorer view of the left panel. Projects and chats as folders (child chats are nested
-// folders), a path bar with a way up, icons or a list, Ctrl+K to jump to any project or chat. A mouse opens with a
-// double click (one click selects), a touch opens with a tap; the keyboard moves with the arrows, Enter opens,
+// folders), a path bar with a way up, icons or a list, Ctrl+K to jump to any project or chat. One click or tap opens
+// (0.128.1; was a double click), a right click selects with its menu; the keyboard moves with the arrows, Enter opens,
 // Backspace or Alt+Up goes up. Logic: explorerTree.ts. 0.128.0: the default view of the panel (☰ → the tree).
 // F15.2: a chat moves by dragging it onto a project, a chat or a folder of the path bar, or with "Move to…" (F6 on
 // the selected chat); a bar under the path offers Undo for a while.
@@ -9,7 +9,7 @@
 // the item's menu (Open, Properties, Move to…), Alt+Enter opens the Properties of the selected item, ⓘ of the path
 // bar those of the folder shown. Under the items: the content of the folder that is not a chat (files, workspace,
 // archive, trash) from the shell.
-import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Chat, Project } from './types';
 import type { SortMode } from './sidebarSort';
@@ -178,11 +178,7 @@ export default function Explorer(props: ExplorerProps) {
     }
   };
 
-  // one click selects with a mouse, a tap opens on a touch screen; a double click opens
-  const pointer = useRef('mouse');
-  const onPointerDown = (e: PointerEvent) => {
-    pointer.current = e.pointerType || 'mouse';
-  };
+  // 0.128.1: one click (or tap) opens, as on a web page; selecting is by keyboard, right click or ⋮
 
   // Ctrl+K (⌘K) anywhere while the Explorer is shown
   useEffect(() => {
@@ -349,17 +345,15 @@ ${formatLocal(date)}` : '';
                 onDragEnd={() => { drag.current = null; setDropKey(''); }}
                 {...dropProps(it.key, destOfItem(path, it))}
                 title={hint}
-                onPointerDown={onPointerDown}
                 // Tab, a click or the focus after entering a folder: the focused item is the selected one
                 onFocus={() => {
                   if (focusAt.key !== pathKey || focusAt.item !== it.key) setFocus(i);
                 }}
                 onClick={() => {
                   setFocus(i);
-                  // a quick second tap after entering a folder must not open an item of the new folder
-                  if (pointer.current !== 'mouse' && Date.now() - moved.current > 450) open(it);
+                  // a habitual double click (or a quick second tap) after entering a folder must not open an item of the new folder
+                  if (Date.now() - moved.current > 450) open(it);
                 }}
-                onDoubleClick={() => open(it)}
                 onContextMenu={props.onProperties ? (e) => {
                   e.preventDefault();
                   setFocus(i);

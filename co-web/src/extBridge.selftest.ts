@@ -161,6 +161,12 @@ console.log('extBridge selftest OK');
 // 0.129.2 chat.open: ids only, the environment of the shell
 ok('chat.open path', chatOpenPath({ projectId: 'Freedom', chatId: 'CHAT-20261119164352-XE5N' }, 'env-a') === '/e/env-a/p/Freedom/c/CHAT-20261119164352-XE5N');
 ok('chat.open refuses bad ids', [{ projectId: '../x', chatId: 'CHAT-20261119164352-XE5N' }, { projectId: 'P', chatId: 'CHAT-1/../x' }, { projectId: '..', chatId: 'CHAT-20261119164352-XE5N' }, { projectId: 'P' }, {}].every((a) => chatOpenPath(a, 'env-a') === null) && chatOpenPath({ projectId: 'P', chatId: 'CHAT-20261119164352-XE5N' }, '') === null);
+// 0.129.3 chat.open with the module's own viewer
+ok('chat.open viewer on a project', chatOpenPath({ projectId: 'Home', viewer: 'Почта' }, 'env-a', 'mail') === '/e/env-a/p/Home?mail=%D0%9F%D0%BE%D1%87%D1%82%D0%B0');
+ok('chat.open viewer on a chat', chatOpenPath({ projectId: 'Home', chatId: 'CHAT-20261119164352-XE5N', viewer: 'inbox' }, 'env-a', 'mail') === '/e/env-a/p/Home/c/CHAT-20261119164352-XE5N?mail=inbox');
+ok('chat.open viewer refused', [{ projectId: 'Home', viewer: 'x' }].every((a) => chatOpenPath(a, 'env-a', '') === null)
+  && [{ projectId: 'Home', viewer: '../x' }, { projectId: 'Home', viewer: 'a?b=c' }, { projectId: 'Home', viewer: '' }, { projectId: 'Home', viewer: 5 }, { projectId: 'Home', viewer: ' ' }]
+    .every((a) => chatOpenPath(a as Record<string, unknown>, 'env-a', 'mail') === null));
 ok('chat.open needs ui.navigate', reqRefusal({ enabled: true, permissions: [] }, 'chat.open', 'ui.page') === 'permission_not_declared' && reqRefusal({ enabled: true, permissions: ['ui.navigate'] }, 'chat.open', 'ui.page') === '');
 
 if (fail) throw new Error(`extBridge selftest: ${fail} failed`);

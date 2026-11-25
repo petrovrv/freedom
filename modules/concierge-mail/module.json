@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "concierge-mail",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "title": "Mail concierge",
   "description": "Mail app (✉) of the person: the whole mailbox lives on the home server (one store per person, read-only Gmail sync, encrypted backup into the person's own Drive); the page reaches it through the module home-relay (the site carries only end-to-end encrypted requests and answers). Plus the morning briefing and its delivery.",
   "ext": ">=1 <2",
@@ -72,10 +72,32 @@
         "id": "tray",
         "entry": "ui/tray.html",
         "title": "Почта: непрочитанные"
+      },
+      {
+        "slot": "ui.panel",
+        "id": "panel",
+        "entry": "ui/mail.html",
+        "title": "Почта"
       }
     ],
     "navigate": [
       "/x/concierge-mail/mail"
+    ],
+    "modes": [
+      {
+        "key": "mail",
+        "label": "Почта",
+        "short": "Почта",
+        "icon": "✉",
+        "rules": "context/mail-mode.md",
+        "hintOn": "Режим почты: агент этого чата читает вашу почту на домашнем сервере и готовит черновики; отправляете вы сами в ✉. Нажмите, чтобы выключить.",
+        "hintOff": "Включить режим почты: агент читает вашу почту и готовит черновики ответов (отправка — только вами).",
+        "viewer": {
+          "panel": "panel",
+          "param": "mail",
+          "titlePrefix": "✉"
+        }
+      }
     ]
   },
   "server": {
@@ -84,7 +106,8 @@
       "user": [
         "mail_status",
         "mail_call",
-        "mail_chats"
+        "mail_chats",
+        "mail_agent_place"
       ],
       "push": [],
       "host": []

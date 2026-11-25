@@ -343,12 +343,19 @@ export const REQ_PERMISSION: Record<string, string> = {
 /**
  * 0.129.2 chat.open: the CO address of a chat of the shown environment, or null for ids that are not a project and
  * a chat id. The server still decides whether the person may see that chat.
+ * 0.129.3: `viewer` (a document name of the module's own chat-mode viewer, `viewerParam` from its manifest) adds
+ * "?<param>=<viewer>": the module's viewer shows left of the chat; without chatId the project address opens the chat
+ * of that document, or a new one with the mode on at the first question (ext/1 Viewer pages).
  */
-export function chatOpenPath(args: Record<string, unknown>, env: string): string | null {
+export function chatOpenPath(args: Record<string, unknown>, env: string, viewerParam = ''): string | null {
   const pid = typeof args.projectId === 'string' ? args.projectId : '';
   const cid = typeof args.chatId === 'string' ? args.chatId : '';
-  if (!env || !/^[A-Za-z0-9_.-]{1,64}$/.test(pid) || pid === '.' || pid === '..' || !/^CHAT-\d{14}-[A-Z0-9]{4}$/.test(cid)) return null;
-  return `/e/${encodeURIComponent(env)}/p/${encodeURIComponent(pid)}/c/${cid}`;
+  const view = args.viewer === undefined ? null : typeof args.viewer === 'string' ? args.viewer : '';
+  if (!env || !/^[A-Za-z0-9_.-]{1,64}$/.test(pid) || pid === '.' || pid === '..') return null;
+  if (view !== null && (!viewerParam || !/^[\p{L}\p{N} _.-]{1,64}$/u.test(view) || !view.trim())) return null;
+  if (cid ? !/^CHAT-\d{14}-[A-Z0-9]{4}$/.test(cid) : view === null) return null;
+  const path = `/e/${encodeURIComponent(env)}/p/${encodeURIComponent(pid)}` + (cid ? `/c/${cid}` : '');
+  return view === null ? path : `${path}?${encodeURIComponent(viewerParam)}=${encodeURIComponent(view)}`;
 }
 const PANEL_ONLY = new Set(['chat.ask', 'chat.reveal', 'panel.close']);
 

@@ -6,6 +6,7 @@
 //   user  mail_status  - is the worker online and serving mail, its public key, my unread count (a number for the tray)
 //         mail_call    - {id, pk, iv, ct}: one sealed request to my mail handler; waits for the sealed answer
 //         mail_chats   - {q}: chats of my environment to put a thread into (0.12.0: id, project, titles; never mail)
+//         mail_agent_place - {}: where the person's mail chat lives (0.13.0): its chat, else the project for a new one
 declare(strict_types=1);
 
 const CO_MAIL_MODULE = 'concierge-mail';
@@ -92,6 +93,35 @@ function co_mail_chats(array $c, array $in): array
     return ['chats' => $out];
 }
 
+/**
+ * 0.13.0: the mail chat of my environment - the newest live chat with a mail document (mode viewer, chat field
+ * mailDoc), else the project a new one goes to (title Home/Дом/Personal/Личное, else the newest; no family room).
+ * -> {projectId, chatId|null} or {error: 'no_project'}.
+ */
+function co_mail_agent_place(array $c): array
+{
+    if (isset($c['place'])) return $c['place'];  // tests
+    $db = $c['db'] ?? null;
+    $env = (string)($c['myEnv'] ?? '');
+    if (!$db instanceof mysqli || $env === '') return ['error' => 'no_project'];
+    $one = static function (string $sql) use ($db, $env): ?array {
+        $st = $db->prepare($sql);
+        $st->bind_param('s', $env);
+        $st->execute();
+        $row = $st->get_result()->fetch_assoc();
+        $st->close();
+        return $row ?: null;
+    };
+    $chat = $one("SELECT c.chat_id, c.project_id FROM chats c JOIN projects p ON p.project_id = c.project_id
+                  WHERE p.env = ? AND p.archived = 0 AND COALESCE(JSON_VALUE(c.data, '$.mailDoc'), '') <> ''
+                    AND COALESCE(JSON_VALUE(c.data, '$.trashedUtc'), '') = '' AND COALESCE(JSON_VALUE(c.data, '$.archived'), 'false') <> 'true'
+                  ORDER BY c.updated_utc DESC LIMIT 1");
+    if ($chat) return ['projectId' => (string)$chat['project_id'], 'chatId' => (string)$chat['chat_id']];
+    $p = $one("SELECT project_id FROM projects WHERE env = ? AND archived = 0 AND COALESCE(JSON_VALUE(data, '$.family'), 'false') <> 'true'
+               ORDER BY (LOWER(COALESCE(title, '')) REGEXP '^(home|дом|personal|личное)') DESC, updated_utc DESC LIMIT 1");
+    return $p ? ['projectId' => (string)$p['project_id'], 'chatId' => null] : ['error' => 'no_project'];
+}
+
 function co_mail_call(array $c, array $in): array
 {
     $r = co_mail_relay($c);
@@ -105,6 +135,7 @@ return [
         'mail_status' => static fn(array $c, array $in): array => co_mail_status($c),
         'mail_call' => static fn(array $c, array $in): array => co_mail_call($c, $in),
         'mail_chats' => static fn(array $c, array $in): array => co_mail_chats($c, $in),
+        'mail_agent_place' => static fn(array $c, array $in): array => co_mail_agent_place($c),
     ],
     'push' => [],
     'host' => [],

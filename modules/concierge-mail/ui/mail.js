@@ -685,8 +685,17 @@ document.addEventListener('keydown', e => {
     else { selected = index; renderThreads(); $('threads').children[index]?.focus(); }
   } else if (e.key === 'Enter' && !e.composedPath().some(n => n.matches?.('button,summary,[role="link"]')) && selected >= 0) { e.preventDefault(); openThread(selected); }
 });
+// 0.13.0: the mail chat - the person's chat in mode "Почта" with this page as its viewer on the left
+$('agent').addEventListener('click', async () => {
+  try {
+    const place = await coExt.call('mail_agent_place', {});
+    if (place.error) throw new Error(place.error);
+    await coExt.req('chat.open', {projectId: place.projectId, ...(place.chatId ? {chatId: place.chatId} : {}), viewer: 'Почта'});
+  } catch (err) { note(err.message === 'no_project' ? 'Нет проекта для чата почты: создайте проект в CO' : 'Не удалось открыть чат почты'); }
+});
 coExt.ready.then(ctx => {
   theme(ctx); title(0);
+  $('agent').hidden = ctx.slot !== 'ui.page';  // next to the chat (viewer) the chat is already there
   coExt.on('context', nextCtx => { theme(nextCtx); status(); });
   status();
 }).catch(err => error($('connection'), err, () => location.reload()));

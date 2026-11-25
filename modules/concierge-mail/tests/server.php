@@ -47,6 +47,7 @@ try {
     check($ids($h['user']['mail_chats'](['chatRows' => $rows], ['q' => 'JOB vulc'])) === 'FFFF', 'mail_chats: every word in the chat or project title');
     check($ids($h['user']['mail_chats'](['chatRows' => $rows], ['q' => 'почтов'])) === 'AAAA', 'mail_chats: other alphabets, any case');
     check($h['user']['mail_chats'](['myEnv' => ''], ['q' => 'x']) === ['chats' => []], 'mail_chats: no database, no chats');
+    check($h['user']['mail_agent_place'](['myEnv' => ''], []) === ['error' => 'no_project'], 'mail_agent_place: no database, no place');
     // every user op of ops.php is declared in the manifest (the core routes only declared ops)
     $man = json_decode(file_get_contents(__DIR__ . '/../module.json'), true);
     check(array_diff(array_keys($h['user']), $man['server']['ops']['user']) === [] && array_diff($man['server']['ops']['user'], array_keys($h['user'])) === [],

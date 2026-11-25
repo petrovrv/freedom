@@ -1,8 +1,13 @@
 {
  "format": "freedom-release/1",
- "version": "0.12.1",
- "created": "2026-11-25T11:26:43Z",
+ "version": "0.13.0",
+ "created": "2026-11-25T11:31:14Z",
  "files": [
+  {
+   "path": "context/mail-mode.md",
+   "size": 1425,
+   "sha256": "021d92aa3cdaa1af4282f0e0dfe07a26a055cd0dbb744186fcb98796134b4c4b"
+  },
   {
    "path": "context/mail.md",
    "size": 2889,
@@ -155,38 +160,38 @@
   },
   {
    "path": "module.json",
-   "size": 2410,
-   "sha256": "137992dc93a17a8954586b97c43fb871187783d84e252d83837957469e77abc6"
+   "size": 3351,
+   "sha256": "484991d7f2ccb2ddebb431a47c2aa4ddb7cc1c5b0699099d215a3508f420f2a3"
   },
   {
    "path": "README.md",
-   "size": 14816,
-   "sha256": "d129814e2f5e3fbf86821e57f78b4027b7ef030b04c7e8770ef60a6c8be80f8f"
+   "size": 15679,
+   "sha256": "1643b5b067fccdf180c5deb832b340b6b82f4d9e2a4e3f568ecddb3595b7e263"
   },
   {
    "path": "server/ops.php",
-   "size": 5902,
-   "sha256": "e144130a3700d0987bdb3a7bb741eb7762ae33134e31c6b1bd4d1d2978fc6321"
+   "size": 7848,
+   "sha256": "7f6e521ffb458891f322b11a188c641e085b491c73fd6668214680ffba4e62cd"
   },
   {
    "path": "tests/server.php",
-   "size": 5199,
-   "sha256": "b886e48b566c97410482644915eac2cee29802f2d79f6658b107502fa24eff6f"
+   "size": 5336,
+   "sha256": "e93e3a091248164e22d70f3faa8b5d4960af4b47dc58140642c8e0dbb5b9a9ac"
   },
   {
    "path": "ui/mail.css",
-   "size": 9933,
-   "sha256": "d7e859bbcbb9ea19b2f391d999a2c4c3a02a2003c14d69023215ab79bc9f66d8"
+   "size": 9960,
+   "sha256": "9070bcc0d84c135fb46dee68f0f4f5dbaf7717a4dd923335d496af289dd07317"
   },
   {
    "path": "ui/mail.html",
-   "size": 3431,
-   "sha256": "9fd71c47b0acce678d1f6395fa31f6254a51855c0e26e837161fd5f83b057633"
+   "size": 3643,
+   "sha256": "711ca2ba7a580bc67f7c1fb0b299420007852c51c5b57788f825ac7c47ed8cd6"
   },
   {
    "path": "ui/mail.js",
-   "size": 46869,
-   "sha256": "bd53696ee72d5c2c1df0f148a60171475dc27b70477da9bbe1078a82796a8d8f"
+   "size": 47590,
+   "sha256": "d30f54d542140d8c34441c794b0d587dcde0a304dc9a7fc05f9439cd9c71530a"
   },
   {
    "path": "ui/tray.css",
@@ -208,7 +213,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "c6JqNf3HLaf+LQpaldkpPThc9ZtIMdMPaDYXUHo4gc4u2B3JJM0+IFU+Oz6cZJUuLHvqSEJmhulfjvNU/Nl6DA=="
+   "sig": "pMSZddcUbq8GnbDTwGb5kJ4m44UfhZ4UL0ozb1zVcMSoColnICuSdxEMXCN2CRLeIKyt1eUVPDZWLJ9afDzIDw=="
   }
  ],
  "module": "concierge-mail"

@@ -81,6 +81,16 @@ keyring holds no family member's token.
 
 Read only: the Gmail scope is `gmail.readonly`, so nothing can be marked, moved, deleted or sent from here.
 
+## Mail chat (0.13.0)
+
+"💬 Агент" in ✉ opens the person's mail chat: a chat in mode "Почта" (`provides.modes`, rules
+`context/mail-mode.md`) with the mail page as its viewer on the left (`ui.panel` `panel`, the same `ui/mail.html`).
+The server user op `mail_agent_place` names the newest live chat of the environment that has a mail document
+(`mailDoc`), else the project for a new one (Home/Дом/Personal/Личное, else the newest, no family room); the page opens
+it with the core service `chat.open {projectId, chatId?, viewer: "Почта"}` — without a chat the first question makes
+"✉ Почта" there with the mode on. The agent reads mail through `hubctl.py run` (read only) and prepares replies in the
+chat or as Gmail drafts with gmail-draft on request; sending, marking and archiving stay the person's clicks in ✉.
+
 ## Correspondence of chats (0.12.0)
 
 A mail thread can belong to CO chats. The mail is not copied: on the home server the handler keeps the person's links

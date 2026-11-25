@@ -257,6 +257,7 @@ export default function Explorer(props: ExplorerProps) {
       : {};
   const selected = items[focusIdx];
   const selChat = selected && (selected.kind === 'chat' || selected.kind === 'self') ? selected.chat : null;
+  // the Agent talks item has no Properties of its own: its chat's Properties (the menu says so)
   const propsOf = (it: ExplorerItem) => props.onProperties?.(it.kind === 'project' ? { projectId: it.project.projectId } : { projectId: pid, chatId: it.chat.chatId });
   const movable = (it: ExplorerItem) => !!props.onMove && (it.kind === 'chat' || it.kind === 'self') && !it.chat.shareRole;
   const menuAt = (it: ExplorerItem, el: Element | null, x?: number, y?: number) => {
@@ -475,7 +476,7 @@ function ItemMenuPop(props: { menu: ItemMenu; canMove: boolean; onClose: () => v
     <div className="ex-menu-scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) props.onClose(); }} onContextMenu={(e) => { e.preventDefault(); props.onClose(); }}>
       <div ref={ref} className="ex-menu" role="menu" aria-label={it.title} style={{ left: Math.max(4, x), top: Math.max(4, y) }} onKeyDown={onKey}>
         <button type="button" role="menuitem" onClick={props.onOpen}>{it.kind === 'project' || it.kind === 'agents' || (it.kind === 'chat' && it.folder) ? 'Open' : 'Open chat'}</button>
-        <button type="button" role="menuitem" onClick={props.onProps}>Properties <kbd>Alt+Enter</kbd></button>
+        <button type="button" role="menuitem" onClick={props.onProps}>{it.kind === 'agents' ? `Properties of «${itemTitle(it.chat.title)}»` : 'Properties'} <kbd>Alt+Enter</kbd></button>
         {props.canMove && <button type="button" role="menuitem" onClick={props.onMove}>Move to… <kbd>F6</kbd></button>}
       </div>
     </div>

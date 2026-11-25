@@ -836,14 +836,14 @@ export default function Shell({ auth }: { auth: Signed }) {
   const exFolderExtra = (path: ExplorerPath) => {
     const p = path.projectId ? projects?.find((x) => x.projectId === path.projectId) : undefined;
     if (!p) return null;
-    // 0.129.1: in a chat's "Agent talks" folder the files of an open agent talk, in the chat folder those of the others
+    // 0.128.2: in a chat's "Agent talks" folder the files of an open agent talk, in the chat folder those of the others
     const here = folderChatId(path);
     const talks = inAgents(path);
     let filesHere = false;
     if (chat && p.projectId === projectId) {
       const up = placeParent(chat);
       const shownIn = up && chats?.some((c) => c.chatId === up && !c.archived) ? up : undefined;
-      filesHere = (here === chat.chatId && !talks) || (here === shownIn && isAgentTalk(chat) === talks);
+      filesHere = (here === chat.chatId && !talks) || (here === shownIn && (!shownIn || isAgentTalk(chat) === talks));
     }
     return (
       <>

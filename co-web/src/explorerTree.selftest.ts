@@ -45,7 +45,7 @@ ok('title without ⏰', top[1].title === 'Watering reminder');
 ok('chats not loaded yet', explorerItems({ projectId: 'alpha', chatIds: [] }, projects, null, { sort: 'activity' }).length === 0);
 
 // chat folder: the chat itself first, then its children; ⤷ stripped
-// 0.129.1: c3 (⤷, kind subtask) is an agent talk - inside the "Agent talks" folder of c1, not next to c1
+// 0.128.2: c3 (⤷, kind subtask) is an agent talk - inside the "Agent talks" folder of c1, not next to c1
 const inC1: ExplorerPath = { projectId: 'alpha', chatIds: ['c1'] };
 const sub = explorerItems(inC1, projects, chats, { sort: 'activity' });
 ok('chat folder: self, then the Agent talks folder', sub.map((i) => i.key).join() === 's:c1,a:c1');
@@ -129,7 +129,7 @@ const byId = (id: string) => chats.find((c) => c.chatId === id)!;
 ok('subtree of c1', subtreeOf(byId('c1'), chats).map((c) => c.chatId).join() === 'c1,c3,c4');
 ok('move into itself blocked', !!moveBlock(byId('c1'), { projectId: 'alpha', folder: 'c1' }, projects, chats));
 ok('move under own child blocked', !!moveBlock(byId('c1'), { projectId: 'alpha', folder: 'c4' }, projects, chats));
-ok('move to the same place blocked', !!moveBlock(byId('c3'), { projectId: 'alpha', folder: 'c1' }, projects, chats));
+ok('move to the same place blocked', !!moveBlock(byId('c4'), { projectId: 'alpha', folder: 'c3' }, projects, chats));
 ok('move up to top ok', moveBlock(byId('c4'), { projectId: 'alpha', folder: '' }, projects, chats) === null);
 ok('move under a sibling ok', moveBlock(byId('c2'), { projectId: 'alpha', folder: 'c4' }, projects, chats) === null);
 ok('move to another project ok', moveBlock(byId('c1'), { projectId: 'beta', folder: '' }, projects, []) === null);
@@ -143,7 +143,9 @@ const moved = [...chats.filter((c) => c.chatId !== 'c4'), { ...byId('c4'), folde
 ok('folder "" puts a subchat on top', explorerItems({ projectId: 'alpha', chatIds: [] }, projects, moved, { sort: 'title' }).some((x) => x.key === 'c:c4'));
 const moved2 = [...chats.filter((c) => c.chatId !== 'c2'), { ...byId('c2'), folder: 'c4' }];
 ok('folder puts a chat under another', pathOfChat('alpha', 'c2', moved2).chatIds.join() === `c1,${AGENTS},c3,c4`);
-ok('dest of item / path', destOfItem(ROOT_PATH, { kind: 'project', key: 'p:beta', project: projects[1], title: 'B' })?.projectId === 'beta' && destOfPath(ROOT_PATH) === null && destOfPath({ projectId: 'alpha', chatIds: ['c1', 'c3'] })?.folder === 'c3');
+ok('dest of item / path', destOfItem(ROOT_PATH, { kind: 'project', key: 'p:beta', project: projects[1], title: 'B' })?.projectId === 'beta' && destOfPath(ROOT_PATH) === null && destOfPath({ projectId: 'alpha', chatIds: ['c1', AGENTS, 'c3'] })?.folder === 'c3');
+ok('a talk can be taken out into its own chat folder', moveBlock(byId('c3'), { projectId: 'alpha', folder: 'c1' }, projects, chats) === null);
+ok('Agent talks path takes no drops', destOfPath({ projectId: 'alpha', chatIds: ['c1', AGENTS] }) === null);
 
 const tg = moveTargets(byId('c3'), projects, (pid) => (pid === 'alpha' ? chats : []));
 ok('targets: own projects, not itself, not the current place', tg.some((t) => t.dest.projectId === 'beta' && t.depth === 0) && tg.some((t) => t.dest.projectId === 'alpha' && t.dest.folder === '') && !tg.some((t) => t.dest.folder === 'c3' || t.dest.folder === 'c4' || t.dest.folder === 'c1') && tg.some((t) => t.dest.folder === 'c2') && !tg.some((t) => t.dest.projectId === 'fam' || t.dest.projectId === 'old'));

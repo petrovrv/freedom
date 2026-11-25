@@ -7,7 +7,7 @@ import { compareBy, sortTitle, ts, type SortMode } from './sidebarSort.ts';
 import { placeParent } from './chatTree.ts';
 
 /** Where the Explorer is: the root (projects), a project (its top chats) or a chat with child chats (chain of chat ids).
- * 0.129.1: AGENTS after a chat id is that chat's "Agent talks" folder (the subtasks its agent started). */
+ * 0.128.2: AGENTS after a chat id is that chat's "Agent talks" folder (the subtasks its agent started). */
 export interface ExplorerPath {
   projectId?: string;
   chatIds: string[];
@@ -24,7 +24,7 @@ export type ExplorerItem =
   | { kind: 'chat'; key: string; chat: Chat; title: string; folder: boolean; count: number }
   // the chat whose folder is open: its own conversation, first in the folder
   | { kind: 'self'; key: string; chat: Chat; title: string }
-  // 0.129.1: the "Agent talks" folder of the open chat (`chat`): the subtasks its agent started, out of the person's way
+  // 0.128.2: the "Agent talks" folder of the open chat (`chat`): the subtasks its agent started, out of the person's way
   | { kind: 'agents'; key: string; chat: Chat; title: string; count: number };
 
 export interface Crumb {
@@ -69,7 +69,7 @@ export function itemTitle(title: string): string {
 }
 
 /**
- * 0.129.1: a chat the agent started to serve its parent chat (aiwb-subtask spawn: kind subtask, title "⤷ …") and that
+ * 0.128.2: a chat the agent started to serve its parent chat (aiwb-subtask spawn: kind subtask, title "⤷ …") and that
  * nobody moved by hand. It sits in the parent's "Agent talks" folder, not next to the person's own chats. Chats made
  * subchats of a former project's hub (kind subtask without ⤷) are the person's chats and stay in view.
  */
@@ -405,6 +405,8 @@ export function destOfItem(p: ExplorerPath, item: ExplorerItem): MoveDest | null
 
 /** The place a path-bar folder stands for; the root (the list of projects) is no place for a chat. */
 export function destOfPath(p: ExplorerPath): MoveDest | null {
+  // the "Agent talks" folder takes no chats (see destOfItem)
+  if (inAgents(p)) return null;
   return p.projectId ? { projectId: p.projectId, folder: folderChatId(p) ?? '' } : null;
 }
 
@@ -452,6 +454,8 @@ export function moveBlock(chat: Chat, dest: MoveDest, projects: Project[], destC
       return 'A chat cannot go inside a chat under it.';
     }
   }
+  // a talk taken out of "Agent talks" into its own chat's folder becomes the person's chat there (folder is set)
+  if (isAgentTalk(chat) && dest.projectId === chat.projectId && dest.folder === placeParent(chat)) return null;
   if (dest.projectId === chat.projectId && (placeParent(chat) ?? '') === dest.folder) return 'It is already there.';
   return null;
 }

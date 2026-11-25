@@ -18,6 +18,7 @@ import {
 import { visible } from './chatFiles';
 import { dbProtocol, type ProtocolEntry } from './dbapi';
 import { placeParent } from './chatTree';
+import { isAgentTalk } from './explorerTree';
 import { DriveTree } from './Properties';
 import { chatScratchPath, type Root } from './workbench';
 import type { Chat, OwnerInfo, Project } from './types';
@@ -74,6 +75,9 @@ export function ChatFolder({ chat, project, chats, root, authOk, showSubchats, o
   const canWrite = chat.shareRole !== 'viewer' && project.shareRole !== 'viewer';
   const shared = !!(project.shareRole || chat.shareRole);
   const inside = (chats || []).filter((c) => placeParent(c) === chat.chatId && !c.archived && c.chatId !== chat.chatId);
+  // 0.129.1: the person's own chats apart from the talks an agent started (explorerTree.ts isAgentTalk, 0.128.2)
+  const own = inside.filter((c) => !isAgentTalk(c));
+  const talks = inside.filter(isAgentTalk);
   // removed and expired files stay in their list behind "Show removed…", they do not count
   const split = data.streams ? splitStreams(data.streams) : null;
   const shownCount = (list: typeof data.streams) => (list ? list.filter((x) => visible(x)).length : undefined);
@@ -90,14 +94,22 @@ export function ChatFolder({ chat, project, chats, root, authOk, showSubchats, o
   const more = (part: ChatPartId) => chatPartContributions(part).map((c) => <div key={c.key} className="cf-more">{c.render(ref) as ReactNode}</div>);
   const body = (part: ChatPartId): ReactNode => {
     switch (part) {
-      case 'subchats':
-        return (
-          <ul className="cf-list">
-            {inside.map((c) => (
-              <li key={c.chatId}><button type="button" className="link" onClick={() => onOpenChat(project.projectId, c.chatId)}>💬 {c.title || c.chatId}</button></li>
-            ))}
-          </ul>
+      case 'subchats': {
+        const item = (c: Chat, icon: string) => (
+          <li key={c.chatId}><button type="button" className="link" onClick={() => onOpenChat(project.projectId, c.chatId)}>{icon} {c.title || c.chatId}</button></li>
         );
+        return (
+          <>
+            {!!own.length && <ul className="cf-list">{own.map((c) => item(c, '💬'))}</ul>}
+            {!!talks.length && (
+              <details>
+                <summary className="muted small">🤖 Agent talks ({talks.length})</summary>
+                <ul className="cf-list">{talks.map((c) => item(c, '🤖'))}</ul>
+              </details>
+            )}
+          </>
+        );
+      }
       case 'context':
         return (
           <>
@@ -133,7 +145,7 @@ export function ChatFolder({ chat, project, chats, root, authOk, showSubchats, o
     <div className="chat-folder">
       <div className="cf-head small muted" title={chat.title || chat.chatId}>💬 Folder of «{chat.title || chat.chatId}»</div>
       {visibleParts(counts).map((p) => (
-        <Fold key={p.id} id={`chat.${p.id}`} label={`${p.icon} ${p.label}${counts[p.id] && p.id !== 'context' ? ` (${counts[p.id]})` : ''}`} hint={p.hint}
+        <Fold key={p.id} id={`chat.${p.id}`} label={`${p.icon} ${p.label}${p.id === 'subchats' ? (own.length ? ` (${own.length})` : '') + (talks.length ? ` · 🤖 ${talks.length}` : '') : counts[p.id] && p.id !== 'context' ? ` (${counts[p.id]})` : ''}`} hint={p.hint}
           defOpen={p.id === 'documents' || p.id === 'products' || p.id === 'events'}>
           {() => body(p.id)}
         </Fold>

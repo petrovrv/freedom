@@ -96,7 +96,9 @@ in the mail store (`chat_links`: account, thread id, chat id, a copy of the chat
   limit}`. Ids are checked (`CHAT-<14 digits>-<4>`, thread of this mailbox), nothing else is stored.
 - **Agent of a chat**: `mailcli.py chat-mail --chat CHAT-ID [--thread T] [--limit N]` (through `hubctl.py run <slug>
   -- chat-mail ...` from the person's device): the threads of that chat, or the messages of one of its threads as
-  text (no html; codes stay stubs; read-guard wraps the output). A thread not linked to that chat is refused.
+  text (no html; codes stay stubs; read-guard wraps the output). A thread not linked to that chat is refused, and
+  `hubctl run` of an agent job (`AIWB_CHAT_ID` set) refuses `chat-mail` for any other chat. This is a boundary of the
+  command, not of the job: the agent of the environment may still search the whole mailbox as before.
 - Next (core): the chat's folder part "Correspondence" shows these threads inside CO and the agent gets them as context
   without asking.
 

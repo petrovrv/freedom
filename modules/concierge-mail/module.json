@@ -83,7 +83,8 @@
     "ops": {
       "user": [
         "mail_status",
-        "mail_call"
+        "mail_call",
+        "mail_chats"
       ],
       "push": [],
       "host": []

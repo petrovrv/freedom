@@ -140,6 +140,7 @@ def main():
             account = (args.account or os.environ.get('ACCOUNT', '')).strip().lower()
             if not account:
                 raise SystemExit('chat-mail: no mailbox (--account or ACCOUNT)')
+            store.db.execute('PRAGMA busy_timeout=60000')  # the sync may hold the store for a batch
             result = relay.chat_mail(relay.MailApi(store, account), args.chat, args.thread, args.limit)
         elif command == 'relay-handler':
             import relay

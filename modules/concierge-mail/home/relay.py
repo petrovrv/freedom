@@ -310,6 +310,9 @@ class MailApi:
         self.db.execute('INSERT INTO chat_links(account, thread_id, chat_id, chat_title, project_id) VALUES(?,?,?,?,?)'
                         ' ON CONFLICT(account, thread_id, chat_id) DO UPDATE SET chat_title=excluded.chat_title,'
                         ' project_id=excluded.project_id', (self.account, tid, cid, _chat_title(args.get('title')), project))
+        # every thread of the chat shows the chat's newest title (a renamed chat)
+        self.db.execute('UPDATE chat_links SET chat_title=?, project_id=? WHERE account=? AND chat_id=?',
+                        (_chat_title(args.get('title')), project, self.account, cid))
         self.db.commit()
         return self.links({'thread': tid})
 

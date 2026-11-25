@@ -336,12 +336,12 @@ export const REQ_PERMISSION: Record<string, string> = {
   'notify.push': 'notify.push',
   // F14c: data the app keeps for its person through the core (db.php app_data; apps made on the fly have no server code)
   'data.get': 'data.env', 'data.set': 'data.env', 'data.delete': 'data.env', 'data.list': 'data.env',
-  // 0.128.3: open a chat of the person by its id (e.g. the chat a mail thread belongs to); a move inside CO
+  // 0.129.1: open a chat of the person by its id (e.g. the chat a mail thread belongs to); a move inside CO
   'chat.open': 'ui.navigate',
 };
 
 /**
- * 0.128.3 chat.open: the CO address of a chat of the shown environment, or null for ids that are not a project and
+ * 0.129.1 chat.open: the CO address of a chat of the shown environment, or null for ids that are not a project and
  * a chat id. The server still decides whether the person may see that chat.
  */
 export function chatOpenPath(args: Record<string, unknown>, env: string): string | null {

@@ -41,16 +41,27 @@ function co_mail_status(array $c): array
         + (isset($st['error']) ? ['error' => (string)$st['error']] : []);
 }
 
-/** Recent chats of my environment (rows chat_id, project_id, title, data, ptitle, pdata), newest first. */
-function co_mail_chat_rows(array $c): array
+/**
+ * Chats of my environment whose title or project title has every word (rows chat_id, project_id, title, data, ptitle,
+ * pdata), newest first; at most 600 rows, the filter below drops archived, trashed and agent chats.
+ */
+function co_mail_chat_rows(array $c, array $words): array
 {
     if (isset($c['chatRows'])) return $c['chatRows'];  // tests
     $db = $c['db'] ?? null;
     if (!$db instanceof mysqli || (string)($c['myEnv'] ?? '') === '') return [];
-    $st = $db->prepare('SELECT c.chat_id, c.project_id, c.title, c.data, p.title AS ptitle, p.data AS pdata FROM chats c'
-        . ' JOIN projects p ON p.project_id = c.project_id WHERE p.env = ? AND p.archived = 0 ORDER BY c.updated_utc DESC LIMIT 600');
-    $env = (string)$c['myEnv'];
-    $st->bind_param('s', $env);
+    $sql = 'SELECT c.chat_id, c.project_id, c.title, c.data, p.title AS ptitle, p.data AS pdata FROM chats c'
+        . ' JOIN projects p ON p.project_id = c.project_id WHERE p.env = ? AND p.archived = 0';
+    $types = 's';
+    $params = [(string)$c['myEnv']];
+    foreach (array_slice($words, 0, 6) as $w) {
+        $like = '%' . addcslashes($w, '%_\\') . '%';
+        $sql .= ' AND (LOWER(COALESCE(c.title, \'\')) LIKE ? OR LOWER(COALESCE(p.title, \'\')) LIKE ?)';
+        $types .= 'ss';
+        array_push($params, $like, $like);
+    }
+    $st = $db->prepare($sql . ' ORDER BY c.updated_utc DESC LIMIT 600');
+    $st->bind_param($types, ...$params);
     $st->execute();
     $rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
     $st->close();
@@ -65,7 +76,7 @@ function co_mail_chats(array $c, array $in): array
 {
     $words = preg_split('/\s+/u', mb_strtolower(trim(mb_substr((string)($in['q'] ?? ''), 0, 80))), -1, PREG_SPLIT_NO_EMPTY) ?: [];
     $out = [];
-    foreach (co_mail_chat_rows($c) as $r) {
+    foreach (co_mail_chat_rows($c, $words) as $r) {
         $title = (string)($r['title'] ?? '');
         if ($title === '' || str_starts_with($title, "\u{2937} ")) continue;
         $d = json_decode((string)($r['data'] ?? ''), true) ?: [];

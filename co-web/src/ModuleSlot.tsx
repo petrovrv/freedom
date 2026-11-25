@@ -394,8 +394,9 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
       // 0.129.2: open a chat of the person (in the shell; from a bare page or an app window in a new tab of CO)
       if (r.name === 'chat.open') {
         const env = envOfPath(window.location.pathname);
-        // 0.129.3: a viewer only of the module's own chat mode
-        const viewerParam = (mod.current.modes || []).find((x) => x.viewer)?.viewer?.param || '';
+        // 0.129.3: a viewer only of the module's own chat modes: `mode` names one, else its first mode with a viewer
+        const own = (mod.current.modes || []).filter((x) => x.viewer);
+        const viewerParam = (typeof r.args.mode === 'string' ? own.find((x) => x.key === r.args.mode) : own[0])?.viewer?.param || '';
         const path = chatOpenPath(r.args, env || me || '', viewerParam);
         if (!path) {
           send({ t: 'result', id: r.id, ok: false, error: 'invalid chat' });

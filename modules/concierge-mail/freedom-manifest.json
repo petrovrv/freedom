@@ -1,12 +1,12 @@
 {
  "format": "freedom-release/1",
  "version": "0.13.0",
- "created": "2026-11-25T11:31:14Z",
+ "created": "2026-11-25T11:40:49Z",
  "files": [
   {
    "path": "context/mail-mode.md",
-   "size": 1425,
-   "sha256": "021d92aa3cdaa1af4282f0e0dfe07a26a055cd0dbb744186fcb98796134b4c4b"
+   "size": 1714,
+   "sha256": "ada86496bdb3b6ddf17bfed58e2086481c80e25bc0221d414063547c014980d4"
   },
   {
    "path": "context/mail.md",
@@ -165,13 +165,13 @@
   },
   {
    "path": "README.md",
-   "size": 15679,
-   "sha256": "1643b5b067fccdf180c5deb832b340b6b82f4d9e2a4e3f568ecddb3595b7e263"
+   "size": 15764,
+   "sha256": "7b9b0cbc95def5029716b65af92f4b30c7ba16f587fbdbb61b257f0ce1af9cb1"
   },
   {
    "path": "server/ops.php",
-   "size": 7848,
-   "sha256": "7f6e521ffb458891f322b11a188c641e085b491c73fd6668214680ffba4e62cd"
+   "size": 8777,
+   "sha256": "122c8551f9cd57e7cd2e0ad0f1881604628629fc2087ee8a3c7aac703ccd629d"
   },
   {
    "path": "tests/server.php",
@@ -213,7 +213,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "pMSZddcUbq8GnbDTwGb5kJ4m44UfhZ4UL0ozb1zVcMSoColnICuSdxEMXCN2CRLeIKyt1eUVPDZWLJ9afDzIDw=="
+   "sig": "o9SlvJeRf9kIpa4iw3f4H8SsnqMa1xqF0HzffBTr92J5INtJv2Ny0h38x6hQH4qK06mgwLpbWNdsi4GNR+rlDw=="
   }
  ],
  "module": "concierge-mail"

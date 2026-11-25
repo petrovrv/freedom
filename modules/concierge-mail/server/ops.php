@@ -52,7 +52,9 @@ function co_mail_chat_rows(array $c, array $words): array
     $db = $c['db'] ?? null;
     if (!$db instanceof mysqli || (string)($c['myEnv'] ?? '') === '') return [];
     $sql = 'SELECT c.chat_id, c.project_id, c.title, c.data, p.title AS ptitle, p.data AS pdata FROM chats c'
-        . ' JOIN projects p ON p.project_id = c.project_id WHERE p.env = ? AND p.archived = 0';
+        . ' JOIN projects p ON p.project_id = c.project_id WHERE p.env = ? AND p.archived = 0'
+        // mail goes only into chats nobody else sees (no project or chat shared with someone)
+        . " AND NOT EXISTS (SELECT 1 FROM shares s WHERE (s.kind = 'project' AND s.target_id = p.project_id) OR (s.kind = 'chat' AND s.target_id = c.chat_id))";
     $types = 's';
     $params = [(string)$c['myEnv']];
     foreach (array_slice($words, 0, 6) as $w) {
@@ -82,7 +84,7 @@ function co_mail_chats(array $c, array $in): array
         if ($title === '' || str_starts_with($title, "\u{2937} ")) continue;
         $d = json_decode((string)($r['data'] ?? ''), true) ?: [];
         $pd = json_decode((string)($r['pdata'] ?? ''), true) ?: [];
-        if (!empty($d['archived']) || !empty($d['draft']) || !empty($d['trashedUtc']) || !empty($pd['family'])) continue;
+        if (!empty($d['archived']) || !empty($d['draft']) || !empty($d['trashedUtc']) || !empty($d['family']) || !empty($pd['family'])) continue;
         $ptitle = (string)($r['ptitle'] ?? '') ?: (string)$r['project_id'];
         $hay = mb_strtolower($title . ' ' . $ptitle);
         foreach ($words as $w) if (!str_contains($hay, $w)) continue 2;
@@ -96,6 +98,7 @@ function co_mail_chats(array $c, array $in): array
 /**
  * 0.13.0: the mail chat of my environment - the newest live chat with a mail document (mode viewer, chat field
  * mailDoc), else the project a new one goes to (title Home/Дом/Personal/Личное, else the newest; no family room).
+ * Only what no one else sees: projects and chats shared with anyone (shares) are never chosen.
  * -> {projectId, chatId|null} or {error: 'no_project'}.
  */
 function co_mail_agent_place(array $c): array
@@ -112,13 +115,17 @@ function co_mail_agent_place(array $c): array
         $st->close();
         return $row ?: null;
     };
+    // mail summaries stay where only the person sees them: no project or chat shared with anyone, no family chat
     $chat = $one("SELECT c.chat_id, c.project_id FROM chats c JOIN projects p ON p.project_id = c.project_id
                   WHERE p.env = ? AND p.archived = 0 AND COALESCE(JSON_VALUE(c.data, '$.mailDoc'), '') <> ''
                     AND COALESCE(JSON_VALUE(c.data, '$.trashedUtc'), '') = '' AND COALESCE(JSON_VALUE(c.data, '$.archived'), 'false') <> 'true'
+                    AND COALESCE(JSON_VALUE(c.data, '$.family'), 'false') <> 'true' AND COALESCE(JSON_VALUE(p.data, '$.family'), 'false') <> 'true'
+                    AND NOT EXISTS (SELECT 1 FROM shares s WHERE (s.kind = 'project' AND s.target_id = p.project_id) OR (s.kind = 'chat' AND s.target_id = c.chat_id))
                   ORDER BY c.updated_utc DESC LIMIT 1");
     if ($chat) return ['projectId' => (string)$chat['project_id'], 'chatId' => (string)$chat['chat_id']];
     $p = $one("SELECT project_id FROM projects WHERE env = ? AND archived = 0 AND COALESCE(JSON_VALUE(data, '$.family'), 'false') <> 'true'
-               ORDER BY (LOWER(COALESCE(title, '')) REGEXP '^(home|дом|personal|личное)') DESC, updated_utc DESC LIMIT 1");
+                 AND NOT EXISTS (SELECT 1 FROM shares s WHERE s.kind = 'project' AND s.target_id = projects.project_id)
+               ORDER BY (LOWER(COALESCE(title, '')) REGEXP '^(home|дом|personal|личное)( |$)') DESC, updated_utc DESC LIMIT 1");
     return $p ? ['projectId' => (string)$p['project_id'], 'chatId' => null] : ['error' => 'no_project'];
 }
 

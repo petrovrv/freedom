@@ -86,7 +86,8 @@ Read only: the Gmail scope is `gmail.readonly`, so nothing can be marked, moved,
 "💬 Агент" in ✉ opens the person's mail chat: a chat in mode "Почта" (`provides.modes`, rules
 `context/mail-mode.md`) with the mail page as its viewer on the left (`ui.panel` `panel`, the same `ui/mail.html`).
 The server user op `mail_agent_place` names the newest live chat of the environment that has a mail document
-(`mailDoc`), else the project for a new one (Home/Дом/Personal/Личное, else the newest, no family room); the page opens
+(`mailDoc`), else the project for a new one (Home/Дом/Personal/Личное, else the newest, no family room; never a
+project or chat shared with anyone, so mail summaries stay with the person); the page opens
 it with the core service `chat.open {projectId, chatId?, viewer: "Почта"}` — without a chat the first question makes
 "✉ Почта" there with the mode on. The agent reads mail through `hubctl.py run` (read only) and prepares replies in the
 chat or as Gmail drafts with gmail-draft on request; sending, marking and archiving stay the person's clicks in ✉.

@@ -264,7 +264,7 @@ Core services (`coExt.req`):
 | `chat.ask` | `{text, files: [{name, type, bytes}]}` → `{ok}`: the viewer's chat sends this message (a new chat is made for a draft) | `chat.post`, viewer panel |
 | `chat.reveal` | `{eventId}` → scrolls the chat to the message | viewer panel |
 | `panel.close` | `{}` → closes the viewer | viewer panel |
-| `chat.open` | `{projectId, chatId?, viewer?}` → `{ok}`: opens that chat of the shown environment in the shell (from a bare page or an app window: a new tab of CO); ids only, the server decides access as for any address. `viewer` (letters, digits, space, `_.-`, ≤ 64) is a document of the module's own chat-mode viewer: `?<param>=<viewer>` shows the viewer left of the chat; without `chatId` the project address opens the chat of that document or makes one at the first question | `ui.navigate` |
+| `chat.open` | `{projectId, chatId?, viewer?, mode?}` → `{ok}`: opens that chat of the shown environment in the shell (from a bare page or an app window: a new tab of CO); ids only, the server decides access as for any address. `viewer` (letters, digits, space, `_.-`, ≤ 64) is a document of the module's own chat-mode viewer (`mode` names the mode, else its first mode with a viewer): `?<param>=<viewer>` shows the viewer left of the chat; without `chatId` the project address opens the chat of that document or makes one at the first question | `ui.navigate` |
 
 `path` is always relative to AI-Workbench and starts with `projects/`.
 

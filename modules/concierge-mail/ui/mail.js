@@ -357,7 +357,7 @@ function chatLinks(thread) {
       const open = button('🗂\uFE0E ' + c.title, () => openChat(c)); open.className = 'link-button'; open.title = 'Открыть чат «' + c.title + '»';
       const out = button('×', () => change('unlink', {thread: thread.thread, chat: c.chat}));
       out.setAttribute('aria-label', 'Убрать из чата «' + c.title + '»');
-      chip.append(open, out); box.append(chip);
+      chip.append(open, out); box.insertBefore(chip, picking);
     }
     const add = button(list.length ? '+ Ещё в чат…' : '🗂\uFE0E В чат…', () => picker(box, thread, change)); add.className = 'link-button';
     add.title = 'Положить эту переписку в чат CO: она будет видна там и агенту этого чата';

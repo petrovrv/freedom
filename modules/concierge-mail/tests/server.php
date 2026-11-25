@@ -33,6 +33,20 @@ try {
     check(($r['error'] ?? '') === 'timeout' && microtime(true) - $t0 >= CO_RELAY_WAIT - 1, 'call goes to the relay queue');
     check(($h['user']['mail_status'](['myEnv' => 'envb', 'relay' => [$relay['relay'], ['myEnv' => 'envb'] + $rc]], [])['paired'] ?? null) === false,
         'another environment sees no worker of enva');
+    // 0.12.0 mail_chats: own live chats only, words in the chat or project title
+    $rows = [
+        ['chat_id' => 'CHAT-20261101000000-AAAA', 'project_id' => 'Freedom', 'title' => 'Почтовый клиент', 'data' => '{}', 'ptitle' => 'Freedom', 'pdata' => '{}'],
+        ['chat_id' => 'CHAT-20261101000000-BBBB', 'project_id' => 'Freedom', 'title' => "\u{2937} Ревью почты", 'data' => '{}', 'ptitle' => 'Freedom', 'pdata' => '{}'],
+        ['chat_id' => 'CHAT-20261101000000-CCCC', 'project_id' => 'Jobs', 'title' => 'Stadsbader', 'data' => '{"trashedUtc":"2026-11-01"}', 'ptitle' => 'Job search', 'pdata' => '{}'],
+        ['chat_id' => 'CHAT-20261101000000-DDDD', 'project_id' => 'Fam', 'title' => 'Family talk', 'data' => '{}', 'ptitle' => 'Home', 'pdata' => '{"family":true}'],
+        ['chat_id' => 'CHAT-20261101000000-EEEE', 'project_id' => 'Jobs', 'title' => 'Digital Realty', 'data' => '{"archived":true}', 'ptitle' => 'Job search', 'pdata' => '{}'],
+        ['chat_id' => 'CHAT-20261101000000-FFFF', 'project_id' => 'Jobs', 'title' => 'Vulcain meeting', 'data' => '{}', 'ptitle' => 'Job search', 'pdata' => '{}'],
+    ];
+    $ids = fn(array $r): string => implode(',', array_map(fn($x) => substr($x['chat'], -4), $r['chats']));
+    check($ids($h['user']['mail_chats'](['chatRows' => $rows], [])) === 'AAAA,FFFF', 'mail_chats: no agent talks, trash, archive or family room');
+    check($ids($h['user']['mail_chats'](['chatRows' => $rows], ['q' => 'JOB vulc'])) === 'FFFF', 'mail_chats: every word in the chat or project title');
+    check($ids($h['user']['mail_chats'](['chatRows' => $rows], ['q' => 'почтов'])) === 'AAAA', 'mail_chats: other alphabets, any case');
+    check($h['user']['mail_chats'](['myEnv' => ''], ['q' => 'x']) === ['chats' => []], 'mail_chats: no database, no chats');
     echo "PHP checks: $checks passed\n";
 } finally {
     exec('rm -rf ' . escapeshellarg($d));

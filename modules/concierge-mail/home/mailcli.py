@@ -95,6 +95,11 @@ def main():
     gb.add_argument('--before', help='YYYY-MM-DD')
     gb.add_argument('--query', help='Gmail search query')
     sub.add_parser('gmail-status', help='sync state and counters per mailbox (no content)')
+    cm = sub.add_parser('chat-mail', help='correspondence of a CO chat: the threads the person put into it (read only; --thread: its messages as text)')
+    cm.add_argument('--chat', required=True, help='CO chat id (AIWB_CHAT_ID of the job)')
+    cm.add_argument('--thread', help='one of its threads: the messages as plain text')
+    cm.add_argument('--account', help='mailbox (default ACCOUNT of the env file on the home server)')
+    cm.add_argument('--limit', type=int, default=20)
     sub.add_parser('relay-handler', help="answer the person's Mail page: handler of the home-relay worker (JSON lines on stdin/stdout; read only)")
     sub.add_parser('backup-keygen', help='new backup key pair: the private key goes to the keyring of THIS device (aiwb/concierge-mail-backup), the public one is printed for the hub')
     bd = sub.add_parser('backup-drive', help="encrypted incremental backup into the person's own Google Drive (public key from BACKUP_PUBLIC_KEY)")
@@ -130,6 +135,12 @@ def main():
             result = sync_imap(store, args.account, folder=args.folder, limit=args.limit, refetch=args.refetch) if args.folder else sync_account(store, args.account, sent_folder=args.sent_folder, limit=args.limit, refetch=args.refetch)
         elif command in ('gmail-sync', 'gmail-backfill', 'backup-drive'):
             result = run_hub(args, store)
+        elif command == 'chat-mail':
+            import relay
+            account = (args.account or os.environ.get('ACCOUNT', '')).strip().lower()
+            if not account:
+                raise SystemExit('chat-mail: no mailbox (--account or ACCOUNT)')
+            result = relay.chat_mail(relay.MailApi(store, account), args.chat, args.thread, args.limit)
         elif command == 'relay-handler':
             import relay
             relay.handler_main(store)

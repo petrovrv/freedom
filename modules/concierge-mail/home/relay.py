@@ -7,8 +7,10 @@ modules/home-relay/home/relayd.py); it seals the answers again. The handler sees
 Binding: the handler serves the mailbox of /etc/concierge-mail/<slug>.env only when that mailbox belongs to the
 environment the worker serves (AIWB_ENV of the mailbox == HOME_RELAY_ENV); otherwise every call gets `not_bound`.
 
-Read only for now: the API reads the store (overview, list, thread, message, attachment, search) and changes nothing,
-neither in the store nor at the provider. `images` fetches the remote pictures of one stored message on the person's
+The API reads the store (overview, list, thread, message, attachment, search); writing to the provider is the module
+compose (on the person's click). 0.12.0: the only thing the handler keeps itself is the person's links of threads to
+CO chats (table chat_links: thread -> chat id, a copy of the chat's title and project for display; no message content
+leaves the store), so a chat's correspondence lives here and is not copied into the chat. `images` fetches the remote pictures of one stored message on the person's
 click (home/remoteimg.py); the page itself never loads anything from the internet.
 """
 from __future__ import annotations
@@ -34,6 +36,25 @@ ATTACHMENT_MAX = 4 * 1024 * 1024  # base64 twice (JSON, then the sealed answer) 
 THREAD_MAX = 100                    # newest messages of a thread
 HTML_MAX = 1536 * 1024              # characters of one message's html; longer: text only, marked truncated
 SYSTEM_LABELS = ['INBOX', 'STARRED', 'IMPORTANT', 'SENT', 'DRAFT', 'SPAM', 'TRASH']
+THREAD_ID = re.compile(r'[A-Za-z0-9_-]{1,64}')
+CHAT_ID = re.compile(r'CHAT-\d{14}-[A-Z0-9]{4}')
+PROJECT_ID = re.compile(r'[A-Za-z0-9_.-]{1,64}')
+CHATS_PER_THREAD = 20               # links of one thread
+TITLE_MAX = 200
+
+
+def ensure_links(db):
+    """The person's links of mail threads to CO chats (0.12.0)."""
+    db.execute('CREATE TABLE IF NOT EXISTS chat_links(account TEXT NOT NULL, thread_id TEXT NOT NULL, chat_id TEXT NOT NULL,'
+               ' chat_title TEXT NOT NULL, project_id TEXT NOT NULL, linked TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,'
+               ' PRIMARY KEY(account, thread_id, chat_id))')
+    db.execute('CREATE INDEX IF NOT EXISTS chat_links_chat ON chat_links(account, chat_id)')
+    db.commit()
+
+
+def _chat_title(value):
+    t = re.sub(r'\s+', ' ', str(value or '')).strip()[:TITLE_MAX]
+    return t or '(untitled)'
 
 
 def b64e(data):
@@ -160,6 +181,7 @@ class MailApi:
         self.store, self.db, self.account = store, store.db, account
         self.db.row_factory = sqlite3.Row
         self.composer = composer  # writing (module compose): only in the handler of a bound mailbox
+        ensure_links(self.db)
 
     def unread(self):
         row = self.db.execute("SELECT COUNT(DISTINCT thread_id) FROM gmail_messages WHERE account=? AND gone=0"
@@ -223,7 +245,10 @@ class MailApi:
             tainted = self.db.execute(
                 'SELECT 1 FROM gmail_messages g JOIN messages m ON m.id=g.message_id'
                 ' WHERE g.account=? AND g.thread_id=? AND g.gone=0 AND m.tainted LIMIT 1', (self.account, r['thread_id'])).fetchone()
-            items.append({'thread': r['thread_id'], 'date': r['d'], 'count': r['n'], 'unread': int(r['u'] or 0),
+            chats = [{'chat': c['chat_id'], 'title': c['chat_title'], 'project': c['project_id']} for c in self.db.execute(
+                'SELECT chat_id, chat_title, project_id FROM chat_links WHERE account=? AND thread_id=? ORDER BY linked LIMIT 3',
+                (self.account, r['thread_id']))]
+            items.append({'thread': r['thread_id'], 'date': r['d'], 'count': r['n'], 'unread': int(r['u'] or 0), 'chats': chats,
                           'labels': labels, 'subject': '' if last['sensitive'] else last['subject'],
                           'from': senders, 'snippet': '' if last['sensitive'] else _snippet(last['body'], last['html']),
                           'attachments': int(last['att']), 'sensitive': bool(last['sensitive']), 'tainted': tainted is not None})
@@ -244,6 +269,71 @@ class MailApi:
         match = ' AND '.join('"' + w + '"' for w in words)
         return self._threads('AND message_id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)', [match],
                              args.get('before'), args.get('limit'))
+
+    # ---------- 0.12.0: correspondence of chats ----------
+
+    def _thread_id(self, args):
+        tid = str(args.get('thread') or '')
+        if not THREAD_ID.fullmatch(tid):
+            raise ValueError('bad thread')
+        if not self.db.execute('SELECT 1 FROM gmail_messages WHERE account=? AND thread_id=? AND gone=0 LIMIT 1',
+                               (self.account, tid)).fetchone():
+            raise LookupError('no thread')
+        return tid
+
+    @staticmethod
+    def _chat_id(args):
+        cid = str(args.get('chat') or '')
+        if not CHAT_ID.fullmatch(cid):
+            raise ValueError('bad chat')
+        return cid
+
+    def links(self, args):
+        """The chats a thread belongs to."""
+        tid = self._thread_id(args)
+        rows = self.db.execute('SELECT chat_id, chat_title, project_id, linked FROM chat_links WHERE account=? AND thread_id=?'
+                               ' ORDER BY linked', (self.account, tid))
+        return {'thread': tid, 'chats': [{'chat': r['chat_id'], 'title': r['chat_title'], 'project': r['project_id'],
+                                          'linked': r['linked']} for r in rows]}
+
+    def link(self, args):
+        """The person puts a thread into a chat (again: the chat's title and project are refreshed)."""
+        tid, cid = self._thread_id(args), self._chat_id(args)
+        project = str(args.get('project') or '')
+        if not PROJECT_ID.fullmatch(project):
+            raise ValueError('bad project')
+        known = self.db.execute('SELECT 1 FROM chat_links WHERE account=? AND thread_id=? AND chat_id=?',
+                                (self.account, tid, cid)).fetchone()
+        if not known and self.db.execute('SELECT COUNT(*) FROM chat_links WHERE account=? AND thread_id=?',
+                                         (self.account, tid)).fetchone()[0] >= CHATS_PER_THREAD:
+            raise ValueError('too many chats')
+        self.db.execute('INSERT INTO chat_links(account, thread_id, chat_id, chat_title, project_id) VALUES(?,?,?,?,?)'
+                        ' ON CONFLICT(account, thread_id, chat_id) DO UPDATE SET chat_title=excluded.chat_title,'
+                        ' project_id=excluded.project_id', (self.account, tid, cid, _chat_title(args.get('title')), project))
+        self.db.commit()
+        return self.links({'thread': tid})
+
+    def unlink(self, args):
+        tid, cid = self._thread_id(args), self._chat_id(args)
+        self.db.execute('DELETE FROM chat_links WHERE account=? AND thread_id=? AND chat_id=?', (self.account, tid, cid))
+        self.db.commit()
+        return self.links({'thread': tid})
+
+    def chats(self, args):
+        """Chats that have correspondence here, newest mail first, with their unread threads."""
+        rows = self.db.execute(
+            "SELECT l.chat_id, MAX(l.chat_title) title, MAX(l.project_id) project, COUNT(DISTINCT l.thread_id) n,"
+            " COUNT(DISTINCT CASE WHEN g.labels LIKE '%\"UNREAD\"%' THEN g.thread_id END) u, MAX(g.internal_date) d"
+            " FROM chat_links l LEFT JOIN gmail_messages g ON g.account=l.account AND g.thread_id=l.thread_id AND g.gone=0"
+            " WHERE l.account=? GROUP BY l.chat_id ORDER BY d DESC LIMIT 200", (self.account,))
+        return {'chats': [{'chat': r['chat_id'], 'title': r['title'], 'project': r['project'], 'threads': r['n'],
+                           'unread': int(r['u'] or 0), 'date': r['d'] or 0} for r in rows]}
+
+    def chat_threads(self, args):
+        """The correspondence of one chat: its threads, newest first (paged like a folder)."""
+        cid = self._chat_id(args)
+        return self._threads('AND thread_id IN (SELECT thread_id FROM chat_links WHERE account=? AND chat_id=?)',
+                             [self.account, cid], args.get('before'), args.get('limit'))
 
     def _inline(self, raw):
         out = {}
@@ -325,9 +415,31 @@ class MailApi:
             raise ValueError('unknown action')
         if action in compose.ACTIONS and self.composer is not None:
             return self.composer.handle(action, args)
-        if action not in ('overview', 'list', 'search', 'thread', 'attachment', 'images'):
+        if action not in ('overview', 'list', 'search', 'thread', 'attachment', 'images', 'links', 'link', 'unlink', 'chats',
+                          'chat_threads'):
             raise ValueError('unknown action')
         return getattr(self, action)(args)
+
+
+TEXT_MAX = 8000  # characters of one message for an agent
+
+
+def chat_mail(api, chat, thread=None, limit=20):
+    """mailcli chat-mail: an agent of a chat reads that chat's correspondence (text only, no html, codes stay stubs)."""
+    if not thread:
+        listed = api.chat_threads({'chat': chat, 'limit': max(1, min(int(limit or 20), 100))})
+        return {'chat': chat, 'threads': [{k: t[k] for k in ('thread', 'date', 'count', 'unread', 'subject', 'from', 'snippet',
+                                                            'attachments', 'sensitive', 'tainted')} for t in listed['threads']]}
+    cid = api._chat_id({'chat': chat})
+    tid = api._thread_id({'thread': thread})
+    if not api.db.execute('SELECT 1 FROM chat_links WHERE account=? AND thread_id=? AND chat_id=?', (api.account, tid, cid)).fetchone():
+        raise LookupError('thread not in this chat')
+    got = api.thread({'thread': tid})
+    msgs = got['messages'][-max(1, min(int(limit or 20), THREAD_MAX)):]
+    return {'chat': cid, 'thread': tid, 'older': got['older'] or len(msgs) < len(got['messages']),
+            'messages': [{'id': m['id'], 'date': m['date'], 'from': m['from'], 'to': m['to'], 'subject': m['subject'],
+                          'text': (m['text'] or '')[:TEXT_MAX], 'attachments': [a['name'] for a in m['attachments']],
+                          'sensitive': m['sensitive'], 'tainted': m['tainted'], 'reasons': m['reasons']} for m in msgs]}
 
 
 class LazyToken:

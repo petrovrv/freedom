@@ -5,6 +5,7 @@
 // this module; which mailbox answers is decided on the home server.
 //   user  mail_status  - is the worker online and serving mail, its public key, my unread count (a number for the tray)
 //         mail_call    - {id, pk, iv, ct}: one sealed request to my mail handler; waits for the sealed answer
+//         mail_chats   - {q}: chats of my environment to put a thread into (0.12.0: id, project, titles; never mail)
 declare(strict_types=1);
 
 const CO_MAIL_MODULE = 'concierge-mail';
@@ -40,6 +41,46 @@ function co_mail_status(array $c): array
         + (isset($st['error']) ? ['error' => (string)$st['error']] : []);
 }
 
+/** Recent chats of my environment (rows chat_id, project_id, title, data, ptitle, pdata), newest first. */
+function co_mail_chat_rows(array $c): array
+{
+    if (isset($c['chatRows'])) return $c['chatRows'];  // tests
+    $db = $c['db'] ?? null;
+    if (!$db instanceof mysqli || (string)($c['myEnv'] ?? '') === '') return [];
+    $st = $db->prepare('SELECT c.chat_id, c.project_id, c.title, c.data, p.title AS ptitle, p.data AS pdata FROM chats c'
+        . ' JOIN projects p ON p.project_id = c.project_id WHERE p.env = ? AND p.archived = 0 ORDER BY c.updated_utc DESC LIMIT 600');
+    $env = (string)$c['myEnv'];
+    $st->bind_param('s', $env);
+    $st->execute();
+    $rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
+    $st->close();
+    return $rows;
+}
+
+/**
+ * 0.12.0: chats a thread can be put into - the person's own live chats (no family room, archive, trash or chats an
+ * agent started for another chat, title "⤷ ..."), the words of q in the title or the project's title, at most 20.
+ */
+function co_mail_chats(array $c, array $in): array
+{
+    $words = preg_split('/\s+/u', mb_strtolower(trim(mb_substr((string)($in['q'] ?? ''), 0, 80))), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+    $out = [];
+    foreach (co_mail_chat_rows($c) as $r) {
+        $title = (string)($r['title'] ?? '');
+        if ($title === '' || str_starts_with($title, "\u{2937} ")) continue;
+        $d = json_decode((string)($r['data'] ?? ''), true) ?: [];
+        $pd = json_decode((string)($r['pdata'] ?? ''), true) ?: [];
+        if (!empty($d['archived']) || !empty($d['draft']) || !empty($d['trashedUtc']) || !empty($pd['family'])) continue;
+        $ptitle = (string)($r['ptitle'] ?? '') ?: (string)$r['project_id'];
+        $hay = mb_strtolower($title . ' ' . $ptitle);
+        foreach ($words as $w) if (!str_contains($hay, $w)) continue 2;
+        $out[] = ['chat' => (string)$r['chat_id'], 'project' => (string)$r['project_id'], 'title' => mb_substr($title, 0, 200),
+            'projectTitle' => mb_substr($ptitle, 0, 200)];
+        if (count($out) >= 20) break;
+    }
+    return ['chats' => $out];
+}
+
 function co_mail_call(array $c, array $in): array
 {
     $r = co_mail_relay($c);
@@ -52,6 +93,7 @@ return [
     'user' => [
         'mail_status' => static fn(array $c, array $in): array => co_mail_status($c),
         'mail_call' => static fn(array $c, array $in): array => co_mail_call($c, $in),
+        'mail_chats' => static fn(array $c, array $in): array => co_mail_chats($c, $in),
     ],
     'push' => [],
     'host' => [],

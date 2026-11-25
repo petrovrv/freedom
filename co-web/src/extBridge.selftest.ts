@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // node src/extBridge.selftest.ts - the message checks of the ext/1 bridge (Freedom F10).
-import { callRefusal, callRoute, capabilityRefusal, deviceOpSlot, moduleUrl, parseExtMessage, parseHint, reqRefusal, shellApps, shellOpen, shellSettings, type ModuleInfo } from './extBridge.ts';
+import { callRefusal, callRoute, capabilityRefusal, chatOpenPath, deviceOpSlot, moduleUrl, parseExtMessage, parseHint, reqRefusal, shellApps, shellOpen, shellSettings, type ModuleInfo } from './extBridge.ts';
 
 let fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -157,5 +157,10 @@ console.log('extBridge selftest OK');
   const nm = parseExtMessage({ ext: 1, t: 'req', id: 'n1', name: 'notify.push', args: { title: 'x', open: { page: 'm' } } });
   ok('notify request parsed', nm?.t === 'req' && nm.name === 'notify.push');
 }
+
+// 0.129.1 chat.open: ids only, the environment of the shell
+ok('chat.open path', chatOpenPath({ projectId: 'Freedom', chatId: 'CHAT-20261119164352-XE5N' }, 'env-a') === '/e/env-a/p/Freedom/c/CHAT-20261119164352-XE5N');
+ok('chat.open refuses bad ids', [{ projectId: '../x', chatId: 'CHAT-20261119164352-XE5N' }, { projectId: 'P', chatId: 'CHAT-1/../x' }, { projectId: '..', chatId: 'CHAT-20261119164352-XE5N' }, { projectId: 'P' }, {}].every((a) => chatOpenPath(a, 'env-a') === null) && chatOpenPath({ projectId: 'P', chatId: 'CHAT-20261119164352-XE5N' }, '') === null);
+ok('chat.open needs ui.navigate', reqRefusal({ enabled: true, permissions: [] }, 'chat.open', 'ui.page') === 'permission_not_declared' && reqRefusal({ enabled: true, permissions: ['ui.navigate'] }, 'chat.open', 'ui.page') === '');
 
 if (fail) throw new Error(`extBridge selftest: ${fail} failed`);

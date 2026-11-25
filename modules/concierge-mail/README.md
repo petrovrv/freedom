@@ -81,6 +81,25 @@ keyring holds no family member's token.
 
 Read only: the Gmail scope is `gmail.readonly`, so nothing can be marked, moved, deleted or sent from here.
 
+## Correspondence of chats (0.12.0)
+
+A mail thread can belong to CO chats. The mail is not copied: on the home server the handler keeps the person's links
+in the mail store (`chat_links`: account, thread id, chat id, a copy of the chat's title and project id for display).
+
+- **Mail page (✉)**: under the subject of an open thread, the chats it belongs to (a click opens the chat in CO through
+  the core service `chat.open`, × takes the thread out) and "🗂 В чат…" (search among the person's own chats: server
+  user op `mail_chats {q}` returns ids and titles of live chats of the person's environment, no family room, archive,
+  trash or chats an agent started for another chat; never mail). The folder list has a section "Чаты": each chat with
+  correspondence is a folder of its threads; rows show the chats of a thread.
+- **Handler actions** (sealed, through home-relay): `links {thread}`, `link {thread, chat, title, project}` (again =
+  refresh the title; at most 20 chats per thread), `unlink {thread, chat}`, `chats {}`, `chat_threads {chat, before,
+  limit}`. Ids are checked (`CHAT-<14 digits>-<4>`, thread of this mailbox), nothing else is stored.
+- **Agent of a chat**: `mailcli.py chat-mail --chat CHAT-ID [--thread T] [--limit N]` (through `hubctl.py run <slug>
+  -- chat-mail ...` from the person's device): the threads of that chat, or the messages of one of its threads as
+  text (no html; codes stay stubs; read-guard wraps the output). A thread not linked to that chat is refused.
+- Next (core): the chat's folder part "Correspondence" shows these threads inside CO and the agent gets them as context
+  without asking.
+
 ## Mail app and the site as postman (0.8.0, stage 2; through home-relay since 0.10.0)
 
 The app ✉ (`ui/mail.html`, a `ui.page` with `app: true`, its own window in CO Desktop) and the tray indicator

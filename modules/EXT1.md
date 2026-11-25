@@ -264,6 +264,7 @@ Core services (`coExt.req`):
 | `chat.ask` | `{text, files: [{name, type, bytes}]}` → `{ok}`: the viewer's chat sends this message (a new chat is made for a draft) | `chat.post`, viewer panel |
 | `chat.reveal` | `{eventId}` → scrolls the chat to the message | viewer panel |
 | `panel.close` | `{}` → closes the viewer | viewer panel |
+| `chat.open` | `{projectId, chatId}` → `{ok}`: opens that chat of the shown environment in the shell (from a bare page or an app window: a new tab of CO); ids only, the server decides access as for any address | `ui.navigate` |
 
 `path` is always relative to AI-Workbench and starts with `projects/`.
 

@@ -6,6 +6,8 @@ const names = {INBOX:'Входящие', STARRED:'Помеченные', IMPORTA
 const privateNote = 'Письмо с кодом входа или ссылкой для сброса пароля — содержимое не хранится';
 let st = {}, relay, queue = Promise.resolve(), timer, statusTicket = 0, listTicket = 0, readTicket = 0;
 let label = 'INBOX', query = '', labels = [], threads = [], next = null, selected = -1, listBusy = false, initialized = false;
+// 0.12.0 correspondence of chats: the chats that have threads here, and the chat shown as a folder (null: a label)
+let chats = [], chatView = null;
 function el(tag, cls, text) {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
@@ -50,7 +52,7 @@ function call(action, args) {
 }
 function reset() {
   listTicket++; readTicket++; initialized = false; listBusy = false;
-  threads = []; labels = []; next = null; selected = -1;
+  threads = []; labels = []; next = null; selected = -1; chats = []; chatView = null;
   $('labels').replaceChildren(); $('threads').replaceChildren(); $('list-note').replaceChildren(); $('more').hidden = true;
   $('reading').replaceChildren(el('p', 'empty', 'Выберите письмо')); $('link-bar').hidden = true;
 }
@@ -84,7 +86,7 @@ async function overview() {
   try {
     const data = await call('overview', {});
     if (env !== st.env || account !== st.account || !st.paired) return;
-    labels = data.labels || []; renderLabels(); title(data.unread);
+    labels = data.labels || []; renderLabels(); title(data.unread); loadChats();
     if (threads.length) renderThreads(); // the label chips need the names, which may come after the list
   } catch (err) { if (env === st.env && account === st.account) error($('labels'), err, overview); }
 }
@@ -96,17 +98,43 @@ function renderLabels() {
   const system = Object.keys(names).map(id => ({id, name:names[id], ...labels.find(l => l.id === id)}));
   const own = new Set(userLabels().map(l => l.id));
   for (const item of [...system, ...userLabels()]) {
-    const b = button('', () => { label = item.id; query = ''; $('search').value = ''; renderLabels(); pane('list'); loadList(); });
+    const b = button('', () => { label = item.id; query = ''; chatView = null; $('search').value = ''; renderLabels(); pane('list'); loadList(); });
     const name = el('span', 'name');
     if (own.has(item.id)) name.append(el('span', 'dot ' + hue(item.id)));
     name.append(el('span', '', names[item.id] || item.name));
     b.append(name);
     // only the inbox count is "new for you"; counts of other folders stay grey
     if (item.unread) b.append(el('span', 'small count' + (item.id === 'INBOX' ? ' fresh' : ''), item.unread));
-    if (!query && item.id === label) b.setAttribute('aria-current', 'page');
+    if (!query && !chatView && item.id === label) b.setAttribute('aria-current', 'page');
     $('labels').append(b);
   }
+  // 0.12.0: chats with correspondence - each is a folder of its threads (the mail stays here, the chat only names it)
+  if (chats.length) {
+    const head = el('h3', 'chats-head', 'Чаты'); head.title = 'Переписка, которую вы положили в чаты CO';
+    $('labels').append(head);
+    for (const c of chats) {
+      const b = button('', () => { chatView = c; query = ''; $('search').value = ''; renderLabels(); pane('list'); loadList(); });
+      b.title = c.title;
+      const name = el('span', 'name'); name.append(el('span', '', '🗂\uFE0E'), el('span', 'chat-title', c.title));
+      b.append(name);
+      if (c.unread) b.append(el('span', 'small count', c.unread));
+      if (!query && chatView?.chat === c.chat) b.setAttribute('aria-current', 'page');
+      $('labels').append(b);
+    }
+  }
 }
+async function loadChats() {
+  const env = st.env, account = st.account;
+  try {
+    const data = await call('chats', {});
+    if (env !== st.env || account !== st.account) return;
+    chats = data.chats || [];
+    if (chatView) chatView = chats.find(c => c.chat === chatView.chat) || chatView;
+    renderLabels();
+  } catch (_) { /* the labels already show the error of the connection */ }
+}
+// open the chat in CO (core service chat.open: the shell moves to the chat; from an app window a new tab)
+function openChat(c) { coExt.req('chat.open', {projectId: c.project, chatId: c.chat}).catch(() => note('Не удалось открыть чат')); }
 function date(value, full = false) {
   const d = new Date(Number(value)), today = new Date();
   if (Number.isNaN(d.getTime())) return '';
@@ -148,9 +176,11 @@ function renderThreads() {
     b.append(row, el('span', 'subject', (t.attachments ? '📎 ' : '') + (t.sensitive ? 'Защищённое письмо' : t.subject || '(без темы)')),
       el('span', 'snippet', t.sensitive ? privateNote : t.snippet || ''));
     // the person's labels as chips (not the folder being shown), at most three
-    const chips = userLabels().filter(l => tl.includes(l.id) && (query || l.id !== label)).slice(0, 3);
-    if (chips.length) {
+    const chips = userLabels().filter(l => tl.includes(l.id) && (query || chatView || l.id !== label)).slice(0, 3);
+    const inChats = (t.chats || []).filter(c => c.chat !== chatView?.chat).slice(0, 2);
+    if (chips.length || inChats.length) {
       const line = el('span', 'labels-row');
+      for (const c of inChats) { const x = el('span', 'lbl in-chat', '🗂\uFE0E ' + c.title); x.title = 'В чате: ' + c.title; line.append(x); }
       for (const l of chips) line.append(el('span', 'lbl ' + hue(l.id), l.name));
       b.append(line);
     }
@@ -163,16 +193,16 @@ async function loadList(append = false) {
   const ticket = ++listTicket;
   if (!append) { readTicket++; threads = []; next = null; selected = -1; renderThreads(); $('reading').replaceChildren(el('p', 'empty', 'Выберите письмо')); }
   listBusy = true; $('more').hidden = true; $('list-note').textContent = 'Загрузка…';
-  $('list-title').textContent = query ? 'Поиск: ' + query : names[label] || labels.find(l => l.id === label)?.name || label;
-  const args = query ? {q:query, limit:50} : {label, limit:50};
+  $('list-title').textContent = query ? 'Поиск: ' + query : chatView ? '🗂\uFE0E ' + chatView.title : names[label] || labels.find(l => l.id === label)?.name || label;
+  const args = query ? {q:query, limit:50} : chatView ? {chat:chatView.chat, limit:50} : {label, limit:50};
   if (append) args.before = next;
-  if (!query && label === 'DRAFT') return loadDrafts(ticket);
+  if (!query && !chatView && label === 'DRAFT') return loadDrafts(ticket);
   try {
-    const data = await call(query ? 'search' : 'list', args);
+    const data = await call(query ? 'search' : chatView ? 'chat_threads' : 'list', args);
     if (ticket !== listTicket) return;
     const known = new Set(threads.map(t => t.thread));
     threads.push(...(data.threads || []).filter(t => !known.has(t.thread))); next = data.next ?? null;
-    renderThreads(); $('list-note').textContent = threads.length ? '' : 'Писем нет';
+    renderThreads(); $('list-note').textContent = threads.length ? '' : chatView ? 'В этом чате писем больше нет' : 'Писем нет';
   } catch (err) { if (ticket === listTicket) error($('list-note'), err, () => loadList(append)); }
   finally { if (ticket === listTicket) { listBusy = false; $('more').hidden = next === null; } }
 }
@@ -314,6 +344,62 @@ function toolbar(thread, messages) {
   if (labels.has('TRASH')) act('↺ Восстановить', mark('untrash', () => pane('list')));
   else act('🗑 Удалить', mark('trash', () => pane('list'))).classList.add('danger');
 }
+// 0.12.0: the chats this thread belongs to (open, take out) and "🗂 В чат…" - the mail stays on the home server, the chat
+// gets only a link (thread id) there, so its correspondence is this thread itself, not a copy
+function chatLinks(thread) {
+  const box = el('div', 'chat-links'), gen = readTicket;
+  const draw = list => {
+    box.replaceChildren();
+    for (const c of list) {
+      const chip = el('span', 'chip in-chat');
+      const open = button('🗂\uFE0E ' + c.title, () => openChat(c)); open.className = 'link-button'; open.title = 'Открыть чат «' + c.title + '»';
+      const out = button('×', () => change('unlink', {thread: thread.thread, chat: c.chat}));
+      out.setAttribute('aria-label', 'Убрать из чата «' + c.title + '»');
+      chip.append(open, out); box.append(chip);
+    }
+    const add = button(list.length ? '+ Ещё в чат…' : '🗂\uFE0E В чат…', () => picker(box, thread, change)); add.className = 'link-button';
+    add.title = 'Положить эту переписку в чат CO: она будет видна там и агенту этого чата';
+    box.append(add);
+  };
+  const change = async (action, args) => {
+    try {
+      const data = await call(action, args);
+      if (gen !== readTicket) return;
+      thread.chats = data.chats.slice(0, 3); draw(data.chats); renderThreads(); loadChats();
+      if (chatView && action === 'unlink' && args.chat === chatView.chat) note('Письмо убрано из чата «' + chatView.title + '»');
+    } catch (err) { note(err.message === 'too many chats' ? 'Эта переписка уже в 20 чатах' : 'Не удалось: ' + (err.message || err)); }
+  };
+  draw(thread.chats || []);
+  call('links', {thread: thread.thread}).then(d => { if (gen === readTicket) { thread.chats = d.chats.slice(0, 3); draw(d.chats); } }).catch(() => {});
+  return box;
+}
+// choose a chat of the person (server op mail_chats: titles of own chats only, never mail)
+function picker(box, thread, change) {
+  box.querySelector('.chat-picker')?.remove();
+  const wrap = el('div', 'chat-picker'), input = el('input'), list = el('div', 'picks');
+  input.type = 'search'; input.placeholder = 'Название чата или проекта'; input.setAttribute('aria-label', 'Найти чат');
+  let seq = 0, t = 0;
+  const find = async () => {
+    const my = ++seq;
+    list.replaceChildren(el('span', 'small', 'Поиск…'));
+    try {
+      const data = await coExt.call('mail_chats', {q: input.value});
+      if (my !== seq) return;
+      list.replaceChildren();
+      for (const c of data.chats || []) {
+        const b = button('', () => { wrap.remove(); change('link', {thread: thread.thread, chat: c.chat, title: c.title, project: c.project}); });
+        b.append(el('span', 'chat-title', c.title), el('span', 'small', c.projectTitle));
+        list.append(b);
+      }
+      if (!list.children.length) list.append(el('span', 'small', 'Чатов не найдено'));
+    } catch (_) { if (my === seq) list.replaceChildren(el('span', 'small', 'Не удалось получить список чатов')); }
+  };
+  input.addEventListener('input', () => { clearTimeout(t); t = setTimeout(find, 250); });
+  input.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); wrap.remove(); } });
+  const close = button('×', () => wrap.remove()); close.setAttribute('aria-label', 'Закрыть выбор чата');
+  const row = el('div', 'pick-row'); row.append(input, close);
+  wrap.append(row, list); box.append(wrap); input.focus(); find();
+}
 function note(text) { const n = el('p', 'notice', text); $('reading').prepend(n); setTimeout(() => n.remove(), 8000); }
 function refreshList() { overview(); loadList(); }
 async function openThread(index, markRead = true) {
@@ -326,7 +412,7 @@ async function openThread(index, markRead = true) {
     const data = await call('thread', {thread:thread.thread});
     if (ticket !== readTicket) return;
     const messages = data.messages || [];
-    $('reading').replaceChildren(el('h2', '', messages.find(m => !m.sensitive && m.subject)?.subject || 'Переписка'));
+    $('reading').replaceChildren(el('h2', '', messages.find(m => !m.sensitive && m.subject)?.subject || 'Переписка'), chatLinks(thread));
     messages.forEach((msg, i) => {
       $('reading').append(message(msg, i === messages.length - 1));
     });
@@ -570,7 +656,7 @@ function back() {
   else { pane(document.body.dataset.pane === 'labels' ? 'list' : 'labels'); }
 }
 $('back').addEventListener('click', back);
-$('search-form').addEventListener('submit', e => { e.preventDefault(); query = $('search').value.trim(); renderLabels(); pane('list'); loadList(); });
+$('search-form').addEventListener('submit', e => { e.preventDefault(); query = $('search').value.trim(); chatView = null; renderLabels(); pane('list'); loadList(); });
 $('search').addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); query = ''; $('search').value = ''; renderLabels(); pane('list'); loadList(); $('search').blur(); } });
 $('refresh').addEventListener('click', () => { overview(); pane('list'); loadList(); });
 $('more').addEventListener('click', () => loadList(true));

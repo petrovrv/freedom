@@ -65,6 +65,57 @@ class RelayTests(unittest.TestCase):
         got = self.ask('attachment', {'sha': att['sha']})['result']
         self.assertEqual(base64.b64decode(got['data']), b'%PDF-1.4 tiny')
 
+    def test_threads_of_a_chat(self):
+        chat, other = 'CHAT-20261125100000-AB12', 'CHAT-20261125100000-CD34'
+        threads = self.ask('list', {'label': 'INBOX'})['result']['threads']
+        heat = next(t['thread'] for t in threads if t['subject'] == 'Hello heat pump')
+        self.assertEqual(self.ask('links', {'thread': heat})['result']['chats'], [])
+        got = self.ask('link', {'thread': heat, 'chat': chat, 'title': '  Heat\npump   offer ', 'project': 'Home'})['result']
+        self.assertEqual([(c['chat'], c['title'], c['project']) for c in got['chats']], [(chat, 'Heat pump offer', 'Home')])
+        # linking again refreshes the title, no second row
+        again = self.ask('link', {'thread': heat, 'chat': chat, 'title': 'Heat pump', 'project': 'Home'})['result']['chats']
+        self.assertEqual([c['title'] for c in again], ['Heat pump'])
+        self.ask('link', {'thread': heat, 'chat': other, 'title': 'Other', 'project': 'Home'})
+        mine = self.ask('chat_threads', {'chat': chat})['result']['threads']
+        self.assertEqual([t['subject'] for t in mine], ['Hello heat pump'])
+        self.assertEqual({c['chat'] for c in mine[0]['chats']}, {chat, other})
+        listed = {c['chat']: c for c in self.ask('chats')['result']['chats']}
+        self.assertEqual((listed[chat]['threads'], listed[chat]['unread'], listed[chat]['title']), (1, 1, 'Heat pump'))
+        self.ask('unlink', {'thread': heat, 'chat': other})
+        self.assertEqual([c['chat'] for c in self.ask('links', {'thread': heat})['result']['chats']], [chat])
+        self.assertEqual(self.ask('chat_threads', {'chat': other})['result']['threads'], [])
+        # bad ids and unknown threads are refused, nothing is stored
+        for bad in ({'thread': heat, 'chat': 'CHAT-1', 'project': 'Home'}, {'thread': heat, 'chat': chat, 'project': '../x'},
+                    {'thread': 'nope', 'chat': chat, 'project': 'Home'}, {'thread': "x' OR 1=1", 'chat': chat, 'project': 'Home'}):
+            self.assertFalse(self.ask('link', bad)['ok'], bad)
+        self.assertFalse(self.ask('chat_threads', {'chat': "CHAT-' OR 1=1"})['ok'])
+        self.assertEqual(self.store.db.execute('SELECT COUNT(*) FROM chat_links').fetchone()[0], 1)
+        # links are kept per mailbox: another account of the same store sees none
+        self.assertEqual(relay.MailApi(self.store, 'other@example.org').chats({})['chats'], [])
+
+    def test_agent_reads_only_the_threads_of_its_chat(self):
+        chat = 'CHAT-20261125100000-AB12'
+        threads = self.ask('list', {'label': 'INBOX'})['result']['threads']
+        heat = next(t['thread'] for t in threads if t['subject'] == 'Hello heat pump')
+        other = next(t['thread'] for t in threads if t['subject'] == 'Html')
+        self.ask('link', {'thread': heat, 'chat': chat, 'title': 'Heat', 'project': 'Home'})
+        listed = relay.chat_mail(self.mail, chat)
+        self.assertEqual([t['subject'] for t in listed['threads']], ['Hello heat pump'])
+        got = relay.chat_mail(self.mail, chat, heat)
+        self.assertEqual(got['messages'][0]['text'].strip(), 'Offer for the heat pump')
+        self.assertNotIn('html', got['messages'][0])
+        with self.assertRaises(LookupError):
+            relay.chat_mail(self.mail, chat, other)  # a thread of no link to this chat
+        with self.assertRaises(ValueError):
+            relay.chat_mail(self.mail, 'CHAT-x')
+
+    def test_links_per_thread_are_limited(self):
+        heat = self.ask('list', {'label': 'INBOX'})['result']['threads'][0]['thread']
+        for i in range(relay.CHATS_PER_THREAD):
+            self.assertTrue(self.ask('link', {'thread': heat, 'chat': f'CHAT-20261125100000-A{i:03d}', 'title': str(i), 'project': 'P'})['ok'])
+        self.assertFalse(self.ask('link', {'thread': heat, 'chat': 'CHAT-20261125100000-ZZZZ', 'title': 'x', 'project': 'P'})['ok'])
+        self.assertTrue(self.ask('link', {'thread': heat, 'chat': 'CHAT-20261125100000-A000', 'title': 'again', 'project': 'P'})['ok'])
+
     def test_thread_flag_comes_from_any_message(self):
         db = self.store.db
         first = db.execute("SELECT thread_id FROM gmail_messages WHERE gmail_id='a1'").fetchone()['thread_id']

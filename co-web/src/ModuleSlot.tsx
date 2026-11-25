@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioCapture, audioFileName, AudioPlayback, mediaSupport, platformDictation, SpeechCapture } from './composerMedia';
 import { dbAppData, dbAppNotify, dbModuleCall, dbModuleList, dbModulePerson, dbModuleUpload } from './dbapi';
-import { callRoute, capabilityRefusal, deviceOpSlot, moduleUrl, navTarget, parseExtMessage, reqRefusal, setModuleBadge, SLOT_PERMISSION, THEME_VARS, type ExtRequest, type ModuleHint, type ModuleInfo, type ModuleUi } from './extBridge';
+import { callRoute, capabilityRefusal, chatOpenPath, deviceOpSlot, moduleUrl, navTarget, parseExtMessage, reqRefusal, setModuleBadge, SLOT_PERMISSION, THEME_VARS, type ExtRequest, type ModuleHint, type ModuleInfo, type ModuleUi } from './extBridge';
 import { setModuleList } from './moduleStore';
 import { fileService } from './moduleServices';
 import type { ChatEvent } from './types';
@@ -389,6 +389,19 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
       const why = reqRefusal(mod.current, r.name, ui.slot);
       if (why) {
         send({ t: 'result', id: r.id, ok: false, error: why });
+        return;
+      }
+      // 0.128.3: open a chat of the person (in the shell; from a bare page or an app window in a new tab of CO)
+      if (r.name === 'chat.open') {
+        const env = envOfPath(window.location.pathname);
+        const path = chatOpenPath(r.args, env || me || '');
+        if (!path) {
+          send({ t: 'result', id: r.id, ok: false, error: 'invalid chat' });
+          return;
+        }
+        if (env) routerNav(path);
+        else window.open(path, '_blank', 'noopener');
+        send({ t: 'result', id: r.id, ok: true, data: { ok: true } });
         return;
       }
       // F14b-3: a push of the module to the signed-in person; the server applies limits, the switch and the journal

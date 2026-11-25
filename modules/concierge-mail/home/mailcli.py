@@ -13,7 +13,7 @@ import gmailsync
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)  # hubctl checks exact option names
     parser.add_argument('--root', type=Path, help='archive folder; default concierge-mail/archive next to install.json')
     sub = parser.add_subparsers(dest='command', required=True)
     imp = sub.add_parser('import-eml')
@@ -95,7 +95,7 @@ def main():
     gb.add_argument('--before', help='YYYY-MM-DD')
     gb.add_argument('--query', help='Gmail search query')
     sub.add_parser('gmail-status', help='sync state and counters per mailbox (no content)')
-    cm = sub.add_parser('chat-mail', help='correspondence of a CO chat: the threads the person put into it (read only; --thread: its messages as text)')
+    cm = sub.add_parser('chat-mail', allow_abbrev=False, help='correspondence of a CO chat: the threads the person put into it (read only; --thread: its messages as text)')
     cm.add_argument('--chat', required=True, help='CO chat id (AIWB_CHAT_ID of the job)')
     cm.add_argument('--thread', help='one of its threads: the messages as plain text')
     cm.add_argument('--account', help='mailbox (default ACCOUNT of the env file on the home server)')

@@ -349,8 +349,9 @@ function toolbar(thread, messages) {
 function chatLinks(thread) {
   const box = el('div', 'chat-links'), gen = readTicket;
   const draw = list => {
-    const open = box.querySelector('.chat-picker');
-    box.replaceChildren();
+    // a picker the person opened meanwhile stays in place (with focus and what they typed); only the chips are redrawn
+    const picking = box.querySelector('.chat-picker');
+    [...box.children].forEach(n => { if (n !== picking) n.remove(); });
     for (const c of list) {
       const chip = el('span', 'chip in-chat');
       const open = button('🗂\uFE0E ' + c.title, () => openChat(c)); open.className = 'link-button'; open.title = 'Открыть чат «' + c.title + '»';
@@ -360,8 +361,7 @@ function chatLinks(thread) {
     }
     const add = button(list.length ? '+ Ещё в чат…' : '🗂\uFE0E В чат…', () => picker(box, thread, change)); add.className = 'link-button';
     add.title = 'Положить эту переписку в чат CO: она будет видна там и агенту этого чата';
-    box.append(add);
-    if (open) box.append(open);  // a picker the person opened meanwhile stays with what they typed
+    box.insertBefore(add, picking);
   };
   const change = async (action, args) => {
     try {
@@ -372,6 +372,7 @@ function chatLinks(thread) {
         const at = threads.indexOf(thread);
         if (at >= 0) { threads.splice(at, 1); if (selected === at) selected = -1; else if (selected > at) selected--; }
         note('Письмо убрано из чата «' + chatView.title + '»');
+        if (!threads.length) $('list-note').textContent = 'В этом чате писем больше нет';
       }
       renderThreads(); loadChats();
     } catch (err) { note(err.message === 'too many chats' ? 'Эта переписка уже в 20 чатах' : 'Не удалось: ' + (err.message || err)); }

@@ -56,7 +56,7 @@ function co_mail_chat_rows(array $c, array $words): array
     $params = [(string)$c['myEnv']];
     foreach (array_slice($words, 0, 6) as $w) {
         $like = '%' . addcslashes($w, '%_\\') . '%';
-        $sql .= ' AND (LOWER(COALESCE(c.title, \'\')) LIKE ? OR LOWER(COALESCE(p.title, \'\')) LIKE ?)';
+        $sql .= ' AND (LOWER(COALESCE(c.title, \'\')) LIKE ? OR LOWER(COALESCE(NULLIF(p.title, \'\'), p.project_id)) LIKE ?)';
         $types .= 'ss';
         array_push($params, $like, $like);
     }

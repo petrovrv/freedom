@@ -292,10 +292,12 @@ def run(args):
     if any(a in ('--root',) for a in rest):
         sys.exit('--root is fixed to the person directory')
     # 0.12.0: an agent job reads the correspondence of its own chat only (it is trusted within its environment otherwise)
+    # exact option names only (mailcli also refuses abbreviations since 0.12.0)
     job_chat = os.environ.get('AIWB_CHAT_ID', '')
-    if job_chat and rest and rest[0] == 'chat-mail':
+    if job_chat and 'chat-mail' in rest:
         named = [rest[i + 1] for i, a in enumerate(rest[:-1]) if a == '--chat'] + [a.split('=', 1)[1] for a in rest if a.startswith('--chat=')]
-        if named != [job_chat]:
+        opts = {a.split('=', 1)[0] for a in rest if a.startswith('-')}
+        if rest[0] != 'chat-mail' or opts - {'--chat', '--thread', '--account', '--limit'} or named != [job_chat]:
             sys.exit(f'refused: chat-mail reads the chat of this job only (--chat {job_chat})')
     user = accountctl.person_user(slug)  # a person a deploy could not move yet still runs as the older user
     if ssh(args, f'id -u {user} >/dev/null 2>&1 && echo yes || echo no').strip() != 'yes':

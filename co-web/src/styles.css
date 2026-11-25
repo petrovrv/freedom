@@ -962,7 +962,7 @@ button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
 .cf-due.warn { color: var(--warn); }
 .chat-ctx .fc-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin: 4px 0; }
 .chat-ctx select { border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; background: var(--bg); }
-.ctx-list { list-style: none; margin: 6px 0 4px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.chat-ctx .ctx-list { list-style: none; margin: 6px 0 4px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .ctx-item { display: flex; gap: 6px; align-items: baseline; }
 .ctx-item.ctx-off .ctx-label { color: var(--muted); }
 .ctx-mark { width: 1.1em; text-align: center; font-weight: 700; color: var(--ok); flex: none; }

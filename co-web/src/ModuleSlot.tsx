@@ -391,7 +391,7 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
         send({ t: 'result', id: r.id, ok: false, error: why });
         return;
       }
-      // 0.129.1: open a chat of the person (in the shell; from a bare page or an app window in a new tab of CO)
+      // 0.129.2: open a chat of the person (in the shell; from a bare page or an app window in a new tab of CO)
       if (r.name === 'chat.open') {
         const env = envOfPath(window.location.pathname);
         const path = chatOpenPath(r.args, env || me || '');

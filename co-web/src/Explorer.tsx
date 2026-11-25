@@ -19,7 +19,7 @@ import { POLL_LISTS_MS } from './config';
 import { ChatStatusIcon, ProjectRing, type ChatStatus } from './status';
 import {
   childPath, crumbs, explorerItems, shortDate, moveFocus, parentPath, pathOfChat, quickJump, readExplorerView, ROOT_PATH, samePath,
-  validPath, writeExplorerView, destOfItem, destOfPath, itemTitle, moveBlock, moveTargets, type ExplorerItem, type ExplorerPath,
+  validPath, writeExplorerView, destOfItem, destOfPath, folderChatId, itemTitle, moveBlock, moveTargets, type ExplorerItem, type ExplorerPath,
   type ExplorerView, type JumpHit, type MoveDest,
 } from './explorerTree';
 
@@ -256,16 +256,16 @@ export default function Explorer(props: ExplorerProps) {
         }
       : {};
   const selected = items[focusIdx];
-  const selChat = selected && selected.kind !== 'project' ? selected.chat : null;
+  const selChat = selected && (selected.kind === 'chat' || selected.kind === 'self') ? selected.chat : null;
   const propsOf = (it: ExplorerItem) => props.onProperties?.(it.kind === 'project' ? { projectId: it.project.projectId } : { projectId: pid, chatId: it.chat.chatId });
-  const movable = (it: ExplorerItem) => !!props.onMove && it.kind !== 'project' && !it.chat.shareRole;
+  const movable = (it: ExplorerItem) => !!props.onMove && (it.kind === 'chat' || it.kind === 'self') && !it.chat.shareRole;
   const menuAt = (it: ExplorerItem, el: Element | null, x?: number, y?: number) => {
     const r = el?.getBoundingClientRect();
     setMenu({ item: it, x: x ?? (r ? r.left + 12 : 40), y: y ?? (r ? r.bottom - 4 : 40) });
   };
   // the folder shown: a project or the chat at the end of the path
   const herePropsTarget = path.projectId
-    ? (path.chatIds.length ? { projectId: path.projectId, chatId: path.chatIds[path.chatIds.length - 1] } : { projectId: path.projectId })
+    ? (folderChatId(path) ? { projectId: path.projectId, chatId: folderChatId(path) } : { projectId: path.projectId })
     : {};
 
   return (
@@ -319,13 +319,13 @@ export default function Explorer(props: ExplorerProps) {
       )}
       <ul ref={gridRef} tabIndex={-1} className={`ex-items ex-${view}`} role="listbox" aria-label={bar[bar.length - 1].label}>
         {items.map((it, i) => {
-          const active = it.kind === 'project' ? it.project.projectId === routeProjectId && !routeChatId : it.chat.chatId === routeChatId;
-          const icon = it.kind === 'project' ? '📁' : it.kind === 'self' ? '💬' : it.folder ? '🗂️' : '💬';
-          const sub = it.kind === 'project' ? '' : it.kind === 'chat' && it.folder ? `${it.count} inside` : '';
+          const active = it.kind === 'project' ? it.project.projectId === routeProjectId && !routeChatId : it.kind !== 'agents' && it.chat.chatId === routeChatId;
+          const icon = it.kind === 'project' ? '📁' : it.kind === 'agents' ? '🤖' : it.kind === 'self' ? '💬' : it.folder ? '🗂️' : '💬';
+          const sub = it.kind === 'agents' || (it.kind === 'chat' && it.folder) ? `${it.count} inside` : '';
           const date = it.kind === 'project' ? props.projectFresh(it.project) : it.chat.updatedUtc;
           const when = date ? `
 ${formatLocal(date)}` : '';
-          const hint = (it.kind === 'self' ? `${it.title} (this chat itself)` : it.kind === 'chat' ? it.chat.summary || it.title : it.title) + when;
+          const hint = (it.kind === 'agents' ? 'Chats the agent started for this chat: reviews, helpers, parallel parts' : it.kind === 'self' ? `${it.title} (this chat itself)` : it.kind === 'chat' ? it.chat.summary || it.title : it.title) + when;
           return (
             <li key={it.key} role="presentation">
               <button
@@ -373,7 +373,7 @@ ${formatLocal(date)}` : '';
                     menuAt(it, e.currentTarget);
                     return;
                   }
-                  if (e.key === 'F6' && props.onMove && it.kind !== 'project' && !it.chat.shareRole) {
+                  if (e.key === 'F6' && movable(it) && it.kind !== 'project') {
                     e.preventDefault();
                     props.loadAll();
                     setMoveOpen(it.chat);
@@ -388,7 +388,7 @@ ${formatLocal(date)}` : '';
               >
                 <span className="ex-icon" aria-hidden="true">
                   {icon}
-                  {it.kind !== 'project' && <span className="ex-status"><ChatStatusIcon status={props.statusOf(it.chat)} /></span>}
+                  {(it.kind === 'chat' || it.kind === 'self') && <span className="ex-status"><ChatStatusIcon status={props.statusOf(it.chat)} /></span>}
                   {it.kind === 'project' && <span className="ex-status"><ProjectRing count={props.workingOf(it.project.projectId)} /></span>}
                 </span>
                 <span className="ex-title">{it.title}</span>
@@ -408,7 +408,7 @@ ${formatLocal(date)}` : '';
             onClose={() => setMenu(null)}
             onOpen={() => { setMenu(null); open(menu.item); }}
             onProps={() => { setMenu(null); propsOf(menu.item); }}
-            onMove={() => { const it = menu.item; setMenu(null); if (it.kind !== 'project') { props.loadAll(); setMoveOpen(it.chat); } }}
+            onMove={() => { const it = menu.item; setMenu(null); if (movable(it) && it.kind !== 'project') { props.loadAll(); setMoveOpen(it.chat); } }}
           />,
           document.body,
         )}
@@ -474,7 +474,7 @@ function ItemMenuPop(props: { menu: ItemMenu; canMove: boolean; onClose: () => v
   return (
     <div className="ex-menu-scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) props.onClose(); }} onContextMenu={(e) => { e.preventDefault(); props.onClose(); }}>
       <div ref={ref} className="ex-menu" role="menu" aria-label={it.title} style={{ left: Math.max(4, x), top: Math.max(4, y) }} onKeyDown={onKey}>
-        <button type="button" role="menuitem" onClick={props.onOpen}>{it.kind === 'project' || (it.kind === 'chat' && it.folder) ? 'Open' : 'Open chat'}</button>
+        <button type="button" role="menuitem" onClick={props.onOpen}>{it.kind === 'project' || it.kind === 'agents' || (it.kind === 'chat' && it.folder) ? 'Open' : 'Open chat'}</button>
         <button type="button" role="menuitem" onClick={props.onProps}>Properties <kbd>Alt+Enter</kbd></button>
         {props.canMove && <button type="button" role="menuitem" onClick={props.onMove}>Move to… <kbd>F6</kbd></button>}
       </div>

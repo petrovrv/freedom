@@ -6,11 +6,16 @@ import type { Chat, Project } from './types';
 import { compareBy, sortTitle, ts, type SortMode } from './sidebarSort.ts';
 import { placeParent } from './chatTree.ts';
 
-/** Where the Explorer is: the root (projects), a project (its top chats) or a chat with child chats (chain of chat ids). */
+/** Where the Explorer is: the root (projects), a project (its top chats) or a chat with child chats (chain of chat ids).
+ * 0.129.1: AGENTS after a chat id is that chat's "Agent talks" folder (the subtasks its agent started). */
 export interface ExplorerPath {
   projectId?: string;
   chatIds: string[];
 }
+
+/** Path step of the "Agent talks" folder of the chat before it; never a chat id (those start with CHAT-). */
+export const AGENTS = '@agents';
+export const AGENTS_TITLE = 'Agent talks';
 
 export const ROOT_PATH: ExplorerPath = { chatIds: [] };
 
@@ -18,7 +23,9 @@ export type ExplorerItem =
   | { kind: 'project'; key: string; project: Project; title: string }
   | { kind: 'chat'; key: string; chat: Chat; title: string; folder: boolean; count: number }
   // the chat whose folder is open: its own conversation, first in the folder
-  | { kind: 'self'; key: string; chat: Chat; title: string };
+  | { kind: 'self'; key: string; chat: Chat; title: string }
+  // 0.129.1: the "Agent talks" folder of the open chat (`chat`): the subtasks its agent started, out of the person's way
+  | { kind: 'agents'; key: string; chat: Chat; title: string; count: number };
 
 export interface Crumb {
   label: string;
@@ -61,6 +68,24 @@ export function itemTitle(title: string): string {
   return t || '(untitled)';
 }
 
+/**
+ * 0.129.1: a chat the agent started to serve its parent chat (aiwb-subtask spawn: kind subtask, title "⤷ …") and that
+ * nobody moved by hand. It sits in the parent's "Agent talks" folder, not next to the person's own chats. Chats made
+ * subchats of a former project's hub (kind subtask without ⤷) are the person's chats and stay in view.
+ */
+export function isAgentTalk(c: Chat): boolean {
+  return c.parent?.kind === 'subtask' && typeof c.folder !== 'string' && (c.title || '').startsWith(SUBTASK_PREFIX);
+}
+
+/** The chat whose folder the path shows (the last chat id), or undefined at a project's top or the root. */
+export function folderChatId(p: ExplorerPath): string | undefined {
+  for (let i = p.chatIds.length - 1; i >= 0; i--) if (p.chatIds[i] !== AGENTS) return p.chatIds[i];
+  return undefined;
+}
+
+/** The path shows the "Agent talks" folder of its last chat. */
+export const inAgents = (p: ExplorerPath): boolean => p.chatIds[p.chatIds.length - 1] === AGENTS;
+
 /** Parent chat of each chat, only when the parent is in the list; a chat that is its own ancestor stays on top. */
 export function chatParents(chats: Chat[]): Map<string, string> {
   const byId = new Map<string, Chat>();
@@ -92,9 +117,17 @@ export function chatParents(chats: Chat[]): Map<string, string> {
 
 /** The folder a chat lives in: its project and the chain of its parent chats (top first). */
 export function pathOfChat(projectId: string, chatId: string, chats: Chat[]): ExplorerPath {
-  const parents = chatParents(chats.filter((c) => !c.archived));
-  const chain: string[] = [];
-  for (let cur = parents.get(chatId); cur && !chain.includes(cur); cur = parents.get(cur)) chain.unshift(cur);
+  const live = chats.filter((c) => !c.archived);
+  const parents = chatParents(live);
+  const byId = new Map(live.map((c) => [c.chatId, c]));
+  // an agent talk is reached through the "Agent talks" folder of its parent
+  const talk = (id: string) => parents.has(id) && !!byId.get(id) && isAgentTalk(byId.get(id)!);
+  const chain: string[] = talk(chatId) ? [AGENTS] : [];
+  const seen = new Set<string>();
+  for (let cur = parents.get(chatId); cur && !seen.has(cur); cur = parents.get(cur)) {
+    seen.add(cur);
+    chain.unshift(...(talk(cur) ? [AGENTS, cur] : [cur]));
+  }
   return { projectId, chatIds: chain };
 }
 
@@ -111,6 +144,7 @@ export function parentPath(p: ExplorerPath): ExplorerPath {
 export function childPath(p: ExplorerPath, item: ExplorerItem): ExplorerPath | null {
   if (item.kind === 'project') return { projectId: item.project.projectId, chatIds: [] };
   if (item.kind === 'chat' && item.folder && p.projectId) return { projectId: p.projectId, chatIds: [...p.chatIds, item.chat.chatId] };
+  if (item.kind === 'agents' && p.projectId) return { projectId: p.projectId, chatIds: [...p.chatIds, AGENTS] };
   return null;
 }
 
@@ -127,10 +161,21 @@ export function validPath(p: ExplorerPath, projects: Project[], chats: Chat[] | 
   const parents = chatParents(live);
   const kids = new Set(parents.values());
   const ids = new Set(live.map((c) => c.chatId));
+  const byId = new Map(live.map((c) => [c.chatId, c]));
   const keep: string[] = [];
   for (const id of p.chatIds) {
-    const above = keep.length ? keep[keep.length - 1] : undefined;
-    if (!ids.has(id) || !kids.has(id) || parents.get(id) !== above) break;
+    const last = keep.length ? keep[keep.length - 1] : undefined;
+    if (id === AGENTS) {
+      // only right after a chat that still has agent talks
+      if (!last || last === AGENTS || !live.some((c) => parents.get(c.chatId) === last && isAgentTalk(c))) break;
+      keep.push(id);
+      continue;
+    }
+    const above = last === AGENTS ? keep[keep.length - 2] : last;
+    const c = byId.get(id);
+    if (!c || !ids.has(id) || !kids.has(id) || parents.get(id) !== above) break;
+    // an agent talk is inside the "Agent talks" folder, the person's chats are not
+    if (above && isAgentTalk(c) !== (last === AGENTS)) break;
     keep.push(id);
   }
   return keep.length === p.chatIds.length ? p : { projectId: p.projectId, chatIds: keep };
@@ -205,8 +250,12 @@ export function explorerItems(p: ExplorerPath, projects: Project[], chats: Chat[
     treeWait.set(c.chatId, w);
     size.set(c.chatId, n);
   };
-  const here = p.chatIds.length ? p.chatIds[p.chatIds.length - 1] : undefined;
-  const list = here ? kids.get(here) ?? [] : live.filter((c) => !parents.has(c.chatId));
+  const here = folderChatId(p);
+  const agentsHere = !!here && inAgents(p);
+  const inside = here ? kids.get(here) ?? [] : [];
+  // a chat folder: the person's chats here, the agent talks in their own folder
+  const talks = inside.filter(isAgentTalk);
+  const list = here ? inside.filter((c) => isAgentTalk(c) === agentsHere) : live.filter((c) => !parents.has(c.chatId));
   list.forEach((c) => visit(c, 0));
   const sorted = list
     .filter((c) => match(itemTitle(c.title)))
@@ -220,7 +269,14 @@ export function explorerItems(p: ExplorerPath, projects: Project[], chats: Chat[
       return { kind: 'chat', key: 'c:' + c.chatId, chat: c, title: itemTitle(c.title), folder: n > 0, count: size.get(c.chatId) ?? 0 };
     });
   const self = here ? live.find((c) => c.chatId === here) : undefined;
-  return self ? [{ kind: 'self', key: 's:' + self.chatId, chat: self, title: itemTitle(self.title) }, ...sorted] : sorted;
+  if (!self || agentsHere) return sorted;
+  const head: ExplorerItem[] = [{ kind: 'self', key: 's:' + self.chatId, chat: self, title: itemTitle(self.title) }];
+  if (talks.length && (!f || AGENTS_TITLE.toLowerCase().includes(f) || talks.some((c) => match(itemTitle(c.title))))) {
+    talks.forEach((c) => visit(c, 0));
+    const n = talks.reduce((a, c) => a + 1 + (size.get(c.chatId) ?? 0), 0);
+    head.push({ kind: 'agents', key: 'a:' + self.chatId, chat: self, title: AGENTS_TITLE, count: n });
+  }
+  return [...head, ...sorted];
 }
 
 /** Path bar: the environment, then the project, then each chat folder; the last one is where the Explorer is. */
@@ -230,8 +286,9 @@ export function crumbs(p: ExplorerPath, rootLabel: string, projects: Project[], 
   const proj = projects.find((x) => x.projectId === p.projectId);
   out.push({ label: proj?.title || p.projectId, path: { projectId: p.projectId, chatIds: [] } });
   p.chatIds.forEach((id, i) => {
-    const c = chats?.find((x) => x.chatId === id);
-    out.push({ label: c ? itemTitle(c.title) : '…', path: { projectId: p.projectId, chatIds: p.chatIds.slice(0, i + 1) } });
+    const c = id === AGENTS ? undefined : chats?.find((x) => x.chatId === id);
+    const label = id === AGENTS ? '🤖 ' + AGENTS_TITLE : c ? itemTitle(c.title) : '…';
+    out.push({ label, path: { projectId: p.projectId, chatIds: p.chatIds.slice(0, i + 1) } });
   });
   return out;
 }
@@ -341,12 +398,14 @@ export interface MoveDest {
 /** The place a dropped item stands for: a project (its top), a chat or the open folder's own chat (inside it). */
 export function destOfItem(p: ExplorerPath, item: ExplorerItem): MoveDest | null {
   if (item.kind === 'project') return { projectId: item.project.projectId, folder: '' };
+  // the "Agent talks" folder takes no chats: a chat moved by hand is the person's own
+  if (item.kind === 'agents') return null;
   return p.projectId ? { projectId: p.projectId, folder: item.chat.chatId } : null;
 }
 
 /** The place a path-bar folder stands for; the root (the list of projects) is no place for a chat. */
 export function destOfPath(p: ExplorerPath): MoveDest | null {
-  return p.projectId ? { projectId: p.projectId, folder: p.chatIds[p.chatIds.length - 1] ?? '' } : null;
+  return p.projectId ? { projectId: p.projectId, folder: folderChatId(p) ?? '' } : null;
 }
 
 /** The chat and every chat under it (archived ones too), the chat first; they move to another project together. */

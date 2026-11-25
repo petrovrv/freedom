@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // node src/explorerTree.selftest.ts - the Explorer view: folders, path bar, Ctrl+K jump (F15.1).
-import { childPath, crumbs, explorerOnFrom, destOfItem, destOfPath, moveBlock, moveTargets, subtreeOf, shortDate, explorerItems, itemTitle, moveFocus, parentPath, pathOfChat, quickJump, ROOT_PATH, samePath, validPath, type ExplorerPath } from './explorerTree.ts';
+import { AGENTS, childPath, isAgentTalk, crumbs, explorerOnFrom, destOfItem, destOfPath, moveBlock, moveTargets, subtreeOf, shortDate, explorerItems, itemTitle, moveFocus, parentPath, pathOfChat, quickJump, ROOT_PATH, samePath, validPath, type ExplorerPath } from './explorerTree.ts';
 import type { Chat, Project } from './types';
 
 let fail = 0;
@@ -45,10 +45,32 @@ ok('title without ⏰', top[1].title === 'Watering reminder');
 ok('chats not loaded yet', explorerItems({ projectId: 'alpha', chatIds: [] }, projects, null, { sort: 'activity' }).length === 0);
 
 // chat folder: the chat itself first, then its children; ⤷ stripped
+// 0.129.1: c3 (⤷, kind subtask) is an agent talk - inside the "Agent talks" folder of c1, not next to c1
 const inC1: ExplorerPath = { projectId: 'alpha', chatIds: ['c1'] };
 const sub = explorerItems(inC1, projects, chats, { sort: 'activity' });
-ok('chat folder: self then children', sub.map((i) => i.key).join() === 's:c1,c:c3');
-ok('subtask title without ⤷', sub[1].title === 'Seeds order');
+ok('chat folder: self, then the Agent talks folder', sub.map((i) => i.key).join() === 's:c1,a:c1');
+ok('Agent talks counts its subtree', sub[1].kind === 'agents' && sub[1].count === 2);
+const inTalks: ExplorerPath = { projectId: 'alpha', chatIds: ['c1', AGENTS] };
+ok('enter Agent talks', samePath(childPath(inC1, sub[1])!, inTalks));
+const talks = explorerItems(inTalks, projects, chats, { sort: 'activity' });
+ok('Agent talks lists the talks, no self', talks.map((i) => i.key).join() === 'c:c3');
+ok('subtask title without ⤷', talks[0].title === 'Seeds order');
+ok('a talk with children is a folder', samePath(childPath(inTalks, talks[0])!, { projectId: 'alpha', chatIds: ['c1', AGENTS, 'c3'] }));
+ok('up from Agent talks', samePath(parentPath(inTalks), inC1));
+ok('crumb of Agent talks', crumbs(inTalks, 'Home', projects, chats).map((c) => c.label).join(' > ') === 'Home > Alpha garden > Plan the beds > 🤖 Agent talks');
+ok('dest of Agent talks path is its chat; its item takes no drop', destOfPath(inTalks)?.folder === 'c1' && destOfItem(inC1, sub[1]) === null);
+ok('filter finds a talk inside', explorerItems(inC1, projects, chats, { sort: 'activity', filter: 'seeds' }).map((i) => i.key).join() === 's:c1,a:c1');
+// the person's own chats under c1 stay in view: a branch, a talk moved by hand, a former project's hub subchat (no ⤷)
+const mine = [
+  ...chats,
+  chat('b1', 'Branch of beds', '2026-03-03T00:00:00Z', undefined, { parent: { chatId: 'c1', kind: 'branch', seq: 3 } } as Partial<Chat>),
+  chat('m1', '⤷ Moved review', '2026-03-03T00:00:00Z', 'c1', { folder: 'c1' }),
+  chat('h1', 'Old project chat', '2026-03-03T00:00:00Z', 'c1'),
+];
+const inC1b = explorerItems(inC1, projects, mine, { sort: 'title' }).map((i) => i.key);
+ok('own chats next to the chat, talks in their folder', inC1b[0] === 's:c1' && inC1b[1] === 'a:c1' && ['c:b1', 'c:m1', 'c:h1'].every((k) => inC1b.includes(k)) && !inC1b.includes('c:c3'));
+ok('isAgentTalk', isAgentTalk(chats[2]) && !isAgentTalk(mine[mine.length - 1]) && !isAgentTalk(mine[mine.length - 2]) && !isAgentTalk(mine[mine.length - 3]));
+ok('no Agent talks folder without talks', !explorerItems({ projectId: 'alpha', chatIds: ['c1', AGENTS, 'c3'] }, projects, chats, { sort: 'title' }).some((i) => i.kind === 'agents'));
 ok('filter keeps self', explorerItems(inC1, projects, chats, { sort: 'activity', filter: 'zzz' }).map((i) => i.key).join() === 's:c1');
 
 // navigation
@@ -58,7 +80,8 @@ ok('leaf chat is not a folder', childPath({ projectId: 'alpha', chatIds: [] }, t
 ok('up from chat folder', samePath(parentPath({ projectId: 'alpha', chatIds: ['c1', 'c3'] }), inC1));
 ok('up from project', samePath(parentPath({ projectId: 'alpha', chatIds: [] }), ROOT_PATH));
 ok('up from root stays', samePath(parentPath(ROOT_PATH), ROOT_PATH));
-ok('path of a deep chat', samePath(pathOfChat('alpha', 'c4', chats), { projectId: 'alpha', chatIds: ['c1', 'c3'] }));
+ok('path of a deep chat', samePath(pathOfChat('alpha', 'c4', chats), { projectId: 'alpha', chatIds: ['c1', AGENTS, 'c3'] }));
+ok('path of an agent talk', samePath(pathOfChat('alpha', 'c3', chats), inTalks));
 ok('path of a top chat', samePath(pathOfChat('alpha', 'c2', chats), { projectId: 'alpha', chatIds: [] }));
 ok('cycle: own ancestor is on top', samePath(pathOfChat('alpha', 'x1', chats), { projectId: 'alpha', chatIds: [] }));
 
@@ -74,7 +97,10 @@ ok('not loaded keeps path', samePath(validPath({ projectId: 'alpha', chatIds: ['
 ok('gone chat folder -> nearest above', samePath(validPath({ projectId: 'alpha', chatIds: ['c1', 'zz'] }, projects, chats), inC1));
 ok('chat without children is not a folder', samePath(validPath({ projectId: 'alpha', chatIds: ['c2'] }, projects, chats), { projectId: 'alpha', chatIds: [] }));
 ok('wrong chain cut', samePath(validPath({ projectId: 'alpha', chatIds: ['c3'] }, projects, chats), { projectId: 'alpha', chatIds: [] }));
-ok('good path is the same object', (() => { const p = { projectId: 'alpha', chatIds: ['c1', 'c3'] }; return validPath(p, projects, chats) === p; })());
+ok('good path is the same object', (() => { const p = { projectId: 'alpha', chatIds: ['c1', AGENTS, 'c3'] }; return validPath(p, projects, chats) === p; })());
+ok('a talk outside Agent talks is cut', samePath(validPath({ projectId: 'alpha', chatIds: ['c1', 'c3'] }, projects, chats), inC1));
+ok('Agent talks of a chat without talks is cut', samePath(validPath({ projectId: 'alpha', chatIds: ['c1', AGENTS, 'c3', AGENTS] }, projects, chats), { projectId: 'alpha', chatIds: ['c1', AGENTS, 'c3'] }));
+ok('Agent talks on top is cut', samePath(validPath({ projectId: 'alpha', chatIds: [AGENTS] }, projects, chats), { projectId: 'alpha', chatIds: [] }));
 
 // quick jump
 const chatsOf = (id: string) => (id === 'alpha' ? chats : null);
@@ -116,7 +142,7 @@ ok('unloaded target chats', !!moveBlock(byId('c2'), { projectId: 'beta', folder:
 const moved = [...chats.filter((c) => c.chatId !== 'c4'), { ...byId('c4'), folder: '' }];
 ok('folder "" puts a subchat on top', explorerItems({ projectId: 'alpha', chatIds: [] }, projects, moved, { sort: 'title' }).some((x) => x.key === 'c:c4'));
 const moved2 = [...chats.filter((c) => c.chatId !== 'c2'), { ...byId('c2'), folder: 'c4' }];
-ok('folder puts a chat under another', pathOfChat('alpha', 'c2', moved2).chatIds.join() === 'c1,c3,c4');
+ok('folder puts a chat under another', pathOfChat('alpha', 'c2', moved2).chatIds.join() === `c1,${AGENTS},c3,c4`);
 ok('dest of item / path', destOfItem(ROOT_PATH, { kind: 'project', key: 'p:beta', project: projects[1], title: 'B' })?.projectId === 'beta' && destOfPath(ROOT_PATH) === null && destOfPath({ projectId: 'alpha', chatIds: ['c1', 'c3'] })?.folder === 'c3');
 
 const tg = moveTargets(byId('c3'), projects, (pid) => (pid === 'alpha' ? chats : []));

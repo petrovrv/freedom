@@ -36,7 +36,7 @@ import { ChatFiles, ProjectWorkspace } from './FolderContents';
 import FamilyPanel from './FamilyPanel';
 import Launcher from './Launcher';
 import Explorer from './Explorer';
-import { readExplorerOn, subtreeOf, writeExplorerOn, type ExplorerPath, type MoveDest } from './explorerTree';
+import { folderChatId, inAgents, isAgentTalk, readExplorerOn, subtreeOf, writeExplorerOn, type ExplorerPath, type MoveDest } from './explorerTree';
 import { placeParent } from './chatTree';
 import AppHost, { RecentApps, useAppEvents } from './AppHost';
 import { trayWantsRefresh } from './appEvents';
@@ -836,12 +836,14 @@ export default function Shell({ auth }: { auth: Signed }) {
   const exFolderExtra = (path: ExplorerPath) => {
     const p = path.projectId ? projects?.find((x) => x.projectId === path.projectId) : undefined;
     if (!p) return null;
-    const here = path.chatIds[path.chatIds.length - 1];
+    // 0.129.1: in a chat's "Agent talks" folder the files of an open agent talk, in the chat folder those of the others
+    const here = folderChatId(path);
+    const talks = inAgents(path);
     let filesHere = false;
     if (chat && p.projectId === projectId) {
       const up = placeParent(chat);
       const shownIn = up && chats?.some((c) => c.chatId === up && !c.archived) ? up : undefined;
-      filesHere = here === chat.chatId || here === shownIn;
+      filesHere = (here === chat.chatId && !talks) || (here === shownIn && isAgentTalk(chat) === talks);
     }
     return (
       <>

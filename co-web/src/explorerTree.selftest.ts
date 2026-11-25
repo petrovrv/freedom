@@ -58,7 +58,7 @@ ok('subtask title without ⤷', talks[0].title === 'Seeds order');
 ok('a talk with children is a folder', samePath(childPath(inTalks, talks[0])!, { projectId: 'alpha', chatIds: ['c1', AGENTS, 'c3'] }));
 ok('up from Agent talks', samePath(parentPath(inTalks), inC1));
 ok('crumb of Agent talks', crumbs(inTalks, 'Home', projects, chats).map((c) => c.label).join(' > ') === 'Home > Alpha garden > Plan the beds > 🤖 Agent talks');
-ok('dest of Agent talks path is its chat; its item takes no drop', destOfPath(inTalks)?.folder === 'c1' && destOfItem(inC1, sub[1]) === null);
+ok('Agent talks (path and item) take no drop', destOfPath(inTalks) === null && destOfItem(inC1, sub[1]) === null);
 ok('filter finds a talk inside', explorerItems(inC1, projects, chats, { sort: 'activity', filter: 'seeds' }).map((i) => i.key).join() === 's:c1,a:c1');
 // the person's own chats under c1 stay in view: a branch, a talk moved by hand, a former project's hub subchat (no ⤷)
 const mine = [
@@ -148,7 +148,7 @@ ok('a talk can be taken out into its own chat folder', moveBlock(byId('c3'), { p
 ok('Agent talks path takes no drops', destOfPath({ projectId: 'alpha', chatIds: ['c1', AGENTS] }) === null);
 
 const tg = moveTargets(byId('c3'), projects, (pid) => (pid === 'alpha' ? chats : []));
-ok('targets: own projects, not itself, not the current place', tg.some((t) => t.dest.projectId === 'beta' && t.depth === 0) && tg.some((t) => t.dest.projectId === 'alpha' && t.dest.folder === '') && !tg.some((t) => t.dest.folder === 'c3' || t.dest.folder === 'c4' || t.dest.folder === 'c1') && tg.some((t) => t.dest.folder === 'c2') && !tg.some((t) => t.dest.projectId === 'fam' || t.dest.projectId === 'old'));
+ok('targets: own projects, not itself; a talk may go into its own chat folder', tg.some((t) => t.dest.projectId === 'beta' && t.depth === 0) && tg.some((t) => t.dest.projectId === 'alpha' && t.dest.folder === '') && !tg.some((t) => t.dest.folder === 'c3' || t.dest.folder === 'c4') && tg.some((t) => t.dest.folder === 'c1') && tg.some((t) => t.dest.folder === 'c2') && !tg.some((t) => t.dest.projectId === 'fam' || t.dest.projectId === 'old'));
 
 // 0.128.0: the Explorer is the default view; a tree chosen by hand stays
 ok('default view: Explorer when never chosen', explorerOnFrom(null) === true);

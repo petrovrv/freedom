@@ -866,6 +866,8 @@ button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
 .app-slot { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .app-slot[hidden] { display: none; }
 .app-slot > .module-page { position: static; inset: auto; display: flex; flex: 1; min-height: 0; width: 100%; height: auto; }
+/* 0.129.4: a mode viewer (ui.panel) fills its pane, not the window (the fixed full-window page hid its right part under the chat) */
+.viewer-pane > .module-page { position: static; inset: auto; display: flex; flex: 1; min-width: 0; min-height: 0; width: 100%; height: auto; }
 .app-bar { display: flex; align-items: center; gap: 6px; flex: none; padding: 4px 8px; border-bottom: 1px solid var(--line); background: var(--panel); min-width: 0; }
 .app-bar button { border: 1px solid transparent; border-radius: 8px; background: none; color: inherit; font: inherit; cursor: pointer; height: 32px; padding: 0 8px; white-space: nowrap; }
 .app-bar button:hover, .app-bar button:focus-visible { background: var(--panel-2); border-color: var(--line); }

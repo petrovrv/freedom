@@ -100,7 +100,8 @@ const withLevels = { ...base, lineageTitle: 'Parent', levels: [lvl(p1, 1, 'full'
 ok('a branch: lineage instead of protocol, the lineage folder not twice', keys(withLevels) === 'rules:on,profile:on,instructions:on,memory:on,dossier:on,lineage:on,folder:p2:summary');
 ok('a folder line names its chat', contextItems(withLevels).find((x) => x.key === 'folder:p2')?.chatId === 'p2');
 ok('context folders: off when shared', keys({ ...base, contextFolders: 2, shared: true }).endsWith('ctxfolders:off'));
-ok('family: no dossier', keys({ ...base, family: true }).includes('dossier:off'));
+ok('family: the dossier as the send gives it', keys({ ...base, family: true }).includes('dossier:on'));
+ok('a subtask from its own task: no protocol, no lineage', keys({ ...base, child: true }).endsWith('dossier:on,protocol:off'));
 ok('count: an empty new chat shows no Context', contextCount({ ...base, protocolEntries: 0 }) === 0 && contextCount({ ...base, protocolEntries: null }) === 0);
 ok('count: protocol, branch, folders, context folders', contextCount(withLevels) === 3 && contextCount({ ...base, contextFolders: 1 }) === 2);
 ok('count: folders above do not count outside full', contextCount({ ...withLevels, mode: 'reference', protocolEntries: 0 }) === 0);

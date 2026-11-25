@@ -21,7 +21,8 @@ function co_protocol_agreement_text(string $text, mixed $who, mixed $due): ?stri
     if (is_string($who)) {
         $who = trim(preg_replace('/[\[\]:\r\n]+/u', ' ', $who) ?? '');
         $who = trim(mb_substr($who, 0, 60, 'UTF-8'));
-        if ($who !== '' && !str_starts_with(mb_strtolower($text, 'UTF-8'), mb_strtolower($who, 'UTF-8'))) {
+        // always "<who>: …" (CO Web reads the who before ": "), unless the text already starts so
+        if ($who !== '' && !str_starts_with(mb_strtolower($text, 'UTF-8'), mb_strtolower($who, 'UTF-8') . ':')) {
             $text = $who . ': ' . $text;
         }
     }

@@ -214,6 +214,8 @@ export interface ContextInput {
   protocolEntries: number | null;
   /** a branch or subtask: starts from its parent's messages */
   lineageTitle: string | null;
+  /** a chat with a lineage parent (a subtask from a task of its own has no lineageTitle) */
+  child?: boolean;
   levels: FolderLevel[];
   contextFolders: number;
   shared: boolean;
@@ -233,9 +235,11 @@ export function contextItems(i: ContextInput): ContextItem[] {
   out.push({ key: 'instructions', icon: '📋', label: `Instructions of «${i.projectTitle}»`, state: pOn ? 'on' : 'off', detail: !full ? offWhy : pOn ? 'the project\'s instructions' : 'the project folder gives nothing', switch: full ? 'project' : 'mode' });
   const mState: CtxState = !full || i.projectCtx === 'off' ? 'off' : i.projectCtx === 'summary' ? 'summary' : 'on';
   out.push({ key: 'memory', icon: '🧾', label: 'Project memory', state: mState, detail: !full ? offWhy : mState === 'summary' ? 'short: long entries cut, no recent chats' : mState === 'on' ? 'entries and the summaries of recent chats' : 'the project folder gives nothing', switch: full ? 'project' : 'mode' });
-  out.push({ key: 'dossier', icon: '🪪', label: 'Dossier', state: full && !i.family ? 'on' : 'off', detail: !full ? offWhy : i.family ? 'not in the family room' : 'facts about you and the people around you that match this chat', switch: full ? '' : 'mode' });
+  out.push({ key: 'dossier', icon: '🪪', label: 'Dossier', state: full ? 'on' : 'off', detail: !full ? offWhy : 'facts about you and the people around you that match this chat', switch: full ? '' : 'mode' });
   if (i.lineageTitle !== null) {
     out.push({ key: 'lineage', icon: '⤴️', label: `Messages it started from («${i.lineageTitle}»)`, state: full ? 'on' : 'off', detail: full ? 'the start of this chat (its lineage snapshot) with that chat\'s protocol' : offWhy, switch: 'mode' });
+  } else if (i.child) {
+    out.push({ key: 'protocol', icon: '📝', label: 'Protocol of this chat', state: 'off', detail: 'a subtask started from a task of its own: its own messages, no protocol', switch: '' });
   } else {
     const n = i.protocolEntries;
     out.push({ key: 'protocol', icon: '📝', label: 'Protocol of this chat', state: n ? 'on' : 'off', detail: n === null ? 'not loaded' : n ? `${n} entr${n === 1 ? 'y' : 'ies'} and the newest messages instead of the whole history` : 'no entries yet: the messages themselves', switch: '' });

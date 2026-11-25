@@ -55,6 +55,7 @@ export function useChatStreams(chat: Chat, enabled = true): ChatStreamsData {
   };
   useEffect(() => {
     setStreams(null);
+    setErr(null);
   }, [chat.chatId]);
   useEffect(() => {
     if (enabled) reload();

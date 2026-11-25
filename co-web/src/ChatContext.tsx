@@ -31,6 +31,7 @@ export function contextInputOf(chat: Chat, project: Project, chats: Chat[] | nul
     // a branch or subtask keeps its own history: the live protocol is not used for it (ChatView.sendToChat)
     protocolEntries: chat.parent ? 0 : protocolEntries,
     lineageTitle: lineageTitleOf(chat, chats),
+    child: !!chat.parent,
     levels: chat.family ? [] : folderLevels(chat, chats || []),
     contextFolders: (project.contextFolders || []).length,
     shared,

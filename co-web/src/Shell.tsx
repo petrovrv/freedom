@@ -849,7 +849,7 @@ export default function Shell({ auth }: { auth: Signed }) {
     }
     return (
       <>
-        {filesHere && chat && <ChatFolder chat={chat} project={p} chats={chats} root={root} authOk={authOk} showSubchats={false} onOpenChat={exOpenChat} />}
+        {filesHere && chat && <ChatFolder key={chat.chatId} chat={chat} project={p} chats={chats} root={root} authOk={authOk} showSubchats={false} onOpenChat={exOpenChat} />}
         {!here && <ProjectWorkspace project={p} owner={owner} root={root} authOk={authOk} />}
         {!here && p.projectId === projectId && <div className="ex-archive">{archiveAndTrash(p)}</div>}
       </>
@@ -1354,7 +1354,7 @@ export default function Shell({ auth }: { auth: Signed }) {
             {/* 0.128.0: the files of the open chat and the project workspace (in the Explorer: inside their folders); 0.129.0: the chat folder */}
             {project && (
               <div className="tree-extra">
-                {chat && <ChatFolder chat={chat} project={project} chats={chats} root={root} authOk={authOk} showSubchats onOpenChat={exOpenChat} />}
+                {chat && <ChatFolder key={chat.chatId} chat={chat} project={project} chats={chats} root={root} authOk={authOk} showSubchats onOpenChat={exOpenChat} />}
                 <ProjectWorkspace project={project} owner={owner} root={root} authOk={authOk} />
               </div>
             )}

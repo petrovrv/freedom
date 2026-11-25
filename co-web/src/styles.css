@@ -415,6 +415,7 @@ body.resizing-row iframe { pointer-events: none; }
 .proto-sec-question { color: var(--bad); }
 .proto-sec-artifact { color: var(--muted); }
 .proto-sec-answer { color: var(--ok); }
+.proto-sec-agreement { color: var(--accent); font-style: italic; }
 .proto-no { color: var(--muted); font-variant-numeric: tabular-nums; cursor: pointer; user-select: none; }
 .proto-no:hover, .proto-no:focus-visible { color: var(--accent); text-decoration: underline; outline: none; }
 .proto-quote { font-style: italic; color: var(--muted); font-size: 12px; margin-top: 2px; }
@@ -951,5 +952,21 @@ button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
 .ex-archive:empty { display: none; }
 .fold-head { border: 0; background: none; cursor: pointer; padding: 4px 2px; font-weight: 600; font-size: 13px; text-align: left; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fold-body { padding: 0 0 6px 4px; }
+/* 0.129.0: the folder of a chat (FolderContents.tsx ChatFolder, ChatContext.tsx) */
+.chat-folder { display: flex; flex-direction: column; gap: 2px; }
+.cf-head { padding: 2px 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-list { list-style: none; margin: 2px 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.cf-list .link { text-align: left; }
+.cf-agree.done .link { color: var(--muted); text-decoration: line-through; }
+.cf-due.bad { color: var(--bad); font-weight: 600; }
+.cf-due.warn { color: var(--warn); }
+.chat-ctx .fc-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin: 4px 0; }
+.chat-ctx select { border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; background: var(--bg); }
+.ctx-list { list-style: none; margin: 6px 0 4px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.ctx-item { display: flex; gap: 6px; align-items: baseline; }
+.ctx-item.ctx-off .ctx-label { color: var(--muted); }
+.ctx-mark { width: 1.1em; text-align: center; font-weight: 700; color: var(--ok); flex: none; }
+.ctx-summary .ctx-mark { color: var(--warn); }
+.ctx-off .ctx-mark { color: var(--muted); }
 .side-panel .chat-slot .chat-panel h5:first-child { margin-top: 16px; }
 .ctx-slot:empty { display: none; }

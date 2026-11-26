@@ -19,6 +19,31 @@ function home_locked(array $c, callable $fn): array {
 function home_online(array $s): bool {
     return ($s['online']??false) && time()-($s['seen']??0)<25 && time()-($s['updated']??0)<25;
 }
+function home_num($v, float $lo=0, float $hi=1000): float {
+    if ((!is_int($v) && !is_float($v)) || !is_finite((float)$v) || $v<$lo || $v>$hi) throw new InvalidArgumentException('bad_plan');
+    return round((float)$v,3);
+}
+// Floor plan from the worker: rectangles of rooms (linked to entity rooms by name), outline, doors and windows.
+function home_plan_clean($p): ?array {
+    if (!is_array($p) || !is_array($p['floors']??null) || strlen((string)json_encode($p))>65536) return null;
+    $floors=[];
+    try {
+        foreach (array_slice($p['floors'],0,8) as $f) {
+            if (!is_array($f)) return null;
+            $rooms=$lines=$outline=[];
+            foreach (array_slice((array)($f['rooms']??[]),0,80) as $r) $rooms[]=['name'=>mb_substr((string)($r['name']??''),0,80),
+                'room'=>mb_substr((string)($r['room']??''),0,80),'x'=>home_num($r['x']??null),'y'=>home_num($r['y']??null),
+                'w'=>home_num($r['w']??null,0.01),'h'=>home_num($r['h']??null,0.01)];
+            foreach (array_slice((array)($f['lines']??[]),0,300) as $l) if (in_array($l['kind']??'',['door','window','wall'],true))
+                $lines[]=['kind'=>$l['kind'],'x1'=>home_num($l['x1']??null),'y1'=>home_num($l['y1']??null),
+                    'x2'=>home_num($l['x2']??null),'y2'=>home_num($l['y2']??null)];
+            foreach (array_slice((array)($f['outline']??[]),0,64) as $pt) $outline[]=[home_num($pt[0]??null),home_num($pt[1]??null)];
+            $floors[]=['id'=>mb_substr((string)($f['id']??count($floors)),0,20),'name'=>mb_substr((string)($f['name']??''),0,80),
+                'w'=>home_num($f['w']??null,0.1),'h'=>home_num($f['h']??null,0.1),'rooms'=>$rooms,'lines'=>$lines,'outline'=>$outline];
+        }
+    } catch (Throwable $e) { return null; }
+    return $floors ? ['floors'=>$floors] : null;
+}
 function home_state(array $c): array {
     if (!home_allowed($c)) return ['error'=>'home_forbidden'];
     return home_locked($c,static function (&$s) {
@@ -28,7 +53,7 @@ function home_state(array $c): array {
                 $s['results'][$id]=['id'=>$id,'status'=>'error','note'=>($cmd['claimed']??false)?'Результат неизвестен; проверьте состояние':'Время ожидания истекло'];
         }
         return ['online'=>home_online($s),'updated'=>$s['updated']??0,
-            'entities'=>$s['entities']??[],'results'=>$s['results']??[], 'serverNow'=>time()];
+            'entities'=>$s['entities']??[],'results'=>$s['results']??[], 'plan'=>$s['plan']??null, 'serverNow'=>time()];
     });
 }
 function home_control(array $c,array $in): array {
@@ -69,6 +94,11 @@ function home_exchange(array $c,array $in): array {
         $offset=time()-(float)($in['hostNow']??time());
         $s['entities']=$in['entities'];$s['updated']=(int)(($in['updated']??0)+$offset);
         $s['online']=($in['online']??false)===true;$s['seen']=time();
+        if (array_key_exists('plan',$in)) {
+            // The hash is kept even for a rejected plan, so the worker does not resend it every poll.
+            $s['plan']=home_plan_clean($in['plan']);
+            $s['planHash']=preg_match('/^[a-f0-9]{0,64}$/D',(string)($in['planHash']??''))?(string)$in['planHash']:'';
+        }
         foreach (array_slice($in['results'], -200, null, true) as $id=>$r)
             if (isset($s['commands'][$id]) && is_array($r)) {
                 $s['results'][$id]=['id'=>$id,'status'=>($r['status']??'')==='accepted'?'accepted':'error',
@@ -89,6 +119,6 @@ function home_exchange(array $c,array $in): array {
                 unset($s['commands'][$id]);
             }
         }
-        return ['commands'=>$commands,'pollSeconds'=>($s['interest']??0)>time()?2:8];
+        return ['commands'=>$commands,'pollSeconds'=>($s['interest']??0)>time()?2:8,'planHash'=>$s['planHash']??''];
     });
 }

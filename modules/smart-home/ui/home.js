@@ -2,7 +2,8 @@
 (() => {
 'use strict';
 const $=id=>document.getElementById(id), cards=new Map(), pending=new Map(), notes=new Map();
-let data={entities:[],online:false,updated:0},kind='',busy=false,timer,signature='',localReceipt=0,lastRefresh=0;
+let data={entities:[],online:false,updated:0},kind='',busy=false,timer,signature='',planSig='',localReceipt=0,lastRefresh=0;
+let view=localStorage.getItem('smart-home.view')||'plan';const proom=new Map(),plights=new Map();
 function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
 function usable(){return data.online && Date.now()/1000-localReceipt<25;}
 function icon(r){return r.kind==='climate'?'♨':r.kind==='switch'?'⏻':({temperature:'🌡',humidity:'💧',battery:'▰',door:'◫',window:'◫',occupancy:'◉',motion:'◉',power:'ϟ',illuminance:'☀'})[r.attrs.device_class]||'◈';}
@@ -60,6 +61,7 @@ function render(){
  const n=data.entities.length,rooms=new Set(data.entities.map(r=>r.room)).size;
  $('summary').textContent=rooms+' комнат и зон · '+n+' показаний и устройств';
  const connected=usable();$('connection').className=connected?'':'offline';
+ renderPlan();
  $('connection').textContent=connected?'● На связи · обновлено '+new Date(data.updated*1000).toLocaleTimeString('ru-RU'):
  'Нет свежей связи с домом. Показаны последние данные; управление временно отключено.';
 }
@@ -96,6 +98,78 @@ async function send(r,action,v){
  }catch(e){pending.delete(r.id);notes.set(r.id,{text:'Не удалось подтвердить команду. Проверьте состояние.',error:true});}
  render();if(!busy)refresh();
 }
+// Floor plan (dashboard.json plan, sent by the home worker): rooms linked to entity rooms by name.
+const SVG='http://www.w3.org/2000/svg';
+function svg(tag,attrs){const e=document.createElementNS(SVG,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;}
+function roomTemp(rows){
+ const s=rows.find(r=>r.kind==='sensor'&&r.attrs.device_class==='temperature'&&!r.id.startsWith('binary_sensor.'))
+  ||rows.find(r=>r.kind==='climate');
+ if(!s)return null;
+ const v=s.kind==='climate'?s.attrs.current_temperature:Number(s.state);
+ return ['unknown','unavailable'].includes(s.state)||!Number.isFinite(Number(v))?NaN:Number(v);
+}
+function tempClass(t){return t===null?'':Number.isNaN(t)?'nodata':t<17?'cold':t<19?'cool':t<=22.5?'ok':t<=24?'warm':'hot';}
+function openRoom(room){view='list';localStorage.setItem('smart-home.view',view);$('room').value=room;render();}
+function buildPlan(){
+ proom.clear();plights.clear();const box=el('div','floors');
+ for(const f of data.plan.floors){
+  const sec=el('section','floor'),fb=el('div','floor-box');fb.style.aspectRatio=f.w+' / '+f.h;
+  if(f.name)sec.append(el('h2','',f.name));
+  for(const r of f.rooms){
+   const linked=!!r.room&&data.entities.some(x=>x.room===r.room),d=el('div','proom '+(linked?'linked':'blank'));
+   Object.assign(d.style,{left:r.x/f.w*100+'%',top:r.y/f.h*100+'%',width:r.w/f.w*100+'%',height:r.h/f.h*100+'%'});
+   if(r.name)d.append(el('div','pname',r.name));
+   if(linked){
+    const t=el('div','ptemp'),m=el('div','pmeta'),l=el('div','plights');d.append(t,m,l);
+    d.title=r.room;d.tabIndex=0;d.setAttribute('role','button');d.setAttribute('aria-label','Открыть: '+r.room);
+    d.onclick=e=>{if(!e.target.closest('button'))openRoom(r.room);};
+    d.onkeydown=e=>{if(e.key==='Enter'&&e.target===d)openRoom(r.room);};
+    for(const x of data.entities.filter(x=>x.room===r.room&&x.kind==='switch'&&x.actions.length)){
+     const b=el('button','','💡');b.type='button';
+     b.onclick=()=>{const cur=data.entities.find(y=>y.id===x.id);if(cur)send(cur,cur.state==='on'?'turn_off':'turn_on');};
+     l.append(b);plights.set(x.id,b);
+    }
+    proom.set(d,{room:r.room,t,m});
+   }
+   fb.append(d);
+  }
+  const s=svg('svg',{viewBox:'0 0 '+f.w+' '+f.h,preserveAspectRatio:'none','aria-hidden':'true'});
+  if(f.outline.length>2)s.append(svg('polygon',{points:f.outline.map(p=>p.join(',')).join(' '),fill:'none',stroke:'#26332b','stroke-width':4,'vector-effect':'non-scaling-stroke'}));
+  const colors={door:'#2a9d3a',window:'#4f9fd6',wall:'#26332b'};
+  for(const ln of f.lines)s.append(svg('line',{x1:ln.x1,y1:ln.y1,x2:ln.x2,y2:ln.y2,stroke:colors[ln.kind],'stroke-width':ln.kind==='wall'?2:5,'vector-effect':'non-scaling-stroke'}));
+  fb.append(s);sec.append(fb);box.append(sec);
+ }
+ const legend=el('div','plegend');
+ for(const [c,t] of [['#b9d6f2','< 17 °C'],['#d6e9f5','17–19'],['#cdebd3','19–22,5'],['#fbdcb4','22,5–24'],['#f5ae96','> 24'],['#e2e2e2','нет данных']]){
+  const s=el('span','sw',t);s.style.setProperty('--c',c);legend.append(s);}
+ legend.append(el('span','','💡 — включить или выключить свет; нажмите на комнату, чтобы открыть её устройства'));
+ $('plan').replaceChildren(box,legend);
+}
+function renderPlan(){
+ const has=!!data.plan?.floors?.length;$('views').hidden=!has;
+ const showPlan=has&&view==='plan';$('plan').hidden=!showPlan;$('list').hidden=showPlan;
+ for(const b of $('views').children)b.classList.toggle('selected',b.dataset.view===(showPlan?'plan':'list'));
+ if(!showPlan)return;
+ const sig=JSON.stringify(data.plan)+'|'+data.entities.map(r=>r.id+':'+r.room).join('|');
+ if(sig!==planSig){planSig=sig;buildPlan();}
+ for(const [d,p] of proom){
+  const rows=data.entities.filter(r=>r.room===p.room),t=roomTemp(rows);
+  d.className='proom linked '+tempClass(t);
+  p.t.textContent=t===null?'':Number.isNaN(t)?'—':t.toFixed(1)+'°';
+  const hum=rows.find(r=>r.attrs.device_class==='humidity'&&Number.isFinite(Number(r.state)));
+  const cl=rows.find(r=>r.kind==='climate'&&r.attrs.temperature!==undefined&&r.attrs.temperature!==null);
+  const bin=r=>r.id.startsWith('binary_sensor.')&&r.state==='on';
+  const who=rows.some(r=>bin(r)&&['occupancy','motion','presence'].includes(r.attrs.device_class));
+  const win=rows.some(r=>bin(r)&&['window','door'].includes(r.attrs.device_class));
+  p.m.textContent=[hum?Math.round(Number(hum.state))+' %':'',cl?'→ '+cl.attrs.temperature+'°':'',who?'◉ кто-то есть':'',win?'окно открыто':''].filter(Boolean).join(' · ');
+ }
+ for(const [id,b] of plights){
+  const r=data.entities.find(x=>x.id===id);if(!r)continue;const bad=['unknown','unavailable'].includes(r.state);
+  b.classList.toggle('on',r.state==='on');b.disabled=!usable()||bad||pending.has(id);
+  b.title=r.name+': '+(pending.has(id)?'выполняется…':bad?'нет данных':r.state==='on'?'включено':'выключено');b.setAttribute('aria-label',b.title);
+ }
+}
+$('views').onclick=e=>{const b=e.target.closest('button');if(!b)return;view=b.dataset.view;localStorage.setItem('smart-home.view',view);render();};
 $('search').oninput=render;$('room').onchange=render;$('refresh').onclick=refresh;
 $('kinds').onclick=e=>{const b=e.target.closest('button');if(!b)return;kind=b.dataset.kind;
  for(const x of $('kinds').children)x.classList.toggle('selected',x===b);render();};

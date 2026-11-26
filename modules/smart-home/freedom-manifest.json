@@ -1,22 +1,22 @@
 {
  "format": "freedom-release/1",
- "version": "0.4.0",
- "created": "2026-11-23T11:32:52Z",
+ "version": "0.5.0",
+ "created": "2026-11-26T20:35:09Z",
  "files": [
   {
    "path": "module.json",
-   "size": 3256,
-   "sha256": "2a162d769fe396f676f89063806f57a4177a12679d05a51da08c6db72e49395b"
+   "size": 3271,
+   "sha256": "1c1675330af43aa33a01b65adf7750f18e84576c53dad87f07a939cf7d53a63a"
   },
   {
    "path": "README.md",
-   "size": 2657,
-   "sha256": "1c08326776592908afe58ff31c402bbaedca5f774a66473388ace0bc882667ea"
+   "size": 3310,
+   "sha256": "3bf86cc201dd38f121efe7cb1b70a94cb6c963e1252ac73e209c4f31196b64ad"
   },
   {
    "path": "server/home.php",
-   "size": 5335,
-   "sha256": "9c094f08c41c17267e26dbb201dfd09b3c9fa65784871c800cd355d9fe1d9160"
+   "size": 7544,
+   "sha256": "bfe90f2c4de5d9d1b9ec301864268ea35bc7af3dd51c191176d6b675c6e2b121"
   },
   {
    "path": "server/ops.php",
@@ -25,8 +25,8 @@
   },
   {
    "path": "tests/dashboard.php",
-   "size": 2294,
-   "sha256": "e60d5d264653a97c397fd316b40255bbc2cf91509eb621165892dffc274cf271"
+   "size": 3285,
+   "sha256": "c4801ea22c0910c7a59a143044e71c788f1eb652d1f649e5ca274a9cf0af5e72"
   },
   {
    "path": "tests/server.php",
@@ -50,18 +50,18 @@
   },
   {
    "path": "ui/home.css",
-   "size": 4339,
-   "sha256": "cc648c196edc64cde517069437a9dca325962579a58d8a0ba9252e7952ac7dda"
+   "size": 6239,
+   "sha256": "0f8852e9070bc8e744f8b64a98556f84f2c7717be73b69cbe6369fc2296d3076"
   },
   {
    "path": "ui/home.html",
-   "size": 1758,
-   "sha256": "078f93f8ec3aa605d34ca92746b3fce41ed90f654e46bc4d27b576047ee12ea3"
+   "size": 1946,
+   "sha256": "f77155a089712a371b08706a8b95d737b0ce49711c1365281709f9f8e81412d2"
   },
   {
    "path": "ui/home.js",
-   "size": 8429,
-   "sha256": "fa9137dbd946b04a9df74760f645f547c7edf7229e73004dba22e9e02a4078cb"
+   "size": 13696,
+   "sha256": "b4f413f8671cff507b6bc57d12163c292e51ae304fd2d9cff943a73976e67d87"
   },
   {
    "path": "ui/pair.js",
@@ -73,7 +73,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "DTQGjXSLfC87k9jfQ7eeCAhm/nN7O/rUamqmV0WkkGb/GEJruGrflbmWebXKXfkH2qMJyBJrhj5yR9+RWP5IBg=="
+   "sig": "wTi2ZRT7WLRpquZvQD+SbG3YPfJ8aaHgSR1NuRAuuPyGF24U0nLJCymy03P4fmPqTT7TXLTptV8EZs9V7OMACw=="
   }
  ],
  "module": "smart-home"

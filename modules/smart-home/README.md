@@ -17,6 +17,13 @@ Local configuration: %LOCALAPPDATA%/AIWorkbench/homehub/dashboard.json (override
 HOMEHUB_DASHBOARD_CONFIG). Contains ha {url,keyring:[service,account]} and entities:
 an object keyed by entity ID, with name, room, actions, optional note and temperature
 limits. Only explicitly configured devices are exposed; never upload all HA attributes.
+Optional plan: {floors:[{id,name,w,h,outline:[[x,y]...],rooms:[{name,room,x,y,w,h}],
+lines:[{kind:door|window|wall,x1,y1,x2,y2}]}]} in any unit, y down. The page then opens on a
+floor plan: a room whose `room` matches the room of entities is coloured by its temperature
+sensor (or thermostat), shows humidity, target, presence and an open window, and has a 💡 button
+per light/socket (same command path as the cards); a click on the room opens its cards in the list.
+The worker (homehub 0.3.2+) sends the plan only when the server copy differs (planHash); both
+sides keep only numbers in range and short labels (8 floors, 80 rooms, 300 lines, 64 KB).
 The configuration contains no credentials and is not part of the public module.
 
 Commands expire after 20 seconds. Server claim is persisted before delivery; a lost

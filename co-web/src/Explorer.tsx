@@ -77,6 +77,8 @@ export default function Explorer(props: ExplorerProps) {
   const [dropKey, setDropKey] = useState('');
   // when the person last moved to a folder or opened an item
   const moved = useRef(0);
+  // 0.130.0: iOS Safari gives a quick second tap detail 1, so a touch keeps the plain 450 ms guard
+  const touch = useRef(false);
   const chats = path.projectId ? chatsOf(path.projectId) : null;
 
   // the opened chat (from a link, a search, Ctrl+K) shows the folder it lives in, once its project's chats are loaded
@@ -367,8 +369,9 @@ ${formatLocal(date)}` : '';
                   // a habitual double click (or a quick second tap) after entering a folder must not open an item of the new folder;
                   // 0.130.0: only the second click of a double click is dropped, a single quick click opens (it was lost silently)
                   // the focus goes into the opened folder (also after Space), so the arrows and Backspace keep working
-                  if (e.detail < 2 || Date.now() - moved.current > 450) open(it, true);
+                  if ((e.detail < 2 && !touch.current) || Date.now() - moved.current > 450) open(it, true);
                 }}
+                onPointerDown={(e) => { touch.current = e.pointerType === 'touch'; }}
                 onContextMenu={props.onProperties ? (e) => {
                   e.preventDefault();
                   setFocus(i);

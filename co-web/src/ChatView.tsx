@@ -757,6 +757,7 @@ export default function ChatView(props: Props) {
       hints: hintsBlock(related, target.hostId !== 'site'),
       hintsResume: hintsBlock(strongHits(related), target.hostId !== 'site'),
       hintsStored: storedHints(related),
+      hintsStoredResume: storedHints(strongHits(related)),
       extra: chat.family ? {
         family: true, ...(input.family?.replyTo ? { replyTo: input.family.replyTo } : {}), ...(input.family?.coFor ? { coFor: input.family.coFor } : {}),
       } : undefined,
@@ -1413,7 +1414,7 @@ export default function ChatView(props: Props) {
       )}
       {!props.viewer && !readOnly && (() => {
         // 0.130.0: where the message goes; flagged when the Explorer shows another project's folder (C0J6 #14)
-        const elsewhere = props.folderProjectId !== undefined && props.folderProjectId !== project.projectId;
+        const elsewhere = !!props.folderProjectId && props.folderProjectId !== project.projectId;
         return (
           <div className={`send-target${elsewhere ? ' elsewhere' : ''}`} title={elsewhere ? 'The Explorer shows another folder; the message goes to this chat' : 'The message goes to this chat'}>
             {elsewhere ? '⚠ ' : '→ '}{project.title || project.projectId} › {chat.draft ? 'new chat' : stripTitleMarker(chat.title || '') || chat.chatId}

@@ -800,6 +800,7 @@ export interface SendInput {
   // 0.130.0: the block for a resumed session (strong hits only, secretaryHints.ts strongHits); hints when absent
   hintsResume?: string;
   hintsStored?: ChatEvent['hints'];
+  hintsStoredResume?: ChatEvent['hints'];
   // 0.89.0: extra keys of the user_message (family: true in family chats)
   extra?: Partial<ChatEvent>;
   onProgress?: (msg: string) => void;
@@ -908,7 +909,8 @@ export async function sendTurn(input: SendInput): Promise<ChatEvent> {
     contextMode: input.live?.contextMode ?? 'full', ...(input.live?.folderKey ? { folderKey: input.live.folderKey } : {}), contextPack: plan.contextPack, ...(plan.reason ? { contextReason: plan.reason } : {}),
     mode, model: input.model || null, effort: input.effort || null, ...(withNote ? { workbenchNote: true } : {}),
     ...(viaDb ? { queue: 'db' as const } : {}),
-    ...(input.hintsStored?.length ? { hints: input.hintsStored } : {}),
+    ...((plan.operation === 'resume' ? input.hintsStoredResume ?? input.hintsStored : input.hintsStored)?.length
+      ? { hints: plan.operation === 'resume' ? input.hintsStoredResume ?? input.hintsStored : input.hintsStored } : {}),
     ...(input.extra || {}),
   });
 }

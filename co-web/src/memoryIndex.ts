@@ -8,7 +8,7 @@
 import { drivePath } from './members.ts';
 
 export const MEMORY_INDEX_MARKER = '<!-- memory: index -->';
-// 0.130.0 (C0J6): a memory.md longer than this gets the index without the marker (Freedom 75k and Job_Search 50k
+// 0.130.0 (C0J6): a memory.md longer than this gets the index without the marker (Freedom 52k and Job_Search 35k
 // characters went in full into every new session); the marker MEMORY_FULL_MARKER keeps a big file in full.
 export const MEMORY_FULL_MARKER = '<!-- memory: full -->';
 export const MEMORY_AUTO_INDEX_CHARS = 12000;

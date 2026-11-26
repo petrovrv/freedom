@@ -518,8 +518,11 @@ export interface ConversationPlan {
 }
 
 // 0.36.0 (live protocol): with a usable protocol a session is resumed only within 30 min and below 150k per turn.
+// 0.130.0 (C0J6): below 80k per turn and 16 answers - a long session carried mail texts and tool output of old turns
+// and drifted; the new one starts from the protocol and the newest messages.
 const RESUME_MAX_PAUSE_MS = 30 * 60 * 1000;
-const RESUME_MAX_SESSION_CONTEXT = 150000;
+const RESUME_MAX_SESSION_CONTEXT = 80000;
+const RESUME_MAX_SESSION_TURNS = 16;
 
 function agentName(a?: string) {
   return a === 'codex' ? 'Codex' : a === 'claude' ? 'Claude' : a || 'Agent';
@@ -628,7 +631,10 @@ export function planConversation(
       } else if (cand.usage) {
         const u = cand.usage;
         const perTurn = (u.inputTokens + u.cachedInputTokens + (u.cacheCreationInputTokens || 0)) / Math.max(1, u.numTurns || 1);
-        if (perTurn > RESUME_MAX_SESSION_CONTEXT) reason = 'session context over 150k';
+        if (perTurn > RESUME_MAX_SESSION_CONTEXT) reason = 'session context over 80k';
+      }
+      if (!reason && events.filter((e) => e.type === 'assistant_message' && e.sessionId === cand.sessionId).length >= RESUME_MAX_SESSION_TURNS) {
+        reason = `session over ${RESUME_MAX_SESSION_TURNS} answers`;
       }
     }
 
@@ -791,6 +797,8 @@ export interface SendInput {
   resume?: string;
   // 0.85.0: hidden secretary hints block (secretaryHints.ts) and the hits the user message keeps for the UI
   hints?: string;
+  // 0.130.0: the block for a resumed session (strong hits only, secretaryHints.ts strongHits); hints when absent
+  hintsResume?: string;
   hintsStored?: ChatEvent['hints'];
   // 0.89.0: extra keys of the user_message (family: true in family chats)
   extra?: Partial<ChatEvent>;
@@ -851,7 +859,7 @@ export async function sendTurn(input: SendInput): Promise<ChatEvent> {
     chatId: chat.chatId,
     branchId,
     agent,
-    instruction: note + plan.preamble + (input.resume || '') + (input.hints || '') + text + (wantsTitle(chat, input.events) ? TITLE_REQUEST : ''),
+    instruction: note + plan.preamble + (input.resume || '') + ((plan.operation === 'resume' ? input.hintsResume ?? input.hints : input.hints) || '') + text + (wantsTitle(chat, input.events) ? TITLE_REQUEST : ''),
     conversation: { operation: plan.operation, sessionId: plan.sessionId },
     attachments: attachments.map((a) => ({ path: a.path, sizeBytes: a.sizeBytes, sha256: a.sha256, ...(a.target ? { target: a.target } : {}) })),
     artifactPaths: input.returnFiles,

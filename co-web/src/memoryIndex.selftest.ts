@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // CO Web 0.73.0: self-check of the memory index (run: npm test, or node src/memoryIndex.selftest.ts).
-import { MEMORY_INDEX_MARKER, memoryIndex, memoryIndexWanted } from './memoryIndex.ts';
+import { MEMORY_FULL_MARKER, MEMORY_INDEX_MARKER, memoryIndex, memoryIndexWanted } from './memoryIndex.ts';
 
 declare const process: { exitCode?: number };
 const failures: string[] = [];
@@ -16,6 +16,13 @@ const md = ['# Project memory', MEMORY_INDEX_MARKER, '', ...entries, '- ', 'note
 assert.equal(memoryIndexWanted(md), true, 'marker found');
 assert.equal(memoryIndex(md.replace(MEMORY_INDEX_MARKER, ''), 'P'), null, 'no marker: full file');
 assert.equal(memoryIndex([MEMORY_INDEX_MARKER, ...entries.slice(0, 5)].join('\n'), 'P'), null, 'few entries: full file');
+
+// 0.130.0: a big file gets the index without the marker, unless it asks to stay full
+const bigEntries = Array.from({ length: 80 }, (_, i) => `- 2026-11-${String((i % 28) + 1).padStart(2, '0')}: [decision] ${long}`);
+const big = ['# Project memory', '', ...bigEntries].join('\n');
+assert.ok(big.length > 12000 && memoryIndexWanted(big), 'big file: index without marker');
+assert.ok((memoryIndex(big, 'P') as string).length < big.length / 2, 'big file: index is much shorter');
+assert.equal(memoryIndex([MEMORY_FULL_MARKER, big].join('\n'), 'P'), null, 'full marker keeps the file');
 
 const ix = memoryIndex(md, 'P') as string;
 assert.ok(ix.includes('--project "P" get'), 'commands');

@@ -45,7 +45,7 @@ import {
   appendFamilyMessage, appendReaction, familyTranscript, createChat, eventHost, requestCancel, sendTurn, updateChatMeta, wantsTitle, type EventCursor, type HostDirs, type HostHealth, type Root,
 } from './workbench';
 import { dbDossierContext, dbFollowupAdd, dbFollowupCancel, dbFollowupDone, dbFollowupList, dbFollowupTake, dbGetTemplates, dbProtocol, dbPutTemplates, dbQueueOn, dbRelated, dbSharesGet, dbToolStarted, type Followup } from './dbapi';
-import { hintsBlock, storedHints, wantsHints, type Related } from './secretaryHints';
+import { hintsBlock, storedHints, strongHits, wantsHints, type Related } from './secretaryHints';
 import { buildLevels, CONTEXT_MODE_HINT, CONTEXT_MODE_LABEL, type ContextMode } from './contextLevels';
 import { sideJobOf, sideReplies, viewMessage, type SideJob } from './extBridge';
 import QuoteAsk from './QuoteAsk';
@@ -72,6 +72,8 @@ interface Props {
   docked?: boolean;
   // F15.2 part 4: the chats of the project, for the folders above this chat (folderContext.ts)
   projectChats?: Chat[] | null;
+  // 0.130.0: the project of the Explorer folder shown (undefined: tree view); another project than this chat's is flagged
+  folderProjectId?: string;
   root: Root;
   host: HostDirs;
   // All executors by hostId: a job is observed on the host that received it.
@@ -656,7 +658,7 @@ export default function ChatView(props: Props) {
       cmodeEarly === 'full' && wantsHints(input.text) && !chat.draft
         ? quick<Related | null>(dbRelated(props.env, project.projectId, chat.chatId, input.text), null)
         : Promise.resolve(null),
-      cmodeEarly === 'full' && !chat.draft ? quick(dbDossierContext(project.projectId, chat.chatId), '') : Promise.resolve(''),
+      cmodeEarly === 'full' && !chat.draft ? quick(dbDossierContext(project.projectId, chat.chatId, input.text), '') : Promise.resolve(''),
     ]);
     // The child's lineage snapshot (read again at send time; a failed read stops the send).
     const snap = chat.parent ? await readSnapshot(chat.parent) : null;
@@ -753,6 +755,7 @@ export default function ChatView(props: Props) {
       hostAuto: !!props.hostAuto && !pinned, // S8 (a pinned model resource keeps its host): the server may move it to the other executor when not taken in ~60 s
       resume,
       hints: hintsBlock(related, target.hostId !== 'site'),
+      hintsResume: hintsBlock(strongHits(related), target.hostId !== 'site'),
       hintsStored: storedHints(related),
       extra: chat.family ? {
         family: true, ...(input.family?.replyTo ? { replyTo: input.family.replyTo } : {}), ...(input.family?.coFor ? { coFor: input.family.coFor } : {}),
@@ -1408,6 +1411,15 @@ export default function ChatView(props: Props) {
             : 'Only the chats shared with you are open; new chats here are not allowed.'}
         </div>
       )}
+      {!props.viewer && !readOnly && (() => {
+        // 0.130.0: where the message goes; flagged when the Explorer shows another project's folder (C0J6 #14)
+        const elsewhere = props.folderProjectId !== undefined && props.folderProjectId !== project.projectId;
+        return (
+          <div className={`send-target${elsewhere ? ' elsewhere' : ''}`} title={elsewhere ? 'The Explorer shows another folder; the message goes to this chat' : 'The message goes to this chat'}>
+            {elsewhere ? '⚠ ' : '→ '}{project.title || project.projectId} › {chat.draft ? 'new chat' : stripTitleMarker(chat.title || '') || chat.chatId}
+          </div>
+        );
+      })()}
       {family ? (
         <FamilyComposer
           key={chat.folderId + ':family'}

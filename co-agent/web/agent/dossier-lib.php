@@ -16,6 +16,7 @@ const CO_DOSSIER_MAX_TEXT = 500;
 const CO_DOSSIER_MAX_SUBJECT = 120;
 const CO_DOSSIER_SECRETARY_MAX = 8; // rows a single secretary call may add or change
 const CO_DOSSIER_CONTEXT_MAX = 20000; // characters of the session block (~7k tokens), shared by sections
+const CO_DOSSIER_TOPIC_MAX = 8000;     // the block for a known first message: rows on its topic first (C0J6, 26.11)
 const CO_RELATED_MAX_QUERY = 1500;
 
 function co_dossier_q(mysqli $db, string $sql, array $p = []): array
@@ -218,26 +219,50 @@ function co_dossier_shared(mysqli $db, string $projectId, string $chatId): bool
  * affairs 35 %, people 25 %; an unused share passes on; shared chats: people only), lines are cut to 170 characters
  * (full rows: aiwb-dossier search, secretary hints), and a section that does not fit says how many rows it left out.
  */
-function co_dossier_context(mysqli $db, string $env, bool $peopleOnly, int $max = CO_DOSSIER_CONTEXT_MAX): string
+function co_dossier_context(mysqli $db, string $env, bool $peopleOnly, int $max = CO_DOSSIER_CONTEXT_MAX, string $topic = ''): string
 {
     $rows = co_dossier_list($db, $env, false, $peopleOnly);
     if ($rows === []) {
         return '';
     }
+    // rows sharing more word stems with the topic (the first message of the session) go first in their section; the
+    // sorts below are stable, so equal rows keep their order
+    $qset = $topic !== '' ? array_fill_keys(co_related_stems($topic, 200), true) : [];
+    $hit = static function (array $r) use ($qset): int {
+        if (!$qset) {
+            return 0;
+        }
+        return count(array_filter(co_related_stems($r['subject'] . ' ' . $r['text'], 200), static fn($s) => isset($qset[$s])));
+    };
+    $byHit = static function (array $list) use ($hit): array {
+        $score = array_map($hit, $list);
+        $idx = array_keys($list);
+        usort($idx, static fn($a, $b) => $score[$b] <=> $score[$a] ?: $a <=> $b);
+        return array_map(static fn($i) => $list[$i], $idx);
+    };
     $line = static function (array $r): string {
         $d = $r['date'] ? ' (' . $r['date'] . ')' : '';
         return '- ' . ($r['subject'] !== '' ? $r['subject'] . ': ' : '') . co_dossier_clean($r['text'], 170) . $d . ' [d' . $r['id'] . ']';
     };
-    $me = array_values(array_filter($rows, static fn($r) => $r['section'] === 'me'));
+    $me = $byHit(array_values(array_filter($rows, static fn($r) => $r['section'] === 'me')));
     $state = array_values(array_filter($rows, static fn($r) => $r['section'] === 'state'));
     // newest affairs first
     usort($state, static fn($a, $b) => strcmp((string)$b['date'], (string)$a['date']));
+    $state = $byHit($state);
     $by = [];
     foreach (array_filter($rows, static fn($r) => $r['section'] === 'people') as $r) {
         $by[$r['subject']][] = $r;
     }
     // people with more rows (the closest) first, one line each: the first fact; the rest come as hints or by search
     uksort($by, static fn($a, $b) => [count($by[$b]), $a] <=> [count($by[$a]), $b]);
+    if ($qset) {
+        // a person named in the topic first
+        $named = array_map(static fn($list) => max(array_map($hit, $list)), $by);
+        $names = array_keys($by);
+        $pos = array_flip($names);
+        usort($names, static fn($a, $b) => $named[$b] <=> $named[$a] ?: $pos[$a] <=> $pos[$b]);
+        $by = array_combine($names, array_map(static fn($n) => $by[$n], $names));
+    }
     $peopleLines = [];
     foreach ($by as $name => $list) {
         $more = count($list) > 1 ? ' (+' . (count($list) - 1) . ')' : '';
@@ -435,7 +460,7 @@ function co_related(mysqli $db, string $env, string $text, string $excludeChat, 
             continue;
         }
         $perChat[$c['chatId']] = ($perChat[$c['chatId']] ?? 0) + 1;
-        unset($c['rare'], $c['via']);
+        unset($c['via']); // 'rare' stays: CO Web gives a resumed session only the strong hits
         $hits[] = $c;
         if (count($hits) >= $limit) {
             break;

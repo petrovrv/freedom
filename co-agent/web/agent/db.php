@@ -1406,7 +1406,9 @@ try {
             $peopleOnly = $pEnv !== $myEnv || co_dossier_shared($db, $projectId, $chatId);
             // review: the agent reads the hints and may quote them, so a shared destination (any project or chat share,
             // or another env's project) gets no protocol hints at all, only the people rows of the owner's dossier
-            $r = co_related($db, (string)$env, $text, $chatId, $peopleOnly, 5, $peopleOnly ? '' : null);
+            // C0J6 (26.11): only entries of chats of the same project - other projects (personal, the workbench's own
+            // development) leaked into unrelated chats and fed guesses
+            $r = co_related($db, (string)$env, $text, $chatId, $peopleOnly, 5, $peopleOnly ? '' : $projectId);
             if ($pEnv !== (string)$env) {
                 // the dossier part belongs to the project owner
                 $r['dossier'] = $pEnv !== '' ? co_related_dossier($db, $pEnv, $text, true) : [];
@@ -1422,7 +1424,10 @@ try {
         case 'dossier_context':
             [$chatId, $projectId, $pEnv] = $dossierTarget($in);
             $peopleOnly = $pEnv !== $myEnv || co_dossier_shared($db, $projectId, $chatId);
-            co_json(200, ['text' => co_dossier_context($db, $pEnv, $peopleOnly), 'peopleOnly' => $peopleOnly]);
+            // C0J6 (26.11): with the first message of the session the block is smaller and its rows on that topic come first
+            $topic = is_string($in['text'] ?? null) ? mb_substr($in['text'], 0, 1500, 'UTF-8') : '';
+            co_json(200, ['text' => co_dossier_context($db, $pEnv, $peopleOnly, $topic !== '' ? CO_DOSSIER_TOPIC_MAX : CO_DOSSIER_CONTEXT_MAX, $topic),
+                'peopleOnly' => $peopleOnly]);
 
         case 'dossier_get':
             $env = $in['env'] ?? null;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // node src/secretaryHints.selftest.ts (Node 22+ strips the types)
 declare const process: { exitCode?: number };
-import { hintsBlock, parseRelated, storedHints, wantsHints } from './secretaryHints.ts';
+import { hintsBlock, parseRelated, storedHints, strongHits, wantsHints } from './secretaryHints.ts';
 
 let fails = 0;
 const ok = (name: string, cond: boolean): void => {
@@ -25,6 +25,11 @@ ok('the pointer is a usable Windows path', b.includes(String.raw`"G:\My Drive\AI
 const s = storedHints(r);
 ok('stored hints keep pointers only', !!s && s.length === 1 && !JSON.stringify(s).includes('дочь') && !JSON.stringify(s).includes('Капча') && s[0].msg === 7);
 ok('no hits, nothing stored', storedHints({ hits: [], dossier: r.dossier }) === undefined);
+// 0.130.0: a resumed session gets only the strong hits (3+ rare words), the dossier rows stay
+const weak = { hits: [{ ...r.hits[0], rare: 2 }, { ...r.hits[0], chatId: 'CHAT-2', rare: 3 }], dossier: r.dossier };
+const st = strongHits(weak);
+ok('resume keeps hits with 3+ rare words', !!st && st.hits.length === 1 && st.hits[0].chatId === 'CHAT-2' && st.dossier.length === 1);
+ok('a hit without rare (old server) is weak', strongHits(r)!.hits.length === 0 && strongHits(null) === null);
 
 if (fails) {
   console.log(`secretaryHints selftest: ${fails} failed`);

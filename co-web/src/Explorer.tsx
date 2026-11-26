@@ -49,6 +49,8 @@ export interface ExplorerProps {
   onProperties?: (t: { projectId?: string; chatId?: string }) => void;
   /** 0.128.0: content of the folder shown, under its items (files of the open chat, workspace, archive, trash) */
   folderExtra?: (path: ExplorerPath) => ReactNode;
+  /** 0.130.0: the project of the folder shown ('' at the root), so the composer can say where a message goes */
+  onFolderProject?: (projectId: string) => void;
 }
 
 type ItemMenu = { item: ExplorerItem; x: number; y: number };
@@ -73,17 +75,24 @@ export default function Explorer(props: ExplorerProps) {
   const [busy, setBusy] = useState(false);
   const drag = useRef<Chat | null>(null);
   const [dropKey, setDropKey] = useState('');
+  // when the person last moved to a folder or opened an item
+  const moved = useRef(0);
   const chats = path.projectId ? chatsOf(path.projectId) : null;
 
   // the opened chat (from a link, a search, Ctrl+K) shows the folder it lives in, once its project's chats are loaded
   const routeChats = routeProjectId ? chatsOf(routeProjectId) : null;
   const synced = useRef('');
+  const routeAt = useRef({ key: '', at: 0 });
   useEffect(() => {
     if (!routeProjectId) return;
     const key = `${routeProjectId}/${routeChatId || ''}`;
+    if (routeAt.current.key !== key) routeAt.current = { key, at: Date.now() };
     // waits until the opened chat is in its project's list (a new chat comes with the next load)
     if (synced.current === key || (routeChatId && !routeChats?.some((c) => c.chatId === routeChatId))) return;
     synced.current = key;
+    // 0.130.0: the person went to another folder while the list was loading (at start): the late list does not pull
+    // the Explorer back to the opened chat's folder
+    if (moved.current > routeAt.current.at) return;
     const target = routeChatId && routeChats ? pathOfChat(routeProjectId, routeChatId, routeChats) : { projectId: routeProjectId, chatIds: [] };
     // a chat opened from its own folder ("this chat itself") keeps that folder
     setPath((cur) => (samePath(cur, target) || (routeChatId && cur.projectId === routeProjectId && cur.chatIds[cur.chatIds.length - 1] === routeChatId) ? cur : target));
@@ -97,7 +106,10 @@ export default function Explorer(props: ExplorerProps) {
   }, [path, projects, chats]);
 
   const pid = path.projectId;
-  const { loadChats } = props;
+  const { loadChats, onFolderProject } = props;
+  useEffect(() => {
+    onFolderProject?.(pid || '');
+  }, [pid, onFolderProject]);
   useEffect(() => {
     if (pid) loadChats(pid);
   }, [pid]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -143,7 +155,6 @@ export default function Explorer(props: ExplorerProps) {
     }
   }, [focusIdx, pathKey, items.length, loading]);
 
-  const moved = useRef(0);
   const go = (p: ExplorerPath, byKey = false) => {
     keyFocus.current = byKey;
     moved.current = Date.now();
@@ -351,11 +362,12 @@ ${formatLocal(date)}` : '';
                 onFocus={() => {
                   if (focusAt.key !== pathKey || focusAt.item !== it.key) setFocus(i);
                 }}
-                onClick={() => {
+                onClick={(e) => {
                   setFocus(i);
-                  // a habitual double click (or a quick second tap) after entering a folder must not open an item of the new folder
+                  // a habitual double click (or a quick second tap) after entering a folder must not open an item of the new folder;
+                  // 0.130.0: only the second click of a double click is dropped, a single quick click opens (it was lost silently)
                   // the focus goes into the opened folder (also after Space), so the arrows and Backspace keep working
-                  if (Date.now() - moved.current > 450) open(it, true);
+                  if (e.detail < 2 || Date.now() - moved.current > 450) open(it, true);
                 }}
                 onContextMenu={props.onProperties ? (e) => {
                   e.preventDefault();

@@ -8,6 +8,10 @@
 import { drivePath } from './members.ts';
 
 export const MEMORY_INDEX_MARKER = '<!-- memory: index -->';
+// 0.130.0 (C0J6): a memory.md longer than this gets the index without the marker (Freedom 75k and Job_Search 50k
+// characters went in full into every new session); the marker MEMORY_FULL_MARKER keeps a big file in full.
+export const MEMORY_FULL_MARKER = '<!-- memory: full -->';
+export const MEMORY_AUTO_INDEX_CHARS = 12000;
 
 // Entries up to this length are given in full; longer ones are cut to INDEX_CUT characters.
 const FULL_LEN = 160;
@@ -20,7 +24,9 @@ const MIN_ENTRIES = 20;
 const aiwbMemory = (): string => `python "${drivePath('AI-Workbench/tools/aiwb-memory/aiwb-memory.py')}"`;
 
 export function memoryIndexWanted(md: string): boolean {
-  return md.split(/\r?\n/).some((l) => l.trim() === MEMORY_INDEX_MARKER);
+  const lines = md.split(/\r?\n/).map((l) => l.trim());
+  if (lines.includes(MEMORY_INDEX_MARKER)) return true;
+  return !lines.includes(MEMORY_FULL_MARKER) && md.length > MEMORY_AUTO_INDEX_CHARS;
 }
 
 function isEntry(line: string): boolean {
@@ -37,7 +43,7 @@ export function memoryIndex(md: string, projectId: string): string | null {
   let n = 0;
   let cut = 0;
   for (const l of lines) {
-    if (l.trim() === MEMORY_INDEX_MARKER) continue;
+    if (l.trim() === MEMORY_INDEX_MARKER || l.trim() === MEMORY_FULL_MARKER) continue;
     if (!isEntry(l)) {
       out.push(l);
       continue;

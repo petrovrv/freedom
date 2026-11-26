@@ -204,6 +204,9 @@ code, pre { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; fon
 .composer { position: relative; border-top: 1px solid var(--line); background: var(--panel); padding: 10px 18px 12px; }
 .composer.drag { outline: 2px dashed var(--accent); outline-offset: -6px; }
 .composer textarea { width: 100%; resize: none; height: var(--composer-h, 84px); min-height: 48px; max-height: max(48px, calc(100dvh - 380px)); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--bg); }
+/* 0.130.0: where the message goes (C0J6 #14) */
+.send-target { font-size: 12px; color: var(--muted); padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.send-target.elsewhere { color: var(--warn); font-weight: 600; background: color-mix(in srgb, var(--warn) 12%, transparent); border-radius: 6px; }
 .composer-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
 .composer-row select, .composer-row .ret { border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; background: var(--bg); }
 .composer-row .ret { flex: 1; min-width: 180px; font-size: 13px; }

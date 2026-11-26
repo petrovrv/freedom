@@ -118,6 +118,8 @@ export default function Shell({ auth }: { auth: Signed }) {
   const [chatsPid, setChatsPid] = useState<string | null>(null);
   // F15.1: Explorer view of the left panel (0.128.0: the default; ☰ → Tree view) and the chats of the other projects it shows
   const [explorerOn, setExplorerOnState] = useState(readExplorerOn);
+  // 0.130.0: the project of the Explorer folder shown; the composer warns when the open chat is elsewhere
+  const [exFolderProject, setExFolderProject] = useState('');
   const setExplorerOn = (on: boolean) => {
     writeExplorerOn(on);
     setExplorerOnState(on);
@@ -1191,6 +1193,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                 onMove={exMove}
                 onProperties={(t) => (t.projectId ? openPanel(t.chatId ? 'chat' : 'project', t) : openPanel('system'))}
                 folderExtra={exFolderExtra}
+                onFolderProject={setExFolderProject}
               />
             )}
             {!explorerOn && (<>
@@ -1412,6 +1415,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                 limits={limits}
                 onChatUpdated={refreshChats}
                 projectChats={chats}
+                folderProjectId={explorerOn ? exFolderProject : undefined}
                 onChatAction={(action) => void pickChatAction(action, chat)}
                 onChatCreated={(c) => {
                   // 0.33.0: branch / follow-up opened from this chat

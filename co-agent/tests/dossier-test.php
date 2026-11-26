@@ -67,6 +67,15 @@ $ok('shared detection', co_dossier_shared($db, 'P2', 'CHAT-C') && !co_dossier_sh
 $ok('empty dossier gives empty block', co_dossier_context($db, 'alex', false) === '');
 $small = co_dossier_context($db, 'owner', false, 60);
 $ok('long context is cut with a note', str_contains($small, 'more rows'));
+// C0J6: with a topic the rows on it come first in their section and survive a small budget
+$me2 = co_dossier_add($db, 'owner', 'me', 'Пианино', 'Продаёт Kawai, выбирает цифровое', [], 'secretary');
+$other = co_dossier_context($db, 'owner', false, 20000, 'что писать в Acme про работу');
+$ok('another topic, another order', strpos($other, 'Acme') < strpos($other, 'Kawai'));
+$topical = co_dossier_context($db, 'owner', false, 20000, 'какое цифровое пианино взять вместо Kawai');
+$ok('topic rows first', strpos($topical, 'Kawai') < strpos($topical, 'Acme'));
+co_dossier_add($db, 'owner', 'people', 'Борис Петров', 'сосед', [], 'secretary');
+$named = co_dossier_context($db, 'owner', false, 20000, 'что ответить Борису Петрову');
+$ok('named person first', strpos($named, 'Борис Петров') < strpos($named, 'Анна Иванова'));
 
 $s = co_dossier_search($db, 'owner', 'Анна', 10);
 $ok('search by a name', $s && $s[0]['id'] === $p1);

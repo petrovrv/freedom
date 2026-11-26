@@ -507,8 +507,9 @@ export async function dbRelated(env: string, projectId: string, chatId: string, 
   return parseRelated(await rawCall('related', { env, projectId, chatId, text: text.slice(0, 1500) }, true));
 }
 
-export async function dbDossierContext(projectId: string, chatId: string): Promise<string> {
-  const j = await rawCall('dossier_context', { projectId, chatId });
+// 0.130.0: text = the message; the server gives a smaller block with the rows on its topic first (gz: see dbRelated)
+export async function dbDossierContext(projectId: string, chatId: string, text = ''): Promise<string> {
+  const j = await rawCall('dossier_context', { projectId, chatId, ...(text ? { text: text.slice(0, 1500) } : {}) }, !!text);
   return typeof j.text === 'string' ? j.text : '';
 }
 

@@ -1,7 +1,7 @@
 {
   "name": "co-web",
   "private": true,
-  "version": "0.129.5",
+  "version": "0.130.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -234,8 +234,8 @@ export function contextItems(i: ContextInput): ContextItem[] {
   const pOn = full && i.projectCtx !== 'off';
   out.push({ key: 'instructions', icon: '📋', label: `Instructions of «${i.projectTitle}»`, state: pOn ? 'on' : 'off', detail: !full ? offWhy : pOn ? 'the project\'s instructions' : 'the project folder gives nothing', switch: full ? 'project' : 'mode' });
   const mState: CtxState = !full || i.projectCtx === 'off' ? 'off' : i.projectCtx === 'summary' ? 'summary' : 'on';
-  out.push({ key: 'memory', icon: '🧾', label: 'Project memory', state: mState, detail: !full ? offWhy : mState === 'summary' ? 'short: long entries cut, no recent chats' : mState === 'on' ? 'entries and the summaries of recent chats' : 'the project folder gives nothing', switch: full ? 'project' : 'mode' });
-  out.push({ key: 'dossier', icon: '🪪', label: 'Dossier', state: full ? 'on' : 'off', detail: !full ? offWhy : 'facts about you and the people around you that match this chat', switch: full ? '' : 'mode' });
+  out.push({ key: 'memory', icon: '🧾', label: 'Project memory', state: mState, detail: !full ? offWhy : mState === 'summary' ? 'short: long entries cut, no recent chats' : mState === 'on' ? 'entries (an index when the file is long) and the summaries of recent chats' : 'the project folder gives nothing', switch: full ? 'project' : 'mode' });
+  out.push({ key: 'dossier', icon: '🪪', label: 'Dossier', state: full ? 'on' : 'off', detail: !full ? offWhy : 'facts about you and the people around you, those on the topic of the first message first', switch: full ? '' : 'mode' });
   if (i.lineageTitle !== null) {
     out.push({ key: 'lineage', icon: '⤴️', label: `Messages it started from («${i.lineageTitle}»)`, state: full ? 'on' : 'off', detail: full ? 'the start of this chat (its lineage snapshot) with that chat\'s protocol' : offWhy, switch: 'mode' });
   } else if (i.child) {

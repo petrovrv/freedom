@@ -16,6 +16,8 @@ export interface RelatedHit {
   section: string;
   text: string;
   date: string;
+  // 0.130.0: rare word stems shared with the message (server co_related; absent from older servers)
+  rare?: number;
 }
 
 export interface RelatedDossier {
@@ -38,10 +40,19 @@ export function wantsHints(text: string): boolean {
   return text.trim().length >= HINTS_MIN_CHARS;
 }
 
+// 0.130.0 (C0J6): a resumed session already has its conversation; it gets only hits sharing 3+ rare words with the
+// message and the dossier rows (people and affairs named in it)
+export const HINTS_RESUME_MIN_RARE = 3;
+
+export function strongHits(r: Related | null): Related | null {
+  if (!r) return r;
+  return { hits: r.hits.filter((h) => (h.rare ?? 0) >= HINTS_RESUME_MIN_RARE), dossier: r.dossier };
+}
+
 export function hintsBlock(r: Related | null, homeHost: boolean): string {
   if (!r || (!r.hits.length && !r.dossier.length)) return '';
   const lines: string[] = [
-    '[Secretary hints: entries of other chats and of the dossier that match this message (mechanical search, may be irrelevant; do not mention them unless useful)]',
+    '[Secretary hints: entries of other chats of this project and of the dossier that match this message (mechanical search, may be irrelevant; never a source for claims about this chat, do not mention them unless useful)]',
   ];
   for (const h of r.hits) {
     lines.push(`- "${h.title}" (${h.chatId} msg ${h.msg}, ${h.date}, ${h.section}): ${h.text}`);

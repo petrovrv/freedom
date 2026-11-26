@@ -101,7 +101,7 @@ export function partCounts(core: Partial<Record<ChatPartId, number>>, chat: Chat
   return out;
 }
 
-// ---------- parts filled by module pages (ext/1 ui.chatPart, 0.130.0) ----------
+// ---------- parts filled by module pages (ext/1 ui.chatPart, 0.131.0) ----------
 
 /** The parts a module page may fill (co-agent modules-lib.php CO_MODULE_CHAT_PARTS). */
 export const MODULE_PARTS: readonly ChatPartId[] = ['context', 'correspondence', 'events', 'watchers'];

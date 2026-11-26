@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
  "version": "0.14.0",
- "created": "2026-11-26T12:42:03Z",
+ "created": "2026-11-26T12:45:14Z",
  "files": [
   {
    "path": "context/mail-mode.md",
@@ -191,7 +191,7 @@
   {
    "path": "ui/chat-part.js",
    "size": 4910,
-   "sha256": "c3d0fb88ea2d0afc430c5f45a38f0c0d2ed0956d5139506cc12a83e496c8cc95"
+   "sha256": "a29b9f1e30829b0352e289924275cfb49d6227c08c9bc536512728aa77d438ba"
   },
   {
    "path": "ui/mail.css",
@@ -228,7 +228,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "gEx0OYdaql59P/CyH+pJWQksiukGNbR3CkUxUV2G559Y9XvnWoLbtfN4sGh/Jd90G4sQej4v6lY7bX3f/06dDQ=="
+   "sig": "ozb3uhj3oGJ6PRau/zz8IaMggS3yKuyee2idYrNzwA2P36SnaGPk6CD/LxNvuFB57qKTH5FIyPoqVfcgfoVuAA=="
   }
  ],
  "module": "concierge-mail"

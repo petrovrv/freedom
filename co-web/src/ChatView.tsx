@@ -715,7 +715,7 @@ export default function ChatView(props: Props) {
       familyTranscript([...current, { type: 'user_message', family: true, author: props.author, text: input.text, jobId: 'now', attachments: [] } as unknown as ChatEvent]),
       `AI-Workbench/projects/${project.projectId}/chats/${chat.chatId}/branches/${DEFAULT_BRANCH}/attachments/`, famFollow) : '') + planResume;
     if (planResume) progress('Resuming the unfinished work plan…');
-    // 0.130.0: what modules keep in the folder of this chat (mail threads put into it, …) - a hint for the agent; not in
+    // 0.131.0: what modules keep in the folder of this chat (mail threads put into it, …) - a hint for the agent; not in
     // shared or family chats (the module's content is the sender's own)
     const partsNote = !shared && !chat.family && !chat.draft
       ? modulePartsNote({ projectId: chat.projectId, chatId: chat.chatId }, new Map(mods.map((m) => [m.id, m.title])))

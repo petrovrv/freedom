@@ -125,7 +125,7 @@ function theme(el: HTMLElement | null): Record<string, string> {
 interface FrameProps {
   m: ModuleInfo; ui: ModuleUi; me?: string; owner: boolean;
   /** inline: sized by the page (header); fill: the whole box (page); hidden: no box at all (hint);
-   * block: the width of its place, the height the page asks for (a part of a chat folder, 0.130.0) */
+   * block: the width of its place, the height the page asks for (a part of a chat folder, 0.131.0) */
   mode?: 'inline' | 'fill' | 'hidden' | 'block';
   coreCalls?: CoreCalls;
   /** extra context of the place (e.g. the environment of a page) */
@@ -393,7 +393,7 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
         send({ t: 'result', id: r.id, ok: false, error: why });
         return;
       }
-      // 0.130.0: counts of the module's own chat-folder part (ui.chatPart): which chats have something there
+      // 0.131.0: counts of the module's own chat-folder part (ui.chatPart): which chats have something there
       if (r.name === 'chat.partCounts') {
         const pc = partCountsOf(mod.current, r.args);
         if (!pc) {
@@ -593,7 +593,7 @@ function overlayPos(wrap: HTMLElement | null, w: number): { left: number; top: n
 }
 
 /**
- * 0.130.0 ext/1 ui.chatPart: each such page of an enabled module fills its part of the chat folder (FolderContents),
+ * 0.131.0 ext/1 ui.chatPart: each such page of an enabled module fills its part of the chat folder (FolderContents),
  * one frame per open chat folder with ctx.chat {projectId, chatId}; the part shows when the module reported a count for
  * that chat (chat.partCounts, usually from its tray).
  */

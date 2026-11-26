@@ -16,7 +16,7 @@ export interface ModuleUi {
   app?: boolean; icon?: string;
   /** ext/1 ui.window: a desktop app opens the page in its own window */
   window?: boolean; windowKey?: string;
-  /** ext/1 ui.chatPart (0.130.0): the part of a chat folder the page fills (chatFolder.ts MODULE_PARTS) */
+  /** ext/1 ui.chatPart (0.131.0): the part of a chat folder the page fills (chatFolder.ts MODULE_PARTS) */
   part?: string;
 }
 export interface FileAction {
@@ -340,7 +340,7 @@ export const REQ_PERMISSION: Record<string, string> = {
   'data.get': 'data.env', 'data.set': 'data.env', 'data.delete': 'data.env', 'data.list': 'data.env',
   // 0.129.2: open a chat of the person by its id (e.g. the chat a mail thread belongs to); a move inside CO
   'chat.open': 'ui.navigate',
-  // 0.130.0: counts of the module's own chat-folder part (a ui.chatPart it declares; partCountsOf checks that)
+  // 0.131.0: counts of the module's own chat-folder part (a ui.chatPart it declares; partCountsOf checks that)
   'chat.partCounts': '',
 };
 
@@ -348,7 +348,7 @@ const PART_CHAT = /^CHAT-\d{14}-[A-Z0-9]{4}$/;
 const MAX_PART_CHATS = 5000;
 
 /**
- * 0.130.0 ext/1 chat.partCounts {part, counts: {<chatId>: n}}: the whole set of counts of a chat-folder part the module
+ * 0.131.0 ext/1 chat.partCounts {part, counts: {<chatId>: n}}: the whole set of counts of a chat-folder part the module
  * fills (it replaces the earlier set), from any page of the module (usually its tray, which is always loaded). Only for
  * a part the module declared a ui.chatPart for; null = refuse.
  */

@@ -108,7 +108,7 @@ ok('count: an empty new chat shows no Context', contextCount({ ...base, protocol
 ok('count: protocol, branch, folders, context folders', contextCount(withLevels) === 3 && contextCount({ ...base, contextFolders: 1 }) === 2);
 ok('count: folders above do not count outside full', contextCount({ ...withLevels, mode: 'reference', protocolEntries: 0 }) === 0);
 
-// 0.130.0 ext/1 ui.chatPart: counts reported by a module page, the note for the agent
+// 0.131.0 ext/1 ui.chatPart: counts reported by a module page, the note for the agent
 {
   const A = 'CHAT-20261126120000-ABCD', B = 'CHAT-20261126120000-WXYZ';
   const mod = { enabled: true, ui: [{ slot: 'ui.chatPart', id: 'mail', entry: 'ui/p.html', title: '', part: 'correspondence' }] };

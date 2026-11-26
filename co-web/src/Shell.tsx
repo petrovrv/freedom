@@ -180,7 +180,7 @@ export default function Shell({ auth }: { auth: Signed }) {
   const [jobActivity, setJobActivity] = useState<{ running: ChatActivity[]; asking: string[]; gatewayWaiting: string[] } | null>(null);
   // F10: modules (modules_list); their header pages render in ModuleSlots
   const modules = useModules(authOk);
-  // 0.130.0: pages of modules that fill parts of the chat folder (ext/1 ui.chatPart)
+  // 0.131.0: pages of modules that fill parts of the chat folder (ext/1 ui.chatPart)
   useModuleChatParts(modules, auth.homeEnv, !!auth.owner);
 
   // F14e.1 (SPEC §3.6a п. 9): apps stay alive while hidden (the last 3 on a phone, 5 on a computer), recent ones are

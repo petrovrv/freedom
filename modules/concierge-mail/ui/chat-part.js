@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// 0.14.0 (ext/1 ui.chatPart, CO Web 0.130.0): the Correspondence part of a chat folder - the mail threads the person put
+// 0.14.0 (ext/1 ui.chatPart, CO Web 0.131.0): the Correspondence part of a chat folder - the mail threads the person put
 // into this chat (✉ "🗂 В чат…"). The mail stays on the home server; this page asks it through home-relay (end-to-end
 // sealed) for the threads of ctx.chat only. A click opens the thread in ✉ left of this chat (its viewer), where the
 // person reads and answers it; nothing here changes Gmail.

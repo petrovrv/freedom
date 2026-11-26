@@ -7,13 +7,15 @@ let data={entities:[],online:false,updated:0},kind='',busy=false,timer,signature
 let view='plan';const proom=new Map(),plights=new Map();
 function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
 function usable(){return data.online && Date.now()/1000-localReceipt<25;}
-function icon(r){return r.kind==='climate'?'♨':r.kind==='switch'?'⏻':({temperature:'🌡',humidity:'💧',battery:'▰',door:'◫',window:'◫',occupancy:'◉',motion:'◉',power:'ϟ',illuminance:'☀'})[r.attrs.device_class]||'◈';}
+function icon(r){return r.kind==='climate'?'♨':r.kind==='switch'?'⏻':({temperature:'🌡',humidity:'💧',battery:'▰',door:'◫',window:'◫',occupancy:'◉',motion:'◉',presence:'🏠',heat:'🔥',running:'⚙',power:'ϟ',illuminance:'☀'})[r.attrs.device_class]||'◈';}
 function value(r){
  if(r.state==='unavailable'||r.state==='unknown')return 'Нет данных';
+ if(r.values?.[r.state])return r.values[r.state];
  if(r.kind==='climate')return r.attrs.current_temperature===undefined?'—':r.attrs.current_temperature+' °C';
  if(r.kind==='switch')return r.state==='on'?'Включено':'Выключено';
  if(r.id.startsWith('binary_sensor.')){
-  const labels={door:['Закрыто','Открыто'],window:['Закрыто','Открыто'],occupancy:['Никого нет','Есть присутствие'],motion:['Нет движения','Движение'],battery:['Заряд в норме','Низкий заряд']};
+  const labels={door:['Закрыто','Открыто'],window:['Закрыто','Открыто'],occupancy:['Никого нет','Есть присутствие'],motion:['Нет движения','Движение'],battery:['Заряд в норме','Низкий заряд'],
+  presence:['Нет дома','Дома'],heat:['Не горит','Горит'],running:['Стоит','Работает']};
   return (labels[r.attrs.device_class]||['Нет','Да'])[r.state==='on'?1:0];
  }
  const n=Number(r.state),v=Number.isFinite(n)?Number(n.toFixed(1)):r.state;
@@ -103,6 +105,7 @@ async function send(r,action,v){
 const SVG='http://www.w3.org/2000/svg';
 function svg(tag,attrs){const e=document.createElementNS(SVG,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;}
 function roomTemp(rows){
+ rows=rows.filter(r=>!r.short);
  const s=rows.find(r=>r.kind==='sensor'&&r.attrs.device_class==='temperature'&&!r.id.startsWith('binary_sensor.'))
   ||rows.find(r=>r.kind==='climate');
  if(!s)return null;
@@ -111,8 +114,14 @@ function roomTemp(rows){
 }
 function tempClass(t){return t===null?'':Number.isNaN(t)?'nodata':t<17?'cold':t<19?'cool':t<=22.5?'ok':t<=24?'warm':'hot';}
 function openRoom(room){view='list';$('room').value=room;render();}
+function lightButton(x){
+ const b=el('button','','💡');b.type='button';
+ b.onclick=()=>{const cur=data.entities.find(y=>y.id===x.id);if(cur)send(cur,cur.state==='on'?'turn_off':'turn_on');};
+ plights.set(x.id,[...(plights.get(x.id)||[]),b]);return b;
+}
+const lamp=x=>x.kind==='switch'&&x.actions.length;
 function buildPlan(){
- proom.clear();plights.clear();const box=el('div','floors');
+ proom.clear();plights.clear();const box=el('div','floors'),people=el('div','ppeople');people.id='ppeople';
  for(const f of data.plan.floors){
   const sec=el('section','floor'),fb=el('div','floor-box');fb.style.aspectRatio=f.w+' / '+f.h;
   if(f.name)sec.append(el('h2','',f.name));
@@ -125,14 +134,16 @@ function buildPlan(){
     d.title=r.room;d.tabIndex=0;d.setAttribute('role','button');d.setAttribute('aria-label','Открыть: '+r.room);
     d.onclick=e=>{if(!e.target.closest('button'))openRoom(r.room);};
     d.onkeydown=e=>{if(e.key==='Enter'&&e.target===d)openRoom(r.room);};
-    for(const x of data.entities.filter(x=>x.room===r.room&&x.kind==='switch'&&x.actions.length)){
-     const b=el('button','','💡');b.type='button';
-     b.onclick=()=>{const cur=data.entities.find(y=>y.id===x.id);if(cur)send(cur,cur.state==='on'?'turn_off':'turn_on');};
-     l.append(b);plights.set(x.id,[...(plights.get(x.id)||[]),b]);
-    }
+    for(const x of data.entities.filter(x=>x.room===r.room&&lamp(x)&&!x.at))l.append(lightButton(x));
     proom.set(d,{room:r.room,t,m});
    }
    fb.append(d);
+  }
+  // Lights with a plan position (dashboard.json "at"): a button at that point of the floor of their room.
+  const here=new Set(f.rooms.map(r=>r.room).filter(Boolean));
+  for(const x of data.entities.filter(x=>lamp(x)&&x.at&&here.has(x.room))){
+   const w=el('div','plights pat');Object.assign(w.style,{left:x.at[0]/f.w*100+'%',top:x.at[1]/f.h*100+'%'});
+   w.append(lightButton(x));fb.append(w);
   }
   const s=svg('svg',{viewBox:'0 0 '+f.w+' '+f.h,preserveAspectRatio:'none','aria-hidden':'true'});
   if(f.outline.length>2)s.append(svg('polygon',{points:f.outline.map(p=>p.join(',')).join(' '),fill:'none',stroke:'#26332b','stroke-width':4,'vector-effect':'non-scaling-stroke'}));
@@ -143,15 +154,15 @@ function buildPlan(){
  const legend=el('div','plegend');
  for(const [c,t] of [['#b9d6f2','< 17 °C'],['#d6e9f5','17–19'],['#cdebd3','19–22,5'],['#fbdcb4','22,5–24'],['#f5ae96','> 24'],['#e2e2e2','нет данных']]){
   const s=el('span','sw',t);s.style.setProperty('--c',c);legend.append(s);}
- legend.append(el('span','','💡 — включить или выключить свет; нажмите на комнату, чтобы открыть её устройства'));
- $('plan').replaceChildren(box,legend);
+ legend.append(el('span','','💡 — включить или выключить свет (свет и розетки); нажмите на комнату, чтобы открыть её устройства'));
+ $('plan').replaceChildren(people,box,legend);
 }
 function renderPlan(){
  const has=!!data.plan?.floors?.length;$('views').hidden=!has;
  const showPlan=has&&view==='plan';$('plan').hidden=!showPlan;$('list').hidden=showPlan;
  for(const b of $('views').children)b.classList.toggle('selected',b.dataset.view===(showPlan?'plan':'list'));
  if(!showPlan)return;
- const sig=JSON.stringify(data.plan)+'|'+data.entities.map(r=>r.id+':'+r.room).join('|');
+ const sig=JSON.stringify(data.plan)+'|'+data.entities.map(r=>[r.id,r.room,r.kind,r.actions.join(','),r.at||''].join(':')).join('|');
  if(sig!==planSig){planSig=sig;buildPlan();}
  for(const [d,p] of proom){
   const rows=data.entities.filter(r=>r.room===p.room),t=roomTemp(rows);
@@ -161,14 +172,33 @@ function renderPlan(){
   const cl=rows.find(r=>r.kind==='climate'&&r.attrs.temperature!==undefined&&r.attrs.temperature!==null);
   const bin=r=>r.id.startsWith('binary_sensor.')&&r.state==='on';
   const who=rows.some(r=>bin(r)&&['occupancy','motion','presence'].includes(r.attrs.device_class));
-  const win=rows.some(r=>bin(r)&&['window','door'].includes(r.attrs.device_class));
-  p.m.textContent=[hum?Math.round(Number(hum.state))+' %':'',cl?'→ '+cl.attrs.temperature+'°':'',who?'◉ кто-то есть':'',win?'окно открыто':''].filter(Boolean).join(' · ');
+  const win=rows.some(r=>bin(r)&&!r.short&&r.attrs.device_class==='window');
+  const door=rows.some(r=>bin(r)&&!r.short&&r.attrs.device_class==='door');
+  p.m.textContent=[hum?Math.round(Number(hum.state))+' %':'',cl?'→ '+cl.attrs.temperature+'°':'',who?'◉ кто-то есть':'',
+   win?'окно открыто':'',door?'дверь открыта':'',...rows.filter(r=>r.short).map(shortText)].filter(Boolean).join(' · ');
  }
+ renderPeople();
  for(const [id,bs] of plights)for(const b of bs){
   const r=data.entities.find(x=>x.id===id);if(!r)continue;const bad=['unknown','unavailable'].includes(r.state);
   b.classList.toggle('on',r.state==='on');b.disabled=!usable()||bad||pending.has(id);
   b.title=r.name+': '+(pending.has(id)?'выполняется…':bad?'нет данных':r.state==='on'?'включено':'выключено');b.setAttribute('aria-label',b.title);
  }
+}
+// Row with a short label: binary sensors only when on ("🔥 горелка"), others "label value".
+function shortText(r){
+ if(['unknown','unavailable'].includes(r.state))return r.short+' —';
+ if(r.id.startsWith('binary_sensor.'))return r.state==='on'?r.short:'';
+ if(r.values?.[r.state])return r.short+' '+r.values[r.state];
+ const n=Number(r.state);if(!Number.isFinite(n))return r.short+' '+r.state;
+ const u=r.attrs.unit_of_measurement;return r.short+' '+(u==='°C'?n.toFixed(0)+'°':Number(n.toFixed(1))+(u?' '+u:''));
+}
+function renderPeople(){
+ const box=$('ppeople');if(!box)return;
+ const ps=data.entities.filter(r=>r.role==='person');box.hidden=!ps.length;
+ box.replaceChildren(...ps.map(r=>{
+  const bad=['unknown','unavailable'].includes(r.state),home=r.state==='on';
+  return el('span','person '+(bad?'nodata':home?'home':'away'),(home?'🏠 ':'· ')+r.name+(bad?' — нет данных':home?' дома':r.heading?' — едет домой':' — не дома'));
+ }));
 }
 $('views').onclick=e=>{const b=e.target.closest('button');if(!b)return;view=b.dataset.view;render();};
 $('search').oninput=render;$('room').onchange=render;$('refresh').onclick=refresh;

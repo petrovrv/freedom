@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "id": "smart-home",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "title": "Дом",
-  "description": "Home app: floor plan and rooms, lights and sockets, sensor readings, thermostat targets and Zigbee pairing; a tray chip while pairing runs; the agent reads the state of the house through the app action home_state.",
+  "description": "Home app: floor plan and rooms (who is home, lights at their places, boiler and garage), lights and sockets, sensor readings, thermostat targets and Zigbee pairing; a tray chip while pairing runs; the agent reads the state of the house through the app action home_state.",
   "ext": ">=1 <2",
   "scope": "household",
   "platforms": [
@@ -41,7 +41,7 @@
     "tools": [
       {
         "name": "homehub",
-        "minVersion": "0.3.2"
+        "minVersion": "0.3.3"
       }
     ],
     "services": [

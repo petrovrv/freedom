@@ -1,12 +1,12 @@
 {
  "format": "freedom-release/1",
- "version": "0.5.0",
- "created": "2026-11-26T20:39:57Z",
+ "version": "0.6.0",
+ "created": "2026-11-26T21:23:25Z",
  "files": [
   {
    "path": "module.json",
-   "size": 3271,
-   "sha256": "1c1675330af43aa33a01b65adf7750f18e84576c53dad87f07a939cf7d53a63a"
+   "size": 3328,
+   "sha256": "84fac2c849d0afa7ca5c3469ad9d0d3d02da5eaa1dd9e332a56587c7e114037d"
   },
   {
    "path": "README.md",
@@ -50,8 +50,8 @@
   },
   {
    "path": "ui/home.css",
-   "size": 6239,
-   "sha256": "0f8852e9070bc8e744f8b64a98556f84f2c7717be73b69cbe6369fc2296d3076"
+   "size": 6697,
+   "sha256": "c780a5f8f20e7c0750ef8157d5cc6e58c6711efb4cce6d8c11ec61ba1c41eff4"
   },
   {
    "path": "ui/home.html",
@@ -60,8 +60,8 @@
   },
   {
    "path": "ui/home.js",
-   "size": 13748,
-   "sha256": "ce1f78a1178251e526d5480d1dda8c597a2e9d43dd9edc016a31ddf3327d3e15"
+   "size": 15743,
+   "sha256": "e58250490b568eb9775b6e3f93f84abad5393dc42585167f7ffcc5e8ed7ea6a5"
   },
   {
    "path": "ui/pair.js",
@@ -73,7 +73,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "r2Frn33NFYjsSdaj2QY21KXk4CkEpupGX3ZDB+BiD6KVUBwKtHobOoYWnhyoW2AslEHK5+XYs+77IZte4bRnAw=="
+   "sig": "GQep8anHL5+zl7dL7yod/T3zAItE8HzGQPWZq1M3ayLqUrzCD5DQmusM3YVE5DXMDIEDTerG2ZFHr7VVa8jvDw=="
   }
  ],
  "module": "smart-home"

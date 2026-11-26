@@ -3,7 +3,8 @@
 'use strict';
 const $=id=>document.getElementById(id), cards=new Map(), pending=new Map(), notes=new Map();
 let data={entities:[],online:false,updated:0},kind='',busy=false,timer,signature='',planSig='',localReceipt=0,lastRefresh=0;
-let view=localStorage.getItem('smart-home.view')||'plan';const proom=new Map(),plights=new Map();
+// The app frame is sandboxed without same-origin: no localStorage, the view lives for the page only.
+let view='plan';const proom=new Map(),plights=new Map();
 function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
 function usable(){return data.online && Date.now()/1000-localReceipt<25;}
 function icon(r){return r.kind==='climate'?'♨':r.kind==='switch'?'⏻':({temperature:'🌡',humidity:'💧',battery:'▰',door:'◫',window:'◫',occupancy:'◉',motion:'◉',power:'ϟ',illuminance:'☀'})[r.attrs.device_class]||'◈';}
@@ -109,7 +110,7 @@ function roomTemp(rows){
  return ['unknown','unavailable'].includes(s.state)||v===null||v===undefined||v===''||!Number.isFinite(Number(v))?NaN:Number(v);
 }
 function tempClass(t){return t===null?'':Number.isNaN(t)?'nodata':t<17?'cold':t<19?'cool':t<=22.5?'ok':t<=24?'warm':'hot';}
-function openRoom(room){view='list';localStorage.setItem('smart-home.view',view);$('room').value=room;render();}
+function openRoom(room){view='list';$('room').value=room;render();}
 function buildPlan(){
  proom.clear();plights.clear();const box=el('div','floors');
  for(const f of data.plan.floors){
@@ -169,7 +170,7 @@ function renderPlan(){
   b.title=r.name+': '+(pending.has(id)?'выполняется…':bad?'нет данных':r.state==='on'?'включено':'выключено');b.setAttribute('aria-label',b.title);
  }
 }
-$('views').onclick=e=>{const b=e.target.closest('button');if(!b)return;view=b.dataset.view;localStorage.setItem('smart-home.view',view);render();};
+$('views').onclick=e=>{const b=e.target.closest('button');if(!b)return;view=b.dataset.view;render();};
 $('search').oninput=render;$('room').onchange=render;$('refresh').onclick=refresh;
 $('kinds').onclick=e=>{const b=e.target.closest('button');if(!b)return;kind=b.dataset.kind;
  for(const x of $('kinds').children)x.classList.toggle('selected',x===b);render();};

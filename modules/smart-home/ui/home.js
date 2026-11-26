@@ -106,7 +106,7 @@ function roomTemp(rows){
   ||rows.find(r=>r.kind==='climate');
  if(!s)return null;
  const v=s.kind==='climate'?s.attrs.current_temperature:Number(s.state);
- return ['unknown','unavailable'].includes(s.state)||!Number.isFinite(Number(v))?NaN:Number(v);
+ return ['unknown','unavailable'].includes(s.state)||v===null||v===undefined||v===''||!Number.isFinite(Number(v))?NaN:Number(v);
 }
 function tempClass(t){return t===null?'':Number.isNaN(t)?'nodata':t<17?'cold':t<19?'cool':t<=22.5?'ok':t<=24?'warm':'hot';}
 function openRoom(room){view='list';localStorage.setItem('smart-home.view',view);$('room').value=room;render();}
@@ -127,7 +127,7 @@ function buildPlan(){
     for(const x of data.entities.filter(x=>x.room===r.room&&x.kind==='switch'&&x.actions.length)){
      const b=el('button','','💡');b.type='button';
      b.onclick=()=>{const cur=data.entities.find(y=>y.id===x.id);if(cur)send(cur,cur.state==='on'?'turn_off':'turn_on');};
-     l.append(b);plights.set(x.id,b);
+     l.append(b);plights.set(x.id,[...(plights.get(x.id)||[]),b]);
     }
     proom.set(d,{room:r.room,t,m});
    }
@@ -163,7 +163,7 @@ function renderPlan(){
   const win=rows.some(r=>bin(r)&&['window','door'].includes(r.attrs.device_class));
   p.m.textContent=[hum?Math.round(Number(hum.state))+' %':'',cl?'→ '+cl.attrs.temperature+'°':'',who?'◉ кто-то есть':'',win?'окно открыто':''].filter(Boolean).join(' · ');
  }
- for(const [id,b] of plights){
+ for(const [id,bs] of plights)for(const b of bs){
   const r=data.entities.find(x=>x.id===id);if(!r)continue;const bad=['unknown','unavailable'].includes(r.state);
   b.classList.toggle('on',r.state==='on');b.disabled=!usable()||bad||pending.has(id);
   b.title=r.name+': '+(pending.has(id)?'выполняется…':bad?'нет данных':r.state==='on'?'включено':'выключено');b.setAttribute('aria-label',b.title);

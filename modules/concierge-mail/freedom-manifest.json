@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.13.0",
- "created": "2026-11-25T11:40:49Z",
+ "version": "0.14.0",
+ "created": "2026-11-26T12:42:03Z",
  "files": [
   {
    "path": "context/mail-mode.md",
@@ -10,8 +10,8 @@
   },
   {
    "path": "context/mail.md",
-   "size": 2889,
-   "sha256": "8b27d4047a57ff62b9461bbb8e3b3c538fbbbb7b37ce0883ba2701307707fa2b"
+   "size": 3238,
+   "sha256": "ddc1d79ec77514a98f0acf8d230aeeed334704a805a9b3bc553730051c26d04d"
   },
   {
    "path": "home/archive.py",
@@ -80,8 +80,8 @@
   },
   {
    "path": "home/relay.py",
-   "size": 28400,
-   "sha256": "ed1d2e538207421d03ae1c7da6136af3ff3c26197ad57b5d024443922c2f2cb8"
+   "size": 28401,
+   "sha256": "285befa369076fff326c050cbf9ce45ac5bdd1bcc68129ef9d3730682155c6d2"
   },
   {
    "path": "home/remoteimg.py",
@@ -160,8 +160,8 @@
   },
   {
    "path": "module.json",
-   "size": 3351,
-   "sha256": "484991d7f2ccb2ddebb431a47c2aa4ddb7cc1c5b0699099d215a3508f420f2a3"
+   "size": 3531,
+   "sha256": "a81cbe50ace836735443dfd4d6b26a78bb2a47cb7d911685281a81ed26471df2"
   },
   {
    "path": "README.md",
@@ -179,6 +179,21 @@
    "sha256": "e93e3a091248164e22d70f3faa8b5d4960af4b47dc58140642c8e0dbb5b9a9ac"
   },
   {
+   "path": "ui/chat-part.css",
+   "size": 1608,
+   "sha256": "1e92cebf120c613675b6f4100fb468e333945d43b828b36e993a0e596b0b4d57"
+  },
+  {
+   "path": "ui/chat-part.html",
+   "size": 685,
+   "sha256": "85d65fee152e9a121784b7cf0b68f1e1f5399b35e9e2d71b85d0d9c238e1f3ab"
+  },
+  {
+   "path": "ui/chat-part.js",
+   "size": 4910,
+   "sha256": "c3d0fb88ea2d0afc430c5f45a38f0c0d2ed0956d5139506cc12a83e496c8cc95"
+  },
+  {
    "path": "ui/mail.css",
    "size": 9960,
    "sha256": "9070bcc0d84c135fb46dee68f0f4f5dbaf7717a4dd923335d496af289dd07317"
@@ -190,8 +205,8 @@
   },
   {
    "path": "ui/mail.js",
-   "size": 47590,
-   "sha256": "d30f54d542140d8c34441c794b0d587dcde0a304dc9a7fc05f9439cd9c71530a"
+   "size": 48739,
+   "sha256": "bf91b54204cf852116e95fa789f91ea7a6510b6380725592d587de6d4b733176"
   },
   {
    "path": "ui/tray.css",
@@ -200,20 +215,20 @@
   },
   {
    "path": "ui/tray.html",
-   "size": 441,
-   "sha256": "8c1d4885c5194d70c2a130d0657f9a4bfd7c725531f2e527bba434d87eccbc78"
+   "size": 496,
+   "sha256": "d43e4a98b4ba0d4245ea534005b61ef98e54604c882a53337c16b4e3719f6b3a"
   },
   {
    "path": "ui/tray.js",
-   "size": 1539,
-   "sha256": "72e228cebda286ccbbad91ebcad60b60c9d6b1b4e7d2fedeb63dc81642928028"
+   "size": 2847,
+   "sha256": "29f44219f3bf137023866e201c7091e8770afee8ee878c0e8d67a865ef2cf11b"
   }
  ],
  "signatures": [
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "o9SlvJeRf9kIpa4iw3f4H8SsnqMa1xqF0HzffBTr92J5INtJv2Ny0h38x6hQH4qK06mgwLpbWNdsi4GNR+rlDw=="
+   "sig": "gEx0OYdaql59P/CyH+pJWQksiukGNbR3CkUxUV2G559Y9XvnWoLbtfN4sGh/Jd90G4sQej4v6lY7bX3f/06dDQ=="
   }
  ],
  "module": "concierge-mail"

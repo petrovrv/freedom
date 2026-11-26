@@ -11,6 +11,7 @@ import { loadChatEvents } from './workbench';
 import { dbFiles } from './dbapi';
 import { categorize } from './errors';
 import { formatBytes, formatLocal } from './util';
+import { useOpenFile } from './FileViewer';
 import {
   branchVersion, buildStreams, bytesOf, deleteVersion, describe, fetchVersion, headUtc, kindOf, listVersions, makeMain, mergeStreams, setHidden,
   isWorkingFile, setKind, TEMP_DAYS, visible, type ChatStream, type VersionItem,
@@ -185,13 +186,15 @@ function FileRowView({
     }
   }
 
-  const download = () => run(async () => {
+  const headBytes = async (): Promise<ArrayBuffer> => {
     const v = head && !head.legacy
       ? await fetchVersion(root.id, { path: s.key, md5: s.row?.head.md5 || head.md5, sha256: s.row?.head.sha256 || head.sha256 })
       : head ? await fetchVersion(root.id, { path: head.path, legacy: true, fileId: head.fileId }) : null;
     if (!v) throw new Error('No version to download.');
-    saveBytes(v.bytes, baseName(s));
-  });
+    return v.bytes;
+  };
+  const download = () => run(async () => saveBytes(await headBytes(), baseName(s)));
+  const [openFile, viewer] = useOpenFile();
 
   return (
     <li
@@ -204,9 +207,11 @@ function FileRowView({
     >
       <div className="tree-row" title={`${s.name}
 ${describe(s)}`}>
-        <span className="name">
+        <button type="button" className="link name" disabled={busy || state === 'gone'} title="Click to open (download: ⋯)"
+          onClick={() => openFile({ name: baseName(s), path: s.key, load: headBytes, fallback: () => void download() })}>
           {head?.origin === 'user' ? '↑' : '↓'} {n > 1 ? '🗂' : '📄'} {s.name}
-        </span>
+        </button>
+        {viewer}
         <span className="muted tiny">{n > 1 ? `${n} v · ` : ''}{formatBytes(s.row?.head.size ?? head?.size ?? null)}</span>
         <div className="file-menu" ref={menuRef}>
           <button className="link" aria-label={`Actions for ${s.name}`} onClick={() => setMenu(!menu)}>⋯</button>

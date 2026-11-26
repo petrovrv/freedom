@@ -1,14 +1,14 @@
 {
   "schema": 1,
   "id": "canvas",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "title": "Canvas",
   "description": "Chat and project files (Word, Excel, PowerPoint; Markdown and text as a Word notebook) open in the ONLYOFFICE editor on the home PC and save back to Drive. Comment threads in the document are answered by the chat's agent; Share puts the document into a Gmail draft (never sent).",
   "ext": ">=1 <2",
   "scope": "household",
   "platforms": ["windows"],
   "requires": { "core": [], "modules": [] },
-  "permissions": ["ui.page", "ui.navigate", "data.own", "push.key"],
+  "permissions": ["ui.page", "ui.navigate", "data.own", "push.key", "notify.push"],
   "localOnly": ["canvas-bridge/"],
   "isolation": "host",
   "isolationReason": "ONLYOFFICE Docs and canvas-bridge run on the home PC; Tailscale Funnel publishes them at a public HTTPS address of the PC",
@@ -20,13 +20,16 @@
     ],
     "navigate": [{ "config": "publicUrl" }, "https://mail.google.com", "/auth/login.php"],
     "fileActions": [
-      { "id": "office", "label": "Open in canvas", "exts": ["docx", "xlsx", "pptx"],
+      { "id": "office", "label": "Open in canvas", "exts": ["docx", "xlsx", "pptx"], "default": true,
         "open": { "page": "editor", "param": "path", "target": "blank" } },
       { "id": "notebook", "label": "Open in canvas", "title": "Edit as a Word notebook (headings, lists); Save as Markdown writes it back",
-        "exts": ["md", "markdown", "txt"], "open": { "page": "editor", "param": "path", "target": "blank" } }
+        "exts": ["md", "markdown", "txt"], "default": true, "open": { "page": "editor", "param": "path", "target": "blank" } }
     ],
     "sideJobs": [{ "key": "canvas", "label": "✎ Canvas", "list": "threads", "item": "reply", "count": "ops", "countNoun": "tracked change" }],
-    "services": [{ "id": "bridge", "run": "canvas-bridge/canvas_bridge.py", "windowsTask": "\\AIWorkbench\\CanvasBridge" }],
+    "services": [
+      { "id": "bridge", "run": "canvas-bridge/canvas_bridge.py", "windowsTask": "\\AIWorkbench\\CanvasBridge" },
+      { "id": "watch", "kind": "schedule", "every": "PT3M", "cwd": "home", "run": "python canvas_watch.py" }
+    ],
     "data": { "server": "files", "home": "%LOCALAPPDATA%\\AIWorkbenchCanvas (sessions, comment asks, log)" },
     "events": [],
     "context": [], "models": [], "deviceTools": []

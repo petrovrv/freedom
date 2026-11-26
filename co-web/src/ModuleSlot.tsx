@@ -20,6 +20,7 @@ import { useInterval } from './hooks';
 import { useNavigate } from 'react-router-dom';
 import { envOfPath, shellRoute } from './appStack';
 import { APP_REFRESH } from './appEvents';
+import { askAboutFile } from './FileViewer';
 import { setImportSources } from './importPoint';
 import { MODULE_PARTS, modulePartCount, pruneModulePartCounts, registerChatPart, setModulePartCounts, type ChatPartId, type ChatRef } from './chatFolder';
 
@@ -418,6 +419,18 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
         if (env) routerNav(path);
         else window.open(path, '_blank', 'noopener');
         send({ t: 'result', id: r.id, ok: true, data: { ok: true } });
+        return;
+      }
+      // 0.132.0 file.ask: the chat of the file (or the open chat) with "About the file <path>: «quote»" in its message
+      // box; the person writes the question and sends it. Only inside the shell (a bare page has no chat to go to).
+      if (r.name === 'file.ask') {
+        const path = typeof r.args.path === 'string' ? r.args.path : '';
+        const quote = typeof r.args.quote === 'string' ? r.args.quote : '';
+        // a plain path of a file (no control characters, at most 512): the text the person sees is ours, not the page's
+        const ok = !!envOfPath(window.location.pathname) && path.length <= 512 && /^projects\/[^\u0000-\u001f\u007f]+$/.test(path)
+          && !path.split('/').includes('..')
+          && askAboutFile(routerNav, path, quote);
+        send(ok ? { t: 'result', id: r.id, ok: true, data: { ok: true } } : { t: 'result', id: r.id, ok: false, error: 'no_chat' });
         return;
       }
       // F14b-3: a push of the module to the signed-in person; the server applies limits, the switch and the journal

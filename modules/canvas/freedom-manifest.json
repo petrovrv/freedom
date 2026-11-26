@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "1.0.2",
- "created": "2026-11-24T10:15:14Z",
+ "version": "1.1.0",
+ "created": "2026-11-26T13:01:59Z",
  "files": [
   {
    "path": "canvas-bridge/.gitignore",
@@ -15,8 +15,13 @@
   },
   {
    "path": "canvas-bridge/canvas_bridge.py",
-   "size": 44695,
-   "sha256": "815fcbfdc6e1b4bf9689e9e4c7fd9c799fb17f184a8c743ea49ebf22d1370d21"
+   "size": 47146,
+   "sha256": "921dc16256b348d8760db7311d62c5a14f95a1c4c666161fdb9f9bd41be5c8de"
+  },
+  {
+   "path": "canvas-bridge/ds_up.py",
+   "size": 10405,
+   "sha256": "1ce71cb279b5d76addf1a9225959d1cce860b13f28e2d7a4cb0e0a710a8a01db"
   },
   {
    "path": "canvas-bridge/edit.html",
@@ -25,8 +30,8 @@
   },
   {
    "path": "canvas-bridge/edit.js",
-   "size": 7548,
-   "sha256": "5733b046de9f48a286a339372fd9ad47b353a76c6199f6241c96133774f29e49"
+   "size": 9482,
+   "sha256": "2f66517a4e07f55d64c5db15b574116c8dfbfdcb881518768c970ba8dd8e3902"
   },
   {
    "path": "canvas-bridge/notebook.py",
@@ -59,14 +64,19 @@
    "sha256": "5ac3122dac5af395a39411023eb8aadf1240d5e82e40f37008dad0b3d429fa45"
   },
   {
+   "path": "home/canvas_watch.py",
+   "size": 10097,
+   "sha256": "f995d024b40d186869ddcfee82a12ee091861ce49c3eb5938eccfad3e9861755"
+  },
+  {
    "path": "module.json",
-   "size": 2686,
-   "sha256": "2cffa3a37fe986174e5db603702810b4b33a7d664234654e73467ef31e322939"
+   "size": 2857,
+   "sha256": "e7af28f1c3656a9974502fbef00819f82600e28319ec9bfc774907befa676ef5"
   },
   {
    "path": "README.md",
-   "size": 4841,
-   "sha256": "662703483d7bc85815d067c1c93b793d2ebf5230337fb4b1cd4471304a5f1de5"
+   "size": 6844,
+   "sha256": "27ac52fcc9d8855579b3f563f09c5da3f9105271c1f166710ad8396398f1fc77"
   },
   {
    "path": "server/canvas-lib.php",
@@ -108,8 +118,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "wEElhLkSFjovX2MBfbwnunp597stQTcH4571Ibk09UCrJxSnRfKUuQmwveBMvbb78rN/Q7R8YOXuUKaSc4ppDg=="
+   "sig": "BPjbUzpXqWRCUzLlAM8xjS/HmRhj6ym177JCN1aASX1XUHj3v5m2/Q5WBJLUBL62mqcmGI/IMwjxKFzk5E1nCQ=="
   }
- ],
- "module": "canvas"
+ ]
 }

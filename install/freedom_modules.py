@@ -336,6 +336,9 @@ def check_ext1(m: dict, root: pathlib.Path) -> list:
             p.append(f"fileAction {x.get('id', '')!r}: open.page must be a ui.page id of the module (or open.mode)")
         elif o.get("target", "self") not in ("self", "blank"):
             p.append(f"fileAction {x.get('id', '')!r}: open.target self|blank")
+        elif "default" in x and not (isinstance(x["default"], bool) or (isinstance(x["default"], list)
+                                     and all(isinstance(e, str) and e in x["exts"] for e in x["default"]))):
+            p.append(f"fileAction {x.get('id', '')!r}: default is true/false or a list of its exts")
     for x in lists["messageViews"]:
         if not isinstance(x, dict) or not is_str(x.get("match")):
             p.append(f"messageView {x!r}: match (regex) needed")

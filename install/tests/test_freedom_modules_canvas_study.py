@@ -60,7 +60,8 @@ class CanvasStudyCycleTest(unittest.TestCase):
                 self.assertEqual([x["key"] for x in prov.get("modes", [])], modes)
                 self.assertEqual([x["key"] for x in prov.get("sideJobs", [])], sides)
                 self.assertEqual([u["path"] for u in prov.get("ui", []) if u.get("path")], paths)
-                self.assertEqual([s.get("windowsTask") for s in prov.get("services", [])], [task] if task else [])
+                # schedules Bridge runs itself (canvas 1.1 "watch") have no task
+                self.assertEqual([s.get("windowsTask") for s in prov.get("services", []) if s.get("kind") != "schedule"], [task] if task else [])
                 self.assertFalse(m["defaults"]["enabled"])
 
     def test_shipped_modules_signed_by_maintainers(self):

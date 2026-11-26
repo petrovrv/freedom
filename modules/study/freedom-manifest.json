@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "1.0.1",
- "created": "2026-11-22T19:38:10Z",
+ "version": "1.0.2",
+ "created": "2026-11-26T12:53:32Z",
  "files": [
   {
    "path": "build.mjs",
@@ -20,8 +20,8 @@
   },
   {
    "path": "module.json",
-   "size": 3752,
-   "sha256": "21b3344a8a494fec9e4972faeec1c177af0cd2283dafae19f129ba7400b8aad8"
+   "size": 3780,
+   "sha256": "0e04e9776ebdcf15ce47b4e3a3d4c2222cc88634770671dc3aa0601e39cdf838"
   },
   {
    "path": "README.md",
@@ -98,8 +98,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "WLsQYcDh9Lx/VqQR713MGxncSUyNlVnFdkUAFGFPD/V8GCpGXXD+0CUeWPbw39eal28BAtIPaV6d004t0GD6Dw=="
+   "sig": "UPw2rOibYsobkn65VWbUW5l1NvKzcvX59erWHPjcDbFnIKhtDipjYdSa1sbWBFKXtDCCOqBfR8LUcl2tQ0QTBQ=="
   }
- ],
- "module": "study"
+ ]
 }

@@ -7,7 +7,16 @@
   var msg = document.getElementById('msg');
   var ticket = location.hash.slice(1);
   history.replaceState(null, '', location.pathname);
-  document.getElementById('close').onclick = function () { window.close(); };
+  // canvas 1.1: a click on a file opens the editor in the same tab of CO (no new tab); Close goes back to CO there.
+  // A window CO opened (⋯ → Open in canvas, a CO Desktop window) closes as before.
+  document.getElementById('close').onclick = function () {
+    window.close();
+    setTimeout(function () {
+      if (window.closed) return;
+      if (history.length > 1) history.back();
+      else status('Close this tab to return to CO.');
+    }, 150);
+  };
 
   function show(text, isError) {
     msg.textContent = text;
@@ -117,6 +126,33 @@
     };
   }
 
+  // canvas 1.1: ONLYOFFICE may be down after WSL stopped; canvas-bridge starts it and the page waits (up to 5 min).
+  function waitEditor() {
+    var t0 = Date.now();
+    var misses = 0;
+    return new Promise(function (resolve, reject) {
+      (function poll() {
+        fetch('ds', { cache: 'no-store' }).then(function (res) {
+          // an older canvas-bridge without /ds answers 404: load as before
+          if (res.status === 404) return { ready: true };
+          if (!res.ok) throw new Error('status ' + res.status); // 502/503 while canvas-bridge restarts: ask again
+          return res.json();
+        }).then(function (d) {
+          misses = 0;
+          if (d.ready) { msg.textContent = 'Opening\u2026'; return resolve(); }
+          if (d.error && Date.now() - t0 > 30000) return reject(new Error('The editor on the home computer did not start. Try again in a few minutes.'));
+          if (Date.now() - t0 > 300000) return reject(new Error('The editor on the home computer did not start in 5 minutes. Try again later.'));
+          show('Starting the editor on the home computer\u2026 (' + Math.round((Date.now() - t0) / 1000) + ' s, usually under a minute)');
+          setTimeout(poll, 3000);
+        }).catch(function () {
+          // canvas-bridge restarting or the network blinking: ask again a few times before loading anyway
+          if (++misses > 5) return resolve();
+          setTimeout(poll, 3000);
+        });
+      })();
+    });
+  }
+
   if (!ticket) {
     show('This link has expired. Open the file again from CO (file menu → Open in canvas).', true);
     return;
@@ -141,7 +177,7 @@
         markdownButton(cfg.editorConfig.callbackUrl.split('/').pop());
       }
       shareButtons(cfg.editorConfig.callbackUrl.split('/').pop(), cfg.document.fileType, cfg.editorConfig.mode === 'edit');
-      return loadScript(data.api).then(function () {
+      return waitEditor().then(function () { return loadScript(data.api); }).then(function () {
         cfg.width = '100%';
         cfg.height = '100%';
         cfg.type = 'desktop';

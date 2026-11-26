@@ -26,6 +26,7 @@ import { FolderCtxSection } from './FolderCtx';
 import type { ChatAction } from './ChatActions';
 import { FolderPicker } from './FolderPicker';
 import { FileMenu, googleDocsUrl, hasGoogleDocs, moduleFileItems, viewerHref } from './FileMenu';
+import { useOpenFile, type FileAskState } from './FileViewer';
 import { COMPOSER_SENT, ModuleSlots, useLoadedModules, type ComposerInput } from './ModuleSlot';
 import { Markdown } from './Markdown';
 import { extractQuickReplies, formatAnswers, stripQuickReplies, type AskItem } from './quickReplies';
@@ -193,6 +194,16 @@ export default function ChatView(props: Props) {
       })
       .catch(() => undefined)
       .finally(() => navigate(target, { replace: true, state: null }));
+  }, [location.state, location.pathname, location.search, navigate, props.docked]);
+  // 0.132.0: "Ask in chat" of an open file (FileViewer.tsx askAboutFile, ext/1 file.ask) arrives as navigation state:
+  // the file's path and the quote go into the composer once; the person writes the question and sends it
+  const handledAsk = useRef(0);
+  useEffect(() => {
+    const ask = (location.state as Partial<FileAskState> | null)?.fileAsk;
+    if (props.docked || !ask || handledAsk.current === ask.nonce) return;
+    handledAsk.current = ask.nonce;
+    setPrefill({ text: ask.text, nonce: ask.nonce });
+    navigate(location.pathname + location.search, { replace: true, state: null });
   }, [location.state, location.pathname, location.search, navigate, props.docked]);
 
   // 0.109.0: one load at a time (a call during a load runs once more after it), and the list on screen is kept when
@@ -2019,6 +2030,7 @@ function ImageViewer({ list, at, root, onMove, onClose }: { list: AttachmentRef[
 
 // 0.55.0: an uploaded file of a message, click = download that version (the chat file's revision by md5, or the copy).
 function AttachmentChip({ a, root }: { a: AttachmentRef; root: Root }) {
+  const [openFile, viewer] = useOpenFile();
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   async function download() {
@@ -2040,8 +2052,11 @@ function AttachmentChip({ a, root }: { a: AttachmentRef; root: Root }) {
     }
   }
   return (
-    <span className="chip" title={a.target ? `Chat file ${a.target} (click to download this version)` : 'Click to download'}>
-      <button type="button" className="link" disabled={busy || (!a.fileId && !a.streamPath)} onClick={() => void download()}>📎 {a.displayName}</button>
+    <span className="chip" title={a.target ? `Chat file ${a.target} (click to open the current file; ⬇ downloads this version)` : 'Click to open; ⬇ downloads it'}>
+      <button type="button" className="link" disabled={busy || (!a.fileId && !a.streamPath)}
+        onClick={() => openFile({ name: a.displayName, path: a.streamPath || null, load: async () => (await attachmentVersion(a, root)).bytes, fallback: () => void download() })}>📎 {a.displayName}</button>
+      {viewer}
+      <button type="button" className="link tiny" disabled={busy || (!a.fileId && !a.streamPath)} title="Download this version" aria-label={`Download ${a.displayName}`} onClick={() => void download()}>⬇</button>
       {' '}· {formatBytes(a.sizeBytes)}
       {a.target && a.target !== a.displayName && <span className="muted tiny"> → {a.target}</span>}
       {msg && <span className="muted tiny"> · {msg}</span>}
@@ -2074,6 +2089,7 @@ function MessageArtifacts({ list, root }: { list: ArtifactRecord[]; root: Root }
 
 export function ArtifactRow({ a, root }: { a: ArtifactRecord; root: Root }) {
   const goModule = useNavigate();
+  const [openFile, viewer] = useOpenFile();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState<{ name: string; link?: string } | null>(null);
@@ -2168,7 +2184,9 @@ export function ArtifactRow({ a, root }: { a: ArtifactRecord; root: Root }) {
 
   return (
     <div className="artifact">
-      <button type="button" className="link art-name" disabled={busy} title={`${a.driveRelativePath}\nClick to download`} onClick={() => void download()}>📦 {name}</button>
+      <button type="button" className="link art-name" disabled={busy} title={`${a.driveRelativePath}\nClick to open (download: ⋯)`}
+        onClick={() => openFile({ name, path: a.driveRelativePath, load: verifiedBytes, fallback: () => void download() })}>📦 {name}</button>
+      {viewer}
       <span className="muted small">{formatBytes(a.sizeBytes)}</span>
       <FileMenu
         name={name}

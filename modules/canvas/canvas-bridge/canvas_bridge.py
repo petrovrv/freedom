@@ -17,6 +17,8 @@ Funnel publishes it at https://<pc>.<tailnet>.ts.net/cb (install.json canvas.pub
   POST /cb/doc/<sid>/clean  "Clean copy" (M5): "<name> (clean).docx" next to the file, without the agent's threads.
   GET  /cb/conv/<token>    one-time download of a document for the ONLYOFFICE conversion service (PDF).
   GET  /cb/health          liveness.
+  GET  /cb/ds              ONLYOFFICE ready? When not, starts WSL and its container in the background (ds_up.py); the
+                           editor page polls it and says "Starting the editor" meanwhile.
 
 Text files (.md/.txt) open as a notebook (M4, notebook.py): a docx made next to them by pandoc is what the editor edits.
 
@@ -48,10 +50,11 @@ sys.dont_write_bytecode = True
 
 import agent_threads  # noqa: E402
 import aiwb_install  # noqa: E402  <repo>/install, put on sys.path by agent_threads (Freedom F1: names of this install)
+import ds_up  # noqa: E402
 import notebook
 import share
 
-VERSION = '0.4.1'
+VERSION = '0.5.0'
 HOST, PORT = '127.0.0.1', 8089
 # CANVAS_PUBLIC_URL / CANVAS_SITE: setups without install.json
 PUBLIC = (os.environ.get('CANVAS_PUBLIC_URL') or aiwb_install.get('canvas.publicUrl') or '').rstrip('/')
@@ -651,6 +654,50 @@ def clean_copy(s: dict) -> dict:
     return {'ok': True, 'name': target.name, 'removed': removed}
 
 
+# ONLYOFFICE on demand (canvas 1.1): the editor page asks GET /cb/ds before it loads the editor; when the healthcheck
+# fails, one background ensure (ds_up.py) starts WSL and the container, and the page polls until it answers.
+_ds: dict = {'thread': None, 'last': {}, 'kicked': 0.0}
+
+
+def ds_status() -> dict:
+    """The answer of GET /cb/ds (public through Funnel: no details, they go to the log; review 10g-A P3-5)."""
+    if ds_up.healthy(timeout=2):
+        if not ds_up.keepalive_alive():
+            _ds_kick()  # up, but nothing of ours keeps the distro running
+        return {'ready': True}
+    _ds_kick()
+    with _lock:
+        t, last = _ds['thread'], _ds['last']
+        failed = bool(last.get('error')) and not last.get('starting') and not (t and t.is_alive())
+    return {'ready': False, 'starting': not failed, **({'error': 'start failed'} if failed else {})}
+
+
+def _ds_kick() -> None:
+    with _lock:
+        t = _ds['thread']
+        # one start at a time, a new one at most every 10 s (the page polls every 3 s)
+        if (t and t.is_alive()) or time.time() - _ds['kicked'] < 10:
+            return
+        last = _ds['last']
+        if last.get('error') and not last.get('starting') and time.time() - _ds['kicked'] < 60:
+            return  # a failed start: its error stays visible for a minute before the next try
+        _ds['kicked'] = time.time()
+        _ds['last'] = {'starting': True}  # an error of an earlier start is not this start's answer
+
+        def run():
+            r = ds_up.ensure(wait_s=240, log=log.info)
+            with _lock:
+                _ds['last'] = r
+            if r.get('ok'):
+                if r['steps']:
+                    log.info('ONLYOFFICE up (%s)', '; '.join(r['steps']))
+            elif not r.get('starting'):
+                log.warning('ONLYOFFICE did not start: %s', r.get('error'))
+
+        _ds['thread'] = threading.Thread(target=run, daemon=True, name='ds-ensure')
+        _ds['thread'].start()
+
+
 def forcesave_loop() -> None:
     while True:
         time.sleep(FORCESAVE_MIN * 60)
@@ -751,6 +798,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == '/health':
                 return self._send(200, {'ok': True, 'version': VERSION})
+            if path == '/ds':
+                # the editor page before it loads ONLYOFFICE; starts it when it is down (no secret in the answer)
+                return self._send(200, ds_status())
             if path in ('/edit', '/edit.js'):
                 # The editor page (CO Web navigates to /cb/edit#<ticket>): same origin as ONLYOFFICE.
                 name, ctype = ('edit.html', 'text/html; charset=utf-8') if path == '/edit' else ('edit.js', 'text/javascript; charset=utf-8')

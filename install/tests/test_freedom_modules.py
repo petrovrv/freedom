@@ -341,7 +341,8 @@ class ServiceTaskTest(unittest.TestCase):
         done = self.run_service("start", right)
         self.assertEqual(self.calls, ["/Query", "/Change", "/Run"])
         self.assertIsNone(self.created)
-        self.assertEqual(done, [f"{self.task}: start ok"])
+        # canvas 1.1 has the schedule "watch" too (its note depends on whether Bridge runs here)
+        self.assertEqual([d for d in done if not d.startswith("watch:")], [f"{self.task}: start ok"])
 
     def test_missing_task_reported(self):
         def fake(args, **kw):

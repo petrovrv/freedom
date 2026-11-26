@@ -977,3 +977,12 @@ button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
 .ctx-off .ctx-mark { color: var(--muted); }
 .side-panel .chat-slot .chat-panel h5:first-child { margin-top: 16px; }
 .ctx-slot:empty { display: none; }
+
+/* 0.132.0: the core's file viewer (FileViewer.tsx): pictures and text inside CO */
+.modal.file-viewer { width: min(1100px, 100%); height: min(90vh, 100%); padding: 10px 12px; gap: 8px; min-height: 0; }
+.file-viewer-bar { display: flex; align-items: center; gap: 8px; }
+.file-viewer-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-viewer-body { flex: 1; min-height: 0; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+.file-viewer-body img { display: block; max-width: 100%; margin: 0 auto; }
+.file-viewer-text { margin: 0; padding: 10px 12px; font: 12.5px/1.45 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-word; user-select: text; }
+.tree-row button.link.name { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

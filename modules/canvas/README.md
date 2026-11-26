@@ -29,6 +29,27 @@ Stage F10 of Freedom moved the canvas out of the core into this module (ext/1, `
 | Server | `server/ops.php` → `server/canvas-lib.php` (`~/co-agent/modules/canvas/`) | role check and HS256 ticket (120 s); side jobs for comment threads; shared files for an hour in `~/co-agent/state/canvas-share/` |
 | Home PC | `canvas-bridge/` (task `\AIWorkbench\CanvasBridge`, 127.0.0.1:8089) | ONLYOFFICE Docs on 127.0.0.1:8088, both behind Tailscale Funnel (`/cb`, `/`); CO Agent plugin of the editor (`canvas-bridge/plugin/`) |
 
+## Keeping the editor up (1.1)
+
+ONLYOFFICE Docs is the Docker container `onlyoffice` in the WSL distro `Ubuntu` (127.0.0.1:8088). Before 1.1 only the
+logon task `\AIWorkbench\OnlyOffice` (`start-onlyoffice.ps1`) started it and kept WSL running, so after `wsl --shutdown`,
+an update or a crash of WSL the editor said "The editor did not load" until the next logon. Now:
+
+- **On demand** — the editor page asks `GET /cb/ds` before it loads ONLYOFFICE. When the healthcheck fails,
+  canvas-bridge starts it in the background (`canvas-bridge/ds_up.py`: one detached `wsl.exe -d Ubuntu --exec sleep
+  infinity` keeps the distro running, then `docker start onlyoffice`, or `docker run` with the JWT of keyring
+  `aiwb/onlyoffice` / `jwt` when the container is missing) and the page says "Starting the editor on the home
+  computer…" until it answers (5 min at most). One start at a time on the PC (lock file in `%LOCALAPPDATA%\AIWorkbenchCanvas`).
+- **Watch** — the schedule `watch` (`home/canvas_watch.py`, Bridge runs it every 3 minutes while the module is enabled)
+  checks ONLYOFFICE, canvas-bridge 8089 (runs the task `\AIWorkbench\CanvasBridge` when it is down), the Funnel handlers
+  `/` and `/cb` (applies them again) and the public address `/cb/health`. A problem that stays in two of the last four runs, or two
+  repairs within an hour, sends the owner a push (`notify.push`, tag `canvas-watch`, at most once in 6 h per incident);
+  one more push says when it works again. `python home/canvas_watch.py --check` reports without repairing.
+  State: `%LOCALAPPDATA%\AIWorkbenchCanvas\watch.json`; output: Bridge's module log `<modules>/.logs/canvas/watch.log`.
+- The logon task `\AIWorkbench\OnlyOffice` is no longer needed once the watch runs (it is disabled, not deleted).
+- 1.1 adds the permission `notify.push`: the server keeps the module off after the install until the owner runs
+  `python install/freedom_modules.py enable canvas` (until then the editor pages and the watch do not run).
+
 ## Install (a workbench that had canvas in the core)
 
 ```

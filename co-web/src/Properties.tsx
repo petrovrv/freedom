@@ -20,6 +20,7 @@ import { AccountConnectorsSection } from './AccountConnectors';
 import { FolderPicker } from './FolderPicker';
 import { FileMenu, googleDocsUrl, hasGoogleDocs, moduleFileItems } from './FileMenu';
 import { moduleList } from './moduleStore';
+import { useOpenFile } from './FileViewer';
 import { LimitsDetail } from './Limits';
 import { NotificationsSection } from './Notifications';
 import { OpsSection } from './Ops';
@@ -582,6 +583,7 @@ function FolderItem({ f, path }: { f: DriveFile; path: string }) {
 
 function FileItem({ f, path }: { f: DriveFile; path: string }) {
   const goModule = useNavigate();
+  const [openFile, viewer] = useOpenFile();
   const [busy, setBusy] = useState(false);
   const [picking, setPicking] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -605,7 +607,9 @@ function FileItem({ f, path }: { f: DriveFile; path: string }) {
   return (
     <li>
       <div className="tree-row">
-        <span className="name" title={f.name}>📄 {f.name}</span>
+        <button type="button" className="link name" title={`${f.name}\nClick to open (download: ⋯)`} disabled={busy}
+          onClick={() => openFile({ name: f.name, path, load: () => getBytes(f.id), fallback: () => void download() })}>📄 {f.name}</button>
+        {viewer}
         <span className="muted tiny">{formatBytes(Number(f.size || 0))}</span>
         <FileMenu
           name={f.name}

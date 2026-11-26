@@ -528,8 +528,12 @@ function co_module_file_actions(array $m): array
         $o = isset($open['page']) ? ['page' => co_module_decl_str($open['page'], 40), 'param' => co_module_decl_str($open['param'] ?? 'path', 20),
             'target' => ($open['target'] ?? '') === 'blank' ? 'blank' : 'self'] : (isset($open['mode']) ? ['mode' => co_module_decl_str($open['mode'], 31)] : null);
         if (!$exts || $o === null) continue;
+        // 0.130.0 (plan 10g): default = this action opens the file by one click (true: all its exts; a list: those of them)
+        $def = $a['default'] ?? false;
+        $def = $def === true ? true : (is_array($def) ? array_values(array_intersect($exts, array_filter($def, 'is_string'))) : false);
         $out[] = ['id' => co_module_decl_str($a['id'] ?? '', 40), 'label' => co_module_decl_str($a['label'] ?? '', 60),
-            'title' => co_module_decl_str($a['title'] ?? ''), 'exts' => $exts, 'exclude' => co_module_decl_str($a['exclude'] ?? '', 120), 'open' => $o];
+            'title' => co_module_decl_str($a['title'] ?? ''), 'exts' => $exts, 'exclude' => co_module_decl_str($a['exclude'] ?? '', 120), 'open' => $o,
+            'default' => $def];
     }
     return $out;
 }

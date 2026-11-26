@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "study",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "title": "Study mode",
   "description": "A tutor mode for chats: the agent leads a learner to the answer with hints instead of giving it right away. A study viewer shows a course document next to the chat: select text or an area and ask about it; every question leaves a marker on its page.",
   "ext": ">=1 <2",
@@ -55,6 +55,7 @@
       {
         "id": "viewer",
         "label": "Open in study viewer",
+        "default": ["pdf"],
         "title": "Read it next to a study chat: select text or an area and ask, or press WTF",
         "exts": [
           "pdf",

@@ -21,6 +21,8 @@ export interface ModuleUi {
 }
 export interface FileAction {
   id: string; label: string; title: string; exts: string[]; exclude: string;
+  /** 0.132.0: opens these exts by one click (true = all its exts) instead of being only an item of ⋯ */
+  default?: boolean | string[];
   open: { page: string; param: string; target: 'self' | 'blank' } | { mode: string };
 }
 export interface MessageView { match: string; label: string; strip: string[]; replace: [string, string][] }
@@ -342,6 +344,8 @@ export const REQ_PERMISSION: Record<string, string> = {
   'chat.open': 'ui.navigate',
   // 0.131.0: counts of the module's own chat-folder part (a ui.chatPart it declares; partCountsOf checks that)
   'chat.partCounts': '',
+  // 0.132.0: "Ask in chat" about a selection of an open file: the file's chat gets path + quote in its message box
+  'file.ask': 'chat.post',
 };
 
 const PART_CHAT = /^CHAT-\d{14}-[A-Z0-9]{4}$/;

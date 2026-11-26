@@ -70,7 +70,9 @@ import freedom_release as fr  # noqa: E402
 EXT_VERSION = 1
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 OP_RE = re.compile(r"^[a-z][a-z0-9_]{2,40}$")
-SLOTS = {"ui.header", "ui.page", "ui.panel", "ui.settings", "ui.composer", "ui.hint"}
+SLOTS = {"ui.header", "ui.page", "ui.panel", "ui.settings", "ui.composer", "ui.hint", "ui.chatPart"}
+# ext/1 ui.chatPart: the parts of a chat folder a module page may fill (co-agent modules-lib.php CO_MODULE_CHAT_PARTS)
+CHAT_PARTS = {"context", "correspondence", "events", "watchers"}
 # permissions an ext/1 slot needs before CO Web feeds its page anything
 SLOT_PERMISSION = {"ui.hint": "composer.read"}
 SEARCH_HOOKS = {"expand", "chats", "items", "text"}   # ext/1 search.provider (web/agent/search-lib.php)
@@ -162,6 +164,8 @@ def check(root: pathlib.Path) -> list:
         if ("window" in u or "windowKey" in u) and (u.get("slot") != "ui.page" or u.get("window") not in (True, False)
                                                    or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,30}", str(u.get("windowKey", "x")))):
             p.append(f"ui window of {u.get('id')!r}: only for ui.page, window true/false, windowKey a query parameter name")
+        if (u.get("slot") == "ui.chatPart") != ("part" in u) or ("part" in u and u.get("part") not in CHAT_PARTS):
+            p.append(f"ui part of {u.get('id')!r}: ui.chatPart needs part, one of {sorted(CHAT_PARTS)}; other slots have none")
         need = SLOT_PERMISSION.get(u.get("slot"))
         if need and need not in (m.get("permissions") or []):
             p.append(f"ui slot {u.get('slot')} needs the permission {need}")

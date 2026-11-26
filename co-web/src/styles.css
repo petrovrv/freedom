@@ -773,6 +773,8 @@ button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
 .module-hidden .module-frame { width: 0; height: 0; }
 .module-settings { margin-top: 6px; }
 .module-settings .module-slot { display: block; max-width: 100%; }
+/* 0.130.0 ext/1 ui.chatPart: a module page in a part of the chat folder, the width of the part */
+.module-block { display: block; width: 100%; }
 .module-ask-wrap { position: relative; }
 .module-ask { border: 1px dashed var(--line); border-radius: 12px; background: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 2px 8px; white-space: nowrap; }
 .module-ask-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; width: min(300px, 86vw); display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 6px 20px rgba(0,0,0,.18); font-size: 13px; white-space: normal; }

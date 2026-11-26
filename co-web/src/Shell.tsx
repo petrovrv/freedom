@@ -42,7 +42,7 @@ import AppHost, { RecentApps, useAppEvents } from './AppHost';
 import { trayWantsRefresh } from './appEvents';
 import { appKey, exitTarget, findApp, findPage, liveLimit, loadRecent, pruneApps, RECENT_MAX, saveRecent, touchApp, type AppRef } from './appStack';
 import { shellOpen, type ShellApp } from './extBridge';
-import { ModuleFrame, ModuleSlots, modulePages, useModules, type PanelLink } from './ModuleSlot';
+import { ModuleFrame, ModuleSlots, modulePages, useModuleChatParts, useModules, type PanelLink } from './ModuleSlot';
 import type { Chat, ChatEvent, LimitsFile, Mode, OwnerInfo, Project } from './types';
 
 import { SAFE_ID, formatLocal, mapLimit } from './util';
@@ -180,6 +180,8 @@ export default function Shell({ auth }: { auth: Signed }) {
   const [jobActivity, setJobActivity] = useState<{ running: ChatActivity[]; asking: string[]; gatewayWaiting: string[] } | null>(null);
   // F10: modules (modules_list); their header pages render in ModuleSlots
   const modules = useModules(authOk);
+  // 0.130.0: pages of modules that fill parts of the chat folder (ext/1 ui.chatPart)
+  useModuleChatParts(modules, auth.homeEnv, !!auth.owner);
 
   // F14e.1 (SPEC §3.6a п. 9): apps stay alive while hidden (the last 3 on a phone, 5 on a computer), recent ones are
   // icons in the header and the app bar; Back, Esc and "← Chats" leave an app for the page it was opened from

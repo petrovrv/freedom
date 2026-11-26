@@ -101,6 +101,57 @@ export function partCounts(core: Partial<Record<ChatPartId, number>>, chat: Chat
   return out;
 }
 
+// ---------- parts filled by module pages (ext/1 ui.chatPart, 0.130.0) ----------
+
+/** The parts a module page may fill (co-agent modules-lib.php CO_MODULE_CHAT_PARTS). */
+export const MODULE_PARTS: readonly ChatPartId[] = ['context', 'correspondence', 'events', 'watchers'];
+
+// "<module>/<part>" -> chatId -> count, as the module's pages reported them (chat.partCounts)
+const moduleCounts = new Map<string, Map<string, number>>();
+
+/** The whole set of counts of one module's part (replaces the earlier one). */
+export function setModulePartCounts(moduleId: string, part: string, counts: Map<string, number>): void {
+  moduleCounts.set(`${moduleId}/${part}`, counts);
+  chatPartsChanged();
+}
+
+export function modulePartCount(moduleId: string, part: string, chatId: string): number {
+  return moduleCounts.get(`${moduleId}/${part}`)?.get(chatId) ?? 0;
+}
+
+/** Forgets the counts of modules that are no longer on. */
+export function pruneModulePartCounts(on: ReadonlySet<string>): void {
+  let changed = false;
+  for (const k of [...moduleCounts.keys()]) {
+    if (!on.has(k.split('/')[0])) {
+      moduleCounts.delete(k);
+      changed = true;
+    }
+  }
+  if (changed) chatPartsChanged();
+}
+
+/** Contributions of modules (key "module.<id>.…") with something for this chat: a hidden note for its agent, so it
+ * knows the chat folder holds more than the messages (the module's own rules say how to read it). */
+export function modulePartsNote(chat: ChatRef, titles: ReadonlyMap<string, string>, list: ChatPartContribution[] = contributions): string {
+  const lines: string[] = [];
+  for (const c of list) {
+    const m = /^module\.([a-z0-9-]+)\./.exec(c.key);
+    if (!m) continue;
+    let n = 0;
+    try {
+      n = Math.max(0, Number(c.count(chat)) || 0);
+    } catch {
+      n = 0;
+    }
+    const def = CHAT_PARTS.find((p) => p.id === c.part);
+    if (n > 0 && def) lines.push(`- ${def.label}: ${n} item(s) of the module «${titles.get(m[1]) || m[1]}» (${m[1]})`);
+  }
+  return lines.length
+    ? `[Chat folder: besides the messages, the folder of this chat holds\n${lines.join('\n')}\nWhen the request may concern them, read them the way the rules of that module say.]\n\n`
+    : '';
+}
+
 // ---------- Documents / Products ----------
 
 export type FileSide = 'documents' | 'products';

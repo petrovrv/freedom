@@ -51,6 +51,7 @@ import { sideJobOf, sideReplies, viewMessage, type SideJob } from './extBridge';
 import QuoteAsk from './QuoteAsk';
 import { quoteDisplay } from './chatQuote';
 import { inheritedModes, linesBetween, modeDoc, modeLines, modeOn, modePatch, modesText, switchWho, type ModeDecl, type ModeLine } from './moduleModes';
+import { modulePartsNote } from './chatFolder';
 import { contextOf, moduleList, modesOf, sideJobsOf, useModuleList as useModuleDecls, viewsOf } from './moduleStore';
 import { FamilyComposer, FamilyMessage, Lightbox, familyBlock, followsTopic, isSilent, reactionsOf, wantsCo } from './FamilyChat';
 
@@ -714,6 +715,11 @@ export default function ChatView(props: Props) {
       familyTranscript([...current, { type: 'user_message', family: true, author: props.author, text: input.text, jobId: 'now', attachments: [] } as unknown as ChatEvent]),
       `AI-Workbench/projects/${project.projectId}/chats/${chat.chatId}/branches/${DEFAULT_BRANCH}/attachments/`, famFollow) : '') + planResume;
     if (planResume) progress('Resuming the unfinished work plan…');
+    // 0.130.0: what modules keep in the folder of this chat (mail threads put into it, …) - a hint for the agent; not in
+    // shared or family chats (the module's content is the sender's own)
+    const partsNote = !shared && !chat.family && !chat.draft
+      ? modulePartsNote({ projectId: chat.projectId, chatId: chat.chatId }, new Map(mods.map((m) => [m.id, m.title])))
+      : '';
     // S8: on the Site the named device (and the PC library) comes through the relay; the site agent keeps only these
     const desktopIds = (tCaps.includes('device-tools') || target.hostId === SITE) && wantsDevices && device ? [device.deviceId] : [];
     // 0.49.0: web devices (w- ids) of the sender; not in shared chats (0.45.0 rule); max 4 devices per run
@@ -753,7 +759,7 @@ export default function ChatView(props: Props) {
       permissions: tCaps.includes('permissions') ? chatPermissions(chat.permissions) : undefined,
       dbQueue: tCaps.includes('db-queue') && dbQueueOn(),
       hostAuto: !!props.hostAuto && !pinned, // S8 (a pinned model resource keeps its host): the server may move it to the other executor when not taken in ~60 s
-      resume,
+      resume: resume + partsNote,
       hints: hintsBlock(related, target.hostId !== 'site'),
       hintsResume: hintsBlock(strongHits(related), target.hostId !== 'site'),
       hintsStored: storedHints(related),

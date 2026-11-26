@@ -4,7 +4,9 @@
 import {
   agreementOf, agreements, CHAT_PARTS, chatPartContributions, contextCount, contextItems, dueState, fileSide, onChatPartsChanged, partCounts,
   registerChatPart, splitStreams, visibleParts, type ContextInput, type StreamLike,
+  modulePartCount, modulePartsNote, pruneModulePartCounts, setModulePartCounts,
 } from './chatFolder.ts';
+import { partCountsOf } from './extBridge.ts';
 import type { ProtocolEntry } from './dbapi';
 import type { FolderLevel } from './folderContext';
 import type { Chat } from './types';
@@ -105,6 +107,31 @@ ok('a subtask from its own task: no protocol, no lineage', keys({ ...base, child
 ok('count: an empty new chat shows no Context', contextCount({ ...base, protocolEntries: 0 }) === 0 && contextCount({ ...base, protocolEntries: null }) === 0);
 ok('count: protocol, branch, folders, context folders', contextCount(withLevels) === 3 && contextCount({ ...base, contextFolders: 1 }) === 2);
 ok('count: folders above do not count outside full', contextCount({ ...withLevels, mode: 'reference', protocolEntries: 0 }) === 0);
+
+// 0.130.0 ext/1 ui.chatPart: counts reported by a module page, the note for the agent
+{
+  const A = 'CHAT-20261126120000-ABCD', B = 'CHAT-20261126120000-WXYZ';
+  const mod = { enabled: true, ui: [{ slot: 'ui.chatPart', id: 'mail', entry: 'ui/p.html', title: '', part: 'correspondence' }] };
+  const pc = partCountsOf(mod, { part: 'correspondence', counts: { [A]: 2, [B]: 0 } });
+  ok('partCounts: declared part accepted, zeros dropped', !!pc && pc.counts.get(A) === 2 && !pc.counts.has(B));
+  ok('partCounts: undeclared part refused', partCountsOf(mod, { part: 'events', counts: {} }) === null);
+  ok('partCounts: off module refused', partCountsOf({ ...mod, enabled: false }, { part: 'correspondence', counts: {} }) === null);
+  ok('partCounts: bad chat id refused', partCountsOf(mod, { part: 'correspondence', counts: { 'x': 1 } }) === null);
+  ok('partCounts: bad count refused', partCountsOf(mod, { part: 'correspondence', counts: { [A]: 1.5 } }) === null && partCountsOf(mod, { part: 'correspondence', counts: { [A]: -1 } }) === null);
+  ok('partCounts: array refused', partCountsOf(mod, { part: 'correspondence', counts: [] }) === null);
+  setModulePartCounts('mailx', 'correspondence', pc!.counts);
+  ok('module count kept', modulePartCount('mailx', 'correspondence', A) === 2 && modulePartCount('mailx', 'correspondence', B) === 0);
+  const before = partCounts({}, { projectId: 'alpha', chatId: A }).correspondence ?? 0;
+  const un2 = registerChatPart({ part: 'correspondence', key: 'module.mailx.mail', count: (c) => modulePartCount('mailx', 'correspondence', c.chatId), render: () => null });
+  const refA = { projectId: 'alpha', chatId: A };
+  ok('module part counts in the folder', partCounts({}, refA).correspondence === before + 2);
+  const note = modulePartsNote(refA, new Map([['mailx', 'Mail X']]));
+  ok('note names the part, count and module', note.includes('Correspondence: 2 item(s)') && note.includes('«Mail X» (mailx)'));
+  ok('no note for a chat without items', modulePartsNote({ projectId: 'alpha', chatId: B }, new Map()) === '');
+  pruneModulePartCounts(new Set(['other']));
+  ok('prune forgets modules that are off', modulePartCount('mailx', 'correspondence', A) === 0 && modulePartsNote(refA, new Map()) === '');
+  un2();
+}
 
 if (fail) throw new Error(`chatFolder selftest: ${fail} failed`);
 console.log('chatFolder selftest OK');

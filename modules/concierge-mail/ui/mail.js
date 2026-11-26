@@ -8,6 +8,13 @@ let st = {}, relay, queue = Promise.resolve(), timer, statusTicket = 0, listTick
 let label = 'INBOX', query = '', labels = [], threads = [], next = null, selected = -1, listBusy = false, initialized = false;
 // 0.12.0 correspondence of chats: the chats that have threads here, and the chat shown as a folder (null: a label)
 let chats = [], chatView = null;
+// 0.14.0: the viewer next to a chat opened from its folder (ui/chat-part.js): "Почта t-<thread>" / "Почта c" show the
+// correspondence of that chat, the first with that thread open
+let pendingThread = null, wanted = null;
+// the chats with threads also give the counts of the Correspondence part of their folders in CO (ext/1 chat.partCounts)
+function reportCounts(list) {
+  coExt.req('chat.partCounts', {part: 'correspondence', counts: Object.fromEntries(list.map(c => [c.chat, Math.max(0, Number(c.threads) || 0)]))}).catch(() => {});
+}
 function el(tag, cls, text) {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
@@ -72,7 +79,11 @@ async function status() {
       if (!relay) relay = HomeRelay((op, args, opts) => coExt.call(op, args, opts), {env: st.env, module: 'concierge-mail', op: 'mail_call'});
       $('connection').textContent = st.account || 'Почта подключена';
       if (st.synced) $('connection').append(document.createTextNode(' · Синхронизация: ' + st.synced));
-      if (!initialized) { initialized = true; overview(); loadList(); resumeOutbox(); }
+      if (!initialized) {
+        initialized = true;
+        if (wanted) { chatView = wanted.view; pendingThread = wanted.thread; wanted = null; }
+        overview(); loadList(); resumeOutbox();
+      }
     }
   } catch (err) {
     if (ticket !== statusTicket) return;
@@ -129,6 +140,7 @@ async function loadChats() {
     const data = await call('chats', {});
     if (env !== st.env || account !== st.account) return;
     chats = data.chats || [];
+    reportCounts(chats);
     if (chatView) chatView = chats.find(c => c.chat === chatView.chat) || chatView;
     renderLabels();
   } catch (_) { /* the labels already show the error of the connection */ }
@@ -203,6 +215,7 @@ async function loadList(append = false) {
     const known = new Set(threads.map(t => t.thread));
     threads.push(...(data.threads || []).filter(t => !known.has(t.thread))); next = data.next ?? null;
     renderThreads(); $('list-note').textContent = threads.length ? '' : chatView ? 'В этом чате писем больше нет' : 'Писем нет';
+    if (pendingThread) { const i = threads.findIndex(t => t.thread === pendingThread); pendingThread = null; if (i >= 0) openThread(i); }
   } catch (err) { if (ticket === listTicket) error($('list-note'), err, () => loadList(append)); }
   finally { if (ticket === listTicket) { listBusy = false; $('more').hidden = next === null; } }
 }
@@ -696,6 +709,9 @@ $('agent').addEventListener('click', async () => {
 coExt.ready.then(ctx => {
   theme(ctx); title(0);
   $('agent').hidden = ctx.slot !== 'ui.page';  // next to the chat (viewer) the chat is already there
+  const doc = /^Почта (?:t-([A-Za-z0-9_-]{1,64})|c)$/.exec(String(ctx.params?.mail || ''));
+  const here = ctx.chat && typeof ctx.chat.id === 'string' ? ctx.chat : null;
+  if (ctx.slot === 'ui.panel' && doc && here) wanted = {view: {chat: here.id, title: here.title || 'Этот чат'}, thread: doc[1] || null};
   coExt.on('context', nextCtx => { theme(nextCtx); status(); });
   status();
 }).catch(err => error($('connection'), err, () => location.reload()));

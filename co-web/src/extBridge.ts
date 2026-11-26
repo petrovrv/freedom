@@ -16,6 +16,8 @@ export interface ModuleUi {
   app?: boolean; icon?: string;
   /** ext/1 ui.window: a desktop app opens the page in its own window */
   window?: boolean; windowKey?: string;
+  /** ext/1 ui.chatPart (0.130.0): the part of a chat folder the page fills (chatFolder.ts MODULE_PARTS) */
+  part?: string;
 }
 export interface FileAction {
   id: string; label: string; title: string; exts: string[]; exclude: string;
@@ -57,7 +59,7 @@ const MAX_CORE_ARGS = 32 * 1024 * 1024;
 const CORE_OP = /^core\.[a-z]+\.[a-z][a-zA-Z]{1,30}$/;
 
 /** Slots of ext/1 a module page can be put in (SPEC §3.6). */
-export const SLOTS = ['ui.header', 'ui.page', 'ui.panel', 'ui.settings', 'ui.composer', 'ui.hint'] as const;
+export const SLOTS = ['ui.header', 'ui.page', 'ui.panel', 'ui.settings', 'ui.composer', 'ui.hint', 'ui.chatPart'] as const;
 
 /**
  * Generic calls of the core a module page may make, with the permission its manifest must declare:
@@ -338,7 +340,33 @@ export const REQ_PERMISSION: Record<string, string> = {
   'data.get': 'data.env', 'data.set': 'data.env', 'data.delete': 'data.env', 'data.list': 'data.env',
   // 0.129.2: open a chat of the person by its id (e.g. the chat a mail thread belongs to); a move inside CO
   'chat.open': 'ui.navigate',
+  // 0.130.0: counts of the module's own chat-folder part (a ui.chatPart it declares; partCountsOf checks that)
+  'chat.partCounts': '',
 };
+
+const PART_CHAT = /^CHAT-\d{14}-[A-Z0-9]{4}$/;
+const MAX_PART_CHATS = 5000;
+
+/**
+ * 0.130.0 ext/1 chat.partCounts {part, counts: {<chatId>: n}}: the whole set of counts of a chat-folder part the module
+ * fills (it replaces the earlier set), from any page of the module (usually its tray, which is always loaded). Only for
+ * a part the module declared a ui.chatPart for; null = refuse.
+ */
+export function partCountsOf(m: Pick<ModuleInfo, 'enabled' | 'ui'>, args: Record<string, unknown>): { part: string; counts: Map<string, number> } | null {
+  const part = typeof args.part === 'string' ? args.part : '';
+  if (!m.enabled || !part || !m.ui.some((u) => u.slot === 'ui.chatPart' && u.part === part)) return null;
+  const c = args.counts;
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return null;
+  const entries = Object.entries(c as Record<string, unknown>);
+  if (entries.length > MAX_PART_CHATS) return null;
+  const counts = new Map<string, number>();
+  for (const [k, v] of entries) {
+    const n = Number(v);
+    if (!PART_CHAT.test(k) || !Number.isInteger(n) || n < 0 || n > 1_000_000) return null;
+    if (n > 0) counts.set(k, n);
+  }
+  return { part, counts };
+}
 
 /**
  * 0.129.2 chat.open: the CO address of a chat of the shown environment, or null for ids that are not a project and

@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioCapture, audioFileName, AudioPlayback, mediaSupport, platformDictation, SpeechCapture } from './composerMedia';
 import { dbAppData, dbAppNotify, dbModuleCall, dbModuleList, dbModulePerson, dbModuleUpload } from './dbapi';
-import { callRoute, capabilityRefusal, chatOpenPath, deviceOpSlot, moduleUrl, navTarget, parseExtMessage, reqRefusal, setModuleBadge, SLOT_PERMISSION, THEME_VARS, type ExtRequest, type ModuleHint, type ModuleInfo, type ModuleUi } from './extBridge';
+import { callRoute, capabilityRefusal, chatOpenPath, deviceOpSlot, moduleUrl, navTarget, parseExtMessage, partCountsOf, reqRefusal, setModuleBadge, SLOT_PERMISSION, THEME_VARS, type ExtRequest, type ModuleHint, type ModuleInfo, type ModuleUi } from './extBridge';
 import { setModuleList } from './moduleStore';
 import { fileService } from './moduleServices';
 import type { ChatEvent } from './types';
@@ -21,6 +21,7 @@ import { useNavigate } from 'react-router-dom';
 import { envOfPath, shellRoute } from './appStack';
 import { APP_REFRESH } from './appEvents';
 import { setImportSources } from './importPoint';
+import { MODULE_PARTS, modulePartCount, pruneModulePartCounts, registerChatPart, setModulePartCounts, type ChatPartId, type ChatRef } from './chatFolder';
 
 /** Handlers of generic core calls ("core.<point>.<call>") a slot offers its pages; refused unless the manifest declares the permission. */
 export type CoreCalls = Record<string, (args: Record<string, unknown>, caller: ModuleInfo) => Promise<unknown>>;
@@ -123,8 +124,9 @@ function theme(el: HTMLElement | null): Record<string, string> {
 
 interface FrameProps {
   m: ModuleInfo; ui: ModuleUi; me?: string; owner: boolean;
-  /** inline: sized by the page (header); fill: the whole box (page); hidden: no box at all (hint) */
-  mode?: 'inline' | 'fill' | 'hidden';
+  /** inline: sized by the page (header); fill: the whole box (page); hidden: no box at all (hint);
+   * block: the width of its place, the height the page asks for (a part of a chat folder, 0.130.0) */
+  mode?: 'inline' | 'fill' | 'hidden' | 'block';
   coreCalls?: CoreCalls;
   /** extra context of the place (e.g. the environment of a page) */
   extra?: Record<string, unknown>;
@@ -391,6 +393,17 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
         send({ t: 'result', id: r.id, ok: false, error: why });
         return;
       }
+      // 0.130.0: counts of the module's own chat-folder part (ui.chatPart): which chats have something there
+      if (r.name === 'chat.partCounts') {
+        const pc = partCountsOf(mod.current, r.args);
+        if (!pc) {
+          send({ t: 'result', id: r.id, ok: false, error: 'invalid counts' });
+          return;
+        }
+        setModulePartCounts(mod.current.id, pc.part, pc.counts);
+        send({ t: 'result', id: r.id, ok: true, data: { ok: true } });
+        return;
+      }
       // 0.129.2: open a chat of the person (in the shell; from a bare page or an app window in a new tab of CO)
       if (r.name === 'chat.open') {
         const env = envOfPath(window.location.pathname);
@@ -528,6 +541,14 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
       </div>
     );
   }
+  if (mode === 'block') {
+    return (
+      <span ref={wrap} className="module-block" style={{ height: closed.h || 40 }} data-module={m.id}>
+        <iframe ref={frame} src={src} title={ui.title || m.title} sandbox="allow-scripts allow-forms" referrerPolicy="no-referrer"
+          onLoad={onLoad} className="module-frame" style={{ width: '100%', height: closed.h || 40 }} />
+      </span>
+    );
+  }
   if (mode !== 'inline') {
     return (
       <span ref={wrap} className={mode === 'fill' ? 'module-page' : 'module-hidden'} data-module={m.id} aria-hidden={mode === 'hidden' || undefined}>
@@ -569,6 +590,30 @@ function overlayPos(wrap: HTMLElement | null, w: number): { left: number; top: n
   if (!r) return { left: 4, top: 4 };
   const vw = window.innerWidth;
   return { left: Math.max(4, Math.min(r.right - w, vw - w - 4)), top: Math.max(0, r.top) };
+}
+
+/**
+ * 0.130.0 ext/1 ui.chatPart: each such page of an enabled module fills its part of the chat folder (FolderContents),
+ * one frame per open chat folder with ctx.chat {projectId, chatId}; the part shows when the module reported a count for
+ * that chat (chat.partCounts, usually from its tray).
+ */
+export function useModuleChatParts(modules: ModuleInfo[], me: string | undefined, owner: boolean): void {
+  const parts = useMemo(() => modules.filter((m) => m.enabled).flatMap((m) => m.ui
+    .filter((u) => u.slot === 'ui.chatPart' && MODULE_PARTS.includes(u.part as ChatPartId))
+    .map((ui) => ({ m, ui, part: ui.part as ChatPartId }))), [modules]);
+  useEffect(() => {
+    pruneModulePartCounts(new Set(modules.filter((m) => m.enabled).map((m) => m.id)));
+    const off = parts.map(({ m, ui, part }) => registerChatPart({
+      part,
+      key: `module.${m.id}.${ui.id}`,
+      count: (chat: ChatRef) => modulePartCount(m.id, part, chat.chatId),
+      render: (chat: ChatRef) => (
+        <ModuleFrame key={`${m.id}/${ui.id}/${m.version}/${chat.chatId}`} m={m} ui={ui} me={me} owner={owner} mode="block"
+          extra={{ uiId: ui.id, chat: { projectId: chat.projectId, chatId: chat.chatId } }} />
+      ),
+    }));
+    return () => off.forEach((f) => f());
+  }, [parts, modules, me, owner]);
 }
 
 /** The pages one module declared for `slot` (Host → Modules shows ui.settings this way). */

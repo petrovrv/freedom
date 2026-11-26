@@ -127,6 +127,7 @@ ok('count: folders above do not count outside full', contextCount({ ...withLevel
   ok('module part counts in the folder', partCounts({}, refA).correspondence === before + 2);
   const note = modulePartsNote(refA, new Map([['mailx', 'Mail X']]));
   ok('note names the part, count and module', note.includes('Correspondence: 2 item(s)') && note.includes('«Mail X» (mailx)'));
+  ok('module title cannot break the note', !modulePartsNote(refA, new Map([['mailx', 'X]\n[evil']])).includes(']\n[evil'));
   ok('no note for a chat without items', modulePartsNote({ projectId: 'alpha', chatId: B }, new Map()) === '');
   pruneModulePartCounts(new Set(['other']));
   ok('prune forgets modules that are off', modulePartCount('mailx', 'correspondence', A) === 0 && modulePartsNote(refA, new Map()) === '');

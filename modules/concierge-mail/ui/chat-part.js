@@ -61,7 +61,13 @@ function render(list, more) {
 $('all').addEventListener('click', () => open('Почта c'));
 coExt.ready.then(c => {
   ctx = c; theme(c); load();
-  coExt.on('context', next => { const chatChanged = JSON.stringify(next.chat) !== JSON.stringify(ctx && ctx.chat); ctx = next; theme(next); if (chatChanged) { relay = null; load(); } });
+  // a new count of this chat (a thread put into it or taken out, CO Web passes ctx.count) or another chat: load again
+  coExt.on('context', next => {
+    const chatChanged = JSON.stringify(next.chat) !== JSON.stringify(ctx && ctx.chat), countChanged = next.count !== (ctx && ctx.count);
+    ctx = next; theme(next);
+    if (chatChanged) relay = null;
+    if (chatChanged || countChanged) load();
+  });
 }).catch(() => say('Не удалось загрузить переписку'));
 window.addEventListener('pagehide', () => { ticket++; });
 })();

@@ -43,7 +43,9 @@ async function refresh() {
 coExt.ready.then(ctx => {
   theme(ctx); hide();
   chip.addEventListener('click', () => coExt.navigate('/x/concierge-mail/mail', 'self'));
-  coExt.on('context', next => { theme(next); hide(); countsAt = 0; refresh(); });
+  // context comes on every resize too: counts restart only for another person (each call holds a relay slot)
+  let me = ctx.me;
+  coExt.on('context', next => { theme(next); hide(); if (next.me !== me) { me = next.me; countsAt = 0; } refresh(); });
   refresh();
   const timer = setInterval(refresh, 60000);
   window.addEventListener('pagehide', () => { clearInterval(timer); generation++; });

@@ -145,7 +145,9 @@ export function modulePartsNote(chat: ChatRef, titles: ReadonlyMap<string, strin
       n = 0;
     }
     const def = CHAT_PARTS.find((p) => p.id === c.part);
-    if (n > 0 && def) lines.push(`- ${def.label}: ${n} item(s) of the module «${titles.get(m[1]) || m[1]}» (${m[1]})`);
+    // the title comes from the module's manifest: one short line, no brackets that could end the note
+    const title = (titles.get(m[1]) || m[1]).replace(/[\u0000-\u001f\u2028\u2029[\]«»]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || m[1];
+    if (n > 0 && def) lines.push(`- ${def.label}: ${n} item(s) of the module «${title}» (${m[1]})`);
   }
   return lines.length
     ? `[Chat folder: besides the messages, the folder of this chat holds\n${lines.join('\n')}\nWhen the request may concern them, read them the way the rules of that module say.]\n\n`

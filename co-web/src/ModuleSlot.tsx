@@ -601,6 +601,8 @@ export function useModuleChatParts(modules: ModuleInfo[], me: string | undefined
   const parts = useMemo(() => modules.filter((m) => m.enabled).flatMap((m) => m.ui
     .filter((u) => u.slot === 'ui.chatPart' && MODULE_PARTS.includes(u.part as ChatPartId))
     .map((ui) => ({ m, ui, part: ui.part as ChatPartId }))), [modules]);
+  // counts belong to the signed-in person: another one starts empty
+  useEffect(() => () => pruneModulePartCounts(new Set()), [me]);
   useEffect(() => {
     pruneModulePartCounts(new Set(modules.filter((m) => m.enabled).map((m) => m.id)));
     const off = parts.map(({ m, ui, part }) => registerChatPart({
@@ -609,7 +611,7 @@ export function useModuleChatParts(modules: ModuleInfo[], me: string | undefined
       count: (chat: ChatRef) => modulePartCount(m.id, part, chat.chatId),
       render: (chat: ChatRef) => (
         <ModuleFrame key={`${m.id}/${ui.id}/${m.version}/${chat.chatId}`} m={m} ui={ui} me={me} owner={owner} mode="block"
-          extra={{ uiId: ui.id, chat: { projectId: chat.projectId, chatId: chat.chatId } }} />
+          extra={{ uiId: ui.id, chat: { projectId: chat.projectId, chatId: chat.chatId }, count: modulePartCount(m.id, part, chat.chatId) }} />
       ),
     }));
     return () => off.forEach((f) => f());

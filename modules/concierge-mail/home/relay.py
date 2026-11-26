@@ -328,7 +328,7 @@ class MailApi:
             "SELECT l.chat_id, MAX(l.chat_title) title, MAX(l.project_id) project, COUNT(DISTINCT l.thread_id) n,"
             " COUNT(DISTINCT CASE WHEN g.labels LIKE '%\"UNREAD\"%' THEN g.thread_id END) u, MAX(g.internal_date) d"
             " FROM chat_links l LEFT JOIN gmail_messages g ON g.account=l.account AND g.thread_id=l.thread_id AND g.gone=0"
-            " WHERE l.account=? GROUP BY l.chat_id ORDER BY d DESC LIMIT 200", (self.account,))
+            " WHERE l.account=? GROUP BY l.chat_id ORDER BY d DESC LIMIT 5000", (self.account,))
         return {'chats': [{'chat': r['chat_id'], 'title': r['title'], 'project': r['project'], 'threads': r['n'],
                            'unread': int(r['u'] or 0), 'date': r['d'] or 0} for r in rows]}
 

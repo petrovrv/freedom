@@ -1,5 +1,11 @@
 # Private action approvals (0.2.0)
 
+Registration (0.2.1): module installers pass `page_actions`, `agent_actions` and
+`outward_actions` to `relayctl.register`. Each deploy writes these reviewed policies
+again; omitted policies deny all, and previous on-host grants are not inherited.
+Malformed registrations and outward targets also allowed without approval are
+rejected before remote changes. Legacy installers must migrate before rollout.
+
 An outward action declared with `via` is staged at the environment's worker. The site stores only random request/revision IDs, module/action/version, timestamps and decision metadata. The original arguments never enter `argsView`, logs, push messages or result fields. Each transport uses fresh authenticated encryption; an approval can wait 30 minutes without replaying the original 120-second envelope.
 
 `app_relay_propose` takes the same encrypted envelope as `app_relay_call`, plus the inner `_approval:{phase:"stage"}` marker. The server chooses a request ID and revision and sends trusted `app-approval-v1` metadata separately. The worker checks both local and server schemas, module/version/actor/env/action and the envelope hash, then commits an immutable proposal to its own SQLite database. The tool must decrypt and validate the acknowledgement before telling the person that a proposal is ready. A transport acknowledgement alone may leave an inert pending card; its private preview will refuse it.

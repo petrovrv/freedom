@@ -135,7 +135,8 @@ def registered(args):
     return sorted(n.removesuffix('.json') for n in ssh(args, f'ls {CONF}/modules.d 2>/dev/null || true').split() if n.endswith('.json'))
 
 
-def register(args, module, exec_argv, env_file=None, write=(), only_if=None, credentials=None):
+def register(args, module, exec_argv, env_file=None, write=(), only_if=None, credentials=None, *,
+             page_actions=(), agent_actions=None, outward_actions=None):
     """A module's handler for every person's worker (called from the module's own deploy). exec_argv / env_file / write /
     only_if may contain {slug}; write: folders the handler may write (a drop-in of the unit template, '-' = may be missing);
     only_if: a path that must exist for a person to be served (e.g. the module's own config of that person);
@@ -143,7 +144,33 @@ def register(args, module, exec_argv, env_file=None, write=(), only_if=None, cre
     one name means one file for all modules, e.g. the person's account of provider-accounts)."""
     if not MODULE_RE.match(module) or not exec_argv or not str(exec_argv[0]).startswith('/'):
         sys.exit(f'register: bad module {module!r} or command')
-    spec = {'exec': [str(a) for a in exec_argv]}
+    # Policies come from the reviewed module installer on every deploy. Never inherit stale
+    # grants from a previous registration; omitted policies deliberately mean deny all.
+    if not isinstance(page_actions, (list, tuple)) or any(
+            not isinstance(a, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', a) for a in page_actions):
+        sys.exit('register: invalid page_actions')
+    policies = {}
+    for name, actions in (('agentActions', agent_actions), ('outwardActions', outward_actions)):
+        actions = {} if actions is None else actions
+        if not isinstance(actions, dict):
+            sys.exit(f'register: invalid {name}')
+        for action, rule in actions.items():
+            if (not isinstance(action, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', action)
+                    or not isinstance(rule, dict) or not isinstance(rule.get('action'), str)
+                    or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', rule['action'])
+                    or not isinstance(rule.get('version'), str) or not rule['version']
+                    or not isinstance(rule.get('args'), dict)
+                    or rule['args'].get('type') != 'object'
+                    or rule['args'].get('additionalProperties') is not False):
+                sys.exit(f'register: invalid {name} rule')
+        policies[name] = actions
+    outward_targets = {rule['action'] for rule in policies['outwardActions'].values()}
+    if outward_targets.intersection(page_actions) or outward_targets.intersection(
+            rule['action'] for rule in policies['agentActions'].values()):
+        sys.exit('register: outward target also allowed without approval')
+    spec = {'exec': [str(a) for a in exec_argv], 'pageActions': list(page_actions), **policies}
+    # Validate serialization before performing any remote mutation.
+    json.dumps(spec, allow_nan=False)
     if env_file:
         spec['envFile'] = env_file
     if only_if:

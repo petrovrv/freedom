@@ -37,6 +37,8 @@ UNITS = ['calendar-sync@.service', 'calendar-sync@.timer']
 CODE = '/opt/calendar'
 CLI = f'{CODE}/modules/calendar/home/calcli.py'
 HANDLER = ['/usr/bin/python3', CLI, '--root', '/srv/data/calendar/{slug}', 'relay-handler']
+# Provider reads and local display preferences only; no agent or outward grants.
+PAGE_ACTIONS = ('overview', 'range', 'event', 'upcoming', 'calendar_set')
 
 
 def _tar():
@@ -72,7 +74,8 @@ def deploy(args):
         ssh(args, f'sudo tee /etc/systemd/system/{unit} >/dev/null', source.read_bytes().replace(b'\r\n', b'\n'))
     ssh(args, 'sudo systemctl daemon-reload')
     failed = relayctl.register(args, 'calendar', HANDLER, env_file='/etc/calendar/{slug}.env',
-                               write=['/srv/data/calendar/{slug}'], only_if='/etc/calendar/{slug}.env')
+                               write=['/srv/data/calendar/{slug}'], only_if='/etc/calendar/{slug}.env',
+                               page_actions=PAGE_ACTIONS)
     print(json.dumps({'deployed': CODE, 'units': UNITS, 'people': people(args), 'relayHandler': 'calendar',
                       'notStarted': sorted(set(failed or []))}))
 

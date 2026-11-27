@@ -1,12 +1,12 @@
 {
  "format": "freedom-release/1",
- "version": "0.2.0",
- "created": "2026-11-27T12:40:22Z",
+ "version": "0.2.1",
+ "created": "2026-11-27T14:40:20Z",
  "files": [
   {
    "path": "APPROVALS.md",
-   "size": 5965,
-   "sha256": "db4770ff13bf894f0418b717788dc21a176119c924666ab978c7a986464b2a68"
+   "size": 6370,
+   "sha256": "dbd5707cf19f00e1a7b16c9b5dc402a8da75458a894067d7c8299040c32b7e71"
   },
   {
    "path": "home/app_test_fixture.py",
@@ -30,8 +30,8 @@
   },
   {
    "path": "home/hub/relayctl.py",
-   "size": 15049,
-   "sha256": "b80e81a8f26950ca4e566cc586946314d491f3f7df190e10336d209055d600be"
+   "size": 16947,
+   "sha256": "d52c995d61114e6d89648a7258036564365474fee7b98f4c898f5c890cd04908"
   },
   {
    "path": "home/relay_client.py",
@@ -54,6 +54,11 @@
    "sha256": "1b6213d6241c8f723de82b0b35bfb6890c47ff0a9df29a0de043e3ca1b46b540"
   },
   {
+   "path": "home/test_registration.py",
+   "size": 3241,
+   "sha256": "116847e1db5babf89393b2c0b174725903b280df222ce0fb98dd2ce02b173636"
+  },
+  {
    "path": "home/test_relay_client.py",
    "size": 6508,
    "sha256": "9affa6e4f772abdef977a7c3b54104be3c3369837ba87a0eeae70e5ffd2f1304"
@@ -66,7 +71,7 @@
   {
    "path": "module.json",
    "size": 1624,
-   "sha256": "be0006d8d38f2a61a6533c3836f921fbcce37d3ab43679e058791d508dff46b2"
+   "sha256": "f076c643625de1afd27264e6967adf6894cf0f5b50feaeb39b9d8e2420432e88"
   },
   {
    "path": "README.md",
@@ -93,7 +98,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "sK2XbP2HHPXLmykfEbEspOyK7mv0Wf3fit2JHjtYuOx8xcxI9mvTHHXvaLAk9YHXgrm2w8Y3QqEUhM2XNaCDDA=="
+   "sig": "lmYt++czS2/s4srM5dhoL5v8WlJSnAAlp+Pa6EcgvWZ7cE6VVqWnTCYeE/P46j8DoWbbzbT0x8185lXQllofBw=="
   }
  ],
  "module": "home-relay"

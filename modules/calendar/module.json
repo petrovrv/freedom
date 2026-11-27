@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "calendar",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "title": "Calendar",
   "description": "Calendar app (📅) of the person: Google Calendar is only the transport, a copy lives on the home server (one store per person, read-only sync), the page reaches it through the module home-relay (the site carries only end-to-end encrypted requests and answers). Week, day and agenda views, conflicts, a tray with the next meeting. Read only in 0.1: decisions and the agent come in 0.2 (docs/SPEC-calendar.md).",
   "ext": ">=1 <2",

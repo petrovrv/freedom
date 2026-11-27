@@ -5,6 +5,8 @@ line names the component and its version. How releases are made: `docs/DEVELOPME
 
 ## Unreleased
 
+- home-relay 0.2.1 / calendar 0.1.1: module installers explicitly register page, agent and outward policies on every deploy. Missing policies deny all; conflicting outward grants are refused before remote changes. Calendar registers provider reads and local display settings only. Mail migration is still required before relay rollout.
+
 - CO Web 0.137.0 / home-relay 0.2.0 / toolbox 1.11 (F14b-4): outward relay actions use immutable private proposals, browser-key encrypted previews, and one-use human Run grants. The worker durably claims execution before calling a handler; ambiguous outcomes are never retried and can be checked privately after reload. The site keeps only approval metadata. Legacy relay calls now require reviewed local pageActions registration and an approval-capable worker on every queue claim; see modules/home-relay/APPROVALS.md before rollout. Existing direct app actions retain their flow.
 
 - CO Web 0.136.0 (F14f): modules can declare a persistent chat per environment with `provides.moduleChat`. Launcher tiles open that chat with its mode enabled; the module panel appears beside it without a document, with View/Chat tabs on phones. Chat creation is serialized and retryable. The shell loads the saved chat before navigation, including when another chat in Applications is already open, so a new module cannot accidentally open as an ordinary draft. Existing document viewers remain available.

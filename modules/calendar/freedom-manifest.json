@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.1.0",
- "created": "2026-11-23T19:29:32Z",
+ "version": "0.1.1",
+ "created": "2026-11-27T14:41:06Z",
  "files": [
   {
    "path": "home/calapi.py",
@@ -20,8 +20,8 @@
   },
   {
    "path": "home/hub/calctl.py",
-   "size": 8319,
-   "sha256": "6fe8a94accb2c2f6ebc47057b3834c19385a094a8aa019b076fea95f0e8bc69b"
+   "size": 8532,
+   "sha256": "5b5e426059ca04f6721c0f3152c1b64024eb00ac5cee35a74ec03a6ded2fbf65"
   },
   {
    "path": "home/hub/calendar-sync-at.service",
@@ -51,7 +51,7 @@
   {
    "path": "module.json",
    "size": 1997,
-   "sha256": "3f3b6aba2821b84f081cd339daa020135ce3714a508cec818bc17f2d44bac5bb"
+   "sha256": "e613ead997ae015e6769b548158fb5ed524a5540baae62806124ea48c80fbe8e"
   },
   {
    "path": "README.md",
@@ -103,7 +103,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "G59QCXZ9ntRaQGF0y5tQuufmqncyoDhNyOpq4KHcy1iP/OBMEaB7upXjOIR8GUGOYNoutkbwogT2iG0hLplGDg=="
+   "sig": "D3cq9qH4BijVr/ICqinxnBrnBGsH0wI4GOb5ykCpV+gwhg9+C2o5elxsQhXedpZhKS9F6VoZlG3Zb6JOwZjOAg=="
   }
  ],
  "module": "calendar"

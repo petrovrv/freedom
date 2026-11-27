@@ -207,6 +207,9 @@ export interface ChatEvent {
   attachments?: AttachmentRef[];
   returnFiles?: string[];
   conversation?: { operation: 'new' | 'resume' | 'fork'; sessionId: string | null };
+  // 0.133.0 (msgEdit.ts): set by the server on a hidden (deleted or forgotten) message; rewriteOf = the message this one rewrote
+  deleted?: { utc: string; by: string; batch: string; mode: 'pair' | 'answer' | 'rewrite'; at: number };
+  rewriteOf?: number;
   mode?: Mode;
   model?: string | null;
   effort?: string | null;

@@ -1117,6 +1117,45 @@ export async function dbFollowupCancel(chatId: string, id: number): Promise<bool
   return j.cancelled === true;
 }
 
+// ---------- 0.133.0: delete a message / rewrite from here / restore (msgedit-lib.php) ----------
+
+export interface MsgTraces {
+  memory: { id: number; projectId: string; msg: number; tag: string; text: string; status: string }[];
+  dossier: { id: number; env: string; section: string; subject: string; text: string; msg: number }[];
+}
+export interface MsgHideResult {
+  batch: string;
+  seqs: number[];
+  stopped: string[];
+  answers: string[];
+  protocolRemoved: number;
+  traces: MsgTraces;
+}
+
+// Errors are user-facing: not_yours names the first message that belongs to someone else.
+async function msgOp(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const res = await post(body, false);
+  if (!res) throw new Error('The database is not reachable; nothing was changed.');
+  const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (res.ok) return j;
+  const err = String(j.error || res.status);
+  throw new Error(err === 'not_yours' ? `Message ${String(j.event || '')} belongs to someone else: only the chat's owner can remove it.`
+    : err === 'forbidden' ? 'Not allowed in this chat.' : err === 'expired' ? 'Older than 30 days: cannot be restored.'
+    : err === 'not_found' ? 'The message is not there any more (reload the chat).' : `Failed: ${err}`);
+}
+
+export async function dbMsgDelete(chatId: string, seq: number, mode: 'pair' | 'answer'): Promise<MsgHideResult> {
+  return (await msgOp({ op: 'msg_delete', chatId, seq, mode })) as unknown as MsgHideResult;
+}
+
+export async function dbMsgRewrite(chatId: string, seq: number): Promise<MsgHideResult> {
+  return (await msgOp({ op: 'msg_rewrite', chatId, seq })) as unknown as MsgHideResult;
+}
+
+export async function dbMsgRestore(chatId: string, batch: string): Promise<number> {
+  return Number((await msgOp({ op: 'msg_restore', chatId, batch })).restored || 0);
+}
+
 // ---------- 0.71.0: "Waiting for you" (db.php inbox / inbox_mark, inbox-lib.php) ----------
 
 export type InboxKind = 'ask' | 'captcha' | 'confirm' | 'action' | 'app' | 'failed' | 'memory' | 'tools';

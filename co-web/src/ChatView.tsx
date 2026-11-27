@@ -41,11 +41,12 @@ import { pingSiteAgent } from './siteAgent';
 import { formatBytes, formatLocal, safeFileName, sha256Hex } from './util';
 import { buildStreams, fetchVersion, isWorkingFile, matchUpload, uploadTarget, type ChatStream } from './chatFiles';
 import { UndoPanel } from './UndoPanel';
+import { canHide, canRewrite, hiddenOf, restorable, type DeletedBatch } from './msgEdit';
 import {
   appendEvent, copyToFolder, DbUnavailableError, fetchArtifact, finalizeTurn, locateArtifact, loadChatEvents, newCursor, readBridgeEvents, readJob, envProfileBlock, projectMemoryBlock, readProjectContextFile, readProjectInstructions, speaker,
   appendFamilyMessage, appendReaction, familyTranscript, createChat, eventHost, requestCancel, sendTurn, updateChatMeta, wantsTitle, type EventCursor, type HostDirs, type HostHealth, type Root,
 } from './workbench';
-import { dbDossierContext, dbFollowupAdd, dbFollowupCancel, dbFollowupDone, dbFollowupList, dbFollowupTake, dbGetTemplates, dbProtocol, dbPutTemplates, dbQueueOn, dbRelated, dbSharesGet, dbToolStarted, type Followup } from './dbapi';
+import { dbDossierContext, dbFollowupAdd, dbFollowupCancel, dbFollowupDone, dbFollowupList, dbFollowupTake, dbGetTemplates, dbProtocol, dbPutTemplates, dbQueueOn, dbRelated, dbSharesGet, dbToolStarted, dbMsgDelete, dbMsgRestore, dbMsgRewrite, dbMemoryDecide, dbDossierPut, type Followup, type MsgHideResult } from './dbapi';
 import { hintsBlock, storedHints, strongHits, wantsHints, type Related } from './secretaryHints';
 import { buildLevels, CONTEXT_MODE_HINT, CONTEXT_MODE_LABEL, type ContextMode } from './contextLevels';
 import { sideJobOf, sideReplies, viewMessage, type SideJob } from './extBridge';
@@ -448,6 +449,43 @@ export default function ChatView(props: Props) {
       ? !!chat.draft || chat.shareRole !== 'editor'
       : // 0.45.0: project viewers can write in chats shared to them as editor (not drafts)
         project.shareRole === 'viewer' && (!!chat.draft || chat.shareRole !== 'editor');
+  // 0.133.0 (msgEdit.ts): delete a message / rewrite from here; the server checks the rights again (rule 4)
+  const chatOwner = !project.shareRole && !chat.shareRole;
+  const [msgDone, setMsgDone] = useState<{ res: MsgHideResult; what: string } | null>(null);
+  const [msgErr, setMsgErr] = useState<string | null>(null);
+  const [msgUndo, setMsgUndo] = useState<ChatEvent | null>(null);
+  const rewriteOf = useRef<number | null>(null);
+  // hiddenOf() is refreshed by every load of the events
+  const batches = useMemo(() => (events ? restorable(hiddenOf(chat.chatId), Date.now()) : []), [chat.chatId, events]);
+  const hideMsg = async (e: ChatEvent, mode: 'pair' | 'answer' | 'rewrite') => {
+    const what = mode === 'rewrite' ? `everything from #${e.sequence} on` : mode === 'pair' ? `message #${e.sequence} with its answer` : `answer #${e.sequence}`;
+    const note = mode === 'rewrite'
+      ? `Rewrite from #${e.sequence}: ${what} is forgotten (hidden, restorable for 30 days), running jobs of these messages stop, the protocol goes back to #${e.sequence - 1} and the agent starts a new session. The text goes back into the message box.`
+      : `Delete ${what}? It is hidden (restorable for 30 days) and the agent starts a new session.`;
+    if (!window.confirm(note)) return;
+    setMsgErr(null);
+    try {
+      const res = mode === 'rewrite' ? await dbMsgRewrite(chat.chatId, e.sequence) : await dbMsgDelete(chat.chatId, e.sequence, mode);
+      setMsgDone({ res, what });
+      if (mode === 'rewrite') {
+        rewriteOf.current = e.sequence;
+        setPrefill({ text: e.text || '', agent: e.agent, nonce: Date.now() });
+      }
+      await reload();
+    } catch (x) {
+      setMsgErr(categorize(x).message);
+    }
+  };
+  const restoreBatch = async (b: DeletedBatch) => {
+    setMsgErr(null);
+    try {
+      await dbMsgRestore(chat.chatId, b.batch);
+      if (msgDone?.res.batch === b.batch) setMsgDone(null);
+      await reload();
+    } catch (x) {
+      setMsgErr(categorize(x).message);
+    }
+  };
   // 0.89.0: family chat (FamilyChat.tsx) - people write to each other, @co calls the agent
   const family = !!chat.family;
   const reactions = useMemo(() => reactionsOf(events || []), [events]);
@@ -777,8 +815,9 @@ export default function ChatView(props: Props) {
       hintsStoredResume: storedHints(strongHits(related)),
       extra: chat.family ? {
         family: true, ...(input.family?.replyTo ? { replyTo: input.family.replyTo } : {}), ...(input.family?.coFor ? { coFor: input.family.coFor } : {}),
-      } : undefined,
+      } : rewriteOf.current ? { rewriteOf: rewriteOf.current } : undefined,
     });
+    rewriteOf.current = null;
     if (target.hostId === 'site') void pingSiteAgent();
     return ev;
   }
@@ -1257,6 +1296,24 @@ export default function ChatView(props: Props) {
           </div>
         )}
         {loadErr && !staleUtc && <div className="error-box">{loadErr}</div>}
+        {msgErr && <div className="error-box">{msgErr}</div>}
+        {msgDone && <MsgTracesPanel done={msgDone} env={project.environmentId} hidden={hiddenOf(chat.chatId)} onUndo={setMsgUndo} onClose={() => setMsgDone(null)} />}
+        {msgUndo && <UndoPanel rootId={root.id} ev={msgUndo} events={[...(events || []), ...hiddenOf(chat.chatId)].sort((a, b) => a.sequence - b.sequence)}
+          projectId={project.projectId} chatId={chat.chatId} onClose={() => setMsgUndo(null)} />}
+        {!readOnly && batches.length > 0 && (
+          <details className="msg-restore small">
+            <summary className="muted">🗑 {batches.length} deleted in this chat (restorable for 30 days)</summary>
+            <ul>
+              {batches.map((b) => (
+                <li key={b.batch}>
+                  {b.mode === 'rewrite' ? `Forgotten from #${b.at} (${b.messages} messages)` : b.mode === 'pair' ? `#${b.at} with its answer` : `Answer #${b.at}`}
+                  <span className="muted"> · {formatLocal(b.utc)}</span>{' '}
+                  {(chatOwner || b.by === props.author.toLowerCase()) && <button className="link" onClick={() => void restoreBatch(b)}>Restore</button>}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
         {events === null && !loadErr && <div className="muted pad">Loading history from Drive…</div>}
         {inherited.length > 0 && (
           <div className="inherited">
@@ -1335,6 +1392,8 @@ export default function ChatView(props: Props) {
                   ev={e}
                   onEdit={() => setPrefill({ text: e.text || '', agent: e.agent, nonce: Date.now() })}
                   onBranch={() => void branchAt(previousMessageSeq(visible, e.sequence), 'branch', e.text || '')}
+                  onDelete={!readOnly && !family && canHide(e, visible, props.author, chatOwner) ? () => void hideMsg(e, 'pair') : undefined}
+                  onRewrite={!readOnly && !family && canRewrite(e, visible, props.author, chatOwner) ? () => void hideMsg(e, 'rewrite') : undefined}
                   owner={props.owner}
                   me={props.author}
                 />
@@ -1376,6 +1435,7 @@ export default function ChatView(props: Props) {
                 })
               }
               onBranch={() => void branchAt(e.sequence, 'branch')}
+              onDelete={!readOnly && !family && canHide(e, visible, props.author, chatOwner) ? () => void hideMsg(e, 'answer') : undefined}
               switchedTo={e.jobId ? switchedTo.get(e.jobId) : undefined}
               undo={readOnly ? undefined : { events: events || [], projectId: project.projectId, chatId: chat.chatId }}
               onQuick={quickFor === e.eventId ? (text) => setPrefill({ text, send: true, nonce: Date.now() }) : undefined}
@@ -1542,7 +1602,9 @@ function SideJobRow({ ev, side, answer, running, me }: { ev: ChatEvent; side: { 
   );
 }
 
-function UserBubble({ ev, onEdit, onBranch, owner, me, root }: { ev: ChatEvent; onEdit: () => void; onBranch: () => void; owner: OwnerInfo | null; me: string; root: Root }) {
+function UserBubble({ ev, onEdit, onBranch, onDelete, onRewrite, owner, me, root }: {
+  ev: ChatEvent; onEdit: () => void; onBranch: () => void; onDelete?: () => void; onRewrite?: () => void; owner: OwnerInfo | null; me: string; root: Root;
+}) {
   // 0.45.0: the other participant's name in shared chats
   const other = !!ev.author && ev.author !== me;
   const authorEnv = other ? ALLOWLIST[ev.author as string]?.env : undefined;
@@ -1555,6 +1617,7 @@ function UserBubble({ ev, onEdit, onBranch, owner, me, root }: { ev: ChatEvent; 
         <span className="muted">{formatLocal(ev.createdUtc)}</span>
         {ev.conversation?.operation === 'resume' && <span className="tag">resume</span>}
         {ev.followupOf && <span className="tag" title="Sent while the agent was working; it read the message after its current step">follow-up</span>}
+        {!!ev.rewriteOf && <span className="tag" title={`Rewritten: message #${ev.rewriteOf} and everything after it were forgotten`}>rewrites #{ev.rewriteOf}</span>}
         {ev.contextPack === 'protocol' && <span className="tag" title={ev.contextReason ? `new session: ${ev.contextReason}` : 'new session from the protocol'}>protocol</span>}
         {ev.contextMode && ev.contextMode !== 'full' && <span className="tag">{CONTEXT_MODE_LABEL[ev.contextMode]}</span>}
       </div>
@@ -1605,7 +1668,70 @@ function UserBubble({ ev, onEdit, onBranch, owner, me, root }: { ev: ChatEvent; 
         <button className="link" onClick={() => copy(ev.text || '')}>Copy</button>
         <button className="link" onClick={onEdit}>Edit and resubmit</button>
         <button className="link" onClick={onBranch} title="New chat that branches before this message, with this text ready to edit">⑂ Branch from here</button>
+        {(onDelete || onRewrite) && (
+          <details className="msg-more">
+            <summary className="link" title="More">⋯</summary>
+            <div className="msg-more-menu">
+              {onRewrite && <button className="link" onClick={onRewrite} title="Edit this message in place: it and everything after it are forgotten, the agent starts a new session">✎ Rewrite from here</button>}
+              {onDelete && <button className="link" onClick={onDelete} title="Hide this message and its answer (restorable for 30 days)">🗑 Delete with its answer</button>}
+            </div>
+          </details>
+        )}
       </div>
+    </div>
+  );
+}
+
+// 0.133.0: after a delete or rewrite - what was stopped, and what the forgotten messages left behind (memory candidates,
+// dossier rows, files of their jobs): shown to the person to remove, never removed silently
+function MsgTracesPanel({ done, env, hidden, onUndo, onClose }: {
+  done: { res: MsgHideResult; what: string }; env: string; hidden: ChatEvent[]; onUndo: (ev: ChatEvent) => void; onClose: () => void;
+}) {
+  const { res } = done;
+  const [gone, setGone] = useState<Set<string>>(new Set());
+  const [err, setErr] = useState<string | null>(null);
+  const act = async (key: string, fn: () => Promise<unknown>) => {
+    setErr(null);
+    try {
+      await fn();
+      setGone((g) => new Set(g).add(key));
+    } catch (x) {
+      setErr(categorize(x).message);
+    }
+  };
+  const files = hidden.filter((e) => e.type === 'assistant_message' && e.jobId && res.answers.includes(e.jobId) && (!!e.artifacts?.length || !!e.exportSkipped?.length));
+  const mem = res.traces.memory.filter((m) => !gone.has('m' + m.id));
+  const dos = res.traces.dossier.filter((d) => !gone.has('d' + d.id));
+  return (
+    <div className="msg-traces small">
+      <div>
+        Hidden: {done.what}{res.stopped.length ? ` · stopped ${res.stopped.length} running job(s)` : ''}{res.protocolRemoved ? ` · ${res.protocolRemoved} protocol entr${res.protocolRemoved === 1 ? 'y' : 'ies'} taken out` : ''}.{' '}
+        <button className="link" onClick={onClose}>Close</button>
+      </div>
+      {(mem.length > 0 || dos.length > 0 || files.length > 0) && <div className="muted">Left by the forgotten messages — remove what should be forgotten too:</div>}
+      <ul>
+        {mem.map((m) => (
+          <li key={'m' + m.id}>
+            memory #{m.msg} ({m.tag}, {m.status}): {m.text}{' '}
+            {m.status === 'pending'
+              ? <button className="link" onClick={() => void act('m' + m.id, () => dbMemoryDecide(m.id, 'reject'))}>Reject</button>
+              : <span className="muted">already in the project memory: remove it there</span>}
+          </li>
+        ))}
+        {dos.map((d) => (
+          <li key={'d' + d.id}>
+            dossier #{d.msg} ({d.section}{d.subject ? ` · ${d.subject}` : ''}): {d.text}{' '}
+            <button className="link" onClick={() => void act('d' + d.id, () => dbDossierPut(d.env || env, 'delete', { id: d.id }))}>Delete</button>
+          </li>
+        ))}
+        {files.map((e) => (
+          <li key={e.eventId}>
+            files of answer #{e.sequence}{' '}
+            <button className="link" onClick={() => onUndo(e)}>↶ Undo changes of this job</button>
+          </li>
+        ))}
+      </ul>
+      {err && <div className="error-box">{err}</div>}
     </div>
   );
 }
@@ -1733,11 +1859,11 @@ const ICON: Record<string, string> = {
 };
 
 function AssistantBubble({
-  ev, owner, root, host, onContinue, onCritique, onRetry, onRetryNew, onBranch, onQuick, switchedTo, undo,
+  ev, owner, root, host, onContinue, onCritique, onRetry, onRetryNew, onBranch, onDelete, onQuick, switchedTo, undo,
 }: {
   switchedTo?: string; // 0.71.0: agent the server retried this failed job on
   ev: ChatEvent; owner: OwnerInfo | null; root: Root; host: HostDirs;
-  onContinue: (a: AgentId) => void; onCritique: (a: AgentId) => void; onRetry: (a: AgentId, text?: string) => void; onRetryNew: () => void; onBranch: () => void;
+  onContinue: (a: AgentId) => void; onCritique: (a: AgentId) => void; onRetry: (a: AgentId, text?: string) => void; onRetryNew: () => void; onBranch: () => void; onDelete?: () => void;
   onQuick?: (text: string) => void; // 0.57.0: set only for the newest answer
   undo?: { events: ChatEvent[]; projectId: string; chatId: string }; // 0.72.0: unset when the chat is read-only
 }) {
@@ -1848,6 +1974,7 @@ function AssistantBubble({
         <button className="link" onClick={() => onCritique(other)}>Ask {agentName(other)} to critique</button>
         <button className="link" onClick={onBranch} title="New chat that continues from this answer; this chat stays as it is">⑂ Branch</button>
         {canUndo && <button className="link" onClick={() => setUndoOpen((o) => !o)} title="Preview the files this answer changed in the chat folder and restore their earlier versions">↶ Undo changes of this job</button>}
+        {onDelete && <button className="link" onClick={onDelete} title="Hide this answer only (restorable for 30 days); the agent starts a new session">🗑 Delete answer</button>}
       </div>
       {canUndo && undoOpen && <UndoPanel rootId={root.id} ev={ev} events={undo!.events} projectId={undo!.projectId} chatId={undo!.chatId} onClose={() => setUndoOpen(false)} />}
     </div>

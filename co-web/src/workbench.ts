@@ -21,6 +21,7 @@ import { mapLimit, newChatId, newEventId, newJobId, nowUtc, safeFileName, sha256
 import { md5Hex } from './md5';
 import { importSpeaker } from './importPoint';
 import { gatewayBlocked, gatewayBlockedFields } from './gateway';
+import { hiddenOf, maxSeq, sessionsSince, setHidden, splitHidden } from './msgEdit';
 import { dbChats, dbCooldownLeft, dbDeleteChat, dbDeleteTrashedChat, dbEvents, dbJobCancel, dbJobEvents, dbJobGet, dbJobSubmit, dbProjects, dbPut, dbReadsPrimary, dbGetProfile, dbSharedProjects } from './dbapi';
 import { cachedChatEvents, saveChatEvents } from './eventCache';
 import { memoryIndex } from './memoryIndex';
@@ -413,7 +414,10 @@ export async function loadChatEvents(chat: Chat): Promise<ChatEvent[]> {
       for (const x of localWrites.get(chat.chatId) || []) {
         if (Date.now() - x.at < 600000 && !byId.has(x.ev.eventId)) byId.set(x.ev.eventId, x.ev);
       }
-      const sorted = [...byId.values()].sort((a, b) => a.sequence - b.sequence || a.createdUtc.localeCompare(b.createdUtc));
+      const all = [...byId.values()].sort((a, b) => a.sequence - b.sequence || a.createdUtc.localeCompare(b.createdUtc));
+      // 0.133.0: deleted or forgotten messages stay out of the chat and of the agent's context (msgEdit.ts)
+      const { visible: sorted, hidden } = splitHidden(all);
+      setHidden(chat.chatId, hidden);
       void saveChatEvents(chat.chatId, sorted);
       return withArtifactPaths(chat, sorted);
     }
@@ -475,7 +479,8 @@ export async function appendEvent(
   existing: ChatEvent[],
   partial: Omit<ChatEvent, 'schemaVersion' | 'eventId' | 'sequence' | 'createdUtc' | 'chatId' | 'branchId'> & { branchId?: string },
 ): Promise<ChatEvent> {
-  const sequence = existing.reduce((m, e) => Math.max(m, e.sequence), 0) + 1;
+  // 0.133.0: numbers of hidden messages are not given again (a rewrite gets the next number, #N links stay valid)
+  const sequence = Math.max(maxSeq(existing), maxSeq(hiddenOf(chat.chatId))) + 1;
   const ev: ChatEvent = {
     schemaVersion: 1, eventId: newEventId(), sequence, createdUtc: nowUtc(),
     chatId: chat.chatId, branchId: partial.branchId || DEFAULT_BRANCH, ...partial,
@@ -812,7 +817,7 @@ export async function sendTurn(input: SendInput): Promise<ChatEvent> {
   const branchId = DEFAULT_BRANCH;
   const mode: Mode = input.mode || 'cowork';
   const levels = input.levels ?? (input.projectInstructions.trim() ? `[Project instructions]\n${input.projectInstructions.trim()}\n[End of project instructions]` : '');
-  const plan = planConversation(input.events, agent, levels, input.forceNewSession, mode, chat.movedUtc, host.hostId, input.live ? { ...input.live, nowMs: Date.now() } : undefined);
+  const plan = planConversation(input.events, agent, levels, input.forceNewSession, mode, sessionsSince(chat.movedUtc, hiddenOf(chat.chatId)), host.hostId, input.live ? { ...input.live, nowMs: Date.now() } : undefined);
   const withNote = plan.operation === 'new' || !sessionHasNote(input.events, plan.sessionId!);
   const note = withNote ? `${workbenchNote(host.hostId, project, chat, mode, input.live?.contextMode === 'clean')}\n\n` : '';
 

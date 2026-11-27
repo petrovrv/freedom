@@ -136,6 +136,14 @@ code, pre { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; fon
 .msg-body { overflow-wrap: anywhere; }
 .msg-body.draft { opacity: .85; border-top: 1px dashed var(--line); margin-top: 8px; padding-top: 6px; }
 .msg-actions { display: flex; gap: 14px; margin-top: 6px; flex-wrap: wrap; }
+/* 0.133.0: ⋯ menu of a message (rewrite from here, delete), traces of forgotten messages, restore bar */
+.msg-more { position: relative; display: inline-block; }
+.msg-more > summary { list-style: none; cursor: pointer; }
+.msg-more > summary::-webkit-details-marker { display: none; }
+.msg-more-menu { position: absolute; z-index: 5; right: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; white-space: nowrap;
+  background: var(--panel, #fff); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 2px 8px rgba(0, 0, 0, .15); }
+.msg-traces, .msg-restore { margin: 6px 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; }
+.msg-traces ul, .msg-restore ul { margin: 4px 0 0; padding-left: 18px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .chip { background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; font-size: 12.5px; }
 .chip-x { background: none; border: 0; cursor: pointer; margin-left: 4px; }

@@ -1,6 +1,7 @@
 """Local concierge mail archive. Never sends mail."""
 import argparse
 import json
+import re
 from pathlib import Path
 from mailstore import Store, sync_imap, sync_account
 from workflow import Workflow, critic
@@ -10,6 +11,21 @@ import deliver
 import os
 import sys
 import gmailsync
+
+
+def message_ref(store, ref):
+    """`show` id: a store rowid (digits) or a Gmail message id (hex, as the Mail page shows it) of this mailbox."""
+    ref = str(ref).strip()
+    if re.fullmatch(r'\d{1,15}', ref):
+        return int(ref)
+    if not re.fullmatch(r'[0-9a-f]{8,32}', ref):
+        raise SystemExit('show: id is a number or a Gmail message id')
+    account = os.environ.get('ACCOUNT', '').strip().lower()
+    row = store.db.execute('SELECT message_id FROM gmail_messages WHERE gmail_id=?' + (' AND account=?' if account else '')
+                           + ' ORDER BY gone LIMIT 1', (ref, account) if account else (ref,)).fetchone()
+    if not row:
+        raise SystemExit('show: no such message')
+    return int(row[0])
 
 
 def main():
@@ -27,7 +43,7 @@ def main():
     sync.add_argument('--refetch', action='store_true', help='download already archived UIDs again (restores stubs after heuristic fixes)')
     sub.add_parser('list')
     show = sub.add_parser('show')
-    show.add_argument('id', type=int)
+    show.add_argument('id', help='message id of the store, or (0.15.0) a Gmail message id as the Mail page shows it')
     search = sub.add_parser('search')
     search.add_argument('query')
     sub.add_parser('cases')
@@ -100,6 +116,10 @@ def main():
     cm.add_argument('--thread', help='one of its threads: the messages as plain text')
     cm.add_argument('--account', help='mailbox (default ACCOUNT of the env file on the home server)')
     cm.add_argument('--limit', type=int, default=20)
+    cm.add_argument('--find', metavar='WORDS', help='0.15.0: Gmail threads of the whole mailbox with these words (ids for --link)')
+    cm.add_argument('--link', metavar='THREAD', help='0.15.0: put this thread into the chat (the thread the person talks about)')
+    cm.add_argument('--title', help='with --link: the title of the chat (shown in the Mail page)')
+    cm.add_argument('--project', help='with --link: the project id of the chat')
     sub.add_parser('relay-handler', help="answer the person's Mail page: handler of the home-relay worker (JSON lines on stdin/stdout; read only)")
     sub.add_parser('backup-keygen', help='new backup key pair: the private key goes to the keyring of THIS device (aiwb/concierge-mail-backup), the public one is printed for the hub')
     bd = sub.add_parser('backup-drive', help="encrypted incremental backup into the person's own Google Drive (public key from BACKUP_PUBLIC_KEY)")
@@ -141,7 +161,20 @@ def main():
             if not account:
                 raise SystemExit('chat-mail: no mailbox (--account or ACCOUNT)')
             store.db.execute('PRAGMA busy_timeout=60000')  # the sync may hold the store for a batch
-            result = relay.chat_mail(relay.MailApi(store, account), args.chat, args.thread, args.limit)
+            api = relay.MailApi(store, account)
+            if sum(bool(x) for x in (args.link, args.thread, args.find)) > 1:
+                raise SystemExit('chat-mail: --find, --link and --thread are separate calls')
+            if args.find:
+                result = relay.find_threads(api, args.find, args.limit)
+            elif args.link:
+                if store.db.execute('SELECT 1 FROM gmail_messages g JOIN messages m ON m.id=g.message_id WHERE g.account=?'
+                                    ' AND g.thread_id=? AND g.gone=0 AND (m.tainted OR m.sensitive) LIMIT 1',
+                                    (account, args.link)).fetchone():
+                    raise SystemExit('chat-mail --link: the thread has a letter flagged by read-guard or a sign-in code;'
+                                     ' the person can put it into the chat in ✉')
+                result = api.link({'thread': args.link, 'chat': args.chat, 'title': args.title, 'project': args.project})
+            else:
+                result = relay.chat_mail(api, args.chat, args.thread, args.limit)
         elif command == 'relay-handler':
             import relay
             relay.handler_main(store)
@@ -155,7 +188,7 @@ def main():
         elif command == 'list':
             result = store.list_messages()
         elif command == 'show':
-            result = store.get_message(args.id)
+            result = store.get_message(message_ref(store, args.id))
         elif command == 'search':
             result = store.search(args.query)
         elif command == 'cases':

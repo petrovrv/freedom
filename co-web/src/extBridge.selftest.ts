@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // node src/extBridge.selftest.ts - the message checks of the ext/1 bridge (Freedom F10).
-import { callRefusal, callRoute, capabilityRefusal, chatOpenPath, deviceOpSlot, moduleUrl, parseExtMessage, parseHint, reqRefusal, shellApps, shellOpen, shellSettings, type ModuleInfo } from './extBridge.ts';
+import { callRefusal, callRoute, capabilityRefusal, chatDraftText, chatOpenPath, deviceOpSlot, moduleUrl, parseExtMessage, parseHint, reqRefusal, shellApps, shellOpen, shellSettings, type ModuleInfo } from './extBridge.ts';
 
 let fail = 0;
 function ok(name: string, cond: boolean): void {
@@ -163,6 +163,7 @@ ok('chat.open path', chatOpenPath({ projectId: 'Freedom', chatId: 'CHAT-20261119
 ok('chat.open refuses bad ids', [{ projectId: '../x', chatId: 'CHAT-20261119164352-XE5N' }, { projectId: 'P', chatId: 'CHAT-1/../x' }, { projectId: '..', chatId: 'CHAT-20261119164352-XE5N' }, { projectId: 'P' }, {}].every((a) => chatOpenPath(a, 'env-a') === null) && chatOpenPath({ projectId: 'P', chatId: 'CHAT-20261119164352-XE5N' }, '') === null);
 // 0.129.3 chat.open with the module's own viewer
 ok('chat.open viewer on a project', chatOpenPath({ projectId: 'Home', viewer: 'Почта' }, 'env-a', 'mail') === '/e/env-a/p/Home?mail=%D0%9F%D0%BE%D1%87%D1%82%D0%B0');
+ok('chat.open draft is one plain line', chatDraftText('  О письме\n«Тема»\u0000 (#12):  ') === 'О письме «Тема» (#12):' && chatDraftText(5) === '' && chatDraftText(' \n ') === '' && chatDraftText('x'.repeat(900)).length === 600 && chatDraftText('a\u202eb\u200bc') === 'abc');
 ok('chat.open viewer on a chat', chatOpenPath({ projectId: 'Home', chatId: 'CHAT-20261119164352-XE5N', viewer: 'inbox' }, 'env-a', 'mail') === '/e/env-a/p/Home/c/CHAT-20261119164352-XE5N?mail=inbox');
 ok('chat.open viewer refused', [{ projectId: 'Home', viewer: 'x' }].every((a) => chatOpenPath(a, 'env-a', '') === null)
   && [{ projectId: 'Home', viewer: '../x' }, { projectId: 'Home', viewer: 'a?b=c' }, { projectId: 'Home', viewer: '' }, { projectId: 'Home', viewer: 5 }, { projectId: 'Home', viewer: ' ' }]

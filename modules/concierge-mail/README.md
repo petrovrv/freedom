@@ -92,6 +92,12 @@ it with the core service `chat.open {projectId, chatId?, viewer: "Почта"}` 
 "✉ Почта" there with the mode on. The agent reads mail through `hubctl.py run` (read only) and prepares replies in the
 chat or as Gmail drafts with gmail-draft on request; sending, marking and archiving stay the person's clicks in ✉.
 
+0.15.0 (CO Web 0.133.0, permission `chat.post`): "💬 Спросить агента" in an open letter puts one line
+"О письме «тема» от отправитель, дата (письмо #id): " into the message box of the mail chat (`chat.open` with `draft`)
+or, next to a chat, of that chat (`chat.ask` with `send: false`); the person writes the question and sends it. On an
+older core next to a chat the button is not shown (it would send at once). After the update the module is off until
+the person switches it on again (new permission).
+
 ## Correspondence of chats (0.12.0)
 
 A mail thread can belong to CO chats. The mail is not copied: on the home server the handler keeps the person's links
@@ -108,7 +114,11 @@ in the mail store (`chat_links`: account, thread id, chat id, a copy of the chat
 - **Agent of a chat**: `mailcli.py chat-mail --chat CHAT-ID [--thread T] [--limit N]` (through `hubctl.py run <slug>
   -- chat-mail ...` from the person's device): the threads of that chat, or the messages of one of its threads as
   text (no html; codes stay stubs; read-guard wraps the output). A thread not linked to that chat is refused, and
-  `hubctl run` of an agent job (`AIWB_CHAT_ID` set) refuses `chat-mail` for any other chat. This is a boundary of the
+  `hubctl run` of an agent job (`AIWB_CHAT_ID` set) refuses `chat-mail` for any other chat. 0.15.0: `chat-mail --chat
+  CHAT-ID --link THREAD --title T [--project P]` - the agent puts the thread the person talks about into its own chat
+  (the same link as "🗂 В чат…"; hubctl takes the project from the job folder `projects/<p>/chats/<chat>`);
+  a job cannot name the project, and a thread with a read-guard flag or a sign-in code is refused (the person links
+  it in ✉); `show` takes a Gmail message id too; `chat-mail --chat CHAT-ID --find "words"` lists Gmail threads of the whole mailbox (ids for `--link`; no bodies). This is a boundary of the
   command, not of the job: the agent of the environment may still search the whole mailbox as before.
 - Next (core): the chat's folder part "Correspondence" shows these threads inside CO and the agent gets them as context
   without asking.

@@ -427,6 +427,14 @@ class MailApi:
 TEXT_MAX = 8000  # characters of one message for an agent
 
 
+def find_threads(api, words, limit=20):
+    """mailcli chat-mail --find: Gmail threads of the mailbox with these words - the thread ids --link and ✉ use (the
+    older `search` gives ids of the IMAP archive). No bodies: subject, senders, date, snippet, the chats it is in."""
+    got = api.search({'q': words, 'limit': max(1, min(int(limit or 20), 50))})
+    return {'threads': [{k: t[k] for k in ('thread', 'date', 'count', 'subject', 'from', 'snippet', 'chats', 'sensitive', 'tainted')}
+                        for t in got['threads']]}
+
+
 def chat_mail(api, chat, thread=None, limit=20):
     """mailcli chat-mail: an agent of a chat reads that chat's correspondence (text only, no html, codes stay stubs)."""
     if not thread:

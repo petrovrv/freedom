@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioCapture, audioFileName, AudioPlayback, mediaSupport, platformDictation, SpeechCapture } from './composerMedia';
 import { dbAppData, dbAppNotify, dbModuleCall, dbModuleList, dbModulePerson, dbModuleUpload } from './dbapi';
-import { callRoute, capabilityRefusal, chatOpenPath, deviceOpSlot, moduleUrl, navTarget, parseExtMessage, partCountsOf, reqRefusal, setModuleBadge, SLOT_PERMISSION, THEME_VARS, type ExtRequest, type ModuleHint, type ModuleInfo, type ModuleUi } from './extBridge';
+import { callRoute, capabilityRefusal, chatDraftText, chatOpenPath, deviceOpSlot, moduleUrl, navTarget, parseExtMessage, partCountsOf, reqRefusal, setModuleBadge, SLOT_PERMISSION, THEME_VARS, type ExtRequest, type ModuleHint, type ModuleInfo, type ModuleUi } from './extBridge';
 import { setModuleList } from './moduleStore';
 import { fileService } from './moduleServices';
 import type { ChatEvent } from './types';
@@ -20,7 +20,7 @@ import { useInterval } from './hooks';
 import { useNavigate } from 'react-router-dom';
 import { envOfPath, shellRoute } from './appStack';
 import { APP_REFRESH } from './appEvents';
-import { askAboutFile } from './FileViewer';
+import { askAboutFile, type FileAskState } from './FileViewer';
 import { setImportSources } from './importPoint';
 import { MODULE_PARTS, modulePartCount, pruneModulePartCounts, registerChatPart, setModulePartCounts, type ChatPartId, type ChatRef } from './chatFolder';
 
@@ -149,10 +149,10 @@ interface FrameProps {
 
 /** What a viewer pane (ui.panel of a chat mode) is linked to: its chat, and what it may do there. */
 export interface PanelLink {
-  chat: { id: string | null; title: string };
+  chat: { id: string | null; title: string; projectId?: string | null };
   events: ChatEvent[] | null;
   canAsk: boolean;
-  ask: (text: string, files: File[]) => void;
+  ask: (text: string, files: File[], send?: boolean) => void;
   reveal: (eventId: string) => void;
   close: () => void;
 }
@@ -176,7 +176,8 @@ async function service(name: string, args: Record<string, unknown>, rootId: stri
       if (typeof x?.name !== 'string' || !(x.bytes instanceof ArrayBuffer) || /[/\\]/.test(x.name)) return [];
       return [new File([x.bytes], x.name.slice(0, 120), { type: typeof x.type === 'string' ? x.type : 'application/octet-stream' })];
     });
-    panel.ask(text, files);
+    // 0.133.0: send false - only into the message box of the chat; the person adds the question and sends it
+    panel.ask(text, files, args.send !== false);
     return { data: { ok: true }, transfer: [] };
   }
   if (name === 'chat.reveal') {
@@ -416,9 +417,21 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
           send({ t: 'result', id: r.id, ok: false, error: 'invalid chat' });
           return;
         }
-        if (env) routerNav(path);
+        // 0.133.0: `draft` - a line for the message box of that chat (permission chat.post too); never sent by itself
+        const draft = r.args.draft == null ? null : chatDraftText(r.args.draft);
+        if (draft !== null && !mod.current.permissions.includes('chat.post')) {
+          send({ t: 'result', id: r.id, ok: false, error: 'permission_not_declared' });
+          return;
+        }
+        if (draft === '') {
+          send({ t: 'result', id: r.id, ok: false, error: 'invalid draft' });
+          return;
+        }
+        const state: FileAskState | undefined = draft ? { fileAsk: { text: draft, nonce: Date.now() } } : undefined;
+        if (env) routerNav(path, state ? { state } : undefined);
         else window.open(path, '_blank', 'noopener');
-        send({ t: 'result', id: r.id, ok: true, data: { ok: true } });
+        // a new tab of CO does not get the draft: `draft: false` tells the page
+        send({ t: 'result', id: r.id, ok: true, data: { ok: true, ...(draft ? { draft: !!env } : {}) } });
         return;
       }
       // 0.132.0 file.ask: the chat of the file (or the open chat) with "About the file <path>: «quote»" in its message

@@ -389,6 +389,16 @@ export function chatOpenPath(args: Record<string, unknown>, env: string, viewerP
   const path = `/e/${encodeURIComponent(env)}/p/${encodeURIComponent(pid)}` + (cid ? `/c/${cid}` : '');
   return view === null ? path : `${path}?${encodeURIComponent(viewerParam)}=${encodeURIComponent(view)}`;
 }
+/**
+ * 0.133.0 chat.open `draft`: one line for the message box of the opened chat (control characters and line breaks become
+ * spaces, zero-width and bidi format characters are dropped, at most 600 characters); '' for anything else. The person sees it, adds the question and sends it.
+ */
+export function chatDraftText(v: unknown): string {
+  if (typeof v !== 'string') return '';
+  return v.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, '')
+    .replace(/ {2,}/g, ' ').trim().slice(0, 600);
+}
+
 const PANEL_ONLY = new Set(['chat.ask', 'chat.reveal', 'panel.close']);
 
 /** Why a core service request is refused ('' = allowed). */

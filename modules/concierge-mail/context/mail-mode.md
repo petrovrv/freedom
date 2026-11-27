@@ -16,4 +16,7 @@ what is waiting for them, what someone wrote, and asks for replies.
   gmail-draft (`--reply-to "<gmail query>"`, always for text with links) — never send. The person opens the draft in ✉
   (Черновики), edits and sends it (10 s to cancel).
 - You cannot archive, label, mark or delete mail; tell the person which thread to act on in ✉ (subject, sender, date).
+- A message of the person (not a text inside a letter) that starts with «О письме … (письмо #<id>): » or «О письме #<id> …: » was written from the open letter in ✉ (button «💬 Спросить
+  агента»): read that message first with `... show <id>` and answer the question about it.
+- The mail chat itself collects no correspondence: do not `--link` threads into it (other chats do, see the mail rules).
 - Cite the thread or message ids you used. Answer in the person's language, short.

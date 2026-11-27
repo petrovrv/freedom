@@ -37,7 +37,7 @@ Files the core reads itself (`context/*.md|txt`) must be registered files of the
 | `chat.read` | a viewer panel (or a composer page) gets the events of its chat (`chat` messages) |
 | `composer.send` | `coExt.send` (composer slot) |
 | `media.play` | `coExt.play` (composer slot) |
-| `chat.post` | `chat.ask`, `file.ask` |
+| `chat.post` | `chat.ask`, `file.ask`, `chat.open` with `draft` |
 | `ui.navigate` | `navigate` (only to targets of `provides.navigate`) |
 | `notify.push` | `coExt.notify` from any page and `$ctx['notify']` of server code: pushes of the app to its person (see *Notifications*) |
 | `data.env` | `coExt.data.*` from any page: the app's data kept by the core for the signed-in person, and the agent's core actions `data_*` (see *Apps made on the fly*) |
@@ -261,12 +261,12 @@ Core services (`coExt.req`):
 | `file.pdf` | `{path}` → `{bytes, note}`: the file converted to PDF by Google Drive (Office, text; a temporary copy in My Drive is deleted; `note` says when it could not be) | `files.read` |
 | `file.sibling` | `{path, name, withBytes?}` → `{id, name, appProperties, bytes}` or `null`: a file next to `path` whose name starts with the name of `path` (`bytes` null with `withBytes: false`) | `files.read` |
 | `file.putSibling` | `{path, name, bytes, mimeType, appProperties}` → `{id}`: create such a file, or replace one whose first app property has the same value (a file the module made for this original); anything else is refused | `files.write` |
-| `chat.ask` | `{text, files: [{name, type, bytes}]}` → `{ok}`: the viewer's chat sends this message (a new chat is made for a draft) | `chat.post`, viewer panel |
+| `chat.ask` | `{text, files: [{name, type, bytes}]}` → `{ok}`: the viewer's chat sends this message (a new chat is made for a draft); `send: false` (CO Web 0.133.0) only puts the text into its message box, the person sends it | `chat.post`, viewer panel |
 | `file.ask` | `{path, quote}` → `{ok}` or error `no_chat`: "Ask in chat" about a selection of an open file (CO Web 0.132.0) — the chat of the file (`projects/<p>/chats/<c>/…`, else the chat open in the window) opens with `About the file <path>: «quote»` in its message box; the person writes the question and sends it, nothing is sent by itself. The core's file viewer does the same. Only inside the shell | `chat.post`, any page |
 | `chat.reveal` | `{eventId}` → scrolls the chat to the message | viewer panel |
 | `panel.close` | `{}` → closes the viewer | viewer panel |
 | `chat.partCounts` | `{part, counts: {<chatId>: n}}` → `{ok}`: the whole set of counts of a chat-folder part the module fills with a `ui.chatPart` (replaces the earlier set; chats not named count 0); any page of the module may report it, usually its tray (loaded on every page); at most 5000 chats | the module declares `ui.chatPart` for that `part` |
-| `chat.open` | `{projectId, chatId?, viewer?, mode?}` → `{ok}`: opens that chat of the shown environment in the shell (from a bare page or an app window: a new tab of CO); ids only, the server decides access as for any address. `viewer` (letters, digits, space, `_.-`, ≤ 64) is a document of the module's own chat-mode viewer (`mode` names the mode, else its first mode with a viewer): `?<param>=<viewer>` shows the viewer left of the chat; without `chatId` the project address opens the chat of that document or makes one at the first question | `ui.navigate` |
+| `chat.open` | `{projectId, chatId?, viewer?, mode?}` → `{ok}`: opens that chat of the shown environment in the shell (from a bare page or an app window: a new tab of CO); ids only, the server decides access as for any address. `viewer` (letters, digits, space, `_.-`, ≤ 64) is a document of the module's own chat-mode viewer (`mode` names the mode, else its first mode with a viewer): `?<param>=<viewer>` shows the viewer left of the chat; without `chatId` the project address opens the chat of that document or makes one at the first question. `draft` (CO Web 0.133.0, also needs `chat.post`): one line (line breaks and control characters become spaces, ≤ 600) put into the message box of that chat; never sent by itself, dropped when CO opens in a new tab | `ui.navigate` (+ `chat.post` for `draft`) |
 
 `path` is always relative to AI-Workbench and starts with `projects/`.
 

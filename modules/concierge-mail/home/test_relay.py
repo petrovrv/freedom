@@ -109,6 +109,15 @@ class RelayTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             relay.chat_mail(self.mail, 'CHAT-x')
 
+    def test_agent_finds_gmail_threads_and_links_one(self):
+        chat = 'CHAT-20261127100000-CD34'
+        found = relay.find_threads(self.mail, 'heat pump')['threads']
+        self.assertEqual([t['subject'] for t in found], ['Hello heat pump'])
+        self.assertNotIn('text', found[0])
+        self.mail.link({'thread': found[0]['thread'], 'chat': chat, 'title': 'Job', 'project': 'Job_Search'})
+        self.assertEqual([t['subject'] for t in relay.chat_mail(self.mail, chat)['threads']], ['Hello heat pump'])
+        self.assertEqual(relay.find_threads(self.mail, '!!!')['threads'], [])
+
     def test_links_per_thread_are_limited(self):
         heat = self.ask('list', {'label': 'INBOX'})['result']['threads'][0]['thread']
         for i in range(relay.CHATS_PER_THREAD):

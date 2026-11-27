@@ -356,6 +356,37 @@ function toolbar(thread, messages) {
   act(labels.has('STARRED') ? '★ Снять' : '☆ Пометить', markOpen(labels.has('STARRED') ? 'unstar' : 'star'));
   if (labels.has('TRASH')) act('↺ Восстановить', mark('untrash', () => pane('list')));
   else act('🗑 Удалить', mark('trash', () => pane('list'))).classList.add('danger');
+  if (last && askable()) act('💬 Спросить агента', () => askAgent(last), 'Открыть чат с агентом: в поле ввода будет ссылка на это письмо, вопрос допишите вы');
+}
+// 0.15.0: "💬 Спросить агента" about the open letter - the mail chat (or the chat this page stands next to) gets one line
+// "О письме «…» от …, дата (письмо #id): " in its message box; the person writes the question and sends it, nothing is
+// sent by itself. Next to a chat: chat.ask send:false (only a core that gives ctx.chat.projectId takes send:false - an
+// older one would send at once, so there the button is not shown); a page: chat.open with draft (permission chat.post).
+let pageCtx = null;
+function askable() {
+  if (!pageCtx) return false;
+  if (pageCtx.slot === 'ui.panel') return !!pageCtx.chat && Object.prototype.hasOwnProperty.call(pageCtx.chat, 'projectId');
+  return pageCtx.slot === 'ui.page';
+}
+function askLine(msg) {
+  const who = msg.from ? sender(msg.from) : 'неизвестного отправителя';
+  // a letter flagged by read-guard: no words of it in the person's message, only the id
+  if (msg.tainted) return 'О письме #' + msg.id + ' (помечено read-guard): ';
+  const subject = String(msg.subject || '').trim();
+  return 'О письме ' + (subject ? '«' + subject.slice(0, 160) + '» ' : '') + 'от ' + who.slice(0, 80) + ', ' + date(msg.date, true) + ' (письмо #' + msg.id + '): ';
+}
+async function askAgent(msg) {
+  const text = askLine(msg);
+  try {
+    if (pageCtx.slot === 'ui.panel') {
+      try { await coExt.req('chat.ask', {text, files: [], send: false}); } catch { note('Этот чат сейчас не принимает вопросы'); }
+      return;
+    }
+    const place = await coExt.call('mail_agent_place', {});
+    if (place.error) throw new Error(place.error);
+    const out = await coExt.req('chat.open', {projectId: place.projectId, ...(place.chatId ? {chatId: place.chatId} : {}), viewer: 'Почта', draft: text});
+    if (out && out.draft === false) note('Чат открыт в новой вкладке — напишите там: ' + text);
+  } catch (err) { note(err.message === 'no_project' ? 'Нет проекта для чата почты: создайте проект в CO' : 'Не удалось открыть чат почты'); }
 }
 // 0.12.0: the chats this thread belongs to (open, take out) and "🗂 В чат…" - the mail stays on the home server, the chat
 // gets only a link (thread id) there, so its correspondence is this thread itself, not a copy
@@ -707,12 +738,12 @@ $('agent').addEventListener('click', async () => {
   } catch (err) { note(err.message === 'no_project' ? 'Нет проекта для чата почты: создайте проект в CO' : 'Не удалось открыть чат почты'); }
 });
 coExt.ready.then(ctx => {
-  theme(ctx); title(0);
+  pageCtx = ctx; theme(ctx); title(0);
   $('agent').hidden = ctx.slot !== 'ui.page';  // next to the chat (viewer) the chat is already there
   const doc = /^Почта (?:t-([A-Za-z0-9_-]{1,64})|c)$/.exec(String(ctx.params?.mail || ''));
   const here = ctx.chat && typeof ctx.chat.id === 'string' ? ctx.chat : null;
   if (ctx.slot === 'ui.panel' && doc && here) wanted = {view: {chat: here.id, title: here.title || 'Этот чат'}, thread: doc[1] || null};
-  coExt.on('context', nextCtx => { theme(nextCtx); status(); });
+  coExt.on('context', nextCtx => { pageCtx = nextCtx; theme(nextCtx); status(); });
   status();
 }).catch(err => error($('connection'), err, () => location.reload()));
 window.addEventListener('pagehide', () => { if (draft && !draft.discarded && !draft.sending) { sync(); flush(draft).catch(() => {}); } clearTimeout(timer); statusTicket++; listTicket++; readTicket++; });

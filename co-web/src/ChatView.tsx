@@ -105,7 +105,8 @@ interface Props {
   // F10 (ext/1 chat.mode viewer): a module's viewer next to the chat - the mode and its document (a new chat gets it as
   // <key>Doc and the mode on), questions it sends, and the chat's events for the viewer
   viewer?: { mode: ModeDecl; doc: string };
-  viewerAsk?: { text: string; files: File[]; nonce: number } | null;
+  /** 0.133.0: send false - the text only goes into the message box, the person sends it */
+  viewerAsk?: { text: string; files: File[]; nonce: number; send?: boolean } | null;
   onEvents?: (events: ChatEvent[] | null) => void;
   // whether the viewer may ask here (not read-only, the host takes attachments)
   onCanAsk?: (ok: boolean) => void;
@@ -169,7 +170,7 @@ export default function ChatView(props: Props) {
     // once per question: the chat view of a new chat mounts again after its first message
     if (!viewerAsk || handledViewerAsks.has(viewerAsk.nonce)) return;
     handledViewerAsks.add(viewerAsk.nonce);
-    setPrefill({ text: viewerAsk.text, files: viewerAsk.files, send: true, nonce: viewerAsk.nonce });
+    setPrefill({ text: viewerAsk.text, files: viewerAsk.files, send: viewerAsk.send !== false, nonce: viewerAsk.nonce });
   }, [viewerAsk]);
   // F10: what enabled modules add to chats (modes, message views, side-job rows, context)
   const mods = useModuleDecls();

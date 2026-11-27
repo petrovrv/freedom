@@ -277,6 +277,28 @@ def start(args, on=True):
     print(json.dumps({'slug': slug, 'enabled' if on else 'disabled': timers}))
 
 
+
+JOB_CHAT_OPTS = {'--chat', '--thread', '--account', '--limit', '--find', '--link', '--title'}
+JOB_FOLDER = re.compile(r'[\\/]projects[\\/]([A-Za-z0-9_.-]{1,64})[\\/]chats[\\/](CHAT-[0-9]{14}-[A-Z0-9]{4})(?:[\\/]|$)')
+
+
+def job_chat_args(rest, job_chat, cwd):
+    """mailcli args of an agent job (AIWB_CHAT_ID set): chat-mail only for the chat of the job (0.12.0), exact option
+    names. 0.15.0: --link puts a thread into that chat; the project is never the job's word - it is the folder of the
+    job, projects/<p>/chats/<its chat>, so a job cannot rewrite the project of the person's links."""
+    if not job_chat or 'chat-mail' not in rest:
+        return rest
+    named = [rest[i + 1] for i, a in enumerate(rest[:-1]) if a == '--chat'] + [a.split('=', 1)[1] for a in rest if a.startswith('--chat=')]
+    opts = {a.split('=', 1)[0] for a in rest if a.startswith('-')}
+    if rest[0] != 'chat-mail' or opts - JOB_CHAT_OPTS or named != [job_chat]:
+        sys.exit(f'refused: chat-mail reads the chat of this job only (--chat {job_chat})')
+    if '--link' in opts:
+        here = JOB_FOLDER.search(cwd)
+        if not here or here.group(2) != job_chat:
+            sys.exit('refused: --link runs only in the folder of the job\'s chat')
+        return rest + ['--project', here.group(1)]
+    return rest
+
 def run(args):
     slug = slug_ok(args.slug)
     # An agent job reads only its own environment's mailbox. The binding check on the host comes with the relay (stage 2);
@@ -293,12 +315,7 @@ def run(args):
         sys.exit('--root is fixed to the person directory')
     # 0.12.0: an agent job reads the correspondence of its own chat only (it is trusted within its environment otherwise)
     # exact option names only (mailcli also refuses abbreviations since 0.12.0)
-    job_chat = os.environ.get('AIWB_CHAT_ID', '')
-    if job_chat and 'chat-mail' in rest:
-        named = [rest[i + 1] for i, a in enumerate(rest[:-1]) if a == '--chat'] + [a.split('=', 1)[1] for a in rest if a.startswith('--chat=')]
-        opts = {a.split('=', 1)[0] for a in rest if a.startswith('-')}
-        if rest[0] != 'chat-mail' or opts - {'--chat', '--thread', '--account', '--limit'} or named != [job_chat]:
-            sys.exit(f'refused: chat-mail reads the chat of this job only (--chat {job_chat})')
+    rest = job_chat_args(rest, os.environ.get('AIWB_CHAT_ID', ''), os.getcwd())
     user = accountctl.person_user(slug)  # a person a deploy could not move yet still runs as the older user
     if ssh(args, f'id -u {user} >/dev/null 2>&1 && echo yes || echo no').strip() != 'yes':
         user = LEGACY_USER + slug

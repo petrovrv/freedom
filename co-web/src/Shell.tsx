@@ -655,7 +655,7 @@ export default function Shell({ auth }: { auth: Signed }) {
     [viewer, chatId, chats],
   );
   const [viewerEvents, setViewerEvents] = useState<ChatEvent[] | null>(null);
-  const [viewerAsk, setViewerAsk] = useState<{ text: string; files: File[]; nonce: number } | null>(null);
+  const [viewerAsk, setViewerAsk] = useState<{ text: string; files: File[]; nonce: number; send?: boolean } | null>(null);
   const [viewerCanAsk, setViewerCanAsk] = useState(false);
   useEffect(() => {
     setViewerEvents(null);
@@ -664,10 +664,11 @@ export default function Shell({ auth }: { auth: Signed }) {
   const viewerWrap = (node: ReactNode) => {
     if (!viewer || !root) return node;
     const link: PanelLink = {
-      chat: { id: chat?.chatId || null, title: chat?.title || '' },
+      // 0.133.0: projectId too (a page knows the core takes chat.ask send:false)
+      chat: { id: chat?.chatId || null, title: chat?.title || '', projectId: chat?.projectId || null },
       events: viewerEvents,
       canAsk: !!authOk && viewerCanAsk,
-      ask: (text, files) => setViewerAsk({ text, files, nonce: Date.now() }),
+      ask: (text, files, send = true) => setViewerAsk({ text, files, nonce: Date.now(), send }),
       reveal: (id) => {
         const el = document.getElementById(`ev-${id}`);
         if (!el) return;
@@ -1392,7 +1393,8 @@ export default function Shell({ auth }: { auth: Signed }) {
             ) : inboxRoute ? (
               <InboxView env={env} inbox={inbox} />
             ) : modulePageRoute ? null : viewerChat ? (
-              <Navigate to={`/e/${env}/p/${viewerChat.projectId}/c/${viewerChat.chatId}${search}`} replace />
+              // 0.133.0: the state goes along (chat.open draft: the line for the message box)
+              <Navigate to={`/e/${env}/p/${viewerChat.projectId}/c/${viewerChat.chatId}${search}`} replace state={loc.state} />
             ) : chat && project ? viewerWrap(
               <ChatView
                 key={chat.folderId}

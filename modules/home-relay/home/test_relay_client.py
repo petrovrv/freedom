@@ -40,6 +40,24 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(self.client.open(second['id'], self.answer(second)), {'text': 'second'})
         self.assertEqual(self.client.open(first['id'], self.answer(first)), {'text': '\u2603'})
 
+    def test_actual_server_wire_format_omits_id(self):
+        # server/ops.php co_relay_worker stores only iv/ct, and co_relay_call
+        # returns that object. The caller's rid remains bound by HKDF and AAD.
+        first = self.client.seal('list', {'text': 'first'})
+        second = self.client.seal('list', {'text': 'second'})
+        raw = self.answer(first)
+        wire = {key: raw[key] for key in ('iv', 'ct')}
+        with self.assertRaisesRegex(RelayError, 'bad_answer'):
+            self.client.open(second['id'], wire)
+        with self.assertRaisesRegex(RelayError, 'bad_answer'):
+            self.client.open(first['id'], {**wire, 'id': second['id']})
+        self.assertEqual(self.client.open(first['id'], wire), {'text': 'first'})
+        with self.assertRaisesRegex(RelayError, '^transport_error$'):
+            self.client.open(second['id'], {'error': 'busy'})
+        raw = self.answer(second)
+        self.assertEqual(self.client.open(second['id'], {key: raw[key] for key in ('iv', 'ct')}),
+                         {'text': 'second'})
+
     def test_request_binding_and_tamper(self):
         req = self.client.seal('list')
         for changed in ({**req, 'id': 'f' * 32}, {**req, 'module': 'calendar'},

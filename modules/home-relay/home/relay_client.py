@@ -99,7 +99,7 @@ class RelayClient:
             self._prune()
             if not isinstance(rid, str) or rid not in self._pending:
                 raise RelayError('unknown_request')
-            if not isinstance(answer, dict) or answer.get('id') != rid:
+            if not isinstance(answer, dict) or ('id' in answer and answer['id'] != rid):
                 raise RelayError('bad_answer')
             if 'error' in answer:
                 raise RelayError('transport_error')

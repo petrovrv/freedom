@@ -134,9 +134,11 @@ class Seen:
 class Handler:
     """One module's handler: a child process started on first use, restarted after it dies or hangs."""
 
-    def __init__(self, module, argv, env, agent_actions=None):
+    def __init__(self, module, argv, env, agent_actions=None, outward_actions=None, page_actions=None):
         self.module, self.argv, self.env = module, argv, env
         self.agent_actions = agent_actions if isinstance(agent_actions, dict) else {}
+        self.outward_actions = outward_actions if isinstance(outward_actions, dict) else {}
+        self.page_actions = page_actions if isinstance(page_actions, list) else []
         self.proc, self.lines = None, None
 
     def _start(self):
@@ -257,7 +259,7 @@ def load_handlers(config_dir, slug, env, log=None):
                 child = {**_env_file(str(spec['envFile']).replace('{slug}', slug)), **child}
             if spec.get('credentials') and os.environ.get('CREDENTIALS_DIRECTORY'):
                 child['CREDENTIALS_DIRECTORY'] = _own_credentials(module, spec['credentials'], os.environ['CREDENTIALS_DIRECTORY'])
-            out[module] = Handler(module, argv, child, spec.get('agentActions'))
+            out[module] = Handler(module, argv, child, spec.get('agentActions'), spec.get('outwardActions'), spec.get('pageActions'))
         except Exception as exc:  # one broken registration does not stop the others
             if log:
                 log(f'handler {path.name} skipped: {type(exc).__name__}: {exc}')
@@ -300,6 +302,13 @@ def app_args_valid(schema, args):
     return True
 
 
+def outward_targets(handler):
+    actions = getattr(handler, 'outward_actions', {})
+    if not isinstance(actions, dict):
+        return set()
+    return {x['action'] for x in actions.values() if isinstance(x, dict) and isinstance(x.get('action'), str)}
+
+
 def app_dispatch(handler, env, module, req, request):
     """Return only an allowlisted handler call. Queue authority comes from the site, content from AEAD.
 
@@ -328,6 +337,8 @@ def app_dispatch(handler, env, module, req, request):
             or version != local.get('version')):
         raise ValueError('app_version_mismatch')
     target = local.get('action')
+    if isinstance(target, str) and target in outward_targets(handler):
+        raise ValueError('outward_alias_forbidden')
     if not isinstance(target, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,79}', target):
         raise ValueError('app_action_not_enabled')
     args = request.get('args')
@@ -337,7 +348,7 @@ def app_dispatch(handler, env, module, req, request):
     return {'action': target, 'args': args}
 
 
-def answer(keys, handlers, env, req, seen=None, now=None):
+def answer(keys, handlers, env, req, seen=None, now=None, proposals=None):
     """One sealed request -> one sealed answer (or a plain error code without content)."""
     rid = str(req.get('id') or '')
     module = str(req.get('module') or '')
@@ -354,11 +365,27 @@ def answer(keys, handlers, env, req, seen=None, now=None):
         return {'id': rid, 'error': 'expired'}
     if seen is not None and not seen.first(rid, now):
         return {'id': rid, 'error': 'replay'}
+    dispatch = req.get('dispatch')
+    if '_approval' in request or (isinstance(dispatch, dict) and dispatch.get('kind') == 'app-approval-v1'):
+        try:
+            if proposals is None:
+                raise ValueError('approvals_disabled')
+            result = proposals.handle(handlers[module], env, module, req, request, now, app_args_valid)
+        except Exception:
+            result = {'ok': False, 'error': 'approval_refused'}
+        sealed = keys.seal(env, module, rid, page_pub, result)
+        return sealed if len(sealed['ct']) <= REPLY_MAX else {'id': rid, 'error': 'too_large'}
     if 'dispatch' in req or '_app' in request:
         try:
             request = app_dispatch(handlers[module], env, module, req, request)
         except (ValueError, TypeError, OverflowError):
             return keys.seal(env, module, rid, page_pub, {'ok': False, 'error': 'app_dispatch_refused'})
+    else:
+        handler = handlers[module]
+        outward = outward_targets(handler)
+        action = request.get('action')
+        if not isinstance(action, str) or action not in getattr(handler, 'page_actions', []) or action in outward:
+            return keys.seal(env, module, rid, page_pub, {'ok': False, 'error': 'page_action_not_enabled'})
     result = handlers[module].call(request)
     sealed = keys.seal(env, module, rid, page_pub, result)
     return sealed if len(sealed['ct']) <= REPLY_MAX else {'id': rid, 'error': 'too_large'}
@@ -379,12 +406,12 @@ def batches(replies):
     return out
 
 
-def serve(keys, handlers, env, url, token, request=None, stop=None, log=None, seen=None):
+def serve(keys, handlers, env, url, token, request=None, stop=None, log=None, seen=None, proposals=None):
     """Long-poll loop; returns when `stop()` is true (tests) or never."""
     post = request or _post
     seen, waiting, delay = seen or Seen(), [], 1
     while not (stop and stop()):
-        status = {'pub': keys.public, 'modules': {m: {'relayAppProtocol': 1, **{k: v for k, v in h.status().items() if k != 'relayAppProtocol'}} for m, h in handlers.items()}}
+        status = {'pub': keys.public, 'modules': {m: {'relayAppProtocol': 1, 'relayApprovalProtocol': 1 if proposals else 0, **{k: v for k, v in h.status().items() if k not in ('relayAppProtocol', 'relayApprovalProtocol')}} for m, h in handlers.items()}}
         parts = batches(waiting) or [[]]
         batch, rest = parts[0], [r for p in parts[1:] for r in p]
         payload = {'env': env, 'token': token, 'status': status, 'replies': batch}
@@ -415,7 +442,7 @@ def serve(keys, handlers, env, url, token, request=None, stop=None, log=None, se
         delay, waiting = 1, rest
         for req in (body.get('requests') or [])[:20]:
             if isinstance(req, dict):
-                waiting.append(answer(keys, handlers, env, req, seen))
+                waiting.append(answer(keys, handlers, env, req, seen, proposals=proposals))
 
 
 def _post(url, payload):
@@ -444,7 +471,11 @@ def main():
     log(f'serving {sorted(handlers)} for {slug}')
     try:
         home = Path(state.split(':')[0])
-        serve(Keys(home / 'relay-key.pem'), handlers, env, url, token, log=log, seen=Seen(home / 'seen.json'))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('relay_approvals', Path(__file__).with_name('approvals.py'))
+        approvals = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(approvals)
+        serve(Keys(home / 'relay-key.pem'), handlers, env, url, token, log=log, seen=Seen(home / 'seen.json'), proposals=approvals.Proposals(home / 'proposals.sqlite'))
     finally:
         for h in handlers.values():
             h.stop()

@@ -107,6 +107,7 @@ function co_relay_call(array $c, string $module, array $in, ?array $dispatch = n
     if (empty($st['online'])) return ['error' => $st['error'] ?? (empty($st['paired']) ? 'not_paired' : 'offline')];
     if (empty($st['served'])) return ['error' => 'not_served'];
     if ($dispatch !== null && ($st['status']['relayAppProtocol'] ?? null) !== 1) return ['error' => 'relay_upgrade_required'];
+    if (($dispatch === null || ($dispatch['kind'] ?? '') === 'app-approval-v1') && ($st['status']['relayApprovalProtocol'] ?? null) !== 1) return ['error' => 'relay_upgrade_required'];
     $id = is_string($in['id'] ?? null) && preg_match(CO_RELAY_ID_RE, $in['id']) ? $in['id'] : null;
     $pk = co_relay_b64($in['pk'] ?? null, 200);
     $iv = co_relay_b64($in['iv'] ?? null, 40);
@@ -211,6 +212,7 @@ function co_relay_worker(array $c, array $in): array
                 // must not claim an app dispatch queued while a newer worker was online.
                 $candidate = co_relay_json_file($f);
                 if (isset($candidate['dispatch']) && ($currentModules[(string)($candidate['module'] ?? '')]['relayAppProtocol'] ?? null) !== 1) continue;
+                if ((!isset($candidate['dispatch']) || ($candidate['dispatch']['kind'] ?? '') === 'app-approval-v1') && ($currentModules[(string)($candidate['module'] ?? '')]['relayApprovalProtocol'] ?? null) !== 1) continue;
                 // claim without replacing: link() fails when the .taken of this id already exists
                 if (!preg_match(CO_RELAY_ID_RE, $id) || !@link($f, "$dir/$id.taken")) continue;
                 @unlink($f);

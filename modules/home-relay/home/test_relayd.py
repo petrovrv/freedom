@@ -71,7 +71,7 @@ class RelaydTests(unittest.TestCase):
         conf.mkdir(parents=True)
         (self.root / 'conf' / 'alice.extra').write_text('EXTRA=from-env-file\nBAD LINE\n', encoding='utf-8')
         argv = [sys.executable, str(self.root / 'echo.py'), '--who', '{slug}']
-        (conf / 'mail.json').write_text(json.dumps({'exec': argv, 'envFile': str(self.root / 'conf' / '{slug}.extra')}))
+        (conf / 'mail.json').write_text(json.dumps({'exec': argv, 'envFile': str(self.root / 'conf' / '{slug}.extra'), 'pageActions': ['list', 'echo', 'overview', 'x', 'fail', 'hang', 'die']}))
         (conf / 'calendar.json').write_text(json.dumps({'exec': argv, 'if': str(self.root / 'conf' / '{slug}.calendar')}))
         (conf / 'Bad_Name.json').write_text(json.dumps({'exec': argv}))
         (conf / 'relative.json').write_text(json.dumps({'exec': ['python', 'x.py']}))

@@ -1,0 +1,31 @@
+# Private action approvals (0.2.0)
+
+An outward action declared with `via` is staged at the environment's worker. The site stores only random request/revision IDs, module/action/version, timestamps and decision metadata. The original arguments never enter `argsView`, logs, push messages or result fields. Each transport uses fresh authenticated encryption; an approval can wait 30 minutes without replaying the original 120-second envelope.
+
+`app_relay_propose` takes the same encrypted envelope as `app_relay_call`, plus the inner `_approval:{phase:"stage"}` marker. The server chooses a request ID and revision and sends trusted `app-approval-v1` metadata separately. The worker checks both local and server schemas, module/version/actor/env/action and the envelope hash, then commits an immutable proposal to its own SQLite database. The tool must decrypt and validate the acknowledgement before telling the person that a proposal is ready. A transport acknowledgement alone may leave an inert pending card; its private preview will refuse it.
+
+The person's card uses user-authenticated `app_request_relay` operations. Status gets the worker public key and immutable binding; preview encrypts a fresh request with the browser's own ephemeral key. The worker returns the exact stored arguments, action/version/binding and a random private preview token. The UI renders property names and full values as escaped text. Run is disabled until preview succeeds. A token is bound to the browser public key; up to 32 previews can coexist across tabs/devices. Run mints a server grant lasting 45 seconds, bound to the same proposal/revision/env/module/action/version. No legacy plaintext Run can run a relay proposal.
+
+The worker commits `pending -> executing` under SQLite `BEGIN IMMEDIATE` with `synchronous=FULL` **before** calling the handler. Concurrent workers/Run clicks share the ledger. A crash or ambiguous handler timeout leaves `executing` and is never automatically retried, including after restart. Completed results stay private and are encrypted to each poller's fresh key. The person can check the result after reloading the card; the agent can poll using a later unrestricted live job of the same environment. Site `running` denotes transport/decision state, never proof that an external operation succeeded. After a day it becomes `unknown`; it remains readable until ordinary bounded card-history pruning.
+
+Decline closes the site card and issues no execution grant. The private unexecuted proposal expires at its original deadline. Expired/decided cards are bounded by the core history limit. On a later stage, the worker removes private payloads/results older than 30 days, retaining metadata tombstones to forbid request-ID reuse. An idle worker's old payloads remain until the next stage. Back up the ledger with worker state; never delete/restore it independently while requests may exist. Loss of the ledger fails existing requests closed (no proposal), not by repeating them. A recreated site card has a new ID and still requires a new explicit human decision.
+
+## Local registration and rollout
+
+This release intentionally closes legacy page calls by default. Before deploying, enumerate each module's safe internal/read actions in root-owned `modules.d/<module>.json`:
+
+```json
+{
+  "pageActions": ["list", "show"],
+  "agentActions": {"read": {"action":"list", "version":"1.0.0", "args":{"type":"object","properties":{},"required":[],"additionalProperties":false}}},
+  "outwardActions": {"send": {"action":"deliver", "version":"1.0.0", "args":{"type":"object","properties":{"target":{"type":"string"}},"required":["target"],"additionalProperties":false}}}
+}
+```
+
+All names in `pageActions` must be reviewed as safe without outward effects. `outwardActions` maps core action names to local handler methods. Those handler targets are denied on both legacy page and `agentActions` paths, even if accidentally also allowlisted there. Unlisted legacy calls fail closed. Handler aliases with different names must be classified correctly by the module author; this is a semantic boundary, not something the transport can infer. Existing module pages that send outward actions directly must migrate to proposal/preview/Run before enabling them. No automatic edits to existing home-server configurations occur.
+
+An immutable argument such as a draft ID or event ID does **not** freeze the mutable content behind that ID. Before registering an outward adapter, it must either stage the complete content that the person will review and execute that exact snapshot, or bind a resource revision and refuse execution if the underlying resource changed. The private preview must show the complete meaningful effect (including recipients/targets and content), not merely an opaque ID. The generic transport guarantees immutable arguments; the adapter must guarantee that those arguments identify the same reviewed external effect at execution time. Do not enable a mutable-ID adapter until this condition is implemented and tested.
+
+The site gates **all legacy page calls and approval requests** on the worker's `relayApprovalProtocol:1`, both at enqueue and on the current worker poll. Old workers/concurrent rollbacks cannot receive these requests and bypass the local policy. New worker status emits the capability before handler status fields; handlers cannot override it. Non-outward app dispatch retains its separate protocol gate. Deploy the new worker and reviewed registrations before enabling dependent page flows, and keep the site gate during any rollback.
+
+The trusted site is still allowed to supply dispatch authority; protection against a malicious site and an agent controlling the person's authenticated browser remain outside the transport threat model. A preview proves decryption by that browser key, not human comprehension. No production outward operation is needed for tests: synthetic handlers count calls and echo a private receipt.

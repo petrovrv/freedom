@@ -64,12 +64,20 @@ class RelayClient:
         for rid in [rid for rid, expiry in self._pending.items() if expiry <= now]:
             del self._pending[rid]
 
-    def seal(self, action, args=None, *, app_version=None):
+    def seal(self, action, args=None, *, app_version=None, approval=None):
         """Return {id,module,pk,iv,ct}; timestamp and random id are client-owned."""
         if not isinstance(action, str) or not action or (args is not None and not isinstance(args, dict)):
             raise RelayError('bad_request')
         if app_version is not None and (not isinstance(app_version, str) or not app_version or len(app_version) > 80):
             raise RelayError('bad_app_version')
+        if approval is not None:
+            if (not isinstance(approval, dict) or app_version is None
+                    or approval.get('phase') not in ('stage', 'preview', 'run', 'result')
+                    or set(approval) - {'phase', 'requestId', 'revision', 'previewToken'}
+                    or ('previewToken' in approval and approval.get('phase') != 'run')
+                    or any(not isinstance(v, str) or not v or len(v) > 128 for v in approval.values())):
+                raise RelayError('bad_approval')
+            approval = dict(approval)
         with self._lock:
             self._prune()
             if len(self._pending) >= 6:
@@ -80,6 +88,8 @@ class RelayClient:
             payload = {'action': action, 'args': args if args is not None else {}, 'ts': time.time() * 1000}
             if app_version is not None:
                 payload['_app'] = {'version': app_version}
+            if approval is not None:
+                payload['_approval'] = approval
             data = json.dumps(payload, ensure_ascii=False, allow_nan=False,
                               separators=(',', ':')).encode()
             iv = os.urandom(12)

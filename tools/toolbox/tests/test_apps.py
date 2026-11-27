@@ -164,8 +164,8 @@ class RelayRouteTest(unittest.TestCase):
             self.assertEqual(call.call_count, 1)
             self.assertEqual(call.call_args.args, ("app_list", {}))
 
-    def test_outward_and_unknown_transport_are_closed(self):
-        for change in ({"outward": True}, {"via": "unknown"}):
+    def test_unknown_transport_and_invalid_outward_are_closed(self):
+        for change in ({"outward": "true"}, {"via": "unknown"}):
             with self.subTest(change=change):
                 original = dict(self.descriptor)
                 self.descriptor.update(change)

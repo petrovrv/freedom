@@ -20,6 +20,8 @@ class DispatchTests(unittest.TestCase):
         self.keys = relayd.Keys(Path(self.temp.name) / 'key.pem')
         self.client = RelayClient('test-env', 'test-app', self.keys.public)
         self.handler = Mock()
+        self.handler.outward_actions = {}
+        self.handler.page_actions = ['read', 'page_operation']
         self.handler.agent_actions = {'read': {'action': 'local_read', 'version': '1.0.0', 'args': copy.deepcopy(SCHEMA)}}
         self.handler.call.return_value = {'ok': True, 'result': {'echo': 'private'}}
 

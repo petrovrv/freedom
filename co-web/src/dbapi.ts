@@ -1176,6 +1176,8 @@ export interface InboxAction {
 
 /** F14b-2 (apps-lib.php): an outward action of an app an agent asked for; Run executes it with my rights, once. */
 export interface InboxApp {
+  privateRelay?: boolean;
+  status?: string;
   requestId: string;
   app: string; // module id
   action: string; // op
@@ -1312,6 +1314,8 @@ export async function dbInbox(env: string): Promise<{ items: InboxItem[]; unread
       } : null,
       app: x.app && typeof x.app.requestId === 'string' ? {
         requestId: x.app.requestId, app: str(x.app.app), action: str(x.app.action), title: str(x.app.title), icon: str(x.app.icon),
+        privateRelay: x.app.privateRelay === true,
+        status: str(x.app.status),
         description: str(x.app.description), etag: str(x.app.etag), expiresUtc: str(x.app.expiresUtc),
         args: (Array.isArray(x.app.args) ? x.app.args : []).filter((a: any) => a && typeof a.name === 'string')
           .map((a: any) => ({ name: a.name, about: str(a.about), value: str(a.value) })),
@@ -1331,6 +1335,10 @@ export async function dbAppEvents(since: number): Promise<Record<string, any>> {
 export async function dbAppRequestDecide(id: string, decision: 'run' | 'deny', etag: string): Promise<{ ok: boolean; status?: string; error?: string; result?: any }> {
   const r = await rawCall('app_request_decide', { id, decision, etag });
   return { ...r, ok: r.ok === true };
+}
+
+export async function dbAppRequestRelay(id: string, etag: string, phase: string, envelope?: Record<string, string>): Promise<any> {
+  return rawCall('app_request_relay', { id, etag, phase, ...(envelope ? { envelope } : {}) });
 }
 
 export async function dbActionDecide(id: number, decision: 'approved' | 'denied'): Promise<void> {

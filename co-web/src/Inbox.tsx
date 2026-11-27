@@ -12,7 +12,9 @@
 // app_action. The card says what, which app, the arguments in words and from which chat; Run executes it here with my
 // rights, once (the server refuses a second click, an expired card or a changed request), Decline drops it. A push
 // opens /inbox#app-<id>.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
+import { approvalRelay } from './approvalRelay';
+import { dbAppRequestRelay } from './dbapi';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AGENTS } from './config';
 import { dbActionDecide, dbAppRequestDecide, dbInbox, dbInboxMark, dbMemoryDecide, dbToolDecide, type InboxAction, type InboxApp, type InboxItem, type InboxKind, type InboxMemory, type ToolCandidate } from './dbapi';
@@ -255,15 +257,73 @@ const APP_ERROR: Record<string, string> = {
 };
 
 // 0.120.0 (F14b-2): an outward action of an app waiting for me; Run executes it with my rights, as my click in the app would
-function AppCard({ app: a, onChanged }: { app: InboxApp; onChanged: () => Promise<void> }) {
+export function AppCard({ app: a, onChanged }: { app: InboxApp; onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const relay = useRef<Awaited<ReturnType<typeof approvalRelay>> | null>(null);
+  const [privateArgs, setPrivateArgs] = useState<Record<string, unknown> | null>(null);
+  const [privateResult, setPrivateResult] = useState<unknown>(null);
+  const [attempted, setAttempted] = useState(false);
+  const generation = useRef(0);
+  const recovery = a.privateRelay && (attempted || (a.status !== undefined && a.status !== 'pending'));
+  useEffect(() => {
+    generation.current++; relay.current = null; setPrivateArgs(null); setPrivateResult(null); setDone(null); setErr(null); setAttempted(false); setBusy(false);
+    return () => { generation.current++; };
+  }, [a.requestId, a.etag]);
+  const clientForCard = () => approvalRelay((phase, envelope) => dbAppRequestRelay(a.requestId, a.etag, phase, envelope), a.requestId);
+  const showResult = (value: { state: string; result?: unknown }) => {
+    const response = value.result;
+    setPrivateResult(response && typeof response === 'object' && 'ok' in response
+      ? response.ok === true && 'result' in response ? response.result
+        : 'error' in response ? response.error : null
+      : response ?? null);
+    setDone(value.state === 'done' ? 'Done.' : value.state === 'failed' ? 'The app reported a failure.'
+      : value.state === 'expired' ? 'The proposal expired without execution.'
+      : value.state === 'pending' ? 'No execution is recorded. The confirmation may not have reached the worker; do not submit the action again.'
+      : 'Execution was started. Its outcome is not yet known; do not repeat the action.');
+  };
+  const checkResult = async () => {
+    const started = generation.current;
+    setBusy(true); setErr(null);
+    try {
+      const client = await clientForCard();
+      const value = await client.result();
+      if (generation.current === started) showResult(value);
+    } catch { if (generation.current === started) setErr('Cannot check the result now. You can check again without running the action.'); }
+    finally { if (generation.current === started) setBusy(false); }
+  };
+  const preview = async () => {
+    const started = generation.current;
+    setBusy(true); setErr(null); setPrivateArgs(null); relay.current = null;
+    try {
+      const client = await clientForCard();
+      const value = await client.preview();
+      if (generation.current === started) { relay.current = client; setPrivateArgs(value.args); }
+    } catch { if (generation.current === started) setErr('Private preview unavailable. Refresh and review the proposal again.'); }
+    finally { if (generation.current === started) setBusy(false); }
+  };
   const decide = async (run: boolean) => {
+    const started = generation.current;
     setBusy(true);
     setErr(null);
     try {
+      if (run && a.privateRelay) {
+        if (recovery || !relay.current || !privateArgs) throw new Error('preview_required');
+        const client = relay.current;
+        relay.current = null; // a failed Run must never become a retry button
+        setAttempted(true);
+        setPrivateArgs(null);
+        try {
+          const result = await client.run();
+          if (generation.current === started) showResult(result);
+        } catch {
+          if (generation.current === started) setDone('Outcome unknown. Check the result; do not repeat the action.');
+        }
+        return;
+      }
       const r = await dbAppRequestDecide(a.requestId, run ? 'run' : 'deny', a.etag);
+      if (generation.current !== started) return;
       if (r.ok) setDone(run ? 'Done.' : 'Declined.');
       else if (r.status === 'failed') setErr(`The app answered: ${String(r.result?.message || r.result?.error || 'error')}`);
       else setErr(APP_ERROR[r.error || ''] || r.error || 'Refused.');
@@ -271,15 +331,16 @@ function AppCard({ app: a, onChanged }: { app: InboxApp; onChanged: () => Promis
         window.setTimeout(() => void onChanged(), 1500);
       }
     } catch (e) {
-      setErr(categorize(e).message);
+      if (generation.current === started) setErr(categorize(e).message);
     } finally {
-      setBusy(false);
+      if (generation.current === started) setBusy(false);
     }
   };
   return (
     <div className="action-card">
       <div className="action-title">{a.icon || '▦'} <strong>{a.title}</strong> <code className="muted tiny">{a.action}</code></div>
       <div className="action-summary">{a.description}</div>
+      {a.privateRelay && privateArgs && <dl className="action-more">{Object.entries(privateArgs).map(([name, value]) => <div key={name}><dt>{name}</dt><dd style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{typeof value === 'string' ? value : JSON.stringify(value)}</dd></div>)}</dl>}
       {a.args.length > 0 && (
         <ul className="action-more">
           {a.args.map((x) => <li key={x.name}><strong>{x.value}</strong> <span className="muted tiny">— {x.about || x.name}</span></li>)}
@@ -287,9 +348,12 @@ function AppCard({ app: a, onChanged }: { app: InboxApp; onChanged: () => Promis
       )}
       <div className="muted tiny">An agent asks to do this outside the workbench. Run does it once, with your rights · waits until {formatLocal(a.expiresUtc)}</div>
       {err && <div className="error-text small">{err}</div>}
-      {done ? <div className="small">{done}</div> : (
+      {privateResult !== null && <pre className="action-more" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(privateResult, null, 2)}</pre>}
+      {done && <div className="small">{done}</div>}
+      {recovery ? <div className="inbox-actions"><button className="btn small" disabled={busy} onClick={() => void checkResult()}>Check result</button></div> : !done && (
         <div className="inbox-actions">
-          <button className="btn small primary" disabled={busy} onClick={() => void decide(true)} title="Run this action now, once">Run</button>
+          {a.privateRelay && <button className="btn small" disabled={busy} onClick={() => void preview()}>Review privately</button>}
+          <button className="btn small primary" disabled={busy || (a.privateRelay && !privateArgs)} onClick={() => void decide(true)} title="Run this action now, once">Run</button>
           <button className="btn small" disabled={busy} onClick={() => void decide(false)} title="Do not run it; the agent learns that you declined">Decline</button>
         </div>
       )}

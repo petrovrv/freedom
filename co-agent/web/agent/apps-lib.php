@@ -23,6 +23,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/modules-lib.php';
 require_once __DIR__ . '/relay-lib.php';
+require_once __DIR__ . '/apps-approval.php';
 
 const CO_APP_ARG_TYPES = ['string', 'integer', 'number', 'boolean'];
 const CO_APP_EVENTS_KEEP = 30;
@@ -191,7 +192,7 @@ function co_app_action(mysqli $db, array $in): array
 
 
 // F14b-4 phase 1: no content crosses the site in clear. Both status and call recheck the live job and modules.
-function co_app_relay_context(mysqli $db, array $in): array
+function co_app_relay_context(mysqli $db, array $in, bool $approval = false): array
 {
     $job = co_app_job($db, $in);
     if ($job['restricted']) return ['error' => 'not_allowed'];
@@ -203,7 +204,7 @@ function co_app_relay_context(mysqli $db, array $in): array
     if (!$m || !$a || !isset($a['via'])) return ['error' => 'unknown_relay_action'];
     // Outward support needs a durable worker-side proposal + human-readable preview and a one-use grant.
     // Never offer a pending card whose encrypted arguments the person cannot inspect.
-    if ($a['outward']) return ['error' => 'relay_approval_unavailable'];
+    if ($a['outward'] && !$approval) return ['error' => 'relay_approval_unavailable'];
     $relay = co_modules($db)[$a['via']] ?? null;
     if (!$relay || !$relay['enabled'] || !$relay['standard'] || !co_module_for_env($relay, $job['env'])
         || co_module_person_mode($db, $relay, $job['env']) === 'off') return ['error' => 'relay_disabled'];
@@ -215,13 +216,14 @@ function co_app_relay_context(mysqli $db, array $in): array
 
 function co_app_relay_status(mysqli $db, array $in): array
 {
-    $c = co_app_relay_context($db, $in);
+    $c = co_app_relay_context($db, $in, true);
     if (isset($c['error'])) return ['ok' => false] + $c;
     $s = ($c['lib']['status'])($c['ctx'], $c['m']['id']);
     if (empty($s['online']) || empty($s['served'])) return ['ok' => false, 'error' => 'relay_unavailable'];
     if (($s['status']['relayAppProtocol'] ?? null) !== 1) return ['ok' => false, 'error' => 'relay_upgrade_required'];
+    if ($c['a']['outward'] && ($s['status']['relayApprovalProtocol'] ?? null) !== 1) return ['ok' => false, 'error' => 'relay_upgrade_required'];
     return ['ok' => true, 'via' => $c['a']['via'], 'env' => $c['job']['env'], 'app' => $c['m']['id'],
-        'action' => $c['a']['op'], 'version' => $c['m']['version'], 'outward' => false,
+        'action' => $c['a']['op'], 'version' => $c['m']['version'], 'outward' => $c['a']['outward'], 'approvalProtocol' => 1,
         'relay' => ['pub' => (string)($s['pub'] ?? ''), 'online' => true, 'served' => true], 'schema' => $c['a']['args']];
 }
 
@@ -293,7 +295,8 @@ function co_app_requests_expire(array $list): array
     $list = array_values(array_filter($list, 'is_array'));
     $now = time();
     foreach ($list as &$q) {
-        if (($q['state'] ?? '') === 'pending' && (int)($q['expires'] ?? 0) <= $now) $q['state'] = 'expired';
+        if (in_array($q['state'] ?? '', ['pending', 'staging'], true) && (int)($q['expires'] ?? 0) <= $now) $q['state'] = 'expired';
+        if (isset($q['via']) && ($q['state'] ?? '') === 'running' && (int)($q['expires'] ?? 0) + 86400 < $now) $q['state'] = 'unknown';
     }
     unset($q);
     return $list;
@@ -302,7 +305,7 @@ function co_app_requests_expire(array $list): array
 /** Keeps every pending or running request and the newest decided ones, CO_APP_REQ_KEEP in all (review F14b-2). */
 function co_app_requests_prune(array $list): array
 {
-    $live = static fn(array $q): bool => in_array($q['state'] ?? '', ['pending', 'running'], true);
+    $live = static fn(array $q): bool => in_array($q['state'] ?? '', ['pending', 'staging', 'running'], true);
     $drop = max(0, count($list) - CO_APP_REQ_KEEP);
     $out = [];
     foreach (array_values($list) as $q) {
@@ -443,7 +446,19 @@ function co_app_action_status(mysqli $db, array $in): array
     }
     $id = is_string($in['requestId'] ?? null) ? $in['requestId'] : '';
     foreach (co_app_requests($db, $job['env']) as $q) {
-        if ($id !== '' && hash_equals((string)($q['id'] ?? ''), $id)) return ['ok' => true] + co_app_request_public($q);
+        if ($id !== '' && hash_equals((string)($q['id'] ?? ''), $id)) {
+            $out = ['ok' => true] + co_app_request_public($q);
+            if (isset($q['via'])) {
+                if ($job['readOnly']) return ['ok' => false, 'error' => 'read_only'];
+                $c = co_app_approval_person_context($db, $job['env'], $job['owner'], $job['email'], $q);
+                if (isset($c['error'])) return ['ok' => false] + $c;
+                $s = ($c['lib']['status'])($c['ctx'], $q['app']);
+                $out += ['via' => $q['via'], 'version' => $q['version'], 'revision' => $q['revision'], 'env' => $job['env'],
+                    'approvalProtocol' => $s['status']['relayApprovalProtocol'] ?? 0,
+                    'relay' => ['pub' => $s['pub'] ?? '', 'online' => !empty($s['online']), 'served' => !empty($s['served'])]];
+            }
+            return $out;
+        }
     }
     return ['ok' => false, 'error' => 'unknown_request', 'message' => 'No such request in this environment (only the newest ' . CO_APP_REQ_KEEP . ' are kept).'];
 }
@@ -453,13 +468,13 @@ function co_app_requests_inbox(mysqli $db, string $env): array
 {
     $out = [];
     foreach (co_app_requests($db, $env) as $q) {
-        if (($q['state'] ?? '') !== 'pending') continue;
+        if (($q['state'] ?? '') !== 'pending' && !(isset($q['via']) && in_array($q['state'] ?? '', ['running', 'unknown'], true))) continue;
         $out[] = ['id' => 'app:' . $q['id'], 'kind' => 'app', 'chatId' => (string)$q['chatId'], 'projectId' => (string)$q['projectId'],
             'chatTitle' => (string)$q['chatTitle'], 'projectTitle' => (string)$q['title'], 'eventId' => '', 'agent' => null,
             'utc' => gmdate('Y-m-d\TH:i:s\Z', (int)$q['created']), 'excerpt' => (string)$q['description'],
             'app' => ['requestId' => (string)$q['id'], 'app' => (string)$q['app'], 'action' => (string)$q['action'],
                 'title' => (string)$q['title'], 'icon' => (string)$q['icon'], 'description' => (string)$q['description'],
-                'args' => is_array($q['argsView'] ?? null) ? $q['argsView'] : [], 'etag' => (string)$q['etag'],
+                'args' => is_array($q['argsView'] ?? null) ? $q['argsView'] : [], 'etag' => (string)$q['etag'], 'privateRelay' => isset($q['via']), 'status' => $q['state'],
                 'expiresUtc' => gmdate('Y-m-d\TH:i:s\Z', (int)$q['expires'])]];
     }
     return $out;
@@ -482,6 +497,7 @@ function co_app_request_decide(mysqli $db, string $myEnv, bool $owner, string $e
     $took = co_app_requests_locked($db, $myEnv, static function (array &$list) use ($id, $decision, $etag, $email): array {
         foreach ($list as &$q) {
             if (($q['id'] ?? '') !== $id) continue;
+            if (isset($q['via']) && $decision === 'run') return ['error' => 'relay_preview_required'];
             if ($q['state'] !== 'pending') return ['error' => $q['state'] === 'expired' ? 'expired' : 'already_decided', 'status' => $q['state']];
             if ($decision === 'run' && !hash_equals((string)$q['etag'], $etag)) return ['error' => 'etag_mismatch'];
             $q['state'] = $decision === 'run' ? 'running' : 'denied';

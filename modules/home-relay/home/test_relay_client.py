@@ -11,6 +11,7 @@ from relay_client import RelayClient, RelayError
 
 
 class Echo:
+    page_actions = ['list']
     def __init__(self):
         self.calls = 0
 

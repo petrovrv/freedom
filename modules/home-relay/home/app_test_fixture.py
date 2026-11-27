@@ -14,6 +14,8 @@ directory.mkdir(parents=True, exist_ok=True)
 keys = relayd.Keys(root / 'fixture-key.pem')
 schema = {'type': 'object', 'properties': {'query': {'type': 'string'}}, 'required': ['query'], 'additionalProperties': False}
 handler = Mock()
+handler.outward_actions = {}
+handler.page_actions = []
 handler.agent_actions = {'read': {'action': 'local_read', 'version': '1.0.0', 'args': schema}}
 handler.call.return_value = {'ok': True, 'result': {'echo': 'private-fixture-data'}}
 client = RelayClient(env, module, keys.public)

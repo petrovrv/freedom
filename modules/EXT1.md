@@ -305,7 +305,7 @@ to another environment is refused by the tile. No agent or module-page call is
 added: `module_chat` is an authenticated core user operation.
 
 
-### Agent actions via home-relay (F14b-4 phase 1)
+### Agent actions via a relay (F14b-4)
 
 An action may declare `via: "home-relay"` with the usual op, description, flat
 args schema and outward flag. It names a worker operation, so need not appear
@@ -324,6 +324,11 @@ The site receives no plaintext args or result. See home-relay README for local
 root-owned `agentActions` registration and the trusted worker dispatch protocol.
 
 For relay actions, ordinary plaintext `app_action` is refused before schema
-validation or card creation. `outward:true` is explicitly unsupported until
-phase 2 private staging/preview and worker-enforced one-use Run grants exist.
-Existing direct outward cards and legacy page ops retain their current behavior.
+validation or card creation. For `outward:true`, status advertises approvalProtocol1;
+`app_relay_propose` stages an encrypted immutable proposal on the worker and creates
+a metadata-only card. User-only `app_request_relay` carries fresh-key private preview,
+Run and result envelopes. The worker durably claims the proposal before execution;
+ambiguous results never automatically retry. `app_relay_result` lets a later authorized
+job retrieve the encrypted outcome. Existing direct outward cards retain their behavior.
+Relay legacy page operations require reviewed local pageActions registration; see
+[home-relay/APPROVALS.md](home-relay/APPROVALS.md) for migration, binding and downgrade gates.

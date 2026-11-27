@@ -7,6 +7,7 @@ workbench (outward) is not run: toolbox 1.9.0 (F14b-2) gets back a pending reque
 person runs or declines, and app_action_status tells its outcome. stdlib only.
 """
 import base64
+from datetime import datetime, timezone
 import gzip
 import importlib.util
 import json
@@ -15,7 +16,7 @@ from pathlib import Path
 import urllib.error
 import urllib.request
 
-UA = "aiwb-tools-apps/1.10"
+UA = "aiwb-tools-apps/1.11"
 TIMEOUT = 40
 
 
@@ -111,9 +112,9 @@ def app_action(args):
         return "unknown app action (see app_list)", True
     via = descriptor.get("via")
     if via == "home-relay":
-        if descriptor.get("outward") is not False:
-            return "relay outward actions are not supported until the confirmation protocol is available", True
-        return _relay_action(app, action, params)
+        if type(descriptor.get("outward")) is not bool:
+            return "invalid relay action descriptor", True
+        return _relay_action(app, action, params, outward=descriptor["outward"])
     if via is not None:
         return "unsupported app action transport", True
     res, err = _call("app_action", {"app": app, "action": action, "args": params})
@@ -144,7 +145,7 @@ def _relay_client():
     return module.RelayClient
 
 
-def _relay_action(app, action, params):
+def _relay_action(app, action, params, *, outward=False):
     status, err = _call("app_relay_status", {"app": app, "action": action})
     if err:
         return err, True
@@ -152,19 +153,24 @@ def _relay_action(app, action, params):
         return "relay status refused", True
     relay = status.get("relay")
     if (status.get("via") != "home-relay" or status.get("app") != app
-            or status.get("action") != action or status.get("outward") is not False
+            or status.get("action") != action or status.get("outward") is not outward
             or not isinstance(status.get("env"), str) or not status["env"]
             or not isinstance(status.get("version"), str) or not status["version"]
             or not isinstance(relay, dict) or relay.get("online") is not True
             or relay.get("served") is not True):
         return "relay status is unavailable or does not match this action", True
+    if outward and (type(status.get("approvalProtocol")) is not int or status["approvalProtocol"] != 1):
+        return "relay confirmation protocol unavailable; no action was submitted", True
     client = None
     envelope = None
     try:
         client = _relay_client()(status["env"], app, relay.get("pub"))
-        envelope = client.seal(action, params, app_version=status["version"])
+        options = {"app_version": status["version"]}
+        if outward:
+            options["approval"] = {"phase": "stage"}
+        envelope = client.seal(action, params, **options)
         wire_envelope = {key: envelope[key] for key in ("id", "pk", "iv", "ct")}
-        response, err = _call("app_relay_call", {"app": app, "action": action,
+        response, err = _call("app_relay_propose" if outward else "app_relay_call", {"app": app, "action": action,
                              "version": status["version"], "envelope": wire_envelope})
         if err:
             # No retries: an ambiguous timeout may follow a successful action.
@@ -172,6 +178,17 @@ def _relay_action(app, action, params):
         if not isinstance(response, dict) or response.get("ok") is not True:
             return "relay request refused", True
         result = client.open(envelope["id"], response.get("envelope"))
+        if outward:
+            if (not isinstance(result, dict) or not isinstance(result.get("requestId"), str)
+                    or not result["requestId"] or result["requestId"] != response.get("requestId")
+                    or not isinstance(result.get("revision"), str) or not result["revision"]
+                    or result["revision"] != response.get("revision") or response.get("pending") is not True
+                    or type(result.get("expires")) is not int or not 0 < result["expires"] < 253402300799):
+                return "relay proposal acknowledgement invalid; no automatic retry", True
+            return json.dumps({"status": "pending", "requestId": result["requestId"],
+                               "expiresUtc": datetime.fromtimestamp(result["expires"], timezone.utc).isoformat().replace('+00:00', 'Z'),
+                               "message": "Private proposal stored; waits for the person's preview and Run."},
+                              ensure_ascii=False, indent=1), False
         return json.dumps(result, ensure_ascii=False, indent=1), False
     except (ImportError, OSError, RuntimeError, ValueError, TypeError):
         # Avoid exposing decrypted content, response bodies or private arguments
@@ -191,8 +208,51 @@ def app_action_status(args):
         return err, True
     if not res.get("ok"):
         return res.get("message") or res.get("error") or "refused", True
+    if res.get("via") is not None:
+        if res.get("via") != "home-relay":
+            return "unsupported app action transport", True
+        return _relay_result(rid, res)
     res.pop("ok", None)
     return json.dumps(res, ensure_ascii=False, indent=1), False
+
+
+def _relay_result(rid, status):
+    """Read durable outcome using a fresh key, including from a later agent job."""
+    if status.get("requestId") != rid:
+        return "relay status does not match this request", True
+    if status.get("status") in ("denied", "expired"):
+        return json.dumps({"requestId": rid, "status": status["status"]}), False
+    relay = status.get("relay")
+    if (any(not isinstance(status.get(k), str) or not status[k]
+            for k in ("env", "app", "action", "version", "revision"))
+            or type(status.get("approvalProtocol")) is not int or status["approvalProtocol"] != 1
+            or not isinstance(relay, dict) or relay.get("online") is not True or relay.get("served") is not True):
+        return "relay result unavailable; no execution retry", True
+    client = envelope = None
+    try:
+        client = _relay_client()(status["env"], status["app"], relay.get("pub"))
+        envelope = client.seal(status["action"], {}, app_version=status["version"],
+                               approval={"phase": "result", "requestId": rid, "revision": status["revision"]})
+        response, err = _call("app_relay_result", {"requestId": rid,
+                              "envelope": {k: envelope[k] for k in ("id", "pk", "iv", "ct")}})
+        if err or not isinstance(response, dict) or response.get("ok") is not True:
+            return "relay result transport failed; no execution retry", True
+        result = client.open(envelope["id"], response.get("envelope"))
+        if (not isinstance(result, dict) or result.get("requestId") != rid
+                or result.get("revision") != status["revision"]
+                or result.get("state") not in ("pending", "executing", "done", "failed", "expired")):
+            return "relay result acknowledgement invalid; no execution retry", True
+        output = {"requestId": rid, "status": result["state"]}
+        if result["state"] in ("done", "failed"):
+            output["result"] = result.get("result")
+        if result["state"] == "executing":
+            output["message"] = "Execution claimed; outcome may be unknown. Do not resubmit the action."
+        return json.dumps(output, ensure_ascii=False, indent=1), False
+    except (ImportError, OSError, RuntimeError, ValueError, TypeError):
+        return "relay result unavailable or encrypted response invalid; no execution retry", True
+    finally:
+        if client is not None and envelope is not None:
+            client.discard(envelope["id"])
 
 
 TOOLS = [

@@ -1,12 +1,27 @@
 {
  "format": "freedom-release/1",
- "version": "0.1.4",
- "created": "2026-11-27T12:02:10Z",
+ "version": "0.2.0",
+ "created": "2026-11-27T12:40:22Z",
  "files": [
   {
+   "path": "APPROVALS.md",
+   "size": 5965,
+   "sha256": "db4770ff13bf894f0418b717788dc21a176119c924666ab978c7a986464b2a68"
+  },
+  {
    "path": "home/app_test_fixture.py",
-   "size": 1867,
-   "sha256": "28f6259c518ddef0f63200115d9dfda5160e0a4a36ca81fd5e3af9b5e40df30a"
+   "size": 1921,
+   "sha256": "2b71d10918d642be1f45ab2ae19d2467bb8fde731d1301cf5f453b4ac77c4fdd"
+  },
+  {
+   "path": "home/approval_test_fixture.py",
+   "size": 3028,
+   "sha256": "b902f9c1f8d316060acc62ca36f13b8a8df98204c8607c779e6f013abbb38483"
+  },
+  {
+   "path": "home/approvals.py",
+   "size": 7094,
+   "sha256": "0a752ccb98fc359badc8d234d595e6dc622036afcd2e7390083da0e9db8848ca"
   },
   {
    "path": "home/hub/home-relay-at.service",
@@ -20,43 +35,48 @@
   },
   {
    "path": "home/relay_client.py",
-   "size": 5659,
-   "sha256": "1b64ef12a65ba6de154f4dc07684587968276a6a2e695dac45deeb185c22a05d"
+   "size": 6321,
+   "sha256": "65654e36b1821e8a8d72d8c1f8454398a544c87322a8a894b5bec0bd9a07a13c"
   },
   {
    "path": "home/relayd.py",
-   "size": 21856,
-   "sha256": "bc1272982a032b8bebf6d93bfd5a3499d1ea8dc5e36d66cce29117af7e6d991e"
+   "size": 23888,
+   "sha256": "3759ee9b264764ff29f2c17f82661263c268c32d56794f1d2d97d93b5fad4765"
   },
   {
    "path": "home/test_app_dispatch.py",
-   "size": 4811,
-   "sha256": "d60e4187dd2a30bda815d1cc02c632104d9b54b1952e3f6001ff5c7a89a71843"
+   "size": 4915,
+   "sha256": "e5cc3608f69ea7378a6fbc0a5b81deae32db96e56c4320dc854e77c010660b6f"
+  },
+  {
+   "path": "home/test_approvals.py",
+   "size": 8535,
+   "sha256": "1b6213d6241c8f723de82b0b35bfb6890c47ff0a9df29a0de043e3ca1b46b540"
   },
   {
    "path": "home/test_relay_client.py",
-   "size": 6480,
-   "sha256": "baa71af8bf880e7447dd7bbbc8928cb66215fc6d5f8c825a1cf7306ad96d929a"
+   "size": 6508,
+   "sha256": "9affa6e4f772abdef977a7c3b54104be3c3369837ba87a0eeae70e5ffd2f1304"
   },
   {
    "path": "home/test_relayd.py",
-   "size": 14235,
-   "sha256": "6e5867b4377fef6de75c992219ac07cc246ac119c19741230b157ee9a266f80f"
+   "size": 14308,
+   "sha256": "e3bf9a447a891faee024706990b32b6bfbeed5bd4c2b9aed0422149c98061da2"
   },
   {
    "path": "module.json",
    "size": 1624,
-   "sha256": "ae08c2954cac9c4036a149eccbabc77f6587d55fd72f262243b73721244a5d51"
+   "sha256": "be0006d8d38f2a61a6533c3836f921fbcce37d3ab43679e058791d508dff46b2"
   },
   {
    "path": "README.md",
-   "size": 8715,
-   "sha256": "b9940c0d80a610212ac680f21bb5a82aa9c2482c295ac6b6303336391eb7431c"
+   "size": 9080,
+   "sha256": "eed2a97969e7611b61174db75816f7c22d7023cf26760a60153aec2100bf9841"
   },
   {
    "path": "server/ops.php",
-   "size": 14249,
-   "sha256": "43f499eb7479d9875b170eeb295da5cb4f5bfa93fce856f548157f88b9660cba"
+   "size": 14660,
+   "sha256": "6669ebbc7b09ecb50a34eeb27000f29dd022f1fee3c98bae47d267b94ef0e940"
   },
   {
    "path": "tests/server.php",
@@ -73,7 +93,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "r8fwKv113ivAf4fpwGdttM0ML94HvZhORAMJCLvAYrYE/4QNzapmICFMrWCanU+RyuBt6HmN3v+tdHVoPKqoCQ=="
+   "sig": "sK2XbP2HHPXLmykfEbEspOyK7mv0Wf3fit2JHjtYuOx8xcxI9mvTHHXvaLAk9YHXgrm2w8Y3QqEUhM2XNaCDDA=="
   }
  ],
  "module": "home-relay"

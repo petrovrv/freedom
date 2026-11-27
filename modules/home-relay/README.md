@@ -67,8 +67,9 @@ responsible for request replay protection. Plain errors raise transport_error, a
 raise worker_error; neither exposes untrusted error text. This is encryption only, not policy or transport.
 
 F14b-4 phase 1 in 0.1.4 adds job authorization, status discovery and the encrypted host
-operation. Outward approval grants remain a separate phase; the envelope client alone
-never authorizes execution.
+operation. Version 0.2.0 adds private durable approval proposals, preview and one-use
+Run grants. The envelope client alone never authorizes execution. See [APPROVALS.md](APPROVALS.md)
+for the protocol, rollout prerequisites, migration and recovery behavior.
 
 
 ## Agent app actions (0.1.4, F14b-4 phase 1)
@@ -76,7 +77,8 @@ never authorizes execution.
 `provides.actions` can declare `via: "home-relay"`. The host operations
 `app_relay_status` and `app_relay_call` derive the environment from the live job,
 check chat restrictions, write permission, module enablement and personal mode,
-and reject outward actions (`relay_approval_unavailable`). The Python client uses
+and refuse outward execution through `app_relay_call` (`relay_approval_unavailable`). Outward status
+instead advertises approvalProtocol; `app_relay_propose` stages it privately. The Python client uses
 `seal(action, args, app_version=version)`; only ciphertext crosses the site. Agent
 jobs running on the site retain the documented F9 limit: encryption runs there.
 
@@ -106,15 +108,15 @@ together. It checks env/module/action/version, envelope hash, freshness, replay,
 and both site and local schemas; only the root-selected target action and
 validated args reach the handler. Never put an outward handler in `agentActions`.
 Local module code still enforces resource ownership and action semantics.
-Legacy page calls remain unchanged; absence of dispatch does not prove a human
-click. This is not a boundary against agents holding authenticated user cookies.
+In 0.2.0 legacy page calls require an explicit local `pageActions` allowlist and a worker
+advertising relayApprovalProtocol. Outward handler targets are denied outside the approval path.
+Absence of dispatch does not prove a human click. This is not a boundary against agents holding authenticated user cookies.
 
 Transport success is logged without args/results and requests page refresh;
 only the executor can decrypt and authenticate the actual outcome. No retries
 of mutations are automatic. `app_test_fixture.py` is a local test helper only.
 
-Phase 2 remains pending: private durable proposals, encrypted preview to the
-human page, and worker-enforced one-use grants binding proposal/action/version/
-environment. A Python envelope cannot be rendered by a browser holding a
-different ephemeral key, and its 120-second freshness is not a 30-minute card.
-No pending outward card is created until this protocol exists.
+Phase 2 uses a private SQLite proposal and execution ledger. A browser preview/result
+poll uses its own fresh envelope; it never tries to decrypt the Python client's response.
+The 30-minute proposal survives independently of the original 120-second envelope.
+Ambiguous execution remains unknown and is never automatically repeated.

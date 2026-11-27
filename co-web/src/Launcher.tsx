@@ -6,9 +6,8 @@
 // project, System, and one tile per module with own settings (System → Modules at that module), grouped like an OS.
 // The ☰ menu keeps navigation only. The launcher knows no module by name.
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { openPanel } from './chatPanel';
-import { moduleBadges, onModuleBadges, shellApps, shellOpen, shellSettings, type ModuleInfo } from './extBridge';
+import { moduleBadges, onModuleBadges, shellApps, shellSettings, type ModuleInfo, type ShellApp } from './extBridge';
 import { openModulesSettings } from './Modules';
 import { LAUNCHER_OPEN } from './appStack';
 
@@ -27,14 +26,14 @@ export const SETTINGS_GROUPS: [string, Core[]][] = [
   ]],
 ];
 
-export default function Launcher({ modules, env, current, familyUnread = 0 }: {
-  modules: ModuleInfo[]; env: string; current?: { moduleId: string; pageId: string } | null;
+export default function Launcher({ modules, current, onOpen, familyUnread = 0 }: {
+  modules: ModuleInfo[]; current?: { moduleId: string; pageId: string } | null;
+  onOpen: (app: ShellApp) => void;
   /** new messages of the others in the family room (the core app 👪) */
   familyUnread?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<'apps' | 'settings'>('apps');
-  const navigate = useNavigate();
   const apps = shellApps(modules);
   const settings = shellSettings(modules);
   // coExt.badge of a module: on its app tiles, and a dot on ▦ while any app has one
@@ -58,14 +57,11 @@ export default function Launcher({ modules, env, current, familyUnread = 0 }: {
     window.addEventListener('keydown', f);
     return () => window.removeEventListener('keydown', f);
   }, [open, view]);
-  const desktop = !!(window as unknown as { coDesktop?: unknown }).coDesktop;
   const close = () => { setOpen(false); setView('apps'); };
   const go = (a: (typeof apps)[number]) => {
     close();
-    const o = shellOpen(a, env, desktop);
-    if (o.target === 'blank') window.open(o.href, '_blank', 'noopener');
-    // app to app replaces the entry: Back leaves the apps for the page they were opened from (F14e.1)
-    else navigate(o.href, { replace: !!current });
+    // All module tiles use the shell's dispatcher, including persistent module chats.
+    onOpen(a);
   };
   const core = (t: Core[0]) => { close(); if (t === 'modules') openModulesSettings(); else openPanel(t); };
   const tile = (key: string, icon: string, label: string, title: string, onClick: () => void, here = false, badge = '') => (

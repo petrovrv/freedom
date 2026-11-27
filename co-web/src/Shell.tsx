@@ -1066,7 +1066,7 @@ export default function Shell({ auth }: { auth: Signed }) {
           <ModuleSlots slot="ui.header" modules={modules} me={auth.homeEnv} owner={!!auth.owner} />
         </div>
         <RecentApps modules={modules} recent={recentApps.filter((r) => r.env === env).slice(0, 5)} current={appNow} onOpen={openApp} className="hide-mobile" />
-        <Launcher modules={modules} env={env} current={modulePageRoute} familyUnread={familyUnread} />
+        <Launcher onOpen={openApp} modules={modules} current={modulePageRoute} familyUnread={familyUnread} />
         {familyUnread > 0 && (
           <button type="button" className="fam-top" title="New messages in the family chat" onClick={() => openPanel('family')}>
             👪 <span className="fam-badge">{familyUnread > 99 ? '99+' : familyUnread}</span>

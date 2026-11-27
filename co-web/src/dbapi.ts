@@ -917,6 +917,8 @@ export interface SharesInfo {
   ownerEnv: string;
   envs: string[];
   projectShares: ShareRow[];
+  /** 0.138.0: R2 context (an ancestor shared, a restricted job); absent from an older server = unknown */
+  restricted?: boolean;
 }
 
 export async function dbSharesGet(kind: 'project' | 'chat', id: string): Promise<SharesInfo> {
@@ -927,6 +929,7 @@ export async function dbSharesGet(kind: 'project' | 'chat', id: string): Promise
     ownerEnv: typeof j.ownerEnv === 'string' ? j.ownerEnv : '',
     envs: Array.isArray(j.envs) ? (j.envs as string[]) : [],
     projectShares: Array.isArray(j.projectShares) ? (j.projectShares as ShareRow[]) : [],
+    ...(typeof j.restricted === 'boolean' ? { restricted: j.restricted } : {}),
   };
 }
 

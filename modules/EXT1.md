@@ -317,7 +317,9 @@ that declares that card id under its own module id; at most 3 cards per answer (
 only a top-level paragraph that is exactly the marker (the chat's Markdown lexer: never in code, HTML incl.
 comments, quotes, lists, tables or a longer paragraph), never in user
 messages or the shared Markdown component. Cards show only after the sharing lookup of exactly this chat came back
-with no shares (unknown, failed or stale = text). Elsewhere, or when the module is off
+with no shares and `restricted: false`
+(R2: no shared ancestor chat, no restricted job; an older server without the field, unknown, failed or stale = text).
+Child chats (branches, side questions, subtasks) get no cards yet: R2 does not see a family room among the ancestors. Elsewhere, or when the module is off
 or lacks the card, a line of text stands there: no frame and no request. The frame is keyed by environment, chat, answer
 and card, so another chat or environment never gets it. A card page has the rights of the module's other pages (its own
 user ops, declared permissions); no device ops. It adds no approval: an action with an outside effect stays the

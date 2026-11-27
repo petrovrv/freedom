@@ -28,7 +28,7 @@ import { FolderPicker } from './FolderPicker';
 import { FileMenu, googleDocsUrl, hasGoogleDocs, moduleFileItems, viewerHref } from './FileMenu';
 import { useOpenFile, type FileAskState } from './FileViewer';
 import { COMPOSER_SENT, MessageCard, ModuleSlots, useLoadedModules, type ComposerInput } from './ModuleSlot';
-import { cardsLive, extractCards } from './messageCards';
+import { cardsCheckKey, cardsLive, extractCards } from './messageCards';
 import type { ModuleInfo } from './extBridge';
 import type { ChatRef } from './chatFolder';
 import { Markdown } from './Markdown';
@@ -447,7 +447,7 @@ export default function ChatView(props: Props) {
         if (!alive) return;
         const any = !!project.shareRole || info.shares.length > 0 || info.projectShares.length > 0;
         setShared(any);
-        setShareChecked(any ? null : `${props.env}/${project.projectId}/${chat.chatId}`);
+        setShareChecked(cardsCheckKey(info, project.shareRole, `${props.env}/${project.projectId}/${chat.chatId}`));
       })
       .catch(() => { if (alive) setShareChecked(null); /* sharing: keep the current value */ });
     return () => { alive = false; };
@@ -502,7 +502,7 @@ export default function ChatView(props: Props) {
   const family = !!chat.family;
   // 0.138.0 ext/1 ui.messageCard: module cards in agent answers only in the person's own writable chat
   const cardModules = useModuleList();
-  const cardsOn = cardsLive({ readOnly, shared, family, draft: !!chat.draft, shareRole: project.shareRole || chat.shareRole,
+  const cardsOn = cardsLive({ readOnly, shared, family, draft: !!chat.draft, child: !!chat.parent, shareRole: project.shareRole || chat.shareRole,
     checked: shareChecked, key: `${props.env}/${project.projectId}/${chat.chatId}` });
   const reactions = useMemo(() => reactionsOf(events || []), [events]);
   const evById = useMemo(() => new Map((events || []).map((e) => [e.eventId, e])), [events]);

@@ -49,8 +49,15 @@ export function cardPage(modules: ModuleInfo[], ref: CardRef): { m: ModuleInfo; 
 
 /**
  * Whether cards may show live in a chat: only the person's own writable chat, and only after the sharing lookup for
- * exactly this chat came back with no shares (`checked` = the key it was made for); unknown, failed or stale = no.
+ * exactly this chat came back with no shares and `restricted: false` (R2: no shared ancestor, no restricted job;
+ * `checked` = the key it was made for); unknown, failed, stale or an older server without `restricted` = no. A child
+ * chat (branch, side question, subtask) gets no cards: R2 does not see a family room among its ancestors.
  */
-export function cardsLive(o: { readOnly: boolean; shared: boolean; family: boolean; draft: boolean; shareRole?: string; checked: string | null; key: string }): boolean {
-  return !o.readOnly && !o.shared && !o.family && !o.draft && !o.shareRole && o.checked === o.key;
+export function cardsLive(o: { readOnly: boolean; shared: boolean; family: boolean; draft: boolean; child: boolean; shareRole?: string; checked: string | null; key: string }): boolean {
+  return !o.readOnly && !o.shared && !o.family && !o.draft && !o.child && !o.shareRole && o.checked === o.key;
+}
+
+/** The key a sharing lookup confirms cards for: only an answer with no shares and an explicit `restricted: false`. */
+export function cardsCheckKey(info: { shares: unknown[]; projectShares: unknown[]; restricted?: boolean }, shareRole: string | undefined, key: string): string | null {
+  return !shareRole && info.shares.length === 0 && info.projectShares.length === 0 && info.restricted === false ? key : null;
 }

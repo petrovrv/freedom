@@ -2011,6 +2011,9 @@ try {
                 'ownerEnv' => $penv,
                 'envs' => share_known_envs(),
                 'projectShares' => $kind === 'chat' ? share_list($db, 'project', $pid) : [],
+                // CO Web 0.138.0: the R2 security context of a chat (ancestors shared, restricted jobs); module cards
+                // need an explicit false
+                'restricted' => $kind === 'chat' ? share_restricted($db, (string)$pid, $id) : share_is_shared($db, (string)$pid, ''),
             ]);
 
         case 'share_set':

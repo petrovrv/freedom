@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // CO Web 0.138.0: self-check of message-card markers (run: npm test, or node src/messageCards.selftest.ts).
-import { MAX_CARDS, cardPage, cardsLive, extractCards } from './messageCards.ts';
+import { MAX_CARDS, cardPage, cardsCheckKey, cardsLive, extractCards } from './messageCards.ts';
 import type { ModuleInfo } from './extBridge.ts';
 
 declare const process: { exitCode?: number };
@@ -103,12 +103,19 @@ assert.equal(cardPage(mods, { module: 'concierge-mail', card: 'mail', id: 'a' })
 assert.equal(cardPage(mods, { module: 'other', card: 'draft', id: 'a' }), null, 'disabled module');
 assert.equal(cardPage(mods, { module: 'missing', card: 'draft', id: 'a' }), null, 'unknown module');
 
-const base = { readOnly: false, shared: false, family: false, draft: false, checked: 'p/c', key: 'p/c' };
+const base = { readOnly: false, shared: false, family: false, draft: false, child: false, checked: 'p/c', key: 'p/c' };
 assert.ok(cardsLive(base), 'own chat, sharing checked');
 assert.ok(!cardsLive({ ...base, checked: null }), 'sharing not checked yet / failed');
 assert.ok(!cardsLive({ ...base, checked: 'p/other' }), 'stale check of another chat');
-for (const k of ['readOnly', 'shared', 'family', 'draft'] as const) assert.ok(!cardsLive({ ...base, [k]: true }), k);
+for (const k of ['readOnly', 'shared', 'family', 'draft', 'child'] as const) assert.ok(!cardsLive({ ...base, [k]: true }), k);
 assert.ok(!cardsLive({ ...base, shareRole: 'editor' }), 'a project shared to me');
+const none = { shares: [], projectShares: [] };
+assert.equal(cardsCheckKey({ ...none, restricted: false }, undefined, 'e/p/c'), 'e/p/c', 'explicitly not restricted');
+assert.equal(cardsCheckKey({ ...none, restricted: true }, undefined, 'e/p/c'), null, 'restricted (shared ancestor or job)');
+assert.equal(cardsCheckKey(none, undefined, 'e/p/c'), null, 'older server without restricted: fail closed');
+assert.equal(cardsCheckKey({ shares: [{}], projectShares: [], restricted: false }, undefined, 'e/p/c'), null, 'direct share');
+assert.equal(cardsCheckKey({ shares: [], projectShares: [{}], restricted: false }, undefined, 'e/p/c'), null, 'project share');
+assert.equal(cardsCheckKey({ ...none, restricted: false }, 'viewer', 'e/p/c'), null, 'project shared to me');
 
 if (failures.length) { console.error('messageCards selftest FAILED:\n' + failures.join('\n')); process.exitCode = 1; }
 else console.log('messageCards selftest ok');

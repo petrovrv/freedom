@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// CO Web 0.133.0: delete a chat message and "rewrite from here" (server: co-agent msgedit-lib.php, ops msg_delete,
+// CO Web 0.134.0: delete a chat message and "rewrite from here" (server: co-agent msgedit-lib.php, ops msg_delete,
 // msg_rewrite, msg_restore). A hidden event keeps its row with data.deleted; the chat, the agent's context and the plan of
 // the next turn leave it out. Pure helpers plus the hidden events of each loaded chat (for new sequence numbers, the
 // session reset and the restore bar).

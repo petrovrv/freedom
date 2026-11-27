@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// CO Web 0.133.0: self-check of the message delete / rewrite helpers (run: npm test, or node src/msgEdit.selftest.ts).
+// CO Web 0.134.0: self-check of the message delete / rewrite helpers (run: npm test, or node src/msgEdit.selftest.ts).
 import { canHide, canRewrite, maxSeq, restorable, sessionsSince, splitHidden } from './msgEdit.ts';
 import type { ChatEvent } from './types.ts';
 

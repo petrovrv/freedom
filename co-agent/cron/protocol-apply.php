@@ -44,7 +44,7 @@ function co_protocol_norm(string $s): string
 // The chat's cursor (chats.protocol_seq = $batchEnd) moves in the same transaction, so a retried batch cannot add
 // its entries twice.
 // $extra (schema 9) runs inside the same transaction before the cursor moves: memory candidates of the batch.
-// CO Web 0.133.0 (msgedit-lib.php): with $from (the cursor the batch was read after) a batch is dropped as stale when the
+// CO Web 0.134.0 (msgedit-lib.php): with $from (the cursor the batch was read after) a batch is dropped as stale when the
 // cursor moved meanwhile (a rewrite took it back) or a message of the batch ($batch keys = seqs) was hidden; nothing is written, the cursor
 // stays, the next run reads again. The chat row is locked first, the same order as msgedit_hide.
 function co_protocol_apply(mysqli $db, string $chatId, array $batch, array $ops, string $model, int $batchEnd, ?callable $extra = null, ?int $from = null): array

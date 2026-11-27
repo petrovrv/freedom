@@ -1501,7 +1501,7 @@ try {
             $db->commit();
             co_json(200, ['deleted' => 1]);
 
-        // CO Web 0.133.0 (msgedit-lib.php): delete a message (with its answer, or the answer only), rewrite from a message
+        // CO Web 0.134.0 (msgedit-lib.php): delete a message (with its answer, or the answer only), rewrite from a message
         // (everything from it on is forgotten), restore a deletion
         case 'msg_delete':
         case 'msg_rewrite':

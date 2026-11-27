@@ -449,7 +449,7 @@ export default function ChatView(props: Props) {
       ? !!chat.draft || chat.shareRole !== 'editor'
       : // 0.45.0: project viewers can write in chats shared to them as editor (not drafts)
         project.shareRole === 'viewer' && (!!chat.draft || chat.shareRole !== 'editor');
-  // 0.133.0 (msgEdit.ts): delete a message / rewrite from here; the server checks the rights again (rule 4)
+  // 0.134.0 (msgEdit.ts): delete a message / rewrite from here; the server checks the rights again (rule 4)
   const chatOwner = !project.shareRole && !chat.shareRole;
   const [msgDone, setMsgDone] = useState<{ res: MsgHideResult; what: string } | null>(null);
   const [msgErr, setMsgErr] = useState<string | null>(null);
@@ -1691,7 +1691,7 @@ function UserBubble({ ev, onEdit, onBranch, onDelete, onRewrite, owner, me, root
   );
 }
 
-// 0.133.0: after a delete or rewrite - what was stopped, and what the forgotten messages left behind (memory candidates,
+// 0.134.0: after a delete or rewrite - what was stopped, and what the forgotten messages left behind (memory candidates,
 // dossier rows, files of their jobs): shown to the person to remove, never removed silently
 function MsgTracesPanel({ done, env, hidden, onUndo, onClose }: {
   done: { res: MsgHideResult; what: string }; env: string; hidden: ChatEvent[]; onUndo: (ev: ChatEvent) => void; onClose: () => void;

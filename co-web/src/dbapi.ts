@@ -1119,7 +1119,7 @@ export async function dbFollowupCancel(chatId: string, id: number): Promise<bool
   return j.cancelled === true;
 }
 
-// ---------- 0.133.0: delete a message / rewrite from here / restore (msgedit-lib.php) ----------
+// ---------- 0.134.0: delete a message / rewrite from here / restore (msgedit-lib.php) ----------
 
 export interface MsgTraces {
   memory: { id: number; projectId: string; msg: number; tag: string; text: string; status: string }[];

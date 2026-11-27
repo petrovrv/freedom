@@ -136,7 +136,7 @@ code, pre { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; fon
 .msg-body { overflow-wrap: anywhere; }
 .msg-body.draft { opacity: .85; border-top: 1px dashed var(--line); margin-top: 8px; padding-top: 6px; }
 .msg-actions { display: flex; gap: 14px; margin-top: 6px; flex-wrap: wrap; }
-/* 0.133.0: ⋯ menu of a message (rewrite from here, delete), traces of forgotten messages, restore bar */
+/* 0.134.0: ⋯ menu of a message (rewrite from here, delete), traces of forgotten messages, restore bar */
 .msg-more { position: relative; display: inline-block; }
 .msg-more > summary { list-style: none; cursor: pointer; }
 .msg-more > summary::-webkit-details-marker { display: none; }

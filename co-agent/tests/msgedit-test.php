@@ -1,6 +1,6 @@
 <?php
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Delete a message / rewrite from here (msgedit-lib.php, CO Web 0.133.0) against a throwaway MariaDB (never production):
+// Delete a message / rewrite from here (msgedit-lib.php, CO Web 0.134.0) against a throwaway MariaDB (never production):
 // soft hide with data.deleted, the answer goes with its message, a rewrite hides everything from N on, takes the protocol
 // back and moves the secretary to N-1, stops running jobs, lists memory/dossier traces; editors only their own messages;
 // an older client copy does not bring a hidden message back; restore within 30 days.

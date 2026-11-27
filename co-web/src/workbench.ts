@@ -415,7 +415,7 @@ export async function loadChatEvents(chat: Chat): Promise<ChatEvent[]> {
         if (Date.now() - x.at < 600000 && !byId.has(x.ev.eventId)) byId.set(x.ev.eventId, x.ev);
       }
       const all = [...byId.values()].sort((a, b) => a.sequence - b.sequence || a.createdUtc.localeCompare(b.createdUtc));
-      // 0.133.0: deleted or forgotten messages stay out of the chat and of the agent's context (msgEdit.ts)
+      // 0.134.0: deleted or forgotten messages stay out of the chat and of the agent's context (msgEdit.ts)
       const { visible: sorted, hidden } = splitHidden(all);
       setHidden(chat.chatId, hidden);
       void saveChatEvents(chat.chatId, sorted);
@@ -479,7 +479,7 @@ export async function appendEvent(
   existing: ChatEvent[],
   partial: Omit<ChatEvent, 'schemaVersion' | 'eventId' | 'sequence' | 'createdUtc' | 'chatId' | 'branchId'> & { branchId?: string },
 ): Promise<ChatEvent> {
-  // 0.133.0: numbers of hidden messages are not given again (a rewrite gets the next number, #N links stay valid)
+  // 0.134.0: numbers of hidden messages are not given again (a rewrite gets the next number, #N links stay valid)
   const sequence = Math.max(maxSeq(existing), maxSeq(hiddenOf(chat.chatId))) + 1;
   const ev: ChatEvent = {
     schemaVersion: 1, eventId: newEventId(), sequence, createdUtc: nowUtc(),

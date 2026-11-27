@@ -1,6 +1,6 @@
 <?php
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// CO Web 0.133.0 (plan step 10i): delete a chat message and "rewrite from here". Soft: the hidden events keep their rows and
+// CO Web 0.134.0 (plan step 10i): delete a chat message and "rewrite from here". Soft: the hidden events keep their rows and
 // get data.deleted = {utc, by, batch, mode, at[, protocol]}; CO Web leaves them out of the chat, of the agent's context and
 // starts a new agent session after the newest deletion (no resume of a CLI session that saw them). Restore within
 // CO_MSG_RESTORE_DAYS days puts them back (with their protocol entries). co_db_put keeps data.deleted when a client writes

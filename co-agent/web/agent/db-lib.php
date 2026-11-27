@@ -244,7 +244,7 @@ function co_db_put(array $in): array
             ], hash('sha256', $data), 'synced_utc', $res);
         }
 
-        // CO Web 0.133.0 (msgedit-lib.php): data.deleted of a hidden message stays when a client writes an older copy
+        // CO Web 0.134.0 (msgedit-lib.php): data.deleted of a hidden message stays when a client writes an older copy
         $evIds = array_values(array_unique(array_filter(array_map(static fn($r) => is_array($r) && co_db_id_ok($r['eventId'] ?? null)
             ? (string)$r['eventId'] : null, $events))));
         $hiddenOf = [];

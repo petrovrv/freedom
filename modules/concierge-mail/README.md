@@ -92,7 +92,7 @@ it with the core service `chat.open {projectId, chatId?, viewer: "Почта"}` 
 "✉ Почта" there with the mode on. The agent reads mail through `hubctl.py run` (read only) and prepares replies in the
 chat or as Gmail drafts with gmail-draft on request; sending, marking and archiving stay the person's clicks in ✉.
 
-0.15.0 (CO Web 0.133.0, permission `chat.post`): "💬 Спросить агента" in an open letter puts one line
+0.15.0 (CO Web 0.135.0, permission `chat.post`): "💬 Спросить агента" in an open letter puts one line
 "О письме «тема» от отправитель, дата (письмо #id): " into the message box of the mail chat (`chat.open` with `draft`)
 or, next to a chat, of that chat (`chat.ask` with `send: false`); the person writes the question and sends it. On an
 older core next to a chat the button is not shown (it would send at once). After the update the module is off until

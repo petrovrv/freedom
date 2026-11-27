@@ -105,7 +105,7 @@ interface Props {
   // F10 (ext/1 chat.mode viewer): a module's viewer next to the chat - the mode and its document (a new chat gets it as
   // <key>Doc and the mode on), questions it sends, and the chat's events for the viewer
   viewer?: { mode: ModeDecl; doc: string };
-  /** 0.133.0: send false - the text only goes into the message box, the person sends it */
+  /** 0.135.0: send false - the text only goes into the message box, the person sends it */
   viewerAsk?: { text: string; files: File[]; nonce: number; send?: boolean } | null;
   onEvents?: (events: ChatEvent[] | null) => void;
   // whether the viewer may ask here (not read-only, the host takes attachments)

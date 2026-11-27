@@ -390,7 +390,7 @@ export function chatOpenPath(args: Record<string, unknown>, env: string, viewerP
   return view === null ? path : `${path}?${encodeURIComponent(viewerParam)}=${encodeURIComponent(view)}`;
 }
 /**
- * 0.133.0 chat.open `draft`: one line for the message box of the opened chat (control characters and line breaks become
+ * 0.135.0 chat.open `draft`: one line for the message box of the opened chat (control characters and line breaks become
  * spaces, zero-width and bidi format characters are dropped, at most 600 characters); '' for anything else. The person sees it, adds the question and sends it.
  */
 export function chatDraftText(v: unknown): string {

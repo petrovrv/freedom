@@ -664,7 +664,7 @@ export default function Shell({ auth }: { auth: Signed }) {
   const viewerWrap = (node: ReactNode) => {
     if (!viewer || !root) return node;
     const link: PanelLink = {
-      // 0.133.0: projectId too (a page knows the core takes chat.ask send:false)
+      // 0.135.0: projectId too (a page knows the core takes chat.ask send:false)
       chat: { id: chat?.chatId || null, title: chat?.title || '', projectId: chat?.projectId || null },
       events: viewerEvents,
       canAsk: !!authOk && viewerCanAsk,
@@ -1393,7 +1393,7 @@ export default function Shell({ auth }: { auth: Signed }) {
             ) : inboxRoute ? (
               <InboxView env={env} inbox={inbox} />
             ) : modulePageRoute ? null : viewerChat ? (
-              // 0.133.0: the state goes along (chat.open draft: the line for the message box)
+              // 0.135.0: the state goes along (chat.open draft: the line for the message box)
               <Navigate to={`/e/${env}/p/${viewerChat.projectId}/c/${viewerChat.chatId}${search}`} replace state={loc.state} />
             ) : chat && project ? viewerWrap(
               <ChatView

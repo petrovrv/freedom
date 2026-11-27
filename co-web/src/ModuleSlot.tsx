@@ -176,7 +176,7 @@ async function service(name: string, args: Record<string, unknown>, rootId: stri
       if (typeof x?.name !== 'string' || !(x.bytes instanceof ArrayBuffer) || /[/\\]/.test(x.name)) return [];
       return [new File([x.bytes], x.name.slice(0, 120), { type: typeof x.type === 'string' ? x.type : 'application/octet-stream' })];
     });
-    // 0.133.0: send false - only into the message box of the chat; the person adds the question and sends it
+    // 0.135.0: send false - only into the message box of the chat; the person adds the question and sends it
     panel.ask(text, files, args.send !== false);
     return { data: { ok: true }, transfer: [] };
   }
@@ -417,7 +417,7 @@ export function ModuleFrame({ m, ui, me, owner, mode = 'inline', coreCalls, extr
           send({ t: 'result', id: r.id, ok: false, error: 'invalid chat' });
           return;
         }
-        // 0.133.0: `draft` - a line for the message box of that chat (permission chat.post too); never sent by itself
+        // 0.135.0: `draft` - a line for the message box of that chat (permission chat.post too); never sent by itself
         const draft = r.args.draft == null ? null : chatDraftText(r.args.draft);
         if (draft !== null && !mod.current.permissions.includes('chat.post')) {
           send({ t: 'result', id: r.id, ok: false, error: 'permission_not_declared' });

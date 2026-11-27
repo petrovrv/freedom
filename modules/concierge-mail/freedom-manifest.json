@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
  "version": "0.15.0",
- "created": "2026-11-27T09:42:56Z",
+ "created": "2026-11-27T09:46:50Z",
  "files": [
   {
    "path": "context/mail-mode.md",
@@ -171,7 +171,7 @@
   {
    "path": "README.md",
    "size": 16872,
-   "sha256": "ac2dcdb9180f4775ecbac4da887194b2a9ae46e748a28e6bfefec83b31d30847"
+   "sha256": "89a311c8aeeabcf62182f385218d2e5b54133427c330535d98e012e98a2d9cd8"
   },
   {
    "path": "server/ops.php",
@@ -233,7 +233,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "vZDCBWzcbM1Gk5b40zdwokzcnUf0RMMeDJ45cNYHuhz1aeuNGLREdtPAsE6TDznjWatx0A51wv9Hn3gbrJp7CA=="
+   "sig": "ZTd2+VW4KgO1fy/74weeE2mB90BBJF2rJHFnifuy1wfFFRQGK+3x+xj8r9W9a6Tq1nJP23eOs0R8MqmhmZtdDA=="
   }
  ],
  "module": "concierge-mail"

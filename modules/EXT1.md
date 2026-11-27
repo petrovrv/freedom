@@ -303,3 +303,27 @@ module has no panel. Trashed module chats must be restored before the tile can
 open them; after permanent deletion, opening the tile creates a new chat. Moving a chat within the environment preserves its identity; a move
 to another environment is refused by the tile. No agent or module-page call is
 added: `module_chat` is an authenticated core user operation.
+
+
+### Agent actions via home-relay (F14b-4 phase 1)
+
+An action may declare `via: "home-relay"` with the usual op, description, flat
+args schema and outward flag. It names a worker operation, so need not appear
+in `server.ops.user`. The core resolves `via` as an installed trusted transport
+module exporting the internal `relay.status`/`relay.appCall` contract. Invalid ids,
+missing/disabled/untrusted providers and missing contracts fail closed; no direct
+fallback is attempted. The toolbox currently supports the home-relay provider.
+Only standard modules expose these actions, as for ordinary module actions.
+
+The toolbox obtains `app_relay_status {jobId,app,action}` containing env, version,
+schema and relay public key, seals with `RelayClient.seal(..., app_version=version)`,
+and sends `app_relay_call {jobId,app,action,version,envelope:{id,pk,iv,ct}}`. The
+host derives env/rights from the live job on both calls. `ok:true,envelope` means
+transport completed; only the executor can authenticate/decrypt handler success.
+The site receives no plaintext args or result. See home-relay README for local
+root-owned `agentActions` registration and the trusted worker dispatch protocol.
+
+For relay actions, ordinary plaintext `app_action` is refused before schema
+validation or card creation. `outward:true` is explicitly unsupported until
+phase 2 private staging/preview and worker-enforced one-use Run grants exist.
+Existing direct outward cards and legacy page ops retain their current behavior.

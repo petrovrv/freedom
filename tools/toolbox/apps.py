@@ -8,12 +8,14 @@ person runs or declines, and app_action_status tells its outcome. stdlib only.
 """
 import base64
 import gzip
+import importlib.util
 import json
 import os
+from pathlib import Path
 import urllib.error
 import urllib.request
 
-UA = "aiwb-tools-apps/1.9"
+UA = "aiwb-tools-apps/1.10"
 TIMEOUT = 40
 
 
@@ -96,6 +98,24 @@ def app_action(args):
         return "'app' and 'action' (strings from app_list) are required", True
     if not isinstance(params, dict):
         return "'args' must be an object (see the action's args schema in app_list)", True
+    # Discover the route before sending any arguments: relay plaintext must never
+    # be sent to the legacy endpoint, including when discovery fails.
+    listing, err = _call("app_list", {})
+    if err:
+        return err, True
+    if not isinstance(listing, dict) or listing.get("restricted"):
+        return "app actions are not available to this job", True
+    descriptor = next((a for item in listing.get("apps", []) if item.get("app") == app
+                       for a in item.get("actions", []) if a.get("op") == action), None)
+    if descriptor is None:
+        return "unknown app action (see app_list)", True
+    via = descriptor.get("via")
+    if via == "home-relay":
+        if descriptor.get("outward") is not False:
+            return "relay outward actions are not supported until the confirmation protocol is available", True
+        return _relay_action(app, action, params)
+    if via is not None:
+        return "unsupported app action transport", True
     res, err = _call("app_action", {"app": app, "action": action, "args": params})
     if err:
         return err, True
@@ -106,6 +126,60 @@ def app_action(args):
         msg = res.get("message") or (res.get("result") or {}).get("error") or res.get("error") or "refused"
         return "%s/%s: %s" % (app, action, msg), True
     return json.dumps(res.get("result"), ensure_ascii=False, indent=1), False
+
+
+def _relay_client():
+    """Load the installed module only; never download code or use a server path."""
+    root = os.environ.get("AIWB_MODULES_DIR")
+    if not root:
+        # Same default as install/freedom_modules.py local_root on each OS.
+        local = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local" / "share")
+        root = str(Path(local) / "AIWorkbench" / "modules")
+    path = Path(root) / "home-relay" / "home" / "relay_client.py"
+    if not path.is_file():
+        raise RuntimeError("install the updated home-relay module on this executor")
+    spec = importlib.util.spec_from_file_location("aiwb_apps_relay_client", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.RelayClient
+
+
+def _relay_action(app, action, params):
+    status, err = _call("app_relay_status", {"app": app, "action": action})
+    if err:
+        return err, True
+    if not isinstance(status, dict) or status.get("ok") is not True:
+        return "relay status refused", True
+    relay = status.get("relay")
+    if (status.get("via") != "home-relay" or status.get("app") != app
+            or status.get("action") != action or status.get("outward") is not False
+            or not isinstance(status.get("env"), str) or not status["env"]
+            or not isinstance(status.get("version"), str) or not status["version"]
+            or not isinstance(relay, dict) or relay.get("online") is not True
+            or relay.get("served") is not True):
+        return "relay status is unavailable or does not match this action", True
+    client = None
+    envelope = None
+    try:
+        client = _relay_client()(status["env"], app, relay.get("pub"))
+        envelope = client.seal(action, params, app_version=status["version"])
+        wire_envelope = {key: envelope[key] for key in ("id", "pk", "iv", "ct")}
+        response, err = _call("app_relay_call", {"app": app, "action": action,
+                             "version": status["version"], "envelope": wire_envelope})
+        if err:
+            # No retries: an ambiguous timeout may follow a successful action.
+            return "relay transport failed; outcome unknown; no automatic retry", True
+        if not isinstance(response, dict) or response.get("ok") is not True:
+            return "relay request refused", True
+        result = client.open(envelope["id"], response.get("envelope"))
+        return json.dumps(result, ensure_ascii=False, indent=1), False
+    except (ImportError, OSError, RuntimeError, ValueError, TypeError):
+        # Avoid exposing decrypted content, response bodies or private arguments
+        # in exception messages (including dependency/import errors).
+        return "relay client unavailable or encrypted response invalid; no automatic retry", True
+    finally:
+        if client is not None and envelope is not None:
+            client.discard(envelope["id"])
 
 
 def app_action_status(args):

@@ -66,6 +66,55 @@ it on transport failure. Expired, discarded and already consumed IDs cannot be o
 responsible for request replay protection. Plain errors raise transport_error, authenticated failures
 raise worker_error; neither exposes untrusted error text. This is encryption only, not policy or transport.
 
-Integration still required for F14b-4: relay.status discovery, environment/online/served checks,
-authorisation and the host operation, plus approval grants for outward actions. This client alone
-does not remove those integration prerequisites.
+F14b-4 phase 1 in 0.1.4 adds job authorization, status discovery and the encrypted host
+operation. Outward approval grants remain a separate phase; the envelope client alone
+never authorizes execution.
+
+
+## Agent app actions (0.1.4, F14b-4 phase 1)
+
+`provides.actions` can declare `via: "home-relay"`. The host operations
+`app_relay_status` and `app_relay_call` derive the environment from the live job,
+check chat restrictions, write permission, module enablement and personal mode,
+and reject outward actions (`relay_approval_unavailable`). The Python client uses
+`seal(action, args, app_version=version)`; only ciphertext crosses the site. Agent
+jobs running on the site retain the documented F9 limit: encryption runs there.
+
+Status returns the current schema/version and worker public key. Call rechecks
+authorization/version and attaches server-owned `dispatch` with actor, job, env,
+module, action, version, outward:false, schema and SHA256 of the newline-joined
+envelope id/pk/iv/ct. Client dispatch and plaintext args are rejected. Page calls
+cannot supply dispatch; the internal relay library `appCall` is not a user op.
+The metadata hash is a binding, not a signature against a malicious site.
+
+Workers advertise `status.modules[module].relayAppProtocol=1` themselves; server
+status and call refuse older workers, which would not enforce the dispatch.
+Each queue claim also checks the current poll capability, preventing an older
+concurrent worker or rollback from claiming a queued dispatch.
+Deployment order: update worker, then server/core/toolbox; an old client receives
+`relay_envelope_required` instead of silently calling a plaintext handler.
+
+Root-owned `/etc/home-relay/modules.d/<module>.json` explicitly opts in safe
+non-outward operations. Default is no agent actions:
+
+```json
+{"agentActions":{"cal_list":{"action":"list","version":"0.2.0","args":{"type":"object","properties":{"from":{"type":"string"}},"required":["from"],"additionalProperties":false}}}}
+```
+
+The worker requires the encrypted `_app:{version}` marker and trusted dispatch
+together. It checks env/module/action/version, envelope hash, freshness, replay,
+and both site and local schemas; only the root-selected target action and
+validated args reach the handler. Never put an outward handler in `agentActions`.
+Local module code still enforces resource ownership and action semantics.
+Legacy page calls remain unchanged; absence of dispatch does not prove a human
+click. This is not a boundary against agents holding authenticated user cookies.
+
+Transport success is logged without args/results and requests page refresh;
+only the executor can decrypt and authenticate the actual outcome. No retries
+of mutations are automatic. `app_test_fixture.py` is a local test helper only.
+
+Phase 2 remains pending: private durable proposals, encrypted preview to the
+human page, and worker-enforced one-use grants binding proposal/action/version/
+environment. A Python envelope cannot be rendered by a browser holding a
+different ephemeral key, and its 120-second freshness is not a 30-minute card.
+No pending outward card is created until this protocol exists.

@@ -1,8 +1,13 @@
 {
  "format": "freedom-release/1",
- "version": "0.1.3",
- "created": "2026-11-27T10:57:53Z",
+ "version": "0.1.4",
+ "created": "2026-11-27T12:02:10Z",
  "files": [
+  {
+   "path": "home/app_test_fixture.py",
+   "size": 1867,
+   "sha256": "28f6259c518ddef0f63200115d9dfda5160e0a4a36ca81fd5e3af9b5e40df30a"
+  },
   {
    "path": "home/hub/home-relay-at.service",
    "size": 1115,
@@ -15,13 +20,18 @@
   },
   {
    "path": "home/relay_client.py",
-   "size": 5373,
-   "sha256": "1ca7f23d68eded87deb34c4acb0bf669ddc71ea1fba928fe5edb38f5f4512fce"
+   "size": 5659,
+   "sha256": "1b64ef12a65ba6de154f4dc07684587968276a6a2e695dac45deeb185c22a05d"
   },
   {
    "path": "home/relayd.py",
-   "size": 17501,
-   "sha256": "8039f0ffd66f559020840d43666cf023e77c5b17e891a32f536b800f8a5b227f"
+   "size": 21856,
+   "sha256": "bc1272982a032b8bebf6d93bfd5a3499d1ea8dc5e36d66cce29117af7e6d991e"
+  },
+  {
+   "path": "home/test_app_dispatch.py",
+   "size": 4811,
+   "sha256": "d60e4187dd2a30bda815d1cc02c632104d9b54b1952e3f6001ff5c7a89a71843"
   },
   {
    "path": "home/test_relay_client.py",
@@ -30,23 +40,23 @@
   },
   {
    "path": "home/test_relayd.py",
-   "size": 14148,
-   "sha256": "d1be41d4551d4d3d965e8f1a7a5283621bf24e220cf4adbd1dc51aa7d84e543d"
+   "size": 14235,
+   "sha256": "6e5867b4377fef6de75c992219ac07cc246ac119c19741230b157ee9a266f80f"
   },
   {
    "path": "module.json",
    "size": 1624,
-   "sha256": "f89dbc24177336f8242d1514be9a7539ab5f81e86e9c054eefce69581a495f94"
+   "sha256": "ae08c2954cac9c4036a149eccbabc77f6587d55fd72f262243b73721244a5d51"
   },
   {
    "path": "README.md",
-   "size": 5767,
-   "sha256": "4c015c3505b24c1d8c6b12f93b635f87769d66744a16b4021617477fbdfeac6f"
+   "size": 8715,
+   "sha256": "b9940c0d80a610212ac680f21bb5a82aa9c2482c295ac6b6303336391eb7431c"
   },
   {
    "path": "server/ops.php",
-   "size": 13354,
-   "sha256": "0c69cd1d7dc5b3b502bdaf0e0f36d53960494b860a868cddfae04328fae4728b"
+   "size": 14249,
+   "sha256": "43f499eb7479d9875b170eeb295da5cb4f5bfa93fce856f548157f88b9660cba"
   },
   {
    "path": "tests/server.php",
@@ -63,7 +73,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "53Ry+XK2Q1nmilym/FoNRxMut52TTAX6kBbNPgfWUr0D23f7lMpekvkCwjUCIBfUqq+g3gUHhTGNx5nsoHxnCg=="
+   "sig": "r8fwKv113ivAf4fpwGdttM0ML94HvZhORAMJCLvAYrYE/4QNzapmICFMrWCanU+RyuBt6HmN3v+tdHVoPKqoCQ=="
   }
  ],
  "module": "home-relay"

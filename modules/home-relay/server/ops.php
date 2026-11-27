@@ -101,11 +101,12 @@ function co_relay_status(array $c, string $module): array
         'pub' => (string)($s['pub'] ?? ''), 'served' => isset($mods[$module]), 'status' => is_array($mods[$module] ?? null) ? $mods[$module] : (object)[]];
 }
 
-function co_relay_call(array $c, string $module, array $in): array
+function co_relay_call(array $c, string $module, array $in, ?array $dispatch = null): array
 {
     $st = co_relay_status($c, $module);
     if (empty($st['online'])) return ['error' => $st['error'] ?? (empty($st['paired']) ? 'not_paired' : 'offline')];
     if (empty($st['served'])) return ['error' => 'not_served'];
+    if ($dispatch !== null && ($st['status']['relayAppProtocol'] ?? null) !== 1) return ['error' => 'relay_upgrade_required'];
     $id = is_string($in['id'] ?? null) && preg_match(CO_RELAY_ID_RE, $in['id']) ? $in['id'] : null;
     $pk = co_relay_b64($in['pk'] ?? null, 200);
     $iv = co_relay_b64($in['iv'] ?? null, 40);
@@ -122,7 +123,7 @@ function co_relay_call(array $c, string $module, array $in): array
         foreach (['taken', 'res'] as $ext) if (file_exists("$dir/$id.$ext")) return ['error' => 'duplicate_id'];
         // exclusive creation: link() never replaces an existing request of the same id
         $tmp = "$dir/.$id." . bin2hex(random_bytes(4));
-        file_put_contents($tmp, json_encode(['id' => $id, 'module' => $module, 'pk' => $pk, 'iv' => $iv, 'ct' => $ct], JSON_THROW_ON_ERROR));
+        file_put_contents($tmp, json_encode(['id' => $id, 'module' => $module, 'pk' => $pk, 'iv' => $iv, 'ct' => $ct] + ($dispatch !== null ? ['dispatch' => $dispatch] : []), JSON_THROW_ON_ERROR));
         $made = @link($tmp, "$dir/$id.req");
         @unlink($tmp);
         if (!$made) return ['error' => 'duplicate_id'];
@@ -180,8 +181,9 @@ function co_relay_worker(array $c, array $in): array
     $dir = co_relay_dir($c, $env);
     $s = is_array($in['status'] ?? null) ? $in['status'] : [];
     $pub = co_relay_b64($s['pub'] ?? null, 200);
+    $currentModules = co_relay_module_status($s['modules'] ?? null);
     co_push_write_atomic(co_relay_status_file($c, $env), json_encode([
-        'seen' => time(), 'pub' => $pub ?? '', 'modules' => (object)co_relay_module_status($s['modules'] ?? null),
+        'seen' => time(), 'pub' => $pub ?? '', 'modules' => (object)$currentModules,
     ], JSON_THROW_ON_ERROR));
     // answers only for requests this worker took
     foreach (is_array($in['replies'] ?? null) ? array_slice($in['replies'], 0, 50) : [] as $r) {
@@ -205,6 +207,10 @@ function co_relay_worker(array $c, array $in): array
             $out = [];
             foreach (glob("$dir/*.req") ?: [] as $f) {
                 $id = basename($f, '.req');
+                // Gate the *current* worker poll, not the cached status: an old concurrent worker or rollback
+                // must not claim an app dispatch queued while a newer worker was online.
+                $candidate = co_relay_json_file($f);
+                if (isset($candidate['dispatch']) && ($currentModules[(string)($candidate['module'] ?? '')]['relayAppProtocol'] ?? null) !== 1) continue;
                 // claim without replacing: link() fails when the .taken of this id already exists
                 if (!preg_match(CO_RELAY_ID_RE, $id) || !@link($f, "$dir/$id.taken")) continue;
                 @unlink($f);
@@ -256,5 +262,7 @@ return [
     'relay' => [
         'status' => static fn(array $c, string $module): array => co_relay_status($c, $module),
         'call' => static fn(array $c, string $module, array $in): array => co_relay_call($c, $module, $in),
+        // Internal core channel only: user ops cannot supply trusted dispatch through the envelope.
+        'appCall' => static fn(array $c, string $module, array $in, array $dispatch): array => co_relay_call($c, $module, $in, $dispatch),
     ],
 ];

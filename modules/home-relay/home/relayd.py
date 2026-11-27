@@ -22,6 +22,8 @@ its own binding (e.g. that its store belongs to that environment) before it answ
 """
 from __future__ import annotations
 
+import hashlib
+import math
 import base64
 import json
 import os
@@ -132,8 +134,9 @@ class Seen:
 class Handler:
     """One module's handler: a child process started on first use, restarted after it dies or hangs."""
 
-    def __init__(self, module, argv, env):
+    def __init__(self, module, argv, env, agent_actions=None):
         self.module, self.argv, self.env = module, argv, env
+        self.agent_actions = agent_actions if isinstance(agent_actions, dict) else {}
         self.proc, self.lines = None, None
 
     def _start(self):
@@ -254,11 +257,84 @@ def load_handlers(config_dir, slug, env, log=None):
                 child = {**_env_file(str(spec['envFile']).replace('{slug}', slug)), **child}
             if spec.get('credentials') and os.environ.get('CREDENTIALS_DIRECTORY'):
                 child['CREDENTIALS_DIRECTORY'] = _own_credentials(module, spec['credentials'], os.environ['CREDENTIALS_DIRECTORY'])
-            out[module] = Handler(module, argv, child)
+            out[module] = Handler(module, argv, child, spec.get('agentActions'))
         except Exception as exc:  # one broken registration does not stop the others
             if log:
                 log(f'handler {path.name} skipped: {type(exc).__name__}: {exc}')
     return out
+
+
+
+def app_args_valid(schema, args):
+    """The closed flat schema used by core apps; strict JSON types, no Python bool/int aliasing."""
+    if not isinstance(schema, dict) or not isinstance(args, dict) or schema.get('type') != 'object' or schema.get('additionalProperties') is not False:
+        return False
+    props, required = schema.get('properties'), schema.get('required', [])
+    if not isinstance(props, dict) or not isinstance(required, list):
+        return False
+    if any(not isinstance(k, str) or not isinstance(p, dict) or p.get('type') not in ('string', 'integer', 'number', 'boolean') for k, p in props.items()):
+        return False
+    if any(not isinstance(k, str) or k not in props or k not in args for k in required):
+        return False
+    for key, value in args.items():
+        prop = props.get(key)
+        if not isinstance(prop, dict):
+            return False
+        kind = prop.get('type')
+        if kind == 'string':
+            limit = prop.get('maxLength', 2000)
+            good = type(limit) is int and 0 < limit <= 65536 and isinstance(value, str) and len(value) <= limit
+        elif kind == 'integer':
+            good = type(value) is int and -(2**63) <= value < 2**63
+        elif kind == 'number':
+            good = type(value) in (int, float) and math.isfinite(value)
+        elif kind == 'boolean':
+            good = type(value) is bool
+        else:
+            good = False
+        if not good:
+            return False
+        if 'enum' in prop and (not isinstance(prop['enum'], list) or not any(
+                type(value) is type(v) and value == v for v in prop['enum'])):
+            return False
+    return True
+
+
+def app_dispatch(handler, env, module, req, request):
+    """Return only an allowlisted handler call. Queue authority comes from the site, content from AEAD.
+
+    Local root-owned registration opts in each action and pins its version and schema. Default deny;
+    no arbitrary handler method or authority field can be selected by the encrypted caller.
+    """
+    d = req.get('dispatch')
+    marker = request.get('_app')
+    if not isinstance(d, dict) or not isinstance(marker, dict) or set(marker) != {'version'}:
+        raise ValueError('app_dispatch_required')
+    if (d.get('kind') != 'app-action-v1' or d.get('actor') != 'agent' or d.get('outward') is not False
+            or d.get('env') != env or d.get('module') != module
+            or not isinstance(d.get('jobId'), str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}', d['jobId'])):
+        raise ValueError('bad_app_dispatch')
+    digest = hashlib.sha256('\n'.join(str(req.get(k, '')) for k in ('id', 'pk', 'iv', 'ct')).encode('ascii')).hexdigest()
+    if d.get('envelopeHash') != digest:
+        raise ValueError('app_envelope_mismatch')
+    action = request.get('action')
+    if not isinstance(action, str) or action != d.get('action'):
+        raise ValueError('app_action_mismatch')
+    local = getattr(handler, 'agent_actions', {}).get(action)
+    if not isinstance(local, dict):
+        raise ValueError('app_action_not_enabled')
+    version = d.get('version')
+    if (not isinstance(version, str) or not version or version != marker.get('version')
+            or version != local.get('version')):
+        raise ValueError('app_version_mismatch')
+    target = local.get('action')
+    if not isinstance(target, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,79}', target):
+        raise ValueError('app_action_not_enabled')
+    args = request.get('args')
+    if not app_args_valid(d.get('schema'), args) or not app_args_valid(local.get('args'), args):
+        raise ValueError('app_args_invalid')
+    # Only these two fields reach the handler. In particular no actor/grant/env/root can be smuggled.
+    return {'action': target, 'args': args}
 
 
 def answer(keys, handlers, env, req, seen=None, now=None):
@@ -274,10 +350,15 @@ def answer(keys, handlers, env, req, seen=None, now=None):
         return {'id': rid, 'error': 'bad_request'}
     # the time is inside the sealed part: the site can neither refresh an old request nor replay a fresh one twice
     ts = request.get('ts') if isinstance(request, dict) else None
-    if not isinstance(ts, (int, float)) or abs(now - ts / 1000) > FRESH:
+    if type(ts) not in (int, float) or not -1e20 < ts < 1e20 or abs(now - ts / 1000) > FRESH:
         return {'id': rid, 'error': 'expired'}
     if seen is not None and not seen.first(rid, now):
         return {'id': rid, 'error': 'replay'}
+    if 'dispatch' in req or '_app' in request:
+        try:
+            request = app_dispatch(handlers[module], env, module, req, request)
+        except (ValueError, TypeError, OverflowError):
+            return keys.seal(env, module, rid, page_pub, {'ok': False, 'error': 'app_dispatch_refused'})
     result = handlers[module].call(request)
     sealed = keys.seal(env, module, rid, page_pub, result)
     return sealed if len(sealed['ct']) <= REPLY_MAX else {'id': rid, 'error': 'too_large'}
@@ -303,7 +384,7 @@ def serve(keys, handlers, env, url, token, request=None, stop=None, log=None, se
     post = request or _post
     seen, waiting, delay = seen or Seen(), [], 1
     while not (stop and stop()):
-        status = {'pub': keys.public, 'modules': {m: h.status() for m, h in handlers.items()}}
+        status = {'pub': keys.public, 'modules': {m: {'relayAppProtocol': 1, **{k: v for k, v in h.status().items() if k != 'relayAppProtocol'}} for m, h in handlers.items()}}
         parts = batches(waiting) or [[]]
         batch, rest = parts[0], [r for p in parts[1:] for r in p]
         payload = {'env': env, 'token': token, 'status': status, 'replies': batch}

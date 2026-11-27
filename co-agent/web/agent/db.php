@@ -838,7 +838,7 @@ try {
                 'model_register', 'model_unregister', 'models_host', 'modules_host', 'subtask_spawn', 'subtask_poll', 'model_set',
                 'files_list', 'files_set', 'files_merge', 'files_branch', 'files_restored', 'files_undone',
             'followup_add', 'followup_list', 'followup_take', 'followup_done', 'followup_cancel', 'host_event',
-                'related', 'dossier_put', 'dossier_host', 'find_chats', 'family_chats', 'family_post', 'app_list', 'app_action', 'app_action_status'], true)
+                'related', 'dossier_put', 'dossier_host', 'find_chats', 'family_chats', 'family_post', 'app_list', 'app_action', 'app_action_status', 'app_relay_status', 'app_relay_call'], true)
             // Freedom F10: host-key ops of enabled modules may come gzipped too (an indexer posting document text)
             && !(is_string($in['op'] ?? null) && preg_match(CO_MODULE_OP_RE, $in['op']) && co_module_for_op(co_db(), 'host', $in['op']) !== null)) {
             co_json(400, ['error' => 'gz_ops_only']);
@@ -970,13 +970,15 @@ try {
 
     // F14b-1 (apps-lib.php, SPEC §3.6a item 5): actions of apps for an agent job (core tool aiwb-apps): the job's own env
     // F14b-2: an outward action becomes a card for the person; app_action_status tells the agent its outcome
-    if ($op === 'app_list' || $op === 'app_action' || $op === 'app_action_status') {
+    if (in_array($op, ['app_list', 'app_action', 'app_action_status', 'app_relay_status', 'app_relay_call'], true)) {
         co_db_host_auth();
         try {
             co_json(200, match ($op) {
                 'app_list' => co_app_list(co_db(), $in),
                 'app_action' => co_app_action(co_db(), $in),
                 'app_action_status' => co_app_action_status(co_db(), $in),
+                'app_relay_status' => co_app_relay_status(co_db(), $in),
+                'app_relay_call' => co_app_relay_call(co_db(), $in),
             });
         } catch (InvalidArgumentException $e) {
             co_json(400, ['error' => $e->getMessage()]);
@@ -1009,7 +1011,7 @@ try {
             'inbox', 'inbox_mark', 'action_decide', 'autoswitch', 'tool_candidates', 'tool_decide', 'executors', 'executor_set',
             'related', 'dossier_context', 'dossier_get', 'dossier_put', 'browser_defaults', 'family_state', 'family_read', 'members',
             'models_list', 'model_set', 'model_delete', 'subs_put', 'modules_list', 'module_set', 'module_person',
-            'app_list', 'app_action', 'app_action_status', 'app_events', 'app_request_decide', 'app_notify', 'app_notify_set', 'app_data', 'module_chat'];
+            'app_list', 'app_action', 'app_action_status', 'app_relay_status', 'app_relay_call', 'app_events', 'app_request_decide', 'app_notify', 'app_notify_set', 'app_data', 'module_chat'];
     // Schema 27 (modules-lib.php, Freedom F10): an op the core does not know may belong to an enabled module (manifest
     // server.ops.user); core names always win
     $moduleOp = !in_array($op, $coreOps, true);

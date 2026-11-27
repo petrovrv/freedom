@@ -223,6 +223,7 @@ class RelaydTests(unittest.TestCase):
         calls = self.serve(lambda n, p: (200, {'requests': [page.seal(rid, {'action': 'x'})]}) if n == 1 else (200, {'requests': []}), 2)
         self.assertEqual(calls[0]['status']['pub'], self.keys.public)
         self.assertEqual(calls[0]['status']['modules']['mail']['bound'], True)
+        self.assertEqual(calls[0]['status']['modules']['mail']['relayAppProtocol'], 1)
         self.assertEqual(calls[1]['replies'][0]['id'], rid)
         self.assertTrue(page.open(rid, calls[1]['replies'][0])['ok'])
 

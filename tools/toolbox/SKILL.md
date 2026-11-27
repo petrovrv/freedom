@@ -1,7 +1,7 @@
 ---
 name: toolbox
 description: Manage this tool library — search for an existing tool, create a new one from the template, validate, security-scan tools (secrets, hosts, remote exec, TLS off, writes), regenerate INDEX.md, commit, archive an unused tool; tools of Freedom modules (install a tool from a module or export folder, module on/off/remove — tools of a switched-off module are refused by the MCP server); MCP tools app_list / app_action / app_action_status - actions of Freedom apps for the agent with the rights of the job's environment (outward ones wait for the person's Run on a card).
-version: 1.9.0
+version: 1.10.0
 entry: toolbox.py
 requires: [git]
 secrets: []
@@ -94,6 +94,8 @@ security:
 - Блок в `CLAUDE.md` обновляется, только если маркеры уже есть в файле. В `AGENTS.md` без маркеров блок «Current tools:» с маркерами дописывается в конец один раз.
 
 ## История
+
+- 1.10.0 — 2026-11-27 — `app_action` discovers transport before sending arguments. Actions marked `via: home-relay` use the installed module's Python envelope client and `app_relay_status/app_relay_call`; arguments and results stay encrypted in transit through the site. Requires updated home-relay and Python cryptography on that executor (`AIWB_MODULES_DIR`, otherwise `%LOCALAPPDATA%/AIWorkbench/modules`). Relay outward actions fail closed until the proposal/preview/grant protocol is available; legacy direct actions keep Run/Decline. No automatic retry after an ambiguous outcome.
 
 - 1.9.0 — 2026-11-23 — Freedom F14b-2: outward-действие возвращает карточку «Waiting for you» (`pending` + `requestId`) вместо отказа; новый инструмент `app_action_status`.
 - 1.8.0 — 2026-11-23 — Freedom F14b-1: инструменты MCP `app_list` и `app_action` (`apps.py`) — действия приложений Freedom для агента через `db.php` с id задания; outward-действия отказываются.

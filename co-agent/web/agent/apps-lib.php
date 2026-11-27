@@ -41,9 +41,13 @@ function co_app_actions(array $m): array
         if (!is_array($a)) continue;
         $op = (string)($a['op'] ?? '');
         $desc = trim((string)($a['description'] ?? ''));
-        if (!in_array($op, $ops, true) || $desc === '' || !is_bool($a['outward'] ?? null)) continue;
+        // A transport is an installed module, resolved through its internal library contract. No direct fallback.
+        $via = $a['via'] ?? null;
+        if (array_key_exists('via', $a) && (!is_string($via) || !preg_match(CO_MODULE_ID_RE, $via))) continue;
+        if (!preg_match('/^[A-Za-z][A-Za-z0-9_]{0,79}$/', $op) || $desc === '' || !is_bool($a['outward'] ?? null)) continue;
+        if ($via === null && !in_array($op, $ops, true)) continue;
         $out[$op] = ['op' => $op, 'description' => mb_substr($desc, 0, 500), 'args' => co_app_schema($a['args'] ?? null),
-            'outward' => $a['outward']];
+            'outward' => $a['outward']] + ($via !== null ? ['via' => $via] : []);
     }
     return $out;
 }
@@ -175,6 +179,9 @@ function co_app_action(mysqli $db, array $in): array
     if ($m === null || $a === null) {
         return ['ok' => false, 'error' => 'unknown_action', 'message' => "No action $op of app $app in this environment (see app_list)."];
     }
+    if (isset($a['via'])) {
+        return ['ok' => false, 'error' => $a['outward'] ? 'relay_approval_unavailable' : 'relay_envelope_required'];
+    }
     $args = co_app_args($a['args'], $in['args'] ?? []);
     if ($a['outward']) return co_app_request_put($db, $job, $m, $a, $args);
     $r = co_app_run($db, $m, $op, $args, $job['env'], $job['owner'], $job['email'], ['actor' => 'agent', 'jobId' => $job['jobId']],
@@ -182,9 +189,78 @@ function co_app_action(mysqli $db, array $in): array
     return ['ok' => !isset($r['error']), 'app' => $app, 'action' => $op, 'result' => $r];
 }
 
+
+// F14b-4 phase 1: no content crosses the site in clear. Both status and call recheck the live job and modules.
+function co_app_relay_context(mysqli $db, array $in): array
+{
+    $job = co_app_job($db, $in);
+    if ($job['restricted']) return ['error' => 'not_allowed'];
+    if ($job['readOnly']) return ['error' => 'read_only'];
+    $app = is_string($in['app'] ?? null) ? $in['app'] : '';
+    $op = is_string($in['action'] ?? null) ? $in['action'] : '';
+    [$m, $acts] = co_app_modules($db, $job)[$app] ?? [null, []];
+    $a = $acts[$op] ?? null;
+    if (!$m || !$a || !isset($a['via'])) return ['error' => 'unknown_relay_action'];
+    // Outward support needs a durable worker-side proposal + human-readable preview and a one-use grant.
+    // Never offer a pending card whose encrypted arguments the person cannot inspect.
+    if ($a['outward']) return ['error' => 'relay_approval_unavailable'];
+    $relay = co_modules($db)[$a['via']] ?? null;
+    if (!$relay || !$relay['enabled'] || !$relay['standard'] || !co_module_for_env($relay, $job['env'])
+        || co_module_person_mode($db, $relay, $job['env']) === 'off') return ['error' => 'relay_disabled'];
+    $lib = co_module_load($relay)['relay'] ?? [];
+    if (!is_callable($lib['status'] ?? null) || !is_callable($lib['appCall'] ?? null)) return ['error' => 'relay_upgrade_required'];
+    $ctx = co_module_ctx($db, $relay, $job['env'], $job['owner'], $job['email']);
+    return compact('job', 'm', 'a', 'lib', 'ctx');
+}
+
+function co_app_relay_status(mysqli $db, array $in): array
+{
+    $c = co_app_relay_context($db, $in);
+    if (isset($c['error'])) return ['ok' => false] + $c;
+    $s = ($c['lib']['status'])($c['ctx'], $c['m']['id']);
+    if (empty($s['online']) || empty($s['served'])) return ['ok' => false, 'error' => 'relay_unavailable'];
+    if (($s['status']['relayAppProtocol'] ?? null) !== 1) return ['ok' => false, 'error' => 'relay_upgrade_required'];
+    return ['ok' => true, 'via' => $c['a']['via'], 'env' => $c['job']['env'], 'app' => $c['m']['id'],
+        'action' => $c['a']['op'], 'version' => $c['m']['version'], 'outward' => false,
+        'relay' => ['pub' => (string)($s['pub'] ?? ''), 'online' => true, 'served' => true], 'schema' => $c['a']['args']];
+}
+
+function co_app_relay_call(mysqli $db, array $in): array
+{
+    $c = co_app_relay_context($db, $in);
+    if (isset($c['error'])) return ['ok' => false] + $c;
+    if (!is_string($in['version'] ?? null) || !hash_equals($c['m']['version'], $in['version'])) {
+        return ['ok' => false, 'error' => 'app_changed'];
+    }
+    // Reject even ignored plaintext: callers must use the envelope client. No caller authority is forwarded.
+    if (array_key_exists('args', $in) || array_key_exists('dispatch', $in)) return ['ok' => false, 'error' => 'relay_envelope_required'];
+    $envelope = $in['envelope'] ?? null;
+    if (!is_array($envelope) || array_diff(array_keys($envelope), ['id', 'pk', 'iv', 'ct', 'module'])) return ['ok' => false, 'error' => 'bad_envelope'];
+    if (isset($envelope['module']) && $envelope['module'] !== $c['m']['id']) return ['ok' => false, 'error' => 'bad_envelope'];
+    foreach (['id', 'pk', 'iv', 'ct'] as $key) if (!is_string($envelope[$key] ?? null)) return ['ok' => false, 'error' => 'bad_envelope'];
+    $dispatch = ['kind' => 'app-action-v1', 'actor' => 'agent', 'env' => $c['job']['env'], 'module' => $c['m']['id'],
+        'jobId' => $c['job']['jobId'], 'action' => $c['a']['op'], 'version' => $c['m']['version'], 'outward' => false,
+        'schema' => $c['a']['args'], 'envelopeHash' => hash('sha256', implode("\n", array_map(static fn($k) => $envelope[$k], ['id', 'pk', 'iv', 'ct'])))];
+    $r = ($c['lib']['appCall'])($c['ctx'], $c['m']['id'], $envelope, $dispatch);
+    co_module_log($db, $c['m']['id'], 'action', $c['m']['version'], $c['job']['env'],
+        ['op' => $c['a']['op'], 'job' => $c['job']['jobId'], 'via' => $c['a']['via'], 'transportOk' => !isset($r['error'])]);
+    if (isset($r['error'])) return ['ok' => false, 'error' => $r['error']];
+    // Refresh is an invitation to reread, not a claim that the encrypted handler outcome succeeded.
+    co_app_event_put($db, $c['job']['env'], $c['m']['id'], $c['a']['op']);
+    // The outer ok means transport only, not successful execution: only the executor can authenticate/decrypt it.
+    return ['ok' => true, 'envelope' => $r];
+}
+
 /** Runs the module's handler of user op $op as the person of $env; logs it and refreshes the env's pages on success. */
 function co_app_run(mysqli $db, array $m, string $op, array $args, string $env, bool $owner, string $email, array $ctx, array $log): array
 {
+    if (($m['manifest']['provides']['actions'] ?? []) !== []) {
+        foreach ($m['manifest']['provides']['actions'] as $decl) {
+            if (is_array($decl) && ($decl['op'] ?? '') === $op && array_key_exists('via', $decl)) {
+                return ['error' => 'relay_envelope_required'];
+            }
+        }
+    }
     if (isset(co_app_data_actions($m)[$op])) {
         // F14c: a core data action (the module has no handler of its own for it)
         $r = co_app_data($db, $m['id'], $env, substr($op, 5), $args);

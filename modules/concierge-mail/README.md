@@ -1,5 +1,13 @@
 # Mail concierge
 
+## Reply in a chat folder (0.16.0)
+
+The Correspondence part embeds the existing mail reader and composer. Opening a thread stays in the folder;
+Reply, Reply all and Forward use the same drafts, attachments and ten-second send cancellation as the Mail app.
+The folder lists only `ctx.chat.chatId` through `chat_threads`; missing chat context never falls back to Inbox.
+Global search, mailbox folders, new unrelated messages and recovery of unrelated pending sends remain in the Mail app.
+The app and its panel keep their existing layout. No core or home-server update is required for this UI change.
+
 Local, opt-in foundation for the agent email client described in docs/SPEC-concierge-mail.md. The module is disabled by default and does not send messages.
 
 Run `python home/mailcli.py --root <private-archive-directory> --help`. Import an RFC822 message with `import-eml <file> --account <address>`, or fetch Gmail through read-only IMAP with `sync --account <address>`. Gmail credentials are retrieved from keyring service `aiwb/gmail`, account equal to the email address. No credentials are accepted in files or arguments.

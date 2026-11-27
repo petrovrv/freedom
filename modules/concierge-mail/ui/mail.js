@@ -11,6 +11,13 @@ let chats = [], chatView = null;
 // 0.14.0: the viewer next to a chat opened from its folder (ui/chat-part.js): "Почта t-<thread>" / "Почта c" show the
 // correspondence of that chat, the first with that thread open
 let pendingThread = null, wanted = null;
+// The folder embeds this same reader/composer, but never falls back to the whole mailbox.
+let folderMode = false, folderChat = null;
+function folderOf(ctx) {
+  const c = ctx.chat;
+  return c && typeof c.chatId === 'string' && c.chatId && typeof c.projectId === 'string' && c.projectId
+    ? {chat: c.chatId, project: c.projectId, title: 'Переписка чата'} : null;
+}
 // the chats with threads also give the counts of the Correspondence part of their folders in CO (ext/1 chat.partCounts)
 function reportCounts(list) {
   coExt.req('chat.partCounts', {part: 'correspondence', counts: Object.fromEntries(list.map(c => [c.chat, Math.max(0, Number(c.threads) || 0)]))}).catch(() => {});
@@ -33,6 +40,7 @@ function pane(name) {
   document.body.dataset.pane = name; $('link-bar').hidden = true;
   const b = $('back');
   b.textContent = name === 'reader' ? '←' : '🗂';
+  b.hidden = folderMode && name !== 'reader';
   b.setAttribute('aria-label', name === 'reader' ? 'К списку писем' : name === 'labels' ? 'Скрыть папки' : 'Папки');
 }
 // Esc in a letter (outside a text field) goes to the list; in the list it is left to the shell (= leave the app)
@@ -82,7 +90,8 @@ async function status() {
       if (!initialized) {
         initialized = true;
         if (wanted) { chatView = wanted.view; pendingThread = wanted.thread; wanted = null; }
-        overview(); loadList(); resumeOutbox();
+        if (folderMode) chatView = folderChat;
+        overview(); loadList(); if (!folderMode) resumeOutbox();
       }
     }
   } catch (err) {
@@ -93,6 +102,7 @@ async function status() {
   }
 }
 async function overview() {
+  if (folderMode) return; // no unrelated folders, counts or pending sends in a chat folder
   const env = st.env, account = st.account;
   try {
     const data = await call('overview', {});
@@ -201,6 +211,10 @@ function renderThreads() {
   if (focused >= 0) $('threads').children[focused]?.focus();
 }
 async function loadList(append = false) {
+  if (folderMode) {
+    query = ''; chatView = folderChat;
+    if (!chatView) { $('list-note').textContent = 'Нет чата для переписки'; return; }
+  }
   if (append && (listBusy || next === null)) return;
   const ticket = ++listTicket;
   if (!append) { readTicket++; threads = []; next = null; selected = -1; renderThreads(); $('reading').replaceChildren(el('p', 'empty', 'Выберите письмо')); }
@@ -365,6 +379,7 @@ function toolbar(thread, messages) {
 let pageCtx = null;
 function askable() {
   if (!pageCtx) return false;
+  if (folderMode) return !!folderChat;
   if (pageCtx.slot === 'ui.panel') return !!pageCtx.chat && Object.prototype.hasOwnProperty.call(pageCtx.chat, 'projectId');
   return pageCtx.slot === 'ui.page';
 }
@@ -378,6 +393,10 @@ function askLine(msg) {
 async function askAgent(msg) {
   const text = askLine(msg);
   try {
+    if (folderMode && folderChat) {
+      await coExt.req('chat.open', {projectId: folderChat.project, chatId: folderChat.chat, draft: text});
+      return;
+    }
     if (pageCtx.slot === 'ui.panel') {
       try { await coExt.req('chat.ask', {text, files: [], send: false}); } catch { note('Этот чат сейчас не принимает вопросы'); }
       return;
@@ -705,7 +724,7 @@ $('undo-close').addEventListener('click', () => { $('undo-bar').hidden = true; }
 document.addEventListener('visibilitychange', () => { if (document.hidden && draft && !draft.discarded && !draft.sending) { sync(); clearTimeout(saveTimer); flush(draft).catch(() => {}); } });
 function back() {
   if (document.body.dataset.pane === 'reader') { pane('list'); $('threads').children[selected]?.focus(); }
-  else { pane(document.body.dataset.pane === 'labels' ? 'list' : 'labels'); }
+  else if (!folderMode) { pane(document.body.dataset.pane === 'labels' ? 'list' : 'labels'); }
 }
 $('back').addEventListener('click', back);
 $('search-form').addEventListener('submit', e => { e.preventDefault(); query = $('search').value.trim(); chatView = null; renderLabels(); pane('list'); loadList(); });
@@ -720,7 +739,7 @@ $('copy').addEventListener('click', async () => {
 });
 document.addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey || e.composedPath().some(n => n.matches?.('input,textarea,select,[contenteditable="true"]'))) return;
-  if (e.key === '/') { e.preventDefault(); $('search').focus(); }
+  if (e.key === '/' && !folderMode) { e.preventDefault(); $('search').focus(); }
   else if (e.key === 'u') { e.preventDefault(); back(); }
   else if (e.key === 'j' || e.key === 'k') {
     e.preventDefault(); if (!threads.length) return;
@@ -739,11 +758,23 @@ $('agent').addEventListener('click', async () => {
 });
 coExt.ready.then(ctx => {
   pageCtx = ctx; theme(ctx); title(0);
+  folderMode = ctx.slot === 'ui.chatPart';
+  if (folderMode) {
+    folderChat = folderOf(ctx);
+    document.body.classList.add('in-folder');
+    document.querySelector('.topbar h1').textContent = 'Переписка';
+    pane('list');
+    coExt.size(0, 620, false);
+  }
   $('agent').hidden = ctx.slot !== 'ui.page';  // next to the chat (viewer) the chat is already there
   const doc = /^Почта (?:t-([A-Za-z0-9_-]{1,64})|c)$/.exec(String(ctx.params?.mail || ''));
   const here = ctx.chat && typeof ctx.chat.id === 'string' ? ctx.chat : null;
   if (ctx.slot === 'ui.panel' && doc && here) wanted = {view: {chat: here.id, title: here.title || 'Этот чат'}, thread: doc[1] || null};
-  coExt.on('context', nextCtx => { pageCtx = nextCtx; theme(nextCtx); status(); });
+  coExt.on('context', nextCtx => {
+    // The core keys this frame by chat id. Never reuse a draft or reader for a different chat.
+    if (folderMode && JSON.stringify(folderOf(nextCtx)) !== JSON.stringify(folderChat)) { location.reload(); return; }
+    pageCtx = nextCtx; theme(nextCtx); status();
+  });
   status();
 }).catch(err => error($('connection'), err, () => location.reload()));
 window.addEventListener('pagehide', () => { if (draft && !draft.discarded && !draft.sending) { sync(); flush(draft).catch(() => {}); } clearTimeout(timer); statusTicket++; listTicket++; readTicket++; });

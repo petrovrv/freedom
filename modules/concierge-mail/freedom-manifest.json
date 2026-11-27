@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.15.0",
- "created": "2026-11-27T09:46:50Z",
+ "version": "0.16.0",
+ "created": "2026-11-27T13:32:14Z",
  "files": [
   {
    "path": "context/mail-mode.md",
@@ -165,18 +165,23 @@
   },
   {
    "path": "module.json",
-   "size": 3548,
-   "sha256": "4ec25a3b70d7c120429d58585b0f27beb6cd67f03f8b97997562f4c75159af78"
+   "size": 3543,
+   "sha256": "f65b4a57194902983553aca8cf66da3cc0a70680cf5c88d8a34e35d0e3118584"
   },
   {
    "path": "README.md",
-   "size": 16872,
-   "sha256": "89a311c8aeeabcf62182f385218d2e5b54133427c330535d98e012e98a2d9cd8"
+   "size": 17471,
+   "sha256": "7713ee88722e043132df7127fc0fb3788472ae27f372cd9da1721df74b68e789"
   },
   {
    "path": "server/ops.php",
    "size": 8777,
    "sha256": "122c8551f9cd57e7cd2e0ad0f1881604628629fc2087ee8a3c7aac703ccd629d"
+  },
+  {
+   "path": "tests/inline-mail.mjs",
+   "size": 5241,
+   "sha256": "ffeaff5fb53d822e0231558d26409168b12acde7448f02741fa107f7646c30a4"
   },
   {
    "path": "tests/server.php",
@@ -200,8 +205,8 @@
   },
   {
    "path": "ui/mail.css",
-   "size": 9960,
-   "sha256": "9070bcc0d84c135fb46dee68f0f4f5dbaf7717a4dd923335d496af289dd07317"
+   "size": 10994,
+   "sha256": "5e231ee809287abaa768df32b3b29b1afa45216ab22eea3a3fc830024adffeeb"
   },
   {
    "path": "ui/mail.html",
@@ -210,8 +215,8 @@
   },
   {
    "path": "ui/mail.js",
-   "size": 51208,
-   "sha256": "34ba46dec99ce234bce92ab353678e74eabb38c6ab5b039a0de73092dee21979"
+   "size": 52683,
+   "sha256": "31bdd1a1713667df17592184b1f4b7b6d4ff1caaea7d282d7f0382c29a7310c8"
   },
   {
    "path": "ui/tray.css",
@@ -233,7 +238,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "ZTd2+VW4KgO1fy/74weeE2mB90BBJF2rJHFnifuy1wfFFRQGK+3x+xj8r9W9a6Tq1nJP23eOs0R8MqmhmZtdDA=="
+   "sig": "PVTKFWaYadzvAJgioN2avpKbbY093yJJ9Mka1U/dWbV+oXDQ/MudxFeagUYGMpZ6p+b0Co2g0YObbreq67JsCA=="
   }
  ],
  "module": "concierge-mail"

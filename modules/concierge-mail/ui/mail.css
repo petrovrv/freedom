@@ -22,3 +22,21 @@
 #toolbar .danger{color:var(--danger)}
 .chats-head{font-size:12px;font-weight:650;color:var(--muted);margin:14px 8px 6px;text-transform:uppercase;letter-spacing:.04em}#labels .chat-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lbl.in-chat{--hue:215;--chip-s:15%;background:transparent;border:1px solid var(--line);color:var(--muted)}.chat-links{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:-10px 0 16px}.chat-links .chip{padding:0 2px 0 4px}.chat-links .chip .link-button{min-height:30px;max-width:22em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chat-picker{flex:1 1 100%;border:1px solid var(--line);border-radius:10px;padding:8px;background:var(--bg)}.pick-row{display:flex;gap:6px}.pick-row input{flex:1}.picks{display:flex;flex-direction:column;gap:2px;margin-top:6px;max-height:260px;overflow:auto}.picks button{display:flex;justify-content:space-between;gap:10px;text-align:left;border:0;min-height:40px;background:transparent}.chat-picker{min-width:0;max-width:100%}.picks button{width:100%;min-width:0}.picks .chat-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.picks .small{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #agent{white-space:nowrap}
+/* The chat folder uses the same reader and composer in one bounded, narrow frame. */
+.in-folder .topbar{padding:8px;gap:8px;flex-wrap:wrap}
+.in-folder .topbar h1{font-size:16px}
+.in-folder #search-form,.in-folder #compose-new,.in-folder #labels{display:none}
+.in-folder main{display:block;overflow:hidden;min-height:0}
+.in-folder #list-pane,.in-folder #reader{height:100%;border:0;min-width:0}
+.in-folder[data-pane="list"] #reader,.in-folder[data-pane="reader"] #list-pane{display:none}
+.in-folder #back{display:block}
+.in-folder #connection{padding:0 8px 6px;font-size:12px}
+.in-folder #reader{padding:8px}
+.in-folder .thread{padding:10px}
+.in-folder #composer{inset:0;width:auto;height:auto;border-radius:0;min-width:0}
+.in-folder .composer-head{flex-wrap:wrap}
+.in-folder .composer-head h2{min-width:0}
+.in-folder .composer-fields label{min-width:0}
+.in-folder .composer-foot{flex-wrap:wrap;padding:8px;gap:6px}
+.in-folder .attach-button{padding:8px}
+.in-folder #undo-bar{left:4px;right:4px;bottom:4px;flex-wrap:wrap;padding:8px}

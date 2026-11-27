@@ -131,5 +131,48 @@ $ok('member: another person\'s shared chat refused', !msgedit_env_allows($db, 'C
 $ok('member: family room allowed', msgedit_env_allows($db, 'CHAT-F', false, 'kid'));
 $ok('workbench owner: any chat', msgedit_env_allows($db, 'CHAT-K', true, 'owner'));
 
+// review 2, P1: co_db_put takes the chat row (the lock of hide/restore) before it reads the marks - while a hide holds
+// it in another connection, a write of the chat's events waits
+$port = (int)ini_get('mysqli.default_port');
+$other = new mysqli('127.0.0.1', 't', 't', 'co', $port);
+$db->query('SET SESSION innodb_lock_wait_timeout = 1');
+$other->begin_transaction();
+$other->query("SELECT data FROM chats WHERE chat_id = 'CHAT-M' FOR UPDATE");
+$waited = false;
+try {
+    co_db_put(['events' => [$ev(11, 'assistant_message', 'J9', 'answer during a hide')]]);
+} catch (mysqli_sql_exception $e) {
+    $waited = $e->getCode() === 1205;
+}
+$other->rollback();
+$ok('event write waits for a running hide', $waited && !share_q($db, "SELECT 1 FROM events WHERE event_id = 'EVT-11'", []));
+$db->query('SET SESSION innodb_lock_wait_timeout = 50');
+
+// review 2, P2: a rewrite reopens A that B (a forgotten message) had superseded; Restore closes A again with B's new
+// number (its old one was taken meanwhile) and puts the secretary back where it was
+$db->query("INSERT INTO chats (chat_id, project_id, title, data, sha, synced_utc, protocol_seq) VALUES ('CHAT-P', 'P-own', 'Proto', '{}', 'x', UTC_TIMESTAMP(3), 4)");
+$pe = static fn(int $seq, string $type): array => ['eventId' => sprintf('EVT-P%02d', $seq), 'chatId' => 'CHAT-P', 'branchId' => 'BR-main',
+    'sequence' => $seq, 'type' => $type, 'jobId' => 'JP' . intdiv($seq + 1, 2), 'text' => "p$seq", 'createdUtc' => '2026-11-26T10:00:00.000Z'];
+co_db_put(['events' => [$pe(1, 'user_message'), $pe(2, 'assistant_message'), $pe(3, 'user_message'), $pe(4, 'assistant_message')]]);
+$db->query("INSERT INTO protocol (chat_id, entry_no, section, text, msg_seq, status, replaced_by, closed_seq, created_utc, updated_utc) VALUES
+    ('CHAT-P', 1, 'decision', 'A', 2, 'superseded', 2, 4, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)),
+    ('CHAT-P', 2, 'decision', 'B', 4, 'active', NULL, NULL, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))");
+$pRow = static fn(int $no): ?array => share_q($db, "SELECT status, replaced_by, closed_seq, text FROM protocol WHERE chat_id = 'CHAT-P' AND entry_no = ?", [$no])[0] ?? null;
+$pCur = static fn(): int => (int)share_q($db, "SELECT protocol_seq FROM chats WHERE chat_id = 'CHAT-P'", [])[0]['protocol_seq'];
+$rw = msgedit_hide($db, 'CHAT-P', 3, 'rewrite', 'owner', 'owner@example.org', 'owner');
+$ok('rewrite: A reopened, B out, cursor at #2', $pRow(1)['status'] === 'active' && $pRow(2) === null && $pCur() === 2);
+$db->query("INSERT INTO protocol (chat_id, entry_no, section, text, msg_seq, status, created_utc, updated_utc)
+            VALUES ('CHAT-P', 2, 'fact', 'C', 2, 'active', UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))");
+msgedit_restore($db, 'CHAT-P', $rw['batch'], 'owner', 'owner@example.org');
+$b = share_q($db, "SELECT entry_no FROM protocol WHERE chat_id = 'CHAT-P' AND text = 'B'", []);
+$ok('restore: B back under a free number', $b && (int)$b[0]['entry_no'] === 3);
+$ok('restore: A superseded by B again (not two active decisions)', $pRow(1) == ['status' => 'superseded', 'replaced_by' => 3, 'closed_seq' => 4, 'text' => 'A']);
+$ok('restore: cursor back to #4 (restored messages not read twice)', $pCur() === 4);
+// a delete (not a rewrite) of B's turn reopens A too, and its restore closes A again
+$dl = msgedit_hide($db, 'CHAT-P', 3, 'pair', 'owner', 'owner@example.org', 'owner');
+$ok('delete: A reopened, cursor untouched', $pRow(1)['status'] === 'active' && $pCur() === 4);
+msgedit_restore($db, 'CHAT-P', $dl['batch'], 'owner', 'owner@example.org');
+$ok('delete restored: A superseded by B', $pRow(1)['status'] === 'superseded' && (int)$pRow(1)['replaced_by'] === 3);
+
 echo $fail === 0 ? "ALL OK\n" : "$fail FAILED\n";
 exit($fail === 0 ? 0 : 1);

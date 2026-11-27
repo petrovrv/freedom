@@ -249,8 +249,21 @@ function co_db_put(array $in): array
             ? (string)$r['eventId'] : null, $events))));
         $hiddenOf = [];
         if ($evIds) {
+            // the chat rows first (FOR UPDATE, sorted), the lock msgedit_hide / msgedit_restore take: a hide cannot slip
+            // between this read of the marks and the write; the reads below are locking reads, so they see the latest
+            // committed marks whatever snapshot this transaction already has
+            $evChats = array_values(array_unique(array_filter(array_map(static fn($r) => is_array($r) && co_db_id_ok($r['chatId'] ?? null)
+                ? (string)$r['chatId'] : null, $events))));
+            sort($evChats);
+            if ($evChats) {
+                $st = $db->prepare('SELECT chat_id FROM chats WHERE chat_id IN (' . implode(',', array_fill(0, count($evChats), '?'))
+                    . ') ORDER BY chat_id FOR UPDATE');
+                $st->execute($evChats);
+                $st->get_result()->free();
+                $st->close();
+            }
             $st = $db->prepare("SELECT event_id, JSON_EXTRACT(data, '$.deleted') FROM events WHERE event_id IN ("
-                . implode(',', array_fill(0, count($evIds), '?')) . ") AND JSON_EXTRACT(data, '$.deleted') IS NOT NULL");
+                . implode(',', array_fill(0, count($evIds), '?')) . ") AND JSON_EXTRACT(data, '$.deleted') IS NOT NULL LOCK IN SHARE MODE");
             $st->execute($evIds);
             foreach ($st->get_result()->fetch_all(MYSQLI_NUM) as $h) {
                 $d = json_decode((string)$h[1], true);
@@ -269,13 +282,13 @@ function co_db_put(array $in): array
                 && is_string($r['chatId'] ?? null)) {
                 // a late answer (or other event) of a job whose message was deleted or forgotten stays hidden with it
                 $st = $db->prepare("SELECT JSON_EXTRACT(data, '$.deleted') FROM events WHERE chat_id = ? AND job_id = ? AND type = 'user_message'
-                                    AND JSON_EXTRACT(data, '$.deleted') IS NOT NULL LIMIT 1");
+                                    AND JSON_EXTRACT(data, '$.deleted') IS NOT NULL LIMIT 1 LOCK IN SHARE MODE");
                 $st->execute([$r['chatId'], $r['jobId']]);
                 $h = $st->get_result()->fetch_row();
                 $st->close();
                 $d = $h ? json_decode((string)$h[0], true) : null;
                 if (is_array($d)) {
-                    unset($d['protocol']);
+                    unset($d['protocol'], $d['reopened'], $d['cursor']);
                     $r['deleted'] = $d;
                 }
             }

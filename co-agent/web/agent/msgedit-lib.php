@@ -154,6 +154,11 @@ function msgedit_hide(mysqli $db, string $chatId, int $seq, string $mode, string
                                FROM protocol WHERE chat_id = ? AND msg_seq IN ($in) ORDER BY entry_no", [$chatId, ...$seqs]);
         $bySeq = [];
         foreach ($proto as $p) $bySeq[(int)$p['msg_seq']][] = $p;
+        // entries the hidden messages closed or superseded open again (any mode: a removed B must not leave its A
+        // superseded by nothing); their old state goes with the batch, so a restore closes them again
+        $reopen = share_q($db, "SELECT entry_no, status, replaced_by, closed_seq FROM protocol
+                                WHERE chat_id = ? AND closed_seq IN ($in) AND msg_seq NOT IN ($in) FOR UPDATE", [$chatId, ...$seqs, ...$seqs]);
+        $cursor = share_q($db, 'SELECT protocol_seq FROM chats WHERE chat_id = ?', [$chatId])[0]['protocol_seq'] ?? null;
         $utc = gmdate('Y-m-d\TH:i:s.v\Z');
         $batch = 'DEL-' . bin2hex(random_bytes(6));
         $hidden = [];
@@ -162,6 +167,11 @@ function msgedit_hide(mysqli $db, string $chatId, int $seq, string $mode, string
             $data = json_decode((string)$t['data'], true);
             if (!is_array($data)) continue;
             $mark = ['utc' => $utc, 'by' => strtolower($email), 'batch' => $batch, 'mode' => $mode, 'at' => $seq];
+            if (!$hidden) {
+                // batch-wide state on the first event: reopened entries and the secretary cursor before a rewrite
+                if ($reopen) $mark['reopened'] = $reopen;
+                if ($mode === 'rewrite') $mark['cursor'] = $cursor === null ? null : (int)$cursor;
+            }
             if (isset($bySeq[(int)$t['seq']])) {
                 $mark['protocol'] = $bySeq[(int)$t['seq']];
                 unset($bySeq[(int)$t['seq']]); // one copy per seq
@@ -174,10 +184,12 @@ function msgedit_hide(mysqli $db, string $chatId, int $seq, string $mode, string
             if ($t['type'] === 'assistant_message' && $t['job_id'] !== null) $answers[] = (string)$t['job_id'];
         }
         if ($proto) share_exec($db, "DELETE FROM protocol WHERE chat_id = ? AND msg_seq IN ($in)", [$chatId, ...$seqs]);
+        foreach ($reopen as $o) {
+            share_exec($db, "UPDATE protocol SET status = 'active', replaced_by = NULL, closed_seq = NULL, updated_utc = UTC_TIMESTAMP(3)
+                             WHERE chat_id = ? AND entry_no = ?", [$chatId, (int)$o['entry_no']]);
+        }
         if ($mode === 'rewrite') {
-            // entries the forgotten messages closed or superseded are open again; the secretary reads on from $seq - 1
-            share_exec($db, "UPDATE protocol SET status = 'active', replaced_by = NULL, closed_seq = NULL
-                             WHERE chat_id = ? AND closed_seq >= ?", [$chatId, $seq]);
+            // the secretary reads on from $seq - 1
             share_exec($db, 'UPDATE chats SET protocol_seq = LEAST(COALESCE(protocol_seq, 0), ?) WHERE chat_id = ?', [$seq - 1, $chatId]);
         }
         $jobIds = array_values(array_filter(array_map(static fn(array $t): ?string => $t['job_id'] === null ? null : (string)$t['job_id'], $targets)));
@@ -231,9 +243,17 @@ function msgedit_restore(mysqli $db, string $chatId, string $batch, string $role
             return ['error' => 'expired'];
         }
         $restored = 0;
+        $renum = []; // old entry_no -> number given now (taken meanwhile)
+        $reopened = [];
+        $cursor = false;
+        $at = (int)($first['at'] ?? 0);
+        $maxSeq = 0;
         foreach ($rows as $r) {
             $data = json_decode((string)$r['data'], true);
             $proto = is_array($data['deleted']['protocol'] ?? null) ? $data['deleted']['protocol'] : [];
+            if (is_array($data['deleted']['reopened'] ?? null)) $reopened = $data['deleted']['reopened'];
+            if (array_key_exists('cursor', $data['deleted'] ?? [])) $cursor = $data['deleted']['cursor'];
+            $maxSeq = max($maxSeq, (int)($data['sequence'] ?? 0));
             unset($data['deleted']);
             $json = co_db_json($data);
             share_exec($db, 'UPDATE events SET data = ?, sha = ?, synced_utc = UTC_TIMESTAMP(3) WHERE event_id = ?',
@@ -243,12 +263,27 @@ function msgedit_restore(mysqli $db, string $chatId, string $batch, string $role
                 if (share_q($db, 'SELECT 1 FROM protocol WHERE chat_id = ? AND entry_no = ?', [$chatId, $no])) {
                     $no = (int)share_q($db, 'SELECT COALESCE(MAX(entry_no), 0) + 1 AS n FROM protocol WHERE chat_id = ?', [$chatId])[0]['n'];
                 }
+                $renum[(int)$p['entry_no']] = $no;
                 share_exec($db, 'INSERT INTO protocol (chat_id, entry_no, section, text, quote, msg_seq, status, replaced_by, closed_seq, author, model, created_utc, updated_utc)
                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(3))',
                     [$chatId, $no, $p['section'], $p['text'], $p['quote'], (int)$p['msg_seq'], $p['status'], $p['replaced_by'],
                         $p['closed_seq'], $p['author'], $p['model'], $p['created_utc']]);
             }
             $restored++;
+        }
+        // entries the batch had reopened are closed again as they were - only while nobody changed them since
+        foreach ($reopened as $o) {
+            $rb = $o['replaced_by'] === null ? null : ($renum[(int)$o['replaced_by']] ?? (int)$o['replaced_by']);
+            share_exec($db, "UPDATE protocol SET status = ?, replaced_by = ?, closed_seq = ?, updated_utc = UTC_TIMESTAMP(3)
+                             WHERE chat_id = ? AND entry_no = ? AND status = 'active' AND closed_seq IS NULL",
+                [(string)$o['status'], $rb, $o['closed_seq'] === null ? null : (int)$o['closed_seq'], $chatId, (int)$o['entry_no']]);
+        }
+        // a rewrite took the secretary back to at-1: when it has not moved since, it goes back to where it was (the
+        // restored messages already have their entries and must not be read twice); when it read newer messages
+        // meanwhile it stays (those are past the restored ones)
+        if ($cursor !== false && $cursor !== null && $at > 0) {
+            share_exec($db, 'UPDATE chats SET protocol_seq = ? WHERE chat_id = ? AND COALESCE(protocol_seq, 0) = ?',
+                [min((int)$cursor, max($maxSeq, $at - 1)), $chatId, $at - 1]);
         }
         $db->commit();
     } catch (Throwable $e) {

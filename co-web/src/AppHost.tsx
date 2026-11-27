@@ -6,7 +6,7 @@
 // the windows of CO Desktop are the windows of the system (F14e.2).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { appKey, findApp, findPage, LAUNCHER_OPEN, mountOrder, type AppRef } from './appStack';
-import type { ModuleInfo, ShellApp } from './extBridge';
+import { moduleBadges, onModuleBadges, type ModuleInfo, type ShellApp } from './extBridge';
 import { ModuleFrame, type CoreCalls } from './ModuleSlot';
 import { APP_EVENTS_MS, APP_REFRESH, takeAppEvents } from './appEvents';
 import { dbAppEvents } from './dbapi';
@@ -40,16 +40,24 @@ export function RecentApps({ modules, recent, current, onOpen, className = '' }:
   modules: ModuleInfo[]; recent: AppRef[]; current: AppRef | null; onOpen: (a: ShellApp) => void; className?: string;
 }) {
   const cur = current ? appKey(current) : '';
+  // coExt.badge of a module shows on its icon here too, as on its tile in ▦
+  const [, setBadgeTick] = useState(0);
+  useEffect(() => onModuleBadges(() => setBadgeTick((n) => n + 1)), []);
+  const badges = moduleBadges();
   const apps = recent.flatMap((r) => { const a = findApp(modules, r); return a ? [{ r, a }] : []; });
   if (!apps.length) return null;
   return (
     <nav className={`recent-apps ${className}`} aria-label="Recent apps">
-      {apps.map(({ r, a }) => (
-        <button key={appKey(r)} type="button" className={`recent-app ${appKey(r) === cur ? 'here' : ''}`} title={a.label}
-          aria-label={a.label} aria-current={appKey(r) === cur ? 'page' : undefined} onClick={() => onOpen(a)}>
-          <span aria-hidden="true">{a.icon}</span>
-        </button>
-      ))}
+      {apps.map(({ r, a }) => {
+        const badge = badges.get(a.m.id) || '';
+        const title = badge ? `${a.label} (${badge})` : a.label;
+        return (
+          <button key={appKey(r)} type="button" className={`recent-app ${appKey(r) === cur ? 'here' : ''}`} title={title}
+            aria-label={title} aria-current={appKey(r) === cur ? 'page' : undefined} onClick={() => onOpen(a)}>
+            <span aria-hidden="true">{a.icon}{badge && <span className="launcher-badge recent-badge">{badge}</span>}</span>
+          </button>
+        );
+      })}
     </nav>
   );
 }

@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
- "version": "0.1.2",
- "created": "2026-11-23T13:34:46Z",
+ "version": "0.1.3",
+ "created": "2026-11-27T10:56:13Z",
  "files": [
   {
    "path": "home/hub/home-relay-at.service",
@@ -14,9 +14,19 @@
    "sha256": "b80e81a8f26950ca4e566cc586946314d491f3f7df190e10336d209055d600be"
   },
   {
+   "path": "home/relay_client.py",
+   "size": 5356,
+   "sha256": "af8890d498f553fec93b0ad4fdda1c1ff3e2f38983b9dd83d1874ead763c877c"
+  },
+  {
    "path": "home/relayd.py",
    "size": 17501,
    "sha256": "8039f0ffd66f559020840d43666cf023e77c5b17e891a32f536b800f8a5b227f"
+  },
+  {
+   "path": "home/test_relay_client.py",
+   "size": 5420,
+   "sha256": "463998d78c572b99c442047fd57b0f81bf2c5e6098407e8441892f11eb6e7bb0"
   },
   {
    "path": "home/test_relayd.py",
@@ -26,12 +36,12 @@
   {
    "path": "module.json",
    "size": 1624,
-   "sha256": "92a48e236a141e440e50355f17b9baa89f0e980e0c4bbc5a891332303905204d"
+   "sha256": "f89dbc24177336f8242d1514be9a7539ab5f81e86e9c054eefce69581a495f94"
   },
   {
    "path": "README.md",
-   "size": 4344,
-   "sha256": "a00df62153275640bed30c31fc4919748d858367fb3944a875f03b061df6b012"
+   "size": 5767,
+   "sha256": "4c015c3505b24c1d8c6b12f93b635f87769d66744a16b4021617477fbdfeac6f"
   },
   {
    "path": "server/ops.php",
@@ -53,7 +63,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "eL8uGulyHDrwrTxUvsh5Yqk35EjF+eYnClvfFTCv7rpq5M0TkTG2fD/ck3/rKk+DlxKoGiYNo7QUfvSlVIwXAw=="
+   "sig": "41OMR7yZ7x8qi9HAsnVUPNduA5ga0Ctovy4ZQ0dPtY+WcQuzyfafsusyIb0FPhKeYi4xCUxYRweixKavT3m+BQ=="
   }
  ],
  "module": "home-relay"

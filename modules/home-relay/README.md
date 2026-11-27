@@ -50,3 +50,22 @@ page of module M (iframe, ext/1)            site (this module's server code)    
   (writes `modules.d/<module>.json` and a drop-in `home-relay@.service.d/<module>.conf` with the folders it may write).
 
 Checks: `python -m pytest home` and `php tests/server.php` (from the module folder).
+
+## Python envelope client (0.1.3)
+
+Import RelayClient from home/relay_client.py. Construct RelayClient(env, module, worker_pub),
+then seal(action, args) returns an envelope; open(envelope['id'], answer) returns the authenticated result.
+The caller supplies an authorised transport and a trusted worker public key. The client neither sends
+requests nor grants permission: outward actions still require the application's approval protocol.
+Create a new client when the worker key changes. All client key material stays in memory.
+
+Up to six requests may be pending for 120 seconds (monotonic clock). IDs and timestamps are generated
+inside seal; no automatic retry occurs. A valid answer, including an authenticated worker error, consumes
+the pending request. Malformed answers and plain transport errors leave it pending; discard(id) releases
+it on transport failure. Expired, discarded and already consumed IDs cannot be opened. The worker remains
+responsible for request replay protection. Plain errors raise transport_error, authenticated failures
+raise worker_error; neither exposes untrusted error text. This is encryption only, not policy or transport.
+
+Integration still required for F14b-4: relay.status discovery, environment/online/served checks,
+authorisation and the host operation, plus approval grants for outward actions. This client alone
+does not remove those integration prerequisites.

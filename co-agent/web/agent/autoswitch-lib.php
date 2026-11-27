@@ -212,7 +212,7 @@ function co_autoswitch_try(array $req, array $res, array $u, ?string $error, str
     $instruction = is_string($req['instruction'] ?? null) ? $req['instruction'] : '';
     if (($req['conversation']['operation'] ?? 'new') !== 'new') {
         // the other agent has no session: give it the latest messages of the chat
-        $st = $db->prepare("SELECT type, data FROM events WHERE chat_id = ? AND type IN ('user_message','assistant_message')
+        $st = $db->prepare("SELECT type, data FROM events WHERE chat_id = ? AND type IN ('user_message','assistant_message') AND JSON_EXTRACT(data, '$.deleted') IS NULL
                             AND (job_id IS NULL OR job_id <> ?) ORDER BY seq DESC LIMIT 10");
         $st->execute([$chatId, $jobId]);
         $lines = [];

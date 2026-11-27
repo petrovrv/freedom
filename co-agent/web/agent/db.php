@@ -8,6 +8,7 @@ require_once __DIR__ . '/db-lib.php';
 require_once __DIR__ . '/finalize-lib.php';
 require_once __DIR__ . '/ops-lib.php';
 require_once __DIR__ . '/share-lib.php';
+require_once __DIR__ . '/msgedit-lib.php';
 require_once __DIR__ . '/webdev-lib.php';
 require_once __DIR__ . '/relay-lib.php';
 require_once __DIR__ . '/gateway-lib.php';
@@ -995,7 +996,7 @@ try {
     }
 
     $coreOps = ['projects', 'chats', 'events', 'search', 'search_chats', 'put_user', 'delete_chat',
-            'job_submit', 'job_get', 'job_events', 'job_cancel', 'job_stats', 'usage', 'search_items', 'profile_get', 'profile_put', 'templates_get', 'templates_put', 'activity', 'protocol',
+            'job_submit', 'job_get', 'job_events', 'job_cancel', 'msg_delete', 'msg_rewrite', 'msg_restore', 'job_stats', 'usage', 'search_items', 'profile_get', 'profile_put', 'templates_get', 'templates_put', 'activity', 'protocol',
             'memory_candidates', 'memory_decide', 'ops', 'health', 'host_light', 'shares_get', 'share_set',
             'webdev_register', 'webdev_heartbeat', 'webdev_claim', 'webdev_result', 'webdev_revoke', 'webdev_mine',
             'files_list', 'files_set', 'files_merge', 'files_branch', 'files_restored', 'files_undone',
@@ -1494,6 +1495,24 @@ try {
             $db->prepare('DELETE FROM chats WHERE chat_id = ?')->execute([$chatId]);
             $db->commit();
             co_json(200, ['deleted' => 1]);
+
+        // CO Web 0.133.0 (msgedit-lib.php): delete a message (with its answer, or the answer only), rewrite from a message
+        // (everything from it on is forgotten), restore a deletion
+        case 'msg_delete':
+        case 'msg_rewrite':
+        case 'msg_restore':
+            $chatId = db_id($in, 'chatId');
+            $role = $chatRole($chatId);
+            if ($role === null) {
+                co_json(404, ['error' => 'not_found']);
+            }
+            if ($op === 'msg_restore') {
+                $r = msgedit_restore($db, $chatId, is_string($in['batch'] ?? null) ? $in['batch'] : '', $role, $email);
+            } else {
+                $mode = $op === 'msg_rewrite' ? 'rewrite' : (($in['mode'] ?? '') === 'answer' ? 'answer' : 'pair');
+                $r = msgedit_hide($db, $chatId, db_int($in, 'seq', 0, 0, PHP_INT_MAX), $mode, $role, $email, $myEnv);
+            }
+            co_json(isset($r['error']) ? ($r['error'] === 'forbidden' || $r['error'] === 'not_yours' ? 403 : ($r['error'] === 'expired' ? 410 : 404)) : 200, $r);
 
         case 'usage':
             // CO Web 0.23.0 Host tab: finished jobs per project and agent (tokens and cost from result.usage).

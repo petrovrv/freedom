@@ -122,7 +122,7 @@ function co_protocol_run(int $limit = 2, int $budgetSec = 200): array
             $from = (int)$cand['protocol_seq'];
 
             $st = $db->prepare("SELECT seq, type, text, data, created_utc, author, writer FROM events
-                                WHERE chat_id = ? AND type IN ('user_message','assistant_message') AND seq > ?
+                                WHERE chat_id = ? AND type IN ('user_message','assistant_message') AND seq > ? AND JSON_EXTRACT(data, '$.deleted') IS NULL
                                 ORDER BY seq");
             $st->execute([$chatId, $from]);
             $msgs = $st->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -213,7 +213,7 @@ function co_protocol_run(int $limit = 2, int $budgetSec = 200): array
             $prevText = '(none)';
             if ($from > 0) {
                 $st = $db->prepare("SELECT seq, type, text FROM events
-                                    WHERE chat_id = ? AND type IN ('user_message','assistant_message') AND seq <= ?
+                                    WHERE chat_id = ? AND type IN ('user_message','assistant_message') AND seq <= ? AND JSON_EXTRACT(data, '$.deleted') IS NULL
                                     ORDER BY seq DESC LIMIT 2");
                 $st->execute([$chatId, $from]);
                 $prev = array_reverse($st->get_result()->fetch_all(MYSQLI_ASSOC));

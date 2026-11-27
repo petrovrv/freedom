@@ -19,7 +19,7 @@ function co_summarize_chats(int $limit = 3): array
     $todo = $db->query($sql)->fetch_all(MYSQLI_ASSOC);
     foreach ($todo as $c) {
         $db = co_db(true);
-        $st = $db->prepare("SELECT type, text FROM events WHERE chat_id = ? AND type IN ('user_message','assistant_message')
+        $st = $db->prepare("SELECT type, text FROM events WHERE chat_id = ? AND type IN ('user_message','assistant_message') AND JSON_EXTRACT(data, '$.deleted') IS NULL
                              AND text IS NOT NULL ORDER BY seq, event_id");
         $st->execute([$c['chat_id']]);
         $msgs = $st->get_result()->fetch_all(MYSQLI_ASSOC);

@@ -244,8 +244,26 @@ function co_db_put(array $in): array
             ], hash('sha256', $data), 'synced_utc', $res);
         }
 
+        // CO Web 0.133.0 (msgedit-lib.php): data.deleted of a hidden message stays when a client writes an older copy
+        $evIds = array_values(array_unique(array_filter(array_map(static fn($r) => is_array($r) && co_db_id_ok($r['eventId'] ?? null)
+            ? (string)$r['eventId'] : null, $events))));
+        $hiddenOf = [];
+        if ($evIds) {
+            $st = $db->prepare("SELECT event_id, JSON_EXTRACT(data, '$.deleted') FROM events WHERE event_id IN ("
+                . implode(',', array_fill(0, count($evIds), '?')) . ") AND JSON_EXTRACT(data, '$.deleted') IS NOT NULL");
+            $st->execute($evIds);
+            foreach ($st->get_result()->fetch_all(MYSQLI_NUM) as $h) {
+                $d = json_decode((string)$h[1], true);
+                if (is_array($d)) $hiddenOf[(string)$h[0]] = $d;
+            }
+            $st->close();
+        }
+
         foreach ($events as $r) {
             if (!is_array($r)) { $reject('event', null, 'not an object'); continue; }
+            if (isset($r['eventId']) && is_string($r['eventId']) && isset($hiddenOf[$r['eventId']]) && !isset($r['deleted'])) {
+                $r['deleted'] = $hiddenOf[$r['eventId']];
+            }
             $id = $r['eventId'] ?? null;
             if (!co_db_id_ok($id)) { $reject('event', $id, 'invalid eventId'); continue; }
             if (!co_db_id_ok($r['chatId'] ?? null)) { $reject('event', $id, 'invalid chatId'); continue; }
@@ -517,7 +535,7 @@ function db_chat_read(array $in): array
     $penv = $prow[0] ?? null;
     $shared = (int)($prow[1] ?? 0) > 0;
     $users = co_push_users();
-    $base = "chat_id = ? AND type IN ('user_message','assistant_message')";
+    $base = "chat_id = ? AND type IN ('user_message','assistant_message') AND JSON_EXTRACT(data, '$.deleted') IS NULL";
 
     $fetch = static function (string $sql, array $params) use ($db): array {
         $st = $db->prepare($sql);

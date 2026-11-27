@@ -549,8 +549,23 @@ class Composer:
         return {'key': key, 'cancelled': bool(cur.rowcount), 'state': state['state'] if state else 'none'}
 
     def outbox(self, args):
-        rows = self.db.execute('SELECT key,state,error,due,updated,since FROM outbox WHERE account=? AND (state IN (\'wait\',\'sending\',\'unknown\')'
-                               ' OR updated > ?) ORDER BY updated DESC LIMIT 50', (self.account, self.clock() - 3600)).fetchall()
+        where, params = '', [self.account, self.clock() - 3600]
+        if 'chat' in args:
+            chat = args['chat']
+            if not isinstance(chat, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', chat):
+                raise ValueError('bad chat')
+            # Links may not exist in an older standalone archive. Never broaden a scoped request.
+            if not self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='chat_links'").fetchone():
+                return {'items': []}
+            # The original message also covers forwards, whose new Gmail thread differs from the source.
+            where = (' AND EXISTS (SELECT 1 FROM compose c JOIN chat_links l ON l.account=c.account'
+                     ' WHERE c.key=o.key AND c.account=o.account AND l.chat_id=? AND (l.thread_id=c.thread_id'
+                     " OR l.thread_id IN (SELECT g.thread_id FROM gmail_messages g WHERE g.account=c.account"
+                     " AND g.gmail_id=json_extract(c.fields,'$.of'))))")
+            params.append(chat)
+        rows = self.db.execute('SELECT o.key,o.state,o.error,o.due,o.updated,o.since FROM outbox o WHERE o.account=?'
+                               " AND (o.state IN ('wait','sending','unknown') OR o.updated > ?)" + where +
+                               ' ORDER BY o.updated DESC LIMIT 50', params).fetchall()
         now = self.clock()
         # ask: an unknown send the person may now settle by looking at Sent (compose_resolve)
         return {'items': [{**dict(r), 'ask': r['state'] == 'unknown' and now - (r['since'] or 0) >= GRACE} for r in rows]}

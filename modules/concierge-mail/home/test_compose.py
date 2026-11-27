@@ -109,6 +109,29 @@ class ComposeTests(unittest.TestCase):
         self.store.close()
         self.temp.cleanup()
 
+    def test_outbox_chat_filter_recovers_only_linked_replies_and_forwards(self):
+        relay.ensure_links(self.store.db)
+        self.store.db.execute('INSERT INTO chat_links(account,thread_id,chat_id,chat_title,project_id) VALUES(?,?,?,?,?)',
+                              ('me@example.org', 'ta1', 'chat-a', 'Test', 'test'))
+        self.store.db.execute('INSERT INTO chat_links(account,thread_id,chat_id,chat_title,project_id) VALUES(?,?,?,?,?)',
+                              ('other@example.org', 'ta1', 'other-account', 'Test', 'test'))
+        self.store.db.commit()
+        keys = []
+        for kind in ('reply', 'forward', 'new'):
+            d = self.c.handle('compose_start', {'kind': kind, **({'of': 'a1'} if kind != 'new' else {})})
+            self.c.handle('compose_send', {'key': d['key'], 'fields': {**d['fields'], 'to': 'test@example.org'},
+                                          'pending': d.get('pending', [])})
+            keys.append(d['key'])
+        self.assertEqual({i['key'] for i in self.c.outbox({'chat': 'chat-a'})['items']}, set(keys[:2]))
+        self.assertEqual(len(self.c.outbox({})['items']), 3)
+        self.assertEqual(self.c.outbox({'chat': 'other-chat'})['items'], [])
+        self.assertEqual(self.c.outbox({'chat': 'other-account'})['items'], [])
+        for bad in ('', None, '../chat-a'):
+            with self.assertRaises(ValueError):
+                self.c.outbox({'chat': bad})
+        self.store.db.execute('DROP TABLE chat_links')
+        self.assertEqual(self.c.outbox({'chat': 'chat-a'})['items'], [])
+
     def test_reply_all_builds_threaded_draft_with_signature_and_quote(self):
         start = self.c.handle('compose_start', {'kind': 'replyall', 'of': 'a1'})
         f = start['fields']

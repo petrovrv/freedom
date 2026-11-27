@@ -5,8 +5,10 @@
 The Correspondence part embeds the existing mail reader and composer. Opening a thread stays in the folder;
 Reply, Reply all and Forward use the same drafts, attachments and ten-second send cancellation as the Mail app.
 The folder lists only `ctx.chat.chatId` through `chat_threads`; missing chat context never falls back to Inbox.
-Global search, mailbox folders, new unrelated messages and recovery of unrelated pending sends remain in the Mail app.
-The app and its panel keep their existing layout. No core or home-server update is required for this UI change.
+Global search, mailbox folders and new unrelated messages remain in the Mail app.
+Pending sends recover only for threads linked to this chat (including the source thread of forwards).
+The app and its panel keep their existing layout. Deploy the home-server module before the UI:
+the composer now accepts an optional `chat` filter for `compose_outbox`.
 
 Local, opt-in foundation for the agent email client described in docs/SPEC-concierge-mail.md. The module is disabled by default and does not send messages.
 

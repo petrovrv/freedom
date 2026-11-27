@@ -1,7 +1,7 @@
 {
  "format": "freedom-release/1",
  "version": "0.16.0",
- "created": "2026-11-27T13:32:14Z",
+ "created": "2026-11-27T13:36:46Z",
  "files": [
   {
    "path": "context/mail-mode.md",
@@ -25,8 +25,8 @@
   },
   {
    "path": "home/compose.py",
-   "size": 44208,
-   "sha256": "eaa2d3d1e3fa55f534a9edccacda9dd99be6a2528ae65eac4807adf6e44efa86"
+   "size": 45285,
+   "sha256": "22bff993a5eeb4b550ba6a256d20df2b941faa2514f89d61e5053c5d76a97451"
   },
   {
    "path": "home/deliver.py",
@@ -115,8 +115,8 @@
   },
   {
    "path": "home/test_compose.py",
-   "size": 22267,
-   "sha256": "93b34f851a73da1cd97bd922d39b3805a90fa6edd473960eebc6e6e3725f781c"
+   "size": 23827,
+   "sha256": "850274bcf8b46b50589b6c9f0ef099bdb52cfc5f146014bd0982d2b722355fcd"
   },
   {
    "path": "home/test_deliver.py",
@@ -170,8 +170,8 @@
   },
   {
    "path": "README.md",
-   "size": 17471,
-   "sha256": "7713ee88722e043132df7127fc0fb3788472ae27f372cd9da1721df74b68e789"
+   "size": 17592,
+   "sha256": "57a69e3a68d41eb03994ac93b5617e9b0266d658e35251d83b3c2534e00079e9"
   },
   {
    "path": "server/ops.php",
@@ -180,8 +180,8 @@
   },
   {
    "path": "tests/inline-mail.mjs",
-   "size": 5241,
-   "sha256": "ffeaff5fb53d822e0231558d26409168b12acde7448f02741fa107f7646c30a4"
+   "size": 6368,
+   "sha256": "19d2fa3c67820ded34be6821f7762b81f622777f31f596458f87275576c53eb4"
   },
   {
    "path": "tests/server.php",
@@ -215,8 +215,8 @@
   },
   {
    "path": "ui/mail.js",
-   "size": 52683,
-   "sha256": "31bdd1a1713667df17592184b1f4b7b6d4ff1caaea7d282d7f0382c29a7310c8"
+   "size": 52986,
+   "sha256": "c057bdab09823156e88f73719733b5c6aa89d53c55ba99733e5f39a82c30102c"
   },
   {
    "path": "ui/tray.css",
@@ -238,7 +238,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "PVTKFWaYadzvAJgioN2avpKbbY093yJJ9Mka1U/dWbV+oXDQ/MudxFeagUYGMpZ6p+b0Co2g0YObbreq67JsCA=="
+   "sig": "5nfSGpW/KIN++KAeKHM3WbgY725uNtKOPvDirTZdFRhw17TW9KXETyxhteRI9b3bLMmQKuSsdAfxV4SYm17uCQ=="
   }
  ],
  "module": "concierge-mail"

@@ -26,7 +26,8 @@ async function pageFor(ctx, width = 300) {
       if(op==='compose_start')return {key:'k1',fields:{kind:args.kind,to:'sender@example.invalid',subject:'Re: Synthetic letter',text:''},attachments:[]};
       if(op==='compose_save')return {draft:'d1',attachments:[]};
       if(op==='compose_send')return {draft:'d1',undo:10};
-      if(op==='compose_unsend')return {cancelled:true};
+      if(op==='compose_outbox')return {items:ctx.pending ? [{key:'k1',state:'wait',due:Date.now()/1000+10}] : []};
+      if(op==='compose_unsend'){ctx.pending=false;return {cancelled:true};}
       if(op==='compose_drafts')return {drafts:[{key:'k1',draft:'d1',fields:{kind:'reply',to:'sender@example.invalid',text:'Test reply'},attachments:[]}]};
       return {};
     }});
@@ -46,9 +47,14 @@ try {
   await page.locator('.thread').waitFor();
   assert.equal(await page.locator('#search-form').isVisible(),false);
   assert.equal(await page.locator('#compose-new').isVisible(),false);
-  assert.deepEqual(await page.evaluate(()=>calls.map(x=>x.op)),['chat_threads']);
+  assert.deepEqual(await page.evaluate(()=>calls.map(x=>x.op)),['chat_threads','compose_outbox']);
   assert.equal(await page.evaluate(()=>calls[0].args.chat),'chat-a');
+  assert.equal(await page.evaluate(()=>calls[1].args.chat),'chat-a');
+  await page.evaluate(()=>events.context({slot:'ui.chatPart',chat:{chatId:'chat-a',projectId:'project-a'},count:2}));
+  await page.waitForFunction(()=>calls.filter(x=>x.op==='chat_threads').length===2);
   await page.locator('.thread').click();
+  await page.evaluate(()=>events.context({slot:'ui.chatPart',chat:{chatId:'chat-a',projectId:'project-a'},count:3}));
+  assert.equal(await page.evaluate(()=>calls.filter(x=>x.op==='chat_threads').length),2);
   await page.getByRole('button',{name:'↩ Ответить',exact:true}).click();
   await page.locator('#c-text').fill('Test reply');
   await page.waitForFunction(()=>calls.some(x=>x.op==='compose_save'));
@@ -67,8 +73,15 @@ try {
   assert.ok(await page.evaluate(()=>calls.some(x=>x.op==='compose_unsend')));
   await page.locator('#composer-close').click();
   await page.locator('#back').click();
+  await page.waitForFunction(()=>calls.filter(x=>x.op==='chat_threads').length===3);
   assert.equal(await page.locator('#list-pane').isVisible(),true);
   await page.close();
+  const pending = await pageFor({slot:'ui.chatPart',chat:{chatId:'chat-a',projectId:'project-a'},pending:true});
+  await pending.locator('#undo').waitFor({state:'visible'});
+  assert.equal(await pending.evaluate(()=>calls.find(x=>x.op==='compose_outbox').args.chat),'chat-a');
+  await pending.locator('#undo').click();
+  await pending.locator('#composer').waitFor({state:'visible'});
+  await pending.close();
   const missing = await pageFor({slot:'ui.chatPart'});
   await missing.getByText('Нет чата для переписки').waitFor();
   assert.deepEqual(await missing.evaluate(()=>calls),[]);

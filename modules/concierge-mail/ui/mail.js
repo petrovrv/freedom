@@ -12,7 +12,7 @@ let chats = [], chatView = null;
 // correspondence of that chat, the first with that thread open
 let pendingThread = null, wanted = null;
 // The folder embeds this same reader/composer, but never falls back to the whole mailbox.
-let folderMode = false, folderChat = null;
+let folderMode = false, folderChat = null, folderDirty = false;
 function folderOf(ctx) {
   const c = ctx.chat;
   return c && typeof c.chatId === 'string' && c.chatId && typeof c.projectId === 'string' && c.projectId
@@ -91,7 +91,7 @@ async function status() {
         initialized = true;
         if (wanted) { chatView = wanted.view; pendingThread = wanted.thread; wanted = null; }
         if (folderMode) chatView = folderChat;
-        overview(); loadList(); if (!folderMode) resumeOutbox();
+        overview(); loadList(); resumeOutbox();
       }
     }
   } catch (err) {
@@ -214,6 +214,7 @@ async function loadList(append = false) {
   if (folderMode) {
     query = ''; chatView = folderChat;
     if (!chatView) { $('list-note').textContent = 'Нет чата для переписки'; return; }
+    folderDirty = false;
   }
   if (append && (listBusy || next === null)) return;
   const ticket = ++listTicket;
@@ -691,8 +692,9 @@ async function reopen(d) {
 // sends still open from an earlier visit (waiting, sending or unclear) get their bar back when the page loads
 async function resumeOutbox() {
   if (!$('undo-bar').hidden) return;
+  if (folderMode && !folderChat) return;
   try {
-    const it = ((await call('compose_outbox', {})).items || []).find(i => ['wait', 'sending', 'unknown'].includes(i.state));
+    const it = ((await call('compose_outbox', folderMode ? {chat: folderChat.chat} : {})).items || []).find(i => ['wait', 'sending', 'unknown'].includes(i.state));
     if (!it || !$('undo-bar').hidden) return;
     if (it.state === 'wait') { undo({key: it.key}, Math.max(0, Math.ceil(it.due - Date.now() / 1000))); return; }
     const gen = ++undoGen;
@@ -723,7 +725,7 @@ $('undo-close').addEventListener('click', () => { $('undo-bar').hidden = true; }
 // leaving the page or the app: the newest edit goes to the server at once (a closed tab may still cut it short)
 document.addEventListener('visibilitychange', () => { if (document.hidden && draft && !draft.discarded && !draft.sending) { sync(); clearTimeout(saveTimer); flush(draft).catch(() => {}); } });
 function back() {
-  if (document.body.dataset.pane === 'reader') { pane('list'); $('threads').children[selected]?.focus(); }
+  if (document.body.dataset.pane === 'reader') { pane('list'); if (folderDirty) loadList(); else $('threads').children[selected]?.focus(); }
   else if (!folderMode) { pane(document.body.dataset.pane === 'labels' ? 'list' : 'labels'); }
 }
 $('back').addEventListener('click', back);
@@ -773,6 +775,10 @@ coExt.ready.then(ctx => {
   coExt.on('context', nextCtx => {
     // The core keys this frame by chat id. Never reuse a draft or reader for a different chat.
     if (folderMode && JSON.stringify(folderOf(nextCtx)) !== JSON.stringify(folderChat)) { location.reload(); return; }
+    if (folderMode && nextCtx.count !== pageCtx.count) {
+      folderDirty = true;
+      if (!draft && document.body.dataset.pane === 'list') loadList();
+    }
     pageCtx = nextCtx; theme(nextCtx); status();
   });
   status();

@@ -58,4 +58,30 @@ $ok('move outside environment refused', co_module_chat_open($db, 'owner', 'plann
 $db->prepare('DELETE FROM chats WHERE chat_id=?')->execute([$d['chatId']]);
 $db->prepare('UPDATE projects SET env=? WHERE project_id=?')->execute(['sam', $d['projectId']]);
 $ok('moved Applications project refused', co_module_chat_open($db, 'alex', 'planner', $drive)['error'] === 'module_chat_project_moved');
+// A second module shares Applications. Simulate an ordinary settings save during Drive I/O.
+$dir2 = co_module_home('notes'); @mkdir($dir2 . '/context', 0700, true);
+file_put_contents($dir2 . '/context/rules.md', 'Help with planning.');
+$db->prepare("INSERT INTO modules (id,version,enabled,standard,manifest_json,files_json,installed_utc,updated_utc) VALUES ('notes','1.0.0',1,1,?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))")
+    ->execute([co_db_json($man), co_db_json($files)]);
+co_modules($db, true);
+$readProject = static function ($pid) use ($db) {
+    $st = $db->prepare('SELECT * FROM projects WHERE project_id=?'); $st->execute([$pid]);
+    return $st->get_result()->fetch_assoc();
+};
+$expected = null;
+$saveDuringDrive = static function ($p, $c) use ($db, $readProject, &$expected) {
+    $p['title'] = 'Updated during creation'; $p['description'] = 'Keep these settings';
+    $p['defaultAgentId'] = 'claude'; $p['planningDefault'] = true; $p['updatedUtc'] = '2030-01-01T00:00:00Z';
+    co_db_put(['projects' => [$p]]);
+    $db->prepare('UPDATE projects SET folder_id=? WHERE project_id=?')->execute(['concurrent-folder', $p['projectId']]);
+    $expected = $readProject($p['projectId']);
+    return ['stale-folder', 'new-chat-folder'];
+};
+$second = co_module_chat_open($db, 'sam', 'notes', $saveDuringDrive);
+$ok('second module created in same project', !empty($second['ok']) && $second['projectId'] === $c['projectId']);
+$ok('existing project row unchanged after concurrent settings save', $readProject($second['projectId']) === $expected);
+$firstRace = co_module_chat_open($db, 'race', 'notes', $saveDuringDrive);
+$ok('concurrent initial project insert wins without overwrite', !empty($firstRace['ok']) && $readProject($firstRace['projectId']) === $expected);
+$initial = co_module_chat_open($db, 'initial', 'notes', $drive);
+$ok('initial insert includes project folder', !empty($initial['ok']) && $readProject($initial['projectId'])['folder_id'] === 'project-folder');
 exit($fail ? 1 : 0);

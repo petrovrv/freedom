@@ -55,9 +55,27 @@ function co_module_chat_open(mysqli $db, string $env, string $id, ?callable $mat
         if ($projectRow) $saved['project'] = json_decode($projectRow['data'], true);
         $materialize ??= 'co_module_chat_drive';
         [$pf, $cf] = $materialize($saved['project'], $saved['chat']);
-        $result = co_db_put(['projects' => [$saved['project']], 'chats' => [$saved['chat']]]);
+        // Normal project edits do not take our module-chat lock. Never upsert a snapshot
+        // read before Drive I/O, nor update an existing project's folder or timestamps.
+        if (!$projectRow) {
+            $p = $saved['project'];
+            $data = co_db_json($p);
+            try {
+                $db->prepare('INSERT INTO projects (project_id,env,title,description,default_agent,archived,created_utc,updated_utc,data,sha,synced_utc,folder_id)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3),?)')->execute([
+                    $p['projectId'], $env, $p['title'], $p['description'] ?? '', $p['defaultAgentId'],
+                    !empty($p['archived']) ? 1 : 0, co_db_dt($p['createdUtc']), co_db_dt($p['updatedUtc']),
+                    $data, hash('sha256', $data), $pf,
+                ]);
+            } catch (mysqli_sql_exception $e) {
+                if ($e->getCode() !== 1062) throw $e; // another writer created it; preserve that row
+            }
+        }
+        $st->execute([$saved['project']['projectId']]);
+        $currentProject = $st->get_result()->fetch_assoc();
+        if (!$currentProject || $currentProject['env'] !== $env) return ['error' => 'module_chat_project_moved'];
+        $result = co_db_put(['chats' => [$saved['chat']]]);
         if ($result['rejected']) throw new RuntimeException('module chat write failed');
-        $db->prepare('UPDATE projects SET folder_id=? WHERE project_id=?')->execute([$pf, $saved['project']['projectId']]);
         $db->prepare('UPDATE chats SET folder_id=? WHERE chat_id=?')->execute([$cf, $saved['chat']['chatId']]);
         $saved['complete'] = true;
         $json = co_db_json($saved);

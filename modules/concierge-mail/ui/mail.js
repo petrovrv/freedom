@@ -13,6 +13,10 @@ let chats = [], chatView = null;
 let pendingThread = null, wanted = null;
 // The folder embeds this same reader/composer, but never falls back to the whole mailbox.
 let folderMode = false, folderChat = null, folderDirty = false;
+// 0.17.0 message card (ext/1 ui.messageCard): this same composer for one Gmail draft named by the agent's answer. Each
+// write carries the draft's revision (its Gmail message id): a draft changed or removed in Gmail or ✉ is never overwritten,
+// deleted or sent from here. A draft gone without a send from here is shown as gone, never as sent.
+let cardMode = false, cardId = '', cardDraft = '', cardTimer = 0, cardTicket = 0, wantDraft = '';
 function folderOf(ctx) {
   const c = ctx.chat;
   return c && typeof c.chatId === 'string' && c.chatId && typeof c.projectId === 'string' && c.projectId
@@ -91,7 +95,8 @@ async function status() {
         initialized = true;
         if (wanted) { chatView = wanted.view; pendingThread = wanted.thread; wanted = null; }
         if (folderMode) chatView = folderChat;
-        overview(); loadList(); resumeOutbox();
+        if (cardMode) loadCard();
+        else { overview(); loadList(); resumeOutbox(); if (wantDraft) { openDraft(wantDraft); wantDraft = ''; } }
       }
     }
   } catch (err) {
@@ -334,7 +339,7 @@ const consentNote = 'Нужно разрешение Google писать и от
 function writeError(err) {
   const m = String(err && err.message || err);
   return {needs_consent: consentNote, 'already sending': 'Письмо уже отправляется', 'no recipients': 'Укажите получателя',
-    'too big': 'Вложения больше 20 МБ', upload_failed: 'Не все вложения загрузились: уберите отметку ⚠ или прикрепите файл снова', discarded: 'Черновик удалён', 'not now': 'Ещё рано: подождите пару минут', 'draft gone': 'черновик исчез из Gmail — проверьте «Отправленные», прежде чем отправлять снова', 'save first': 'Черновик ещё не сохранён', 'protected message': 'На защищённое письмо так не ответить'}[m]
+    'too big': 'Вложения больше 20 МБ', conflict: 'Черновик изменён в ✉ или Gmail — загрузите актуальную версию', 'changed outside': 'черновик изменили в ✉ или Gmail во время отправки', upload_failed: 'Не все вложения загрузились: уберите отметку ⚠ или прикрепите файл снова', discarded: 'Черновик удалён', 'not now': 'Ещё рано: подождите пару минут', 'draft gone': 'черновик исчез из Gmail — проверьте «Отправленные», прежде чем отправлять снова', 'save first': 'Черновик ещё не сохранён', 'protected message': 'На защищённое письмо так не ответить'}[m]
     || (/^bad address/.test(m) ? 'Неверный адрес: ' + m.replace(/^bad address:\s*/, '') : 'Не получилось: ' + m);
 }
 function toolbar(thread, messages) {
@@ -509,7 +514,7 @@ function freeze(on) {
   for (const id of [...Object.values(fieldIds), 'c-file', 'c-send', 'c-discard']) $(id).disabled = on;
   $('composer').classList.toggle('frozen', on);
 }
-function showComposer(d) {
+function showComposer(d, focus = !cardMode) {
   d.ops = d.ops || Promise.resolve(); d.rev = d.rev || 0; d.savedRev = d.savedRev ?? (d.draft ? 0 : -1);
   draft = d; const f = {...(d.fields || {}), ...(d.local || {})};
   for (const [k, id] of Object.entries(fieldIds)) $(id).value = f[k] || '';
@@ -519,8 +524,78 @@ function showComposer(d) {
   $('composer-title').textContent = {reply:'Ответ', replyall:'Ответ всем', forward:'Пересылка'}[(d.fields || {}).kind] || 'Новое письмо';
   renderAttachments(); cstate(''); $('composer-state').textContent = d.draft ? 'Черновик сохранён' : '';
   freeze(false); $('composer').hidden = false;
+  if (!focus) return;  // a card in a chat answer never takes the focus from the chat
   (f.to ? $('c-text') : $('c-to')).focus();
   if ((d.fields || {}).kind === 'reply' || (d.fields || {}).kind === 'replyall') $('c-text').setSelectionRange(0, 0);
+}
+
+// ---- 0.17.0 the message card
+function cardState(text, bad) { $('card-state').textContent = text; $('card-state').className = bad ? 'err' : ''; fit(); }
+function cardConflict(err) {
+  if (!cardMode || !['conflict', 'draft gone'].includes(String(err && err.message || err))) return;
+  $('card-reload').hidden = false;
+  cardState(err.message === 'conflict' ? 'Черновик изменён в ✉ или Gmail.' : 'Черновика больше нет в Gmail: удалён или отправлен вне CO.', true);
+}
+// the frame is as tall as the card (ext/1 size of a block slot)
+function fit() { if (cardMode) requestAnimationFrame(() => coExt.size(0, Math.min(1400, document.body.scrollHeight + 4), false)); }
+async function loadCard() {
+  clearTimeout(cardTimer);
+  const ticket = ++cardTicket;
+  $('card-reload').hidden = true;
+  try {
+    const out = await call('compose_card', {draft: cardId});
+    if (ticket !== cardTicket) return;
+    cardDraft = /^[A-Za-z0-9_-]{1,64}$/.test(String(out.draft || '')) ? out.draft : '';  // the Gmail draft id (the marker may name its message id)
+    if (out.state === 'draft') {
+      showComposer({...out, grev: out.revision});
+      cardState(out.failed ? 'Не отправлено: ' + writeError(out.failed) + '. Черновик Gmail:' : 'Черновик Gmail — правьте прямо здесь; отправляете вы сами.', !!out.failed);
+      cardThread(out.thread);
+    } else {
+      $('composer').hidden = true; draft = null;
+      if (out.state === 'sent') cardState('Отправлено' + (out.updated ? ' ' + date(out.updated * 1000, true) : '') + '.');
+      else if (out.state === 'unavailable') cardState('Черновика больше нет в Gmail: удалён или отправлен вне CO. Проверьте «Отправленные» в ✉.');
+      else {  // a send from here still open (waiting, sending, unclear): its bar, as in ✉
+        cardState('Отправка из этой карточки…');
+        if ($('undo-bar').hidden) {
+          if (out.state === 'wait') undo({key: out.key}, Math.max(0, Math.ceil(out.due - Date.now() / 1000)));
+          else { const gen = ++undoGen; $('undo-bar').hidden = false; $('undo').hidden = true; result({key: out.key}, gen, Date.now()); }
+        }
+      }
+      return;
+    }
+  } catch (err) { if (ticket === cardTicket) { error($('card-state'), err, loadCard); fit(); } return; }
+  cardTimer = setTimeout(watchCard, 20000);
+}
+// live state: an idle card asks every 20 s whether the draft is still the one shown (nothing changes by that)
+async function watchCard() {
+  const d = draft, ticket = cardTicket;
+  if (!d || !d.grev || d.sending || d.discarded || document.hidden || d.savedRev !== d.rev) { cardTimer = setTimeout(watchCard, 20000); return; }
+  try {
+    const out = await call('compose_card', {draft: cardId, rev: d.grev});
+    if (ticket !== cardTicket || d !== draft) return;
+    if (out.state === 'changed') { cardConflict(new Error('conflict')); return; }
+    if (out.state === 'unavailable') { freeze(true); cardConflict(new Error('draft gone')); return; }
+    if (out.state !== 'draft') { loadCard(); return; }  // sent or sending from another window
+  } catch (_) { /* offline for a moment: asked again */ }
+  cardTimer = setTimeout(watchCard, 20000);
+}
+// the thread being answered, folded; read like in ✉ (text only, imported HTML stays sanitised by message())
+async function cardThread(tid) {
+  const box = $('card-thread');
+  box.hidden = !tid; box.open = false; $('card-thread-body').replaceChildren(); box.dataset.thread = tid || '';
+  fit();
+}
+async function openCardThread() {
+  const box = $('card-thread'), tid = box.dataset.thread;
+  if (!box.open || !tid || $('card-thread-body').childElementCount) { fit(); return; }
+  try {
+    const data = await call('thread', {thread: tid});
+    const messages = (data.messages || []).filter(m => !(m.labels || []).includes('DRAFT'));
+    $('card-thread').querySelector('summary').textContent = 'Переписка (' + messages.length + ')';
+    $('card-thread-body').replaceChildren(...messages.map((m, i) => message(m, i === messages.length - 1)));
+    if (!messages.length) $('card-thread-body').append(el('p', 'empty', 'Писем нет'));
+  } catch (err) { error($('card-thread-body'), err, () => { $('card-thread-body').replaceChildren(); openCardThread(); }); }
+  fit();
 }
 function renderAttachments() {
   const box = $('c-attachments'); box.replaceChildren();
@@ -534,20 +609,23 @@ function renderAttachments() {
     const chip = el('span', 'chip', '📎 ' + a.name + ' · ' + size(a.size));
     chip.append(button('×', () => later(d, async () => {
       await saveNow(d);
-      const out = await call('compose_detach', {key: d.key, sha: a.sha}); d.draft = out.draft; d.attachments = out.attachments;
+      const out = await call('compose_detach', {key: d.key, sha: a.sha, ...revOf(d)}); d.draft = out.draft; d.attachments = out.attachments; took(d, out);
       if (d === draft) renderAttachments();
-    }).catch(err => { if (d === draft) cstate(writeError(err), true); })));
+    }).catch(err => { if (d === draft) { cstate(writeError(err), true); cardConflict(err); } })));
     box.append(chip);
   }
 }
 function isEmpty(d) { const f = d.local || {}; return !f.to && !f.cc && !f.bcc && !f.subject && !(f.text || '').trim() && !(d.attachments || []).length; }
+// a card's writes name the revision it shows; every answer gives the next one
+function revOf(d) { if (!cardMode) return {}; if (!d.grev) throw new Error('conflict'); return {rev: d.grev}; }
+function took(d, out) { if (out && out.revision) d.grev = out.revision; }
 async function saveNow(d) {
   // inside d.ops only: one save of the newest edit, if the server does not have it yet
   if (d.discarded) throw new Error('discarded');
   if (d.draft && d.savedRev === d.rev) return;
   const rev = d.rev, snap = {...d.local};
-  const out = await call('compose_save', {key: d.key, fields: {...d.fields, ...snap}, ...(d.pending?.length && !d.draft ? {pending: d.pending} : {})});
-  d.draft = out.draft; d.attachments = out.attachments; d.fields = {...d.fields, ...snap}; d.savedRev = rev;
+  const out = await call('compose_save', {key: d.key, fields: {...d.fields, ...snap}, ...(d.pending?.length && !d.draft ? {pending: d.pending} : {}), ...revOf(d)});
+  d.draft = out.draft; d.attachments = out.attachments; d.fields = {...d.fields, ...snap}; d.savedRev = rev; took(d, out);
   if (d === draft) { $('composer-state').textContent = d.savedRev === d.rev ? 'Черновик сохранён' : 'Изменено'; renderAttachments(); cstate(''); }
 }
 async function flush(d) {
@@ -558,7 +636,7 @@ function edited() {
   if (!draft || draft.discarded || draft.sending) return;
   sync(); draft.rev++;
   clearTimeout(saveTimer); $('composer-state').textContent = 'Изменено';
-  const d = draft; saveTimer = setTimeout(() => flush(d).catch(err => { if (d === draft) cstate(writeError(err), true); }), 1500);
+  const d = draft; saveTimer = setTimeout(() => flush(d).catch(err => { if (d === draft) { cstate(writeError(err), true); cardConflict(err); } }), 1500);
 }
 async function closeComposer() {
   const d = draft; if (!d) return true;
@@ -582,7 +660,7 @@ async function compose(kind, of) {
 }
 async function openDraft(draftId) {
   if (!(await closeComposer())) return;
-  try { showComposer(await call('compose_open', {draft: draftId})); }
+  try { showComposer(await call('compose_open', {draft: draftId}), !!pageCtx && pageCtx.slot === 'ui.page'); }
   catch (err) { note(writeError(err)); }
 }
 function attach(files) {
@@ -596,15 +674,15 @@ function attach(files) {
       const piece = bytes.subarray(offset, offset + PIECE), last = offset + PIECE >= bytes.length;
       if (d === draft) cstate(`Загрузка ${file.name}: ${Math.round(100 * Math.min(bytes.length, offset + PIECE) / Math.max(1, bytes.length))}%`);
       let bin = ''; for (let i = 0; i < piece.length; i += 8192) bin += String.fromCharCode(...piece.subarray(i, i + 8192));
-      const out = await call('compose_upload', {key: d.key, upload, name: file.name, type: file.type || 'application/octet-stream', offset, last, data: btoa(bin)});
-      if (last) { d.draft = out.draft; d.attachments = out.attachments; break; }
+      const out = await call('compose_upload', {key: d.key, upload, name: file.name, type: file.type || 'application/octet-stream', offset, last, data: btoa(bin), ...revOf(d)});
+      if (last) { d.draft = out.draft; d.attachments = out.attachments; took(d, out); break; }
     }
     d.uploadFailed = (d.uploadFailed || []).filter(n => n !== file.name);
     if (d === draft) { renderAttachments(); cstate(''); }
   }).catch(err => {
     // a failed file blocks Send until the person removes its mark (or attaches it again)
     d.uploadFailed = [...(d.uploadFailed || []), file.name];
-    if (d === draft) { renderAttachments(); cstate(file.name + ': ' + writeError(err), true); }
+    if (d === draft) { renderAttachments(); cstate(file.name + ': ' + writeError(err), true); cardConflict(err); }
   });
 }
 async function send() {
@@ -617,13 +695,13 @@ async function send() {
       if ((d.uploadFailed || []).length) throw new Error('upload_failed');
       if (d.discarded) throw new Error('discarded');
       const rev = d.rev, snap = {...d.local};
-      const res = await call('compose_send', {key: d.key, fields: {...d.fields, ...snap}, ...(d.pending?.length && !d.draft ? {pending: d.pending} : {})});
-      d.fields = {...d.fields, ...snap}; d.savedRev = rev; if (res.draft) d.draft = res.draft;
+      const res = await call('compose_send', {key: d.key, fields: {...d.fields, ...snap}, ...(d.pending?.length && !d.draft ? {pending: d.pending} : {}), ...revOf(d)});
+      d.fields = {...d.fields, ...snap}; d.savedRev = rev; if (res.draft) d.draft = res.draft; took(d, res);
       return res;
     });
     if (d === draft) { $('composer').hidden = true; draft = null; }
     undo(d, out.undo || 10);
-  } catch (err) { d.sending = false; if (d === draft) { freeze(false); cstate(writeError(err), true); } }
+  } catch (err) { d.sending = false; if (d === draft) { freeze(false); cstate(writeError(err), true); cardConflict(err); } }
 }
 function undo(d, seconds) {
   const gen = ++undoGen;
@@ -638,7 +716,7 @@ function undo(d, seconds) {
     try {
       const out = await call('compose_unsend', {key: d.key});
       if (gen !== undoGen) return;
-      if (out.cancelled) { done(); d.sending = false; if (await closeComposer()) { await reopen(d); cstate('Отправка отменена, письмо — снова черновик'); } }
+      if (out.cancelled) { done(true); d.sending = false; if (await closeComposer()) { await reopen(d); cstate('Отправка отменена, письмо — снова черновик'); } }
       else result(d, gen, Date.now());
     } catch (err) { text('Не удалось отменить: ' + writeError(err)); result(d, gen, Date.now()); }
   };
@@ -650,11 +728,11 @@ async function result(d, gen, started) {
   try { it = ((await call('compose_outbox', {})).items || []).find(i => i.key === d.key); } catch (_) {}
   if (gen !== undoGen) return;
   const btn = $('undo'), text = t => { $('undo-text').textContent = t; };
-  if (it && it.state === 'sent') { text('Письмо отправлено'); setTimeout(() => { if (gen === undoGen) done(); }, 6000); refreshList(); return; }
+  if (it && it.state === 'sent') { text('Письмо отправлено'); setTimeout(() => { if (gen === undoGen) done(); }, 6000); if (!cardMode) refreshList(); return; }
   if (it && it.state === 'failed') {
     text('Не отправлено' + (it.error && it.error !== 'not sent' ? ': ' + writeError(it.error) : '') + ' — письмо осталось в черновиках');
     btn.hidden = false; btn.textContent = 'Открыть';
-    btn.onclick = async () => { done(); d.sending = false; if (await closeComposer()) await reopen(d); };
+    btn.onclick = async () => { done(true); d.sending = false; if (await closeComposer()) await reopen(d); };
     d.sending = false;
     return;
   }
@@ -669,8 +747,8 @@ async function result(d, gen, started) {
       try {
         await call('compose_resolve', {key: d.key, sent});
         $('undo-bar').querySelectorAll('.undo-extra').forEach(n => n.remove());
-        if (sent) { text('Отмечено как отправленное'); btn.hidden = true; refreshList(); setTimeout(() => { if (gen === undoGen) done(); }, 4000); }
-        else { done(); d.sending = false; if (await closeComposer()) await reopen(d); }
+        if (sent) { text('Отмечено как отправленное'); btn.hidden = true; if (!cardMode) refreshList(); setTimeout(() => { if (gen === undoGen) done(); }, 4000); }
+        else { done(true); d.sending = false; if (await closeComposer()) await reopen(d); }
       } catch (err) { text(writeError(err)); }
     };
     btn.onclick = () => answer(true);
@@ -680,9 +758,14 @@ async function result(d, gen, started) {
   setTimeout(() => result(d, gen, started), it && it.state === 'unknown' ? 10000 : 2000);
 }
 // the bar is free again: the next open send (if any) takes it
-function done() { $('undo-bar').hidden = true; $('undo-bar').querySelectorAll('.undo-extra').forEach(n => n.remove()); setTimeout(resumeOutbox, 0); }
+// `reopening`: the letter comes back by reopen(); a card then loads only once, through it
+function done(reopening) {
+  $('undo-bar').hidden = true; $('undo-bar').querySelectorAll('.undo-extra').forEach(n => n.remove());
+  if (!(cardMode && reopening)) setTimeout(cardMode ? loadCard : resumeOutbox, 0);
+}
 // a letter known only by its key (after a reload): its fields come from the home server's list of letters being written
 async function reopen(d) {
+  if (cardMode) { await loadCard(); return; }  // a card's letter comes back with its current revision
   if (d.fields) { showComposer(d); return; }
   try {
     const found = ((await call('compose_drafts', {})).drafts || []).find(x => x.key === d.key);
@@ -713,13 +796,22 @@ $('c-discard').addEventListener('click', () => {
   clearTimeout(saveTimer);
   d.discarded = true; freeze(true);  // no save may follow (it would bring the draft back)
   later(d, async () => {
-    if (d.key) await call('compose_discard', {key: d.key});
+    if (d.key) await call('compose_discard', {key: d.key, ...revOf(d)});
     if (d === draft) { $('composer').hidden = true; draft = null; }
-  }).catch(err => { d.discarded = false; if (d === draft) { freeze(false); cstate(writeError(err), true); } });
+    if (cardMode) cardState('Черновик удалён');
+  }).catch(err => { d.discarded = false; if (d === draft) { freeze(false); cstate(writeError(err), true); cardConflict(err); } });
 });
 $('composer').addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); send(); }
-  else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeComposer(); }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !cardMode) { e.preventDefault(); send(); }  // a card sends only by its button
+  else if (e.key === 'Escape' && !cardMode) { e.preventDefault(); e.stopPropagation(); closeComposer(); }
+});
+$('card-thread').addEventListener('toggle', openCardThread);
+$('card-open').addEventListener('click', () => coExt.navigate('/x/concierge-mail/mail' + (draft && !draft.discarded && cardDraft ? '?draft=' + encodeURIComponent(cardDraft) : ''), 'self'));
+$('card-reload').addEventListener('click', () => {
+  // the provider's version wins: what was typed here and not saved is dropped
+  clearTimeout(saveTimer);
+  if (draft) draft.discarded = true;
+  draft = null; $('composer').hidden = true; loadCard();
 });
 $('undo-close').addEventListener('click', () => { $('undo-bar').hidden = true; });
 // leaving the page or the app: the newest edit goes to the server at once (a closed tab may still cut it short)
@@ -761,6 +853,17 @@ $('agent').addEventListener('click', async () => {
 coExt.ready.then(ctx => {
   pageCtx = ctx; theme(ctx); title(0);
   folderMode = ctx.slot === 'ui.chatPart';
+  cardMode = ctx.slot === 'ui.messageCard';
+  if (cardMode) {
+    cardId = ctx.card && /^[A-Za-z0-9_-]{1,64}$/.test(String(ctx.card.id || '')) ? ctx.card.id : '';
+    document.body.classList.add('in-card');
+    $('card-bar').hidden = false;
+    new ResizeObserver(fit).observe(document.body);
+    if (!cardId) { cardState('Неверная ссылка на черновик', true); return; }
+  }
+  // ✉ opened from a card: that draft in the composer
+  const want = /^[A-Za-z0-9_-]{1,64}$/.exec(String(ctx.params?.draft || ''));
+  if (ctx.slot === 'ui.page' && want) wantDraft = want[0];
   if (folderMode) {
     folderChat = folderOf(ctx);
     document.body.classList.add('in-folder');
@@ -775,6 +878,7 @@ coExt.ready.then(ctx => {
   coExt.on('context', nextCtx => {
     // The core keys this frame by chat id. Never reuse a draft or reader for a different chat.
     if (folderMode && JSON.stringify(folderOf(nextCtx)) !== JSON.stringify(folderChat)) { location.reload(); return; }
+    if (cardMode && (nextCtx.card || {}).id !== cardId) { location.reload(); return; }
     if (folderMode && nextCtx.count !== pageCtx.count) {
       folderDirty = true;
       if (!draft && document.body.dataset.pane === 'list') loadList();

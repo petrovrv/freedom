@@ -23,6 +23,7 @@ import { APP_REFRESH } from './appEvents';
 import { askAboutFile, type FileAskState } from './FileViewer';
 import { setImportSources } from './importPoint';
 import { MODULE_PARTS, modulePartCount, pruneModulePartCounts, registerChatPart, setModulePartCounts, type ChatPartId, type ChatRef } from './chatFolder';
+import { cardPage, type CardRef } from './messageCards';
 
 /** Handlers of generic core calls ("core.<point>.<call>") a slot offers its pages; refused unless the manifest declares the permission. */
 export type CoreCalls = Record<string, (args: Record<string, unknown>, caller: ModuleInfo) => Promise<unknown>>;
@@ -642,6 +643,32 @@ export function useModuleChatParts(modules: ModuleInfo[], me: string | undefined
     }));
     return () => off.forEach((f) => f());
   }, [parts, modules, me, owner]);
+}
+
+/**
+ * 0.138.0 ext/1 ui.messageCard: the card page of one [[card …]] line of a finished agent answer (messageCards.ts), with
+ * ctx.card {id} and ctx.chat {projectId, chatId}; keyed by environment, chat and answer, so another chat never gets
+ * this frame. `live` false (shared, family or read-only chat, imported answer) or no enabled module declaring the card:
+ * a line of text, no frame and no request.
+ */
+export function MessageCard({ modules, card, me, chat, eventId, live }: {
+  modules: ModuleInfo[]; card: CardRef; me?: string; chat: ChatRef; eventId: string; live: boolean;
+}) {
+  const page = live ? cardPage(modules, card) : null;
+  if (!page) {
+    return (
+      <div className="msg-card-off muted small">
+        📇 {live ? 'This card is not available (its module is off or has no such card).' : 'Cards are shown only in your own chat.'}
+      </div>
+    );
+  }
+  const { m, ui } = page;
+  return (
+    <div className="msg-card">
+      <ModuleFrame key={`${me}/${m.id}/${ui.id}/${m.version}/${chat.chatId}/${eventId}/${card.id}`} m={m} ui={ui} me={me} owner={false} mode="block"
+        extra={{ uiId: ui.id, card: { id: card.id }, chat: { projectId: chat.projectId, chatId: chat.chatId }, eventId }} />
+    </div>
+  );
 }
 
 /** The pages one module declared for `slot` (Host → Modules shows ui.settings this way). */

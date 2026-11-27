@@ -76,7 +76,7 @@ class FakeWrite:
                                                 'snippet': 'snip &amp; more', 'internalDate': '5',
                                                 'payload': {'headers': [{'name': 'Subject', 'value': 'S ' + did}]}}}
         if path.startswith('drafts'):
-            return 200, {'drafts': [{'id': k, 'message': {'id': 'm' + k}} for k in self.drafts]}
+            return 200, {'drafts': [{'id': k, 'message': {'id': self.mid(k)}} for k in self.drafts]}
         return 400, {}
 
 
@@ -424,6 +424,99 @@ class ComposeTests(unittest.TestCase):
         self.c._wake.set()
         t.join(5)
         self.assertFalse(t.is_alive())
+
+    # -- 0.17.0 message card: live draft with a revision
+
+    def agent_draft(self, did='dc', to='eve@example.org', text='Agent text'):
+        d = EmailMessage()
+        d['From'], d['To'], d['Subject'] = 'me@example.org', to, 'Re: Pump offer'
+        d.set_content(text)
+        self.write.drafts[did] = {'raw': base64.urlsafe_b64encode(d.as_bytes()).decode(), 'threadId': 'tq'}
+        return did
+
+    def test_card_opens_a_draft_with_its_revision_and_thread(self):
+        did = self.agent_draft()
+        card = self.c.handle('compose_card', {'draft': did})
+        self.assertEqual((card['state'], card['revision'], card['thread']), ('draft', self.write.mid(did), 'tq'))
+        self.assertEqual(card['fields']['text'].strip(), 'Agent text')
+        self.assertEqual(self.c.handle('compose_card', {'draft': did, 'rev': card['revision']})['state'], 'draft')
+        saved = self.c.handle('compose_save', {'key': card['key'], 'rev': card['revision'], 'fields': {**card['fields'], 'text': 'Mine'}})
+        self.assertEqual(saved['revision'], self.write.mid(did))
+        self.assertNotEqual(saved['revision'], card['revision'])
+        self.c.handle('compose_save', {'key': card['key'], 'rev': saved['revision'], 'fields': {**card['fields'], 'text': 'Mine 2'}})
+
+    def test_card_never_overwrites_deletes_or_queues_a_draft_changed_outside(self):
+        did = self.agent_draft()
+        card = self.c.handle('compose_card', {'draft': did})
+        self.agent_draft(did, text='Edited in Gmail')
+        peek = self.c.handle('compose_card', {'draft': did, 'rev': card['revision']})
+        self.assertEqual(peek['state'], 'changed')
+        before = dict(self.write.drafts)
+        for action in ('compose_save', 'compose_send', 'compose_discard'):
+            with self.assertRaises(ValueError) as e:
+                self.c.handle(action, {'key': card['key'], 'rev': card['revision'], 'fields': {**card['fields'], 'text': 'Mine'}})
+            self.assertEqual(str(e.exception), 'conflict')
+        self.assertEqual(self.write.drafts, before)
+        self.assertFalse(self.store.db.execute('SELECT 1 FROM outbox').fetchone())
+        # the person loads the current version (provider wins) and goes on from it
+        again = self.c.handle('compose_card', {'draft': did})
+        self.assertEqual((again['revision'], again['fields']['text'].strip()), (peek['revision'], 'Edited in Gmail'))
+
+    def test_card_draft_gone_is_unavailable_never_sent(self):
+        did = self.agent_draft()
+        card = self.c.handle('compose_card', {'draft': did})
+        del self.write.drafts[did]
+        self.assertEqual(self.c.handle('compose_card', {'draft': did, 'rev': card['revision']})['state'], 'unavailable')
+        self.assertEqual(self.c.handle('compose_card', {'draft': did})['state'], 'unavailable')
+        with self.assertRaises(ValueError) as e:
+            self.c.handle('compose_save', {'key': card['key'], 'rev': card['revision'], 'fields': {'text': 'x'}})
+        self.assertEqual(str(e.exception), 'draft gone')
+        self.assertEqual(self.write.drafts, {})  # not brought back as a new draft
+
+    def test_card_send_with_cancel_window_and_sent_state(self):
+        did = self.agent_draft()
+        card = self.c.handle('compose_card', {'draft': did})
+        out = self.c.handle('compose_send', {'key': card['key'], 'rev': card['revision']})
+        self.assertEqual((out['state'], out['undo']), ('wait', 10))
+        self.assertEqual(self.c.handle('compose_card', {'draft': did})['state'], 'wait')
+        self.assertEqual(self.write.send_calls, 0)
+        self.now[0] += 11
+        self.c.send_due(self.store.db)
+        state = self.c.handle('compose_card', {'draft': did})
+        self.assertEqual((state['state'], state['thread'], state['sent']), ('sent', 'tq', 'sent1'))
+        self.assertEqual(self.write.send_calls, 1)
+
+    def test_sender_refuses_a_draft_changed_after_queueing(self):
+        did = self.agent_draft()
+        card = self.c.handle('compose_card', {'draft': did})
+        self.c.handle('compose_send', {'key': card['key'], 'rev': card['revision']})
+        self.agent_draft(did, to='mallory@example.org')  # changed in Gmail during the 10 s
+        self.now[0] += 11
+        self.c.send_due(self.store.db)
+        self.assertEqual(self.write.send_calls, 0)
+        state = self.store.db.execute('SELECT state, error FROM outbox').fetchone()
+        self.assertEqual(tuple(state), ('failed', 'changed outside'))
+        self.assertEqual(self.c.handle('compose_card', {'draft': did}).get('failed'), 'changed outside')
+
+    def test_card_by_message_id_of_an_imap_draft_follows_the_draft(self):
+        did = self.agent_draft()
+        first = self.write.mid(did)  # what gmail-draft (IMAP) knows: the message id
+        card = self.c.handle('compose_card', {'draft': first})
+        self.assertEqual((card['state'], card['draft']), ('draft', did))
+        self.c.handle('compose_save', {'key': card['key'], 'rev': card['revision'], 'fields': {**card['fields'], 'text': 'Mine'}})
+        self.assertNotEqual(self.write.mid(did), first)
+        again = self.c.handle('compose_card', {'draft': first})  # the old message id still finds the draft
+        self.assertEqual((again['draft'], again['fields']['text'].strip()), (did, 'Mine'))
+        self.c.handle('compose_send', {'key': card['key'], 'rev': again['revision']})
+        self.now[0] += 11
+        self.c.send_due(self.store.db)
+        self.assertEqual(self.c.handle('compose_card', {'draft': first})['state'], 'sent')
+        self.assertEqual(self.c.handle('compose_card', {'draft': 'ffff0000'})['state'], 'unavailable')
+
+    def test_card_rejects_bad_ids(self):
+        for args in ({'draft': '../x'}, {'draft': 'a b'}, {'draft': 'dc', 'rev': 5}):
+            with self.assertRaises(ValueError):
+                self.c.handle('compose_card', args)
 
 
 if __name__ == '__main__':

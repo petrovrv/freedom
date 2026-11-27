@@ -1,5 +1,23 @@
 # Mail concierge
 
+## Draft card in an agent answer (0.17.0)
+
+A `ui.messageCard` `draft` (CO Web 0.138.0) shows the same composer for one Gmail draft named by the agent's line
+`[[card concierge-mail/draft id=<id>]]` (the id is the Gmail draft id or the Gmail message id that gmail-draft 0.4.0
+prints; a message id is resolved once through Drafts and remembered in `card_alias`). The page reads the draft from the
+home server end-to-end encrypted; nothing of the letter passes the site in clear or is copied into the chat.
+`compose_card` gives the live state: a send from here (`wait`/`sending`/`unknown`/`sent`), else the draft with its
+`revision` (its Gmail message id), `changed` after an edit in Gmail or ✉, or `unavailable` when it is gone without a send
+from here (deleted, or sent outside CO; never reported as sent). Every write of a card carries `rev`: a draft changed or
+removed meanwhile is not overwritten, deleted or queued (`conflict` / `draft gone`), the card offers to load the current
+version. The sender checks every queued draft again before sending (`outbox.rev`): changed in the 10 s = not sent
+(`changed outside`). Gmail has no conditional write (no compare-and-set): an outside change made between the check and the
+write is overwritten by that write; the window is one request long, narrowed but not closed.
+Send stays the person's click (no Ctrl+Enter in a card), with the usual 10 s Cancel; the agent has no send action and
+the card adds no relay operation or approval: send and delete are the page's own human operations, as in ✉ (C3 moves
+them with the rest of Mail). The thread is folded and loads on opening, rendered like ✉ (sanitised, read-guard notes,
+sign-in-code stubs). Deploy the home-server module before the UI.
+
 ## Reply in a chat folder (0.16.0)
 
 The Correspondence part embeds the existing mail reader and composer. Opening a thread stays in the folder;

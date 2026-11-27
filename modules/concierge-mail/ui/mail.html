@@ -9,6 +9,8 @@
 <section id="list-pane" aria-label="Список писем"><header class="pane-head"><h2 id="list-title">Входящие</h2><button id="refresh" type="button" aria-label="Обновить письма">↻</button></header>
 <div id="list-note" role="status"></div><div id="threads"></div><button id="more" type="button" hidden>Ещё</button></section>
 <section id="reader" aria-label="Чтение переписки" tabindex="-1"><div id="toolbar" hidden></div><div id="reading"><p class="empty">Выберите письмо</p></div></section></main>
+<div id="card-bar" hidden><span id="card-state" role="status" aria-live="polite">Загрузка черновика…</span><button id="card-reload" type="button" hidden>Загрузить актуальную версию</button><button id="card-open" type="button">✉ Открыть в Почте</button></div>
+<details id="card-thread" hidden><summary>Переписка</summary><div id="card-thread-body"></div></details>
 <section id="composer" role="dialog" aria-label="Новое письмо" hidden><header class="composer-head"><h2 id="composer-title">Новое письмо</h2><span id="composer-state" class="small" role="status"></span><button id="composer-close" type="button" aria-label="Закрыть (черновик сохранится)">×</button></header>
 <div class="composer-fields"><label>Кому<input id="c-to" autocomplete="off" spellcheck="false"></label><button id="c-more" type="button" class="link-button">Копия</button>
 <label class="cc" hidden>Копия<input id="c-cc" autocomplete="off" spellcheck="false"></label><label class="cc" hidden>Скрытая<input id="c-bcc" autocomplete="off" spellcheck="false"></label>

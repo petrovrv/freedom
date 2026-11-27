@@ -40,3 +40,11 @@
 .in-folder .composer-foot{flex-wrap:wrap;padding:8px;gap:6px}
 .in-folder .attach-button{padding:8px}
 .in-folder #undo-bar{left:4px;right:4px;bottom:4px;flex-wrap:wrap;padding:8px}
+.in-card{overflow:hidden;height:auto;min-height:0}
+.in-card .topbar,.in-card main,.in-card #composer-close,.in-card #link-bar{display:none}
+.in-card #connection{padding:4px 8px;font-size:12px}
+#card-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 8px}#card-bar[hidden]{display:none}#card-state{flex:1;min-width:12em;font-size:13px}#card-state.err{color:#c5221f}
+#card-thread{margin:0 8px 6px;border:1px solid var(--line);border-radius:8px;padding:4px 8px}#card-thread[hidden]{display:none}#card-thread summary{cursor:pointer;color:var(--muted);font-size:13px}
+.in-card #composer{position:static;width:auto;height:auto;margin:0 8px 8px;border-radius:8px;box-shadow:none;z-index:auto}
+.in-card #c-text{min-height:160px;resize:vertical}
+.in-card #undo-bar{position:static;margin:0 8px 8px;flex-wrap:wrap}

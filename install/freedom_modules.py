@@ -70,7 +70,7 @@ import freedom_release as fr  # noqa: E402
 EXT_VERSION = 1
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 OP_RE = re.compile(r"^[a-z][a-z0-9_]{2,40}$")
-SLOTS = {"ui.header", "ui.page", "ui.panel", "ui.settings", "ui.composer", "ui.hint", "ui.chatPart"}
+SLOTS = {"ui.header", "ui.page", "ui.panel", "ui.settings", "ui.composer", "ui.hint", "ui.chatPart", "ui.messageCard"}
 # ext/1 ui.chatPart: the parts of a chat folder a module page may fill (co-agent modules-lib.php CO_MODULE_CHAT_PARTS)
 CHAT_PARTS = {"context", "correspondence", "events", "watchers"}
 # permissions an ext/1 slot needs before CO Web feeds its page anything

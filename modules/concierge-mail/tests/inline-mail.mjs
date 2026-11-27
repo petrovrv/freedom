@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const root = new URL('../ui/', import.meta.url);
 const html = await fs.readFile(new URL('mail.html', root), 'utf8');
-const browser = await chromium.launch({headless:true});
+const browser = await chromium.launch({headless:true, ...(process.env.PLAYWRIGHT_CHANNEL ? {channel:process.env.PLAYWRIGHT_CHANNEL} : {})});
 const errors = [];
 async function pageFor(ctx, width = 300) {
   const page = await browser.newPage({viewport:{width,height:620}});

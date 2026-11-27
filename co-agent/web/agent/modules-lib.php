@@ -39,7 +39,8 @@ const CO_MODULE_PERSON_MODES = ['auto', 'ask', 'off'];
 // ui.composer: a small page in the chat composer row (an input action such as voice input) that may put text into the
 // message box (ext/1 coExt.input, permission composer.input); ui.page: a page in the centre with a button in the sidebar;
 // ui.hint: a hidden page that reads the composer text (permission composer.read) and answers with a hint
-const CO_MODULE_SLOTS = ['ui.header', 'ui.page', 'ui.panel', 'ui.settings', 'ui.composer', 'ui.hint', 'ui.chatPart'];
+// ui.messageCard (CO Web 0.138.0): a card page in a finished agent answer of the person's own chat ([[card <module>/<id> id=…]])
+const CO_MODULE_SLOTS = ['ui.header', 'ui.page', 'ui.panel', 'ui.settings', 'ui.composer', 'ui.hint', 'ui.chatPart', 'ui.messageCard'];
 // ext/1 ui.chatPart (CO Web 0.131.0): the parts of a chat folder a module page may fill (SPEC §3.6b п. 1)
 const CO_MODULE_CHAT_PARTS = ['context', 'correspondence', 'events', 'watchers'];
 const CO_MODULE_NAME_RE = '/^[a-z][a-z0-9_-]{0,31}$/';

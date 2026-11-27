@@ -62,7 +62,8 @@ const MAX_CORE_ARGS = 32 * 1024 * 1024;
 const CORE_OP = /^core\.[a-z]+\.[a-z][a-zA-Z]{1,30}$/;
 
 /** Slots of ext/1 a module page can be put in (SPEC §3.6). */
-export const SLOTS = ['ui.header', 'ui.page', 'ui.panel', 'ui.settings', 'ui.composer', 'ui.hint', 'ui.chatPart'] as const;
+// 0.138.0 ui.messageCard: a card page shown in a finished agent answer for its [[card <module>/<id> id=…]] line (messageCards.ts)
+export const SLOTS = ['ui.header', 'ui.page', 'ui.panel', 'ui.settings', 'ui.composer', 'ui.hint', 'ui.chatPart', 'ui.messageCard'] as const;
 
 /**
  * Generic calls of the core a module page may make, with the permission its manifest must declare:

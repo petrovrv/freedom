@@ -50,12 +50,16 @@ def schema(db):
         thread_id TEXT, fields TEXT NOT NULL DEFAULT '{}', attachments TEXT NOT NULL DEFAULT '[]', updated REAL NOT NULL);
     CREATE TABLE IF NOT EXISTS compose_upload(key TEXT NOT NULL, upload TEXT NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL,
         size INTEGER NOT NULL, PRIMARY KEY(key, upload));
+    CREATE TABLE IF NOT EXISTS card_alias(account TEXT NOT NULL, card TEXT NOT NULL, draft_id TEXT NOT NULL, PRIMARY KEY(account, card));
     CREATE TABLE IF NOT EXISTS outbox(key TEXT PRIMARY KEY, account TEXT NOT NULL, draft_id TEXT NOT NULL, due REAL NOT NULL,
         state TEXT NOT NULL, error TEXT NOT NULL DEFAULT '', sent_id TEXT NOT NULL DEFAULT '', updated REAL NOT NULL);
     ''')
     # the Message-ID of the letter as saved in its draft: how a send with an unknown outcome is found in Sent
+    # 0.17.0 outbox.rev: the Gmail message id of the draft as queued (the sender refuses a draft changed after that);
+    # outbox.thread: where a letter sent from a message card is shown
     for table, column, ddl in (('compose', 'mid', "TEXT NOT NULL DEFAULT ''"), ('outbox', 'mid', "TEXT NOT NULL DEFAULT ''"),
-                               ('outbox', 'since', 'REAL NOT NULL DEFAULT 0')):
+                               ('outbox', 'since', 'REAL NOT NULL DEFAULT 0'), ('outbox', 'rev', "TEXT NOT NULL DEFAULT ''"),
+                               ('outbox', 'thread', "TEXT NOT NULL DEFAULT ''")):
         if column not in {r[1] for r in db.execute(f'PRAGMA table_info({table})')}:
             db.execute(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}')
     db.commit()
@@ -153,6 +157,10 @@ class GmailWrite:
     def draft_meta(self, draft_id):
         q = urllib.parse.urlencode([('format', 'metadata'), ('metadataHeaders', 'To'), ('metadataHeaders', 'Subject')])
         return self.call('GET', f'drafts/{draft_id}?' + q).get('message') or {}
+
+    def draft_rev(self, draft_id):
+        """The message id of the draft now (Gmail gives a draft a new one on every change); LookupError when gone."""
+        return (self.call('GET', f'drafts/{draft_id}?format=minimal').get('message') or {}).get('id') or ''
 
     def draft_raw(self, draft_id):
         return self.call('GET', f'drafts/{draft_id}?format=raw')
@@ -367,11 +375,29 @@ class Composer:
                             ' updated=excluded.updated, mid=excluded.mid',
                             (key, self.account, draft, message, thread, json.dumps(fields, ensure_ascii=False),
                              json.dumps(attachments), self.clock(), mid))
-        return {'key': key, 'draft': draft, 'thread': thread, 'attachments': self._public(attachments), 'saved': self.clock()}
+        return {'key': key, 'draft': draft, 'thread': thread, 'attachments': self._public(attachments), 'saved': self.clock(),
+                'revision': message}
 
     @staticmethod
     def _public(attachments):
         return [{'sha': a['sha'], 'name': a['name'], 'type': a['type'], 'size': a['size']} for a in attachments]
+
+    def _check_rev(self, row, args):
+        """0.17.0 (message card): `rev` = the Gmail message id of the draft the person sees. A draft changed or removed
+        in Gmail or ✉ since is never overwritten, deleted or queued: `conflict` / `draft gone`, the page loads it again.
+        Gmail has no conditional write (no compare-and-set): an outside change made between this check and the write
+        is overwritten by it. The window is one request long; it is narrowed, not closed."""
+        if 'rev' not in args:
+            return
+        rev = args['rev']
+        if not row or not row['draft_id'] or not isinstance(rev, str) or not ID_RE.fullmatch(rev):
+            raise ValueError('bad rev')
+        try:
+            now = self.gmail().draft_rev(row['draft_id'])
+        except LookupError:
+            raise ValueError('draft gone') from None
+        if now != rev or row['message_id'] != rev:
+            raise ValueError('conflict')
 
     def _waiting(self, key):
         row = self.db.execute("SELECT state FROM outbox WHERE key=?", (key,)).fetchone()
@@ -417,6 +443,7 @@ class Composer:
         row = self._row(key)
         if self._waiting(key):
             raise ValueError('already sending')
+        self._check_rev(row, args)
         given = args.get('fields') or {}
         if not isinstance(given, dict):
             raise ValueError('bad fields')
@@ -446,6 +473,8 @@ class Composer:
             raise ValueError('save first')
         if self._waiting(key) or not re.fullmatch(r'[a-f0-9]{16}', upload):
             raise ValueError('bad upload')
+        if args.get('last'):  # the last piece writes the draft
+            self._check_rev(row, args)
         piece = base64.b64decode(str(args.get('data') or ''), validate=True)
         if len(piece) > CHUNK_MAX:
             raise ValueError('piece too big')
@@ -500,6 +529,7 @@ class Composer:
         row = self._row(key)
         if not row or not SHA_RE.fullmatch(sha) or self._waiting(key):
             raise ValueError('bad attachment')
+        self._check_rev(row, args)
         attachments = [a for a in json.loads(row['attachments']) if a['sha'] != sha]
         return self._save(key, row, json.loads(row['fields']), attachments)
 
@@ -508,6 +538,7 @@ class Composer:
         row = self._row(key)
         if self._waiting(key):
             raise ValueError('already sending')
+        self._check_rev(row, args)
         if row and row['draft_id']:
             try:
                 self.gmail().draft_delete(row['draft_id'])
@@ -523,6 +554,8 @@ class Composer:
         key = str(args.get('key') or '')
         saved = self.save(args) if args.get('fields') else None
         row = self._row(key)
+        if not saved:
+            self._check_rev(row, args)
         if not row or not row['draft_id']:
             raise ValueError('save first')
         fields = json.loads(row['fields'])
@@ -530,14 +563,17 @@ class Composer:
             raise ValueError('no recipients')
         due = self.clock() + UNDO_SECONDS
         with self.db:
-            cur = self.db.execute("INSERT INTO outbox(key,account,draft_id,due,state,updated,mid) VALUES(?,?,?,?, 'wait', ?, ?)"
+            cur = self.db.execute("INSERT INTO outbox(key,account,draft_id,due,state,updated,mid,rev,thread) VALUES(?,?,?,?, 'wait', ?, ?, ?, ?)"
                                   " ON CONFLICT(key) DO UPDATE SET draft_id=excluded.draft_id, due=excluded.due, state='wait',"
-                                  " error='', updated=excluded.updated, mid=excluded.mid WHERE outbox.state IN ('cancelled','failed')",
-                                  (key, self.account, row['draft_id'], due, self.clock(), row['mid'] or ''))
+                                  " error='', updated=excluded.updated, mid=excluded.mid, rev=excluded.rev, thread=excluded.thread"
+                                  " WHERE outbox.state IN ('cancelled','failed')",
+                                  (key, self.account, row['draft_id'], due, self.clock(), row['mid'] or '', row['message_id'] or '',
+                                   row['thread_id'] or ''))
             if not cur.rowcount:
                 raise ValueError('already sending')
         self._wake.set()
-        return {'key': key, 'state': 'wait', 'due': due, 'undo': UNDO_SECONDS, **({'draft': saved['draft']} if saved else {})}
+        return {'key': key, 'state': 'wait', 'due': due, 'undo': UNDO_SECONDS,
+                **({'draft': saved['draft'], 'revision': saved['revision']} if saved else {})}
 
     def unsend(self, args):
         key = str(args.get('key') or '')
@@ -606,7 +642,7 @@ class Composer:
         if row and row['message_id'] and row['message_id'] == message.get('id'):
             # the draft at the provider is still the one saved from here
             return {'key': row['key'], 'fields': _page(json.loads(row['fields'])), 'attachments': self._public(json.loads(row['attachments'])),
-                    'draft': row['draft_id'], 'saved': row['updated']}
+                    'draft': row['draft_id'], 'saved': row['updated'], 'revision': row['message_id'], 'thread': row['thread_id'] or ''}
         if row:
             # changed in Gmail since (every save there makes a new message): the provider's version wins
             if self._waiting(row['key']):
@@ -643,7 +679,57 @@ class Composer:
             self.db.execute('INSERT INTO compose(key,account,draft_id,message_id,thread_id,fields,attachments,updated) VALUES(?,?,?,?,?,?,?,?)',
                             (key, self.account, did, message.get('id') or '', message.get('threadId') or '',
                              json.dumps(fields, ensure_ascii=False), json.dumps(attachments), self.clock()))
-        return {'key': key, 'fields': _page(fields), 'attachments': self._public(attachments), 'draft': did, 'saved': self.clock()}
+        return {'key': key, 'fields': _page(fields), 'attachments': self._public(attachments), 'draft': did, 'saved': self.clock(),
+                'revision': message.get('id') or '', 'thread': message.get('threadId') or ''}
+
+    def card(self, args):
+        """0.17.0 live state of a draft shown as a message card (ui.messageCard): a send of it from here (wait / sending
+        / unknown / sent), else the draft at the provider. With `rev` only a check (nothing changes here): `draft` while
+        unchanged, `changed` (with the new `revision`) after an edit in Gmail or ✉. Without `rev` the draft is opened for
+        writing (compose_open). A draft gone without a send from here is `unavailable` (deleted, or sent outside CO):
+        it is never reported as sent."""
+        did = str(args.get('draft') or '')
+        if not ID_RE.fullmatch(did):
+            raise ValueError('bad draft')
+        if 'rev' in args and (not isinstance(args['rev'], str) or not ID_RE.fullmatch(args['rev'])):
+            raise ValueError('bad rev')
+        did = self._card_draft(did)
+        o = self.db.execute('SELECT key,state,error,due,updated,sent_id,thread FROM outbox WHERE account=? AND draft_id=?'
+                            ' ORDER BY updated DESC LIMIT 1', (self.account, did)).fetchone()
+        if o and o['state'] in ('wait', 'sending', 'unknown', 'sent'):
+            return {'state': o['state'], 'key': o['key'], 'draft': did, 'due': o['due'], 'updated': o['updated'],
+                    'thread': o['thread'], 'sent': o['sent_id']}
+        failed = {'failed': o['error'] or 'failed'} if o and o['state'] == 'failed' else {}
+        try:
+            if 'rev' in args:
+                now = self.gmail().draft_rev(did)
+                return {'state': 'draft' if now == args['rev'] else 'changed', 'draft': did, 'revision': now, **failed}
+            return {'state': 'draft', **self.open_draft({'draft': did}), **failed}
+        except LookupError:
+            return {'state': 'unavailable', 'draft': did}
+
+    def _card_draft(self, ident):
+        """The Gmail draft of a card: the marker names the draft id, or the Gmail message id of the draft as written by
+        the agent (gmail-draft over IMAP knows only that). A message id is resolved once through the Drafts list and
+        remembered here, since every save of the draft gives it a new message id while its draft id stays."""
+        hit = self.db.execute('SELECT draft_id FROM card_alias WHERE account=? AND card=?', (self.account, ident)).fetchone()
+        if hit:
+            return hit[0]
+        if self.db.execute('SELECT 1 FROM outbox WHERE account=? AND draft_id=? UNION SELECT 1 FROM compose WHERE account=? AND draft_id=?',
+                           (self.account, ident, self.account, ident)).fetchone():
+            return ident
+        try:
+            self.gmail().draft_rev(ident)
+            return ident
+        except LookupError:
+            pass
+        for d in self.gmail().drafts(limit=100):
+            if (d.get('message') or {}).get('id') == ident and ID_RE.fullmatch(str(d.get('id') or '')):
+                with self.db:
+                    self.db.execute('INSERT OR IGNORE INTO card_alias(account, card, draft_id) VALUES(?,?,?)', (self.account, ident, d['id']))
+                return d['id']
+        return ident  # not found: the card says the draft is gone
+
     def mark(self, args):
         """read / unread / archive / inbox / star / unstar / spam / notspam / trash / untrash of a whole thread."""
         tid, what = str(args.get('thread') or ''), str(args.get('mark') or '')
@@ -714,9 +800,22 @@ class Composer:
             with db:
                 took = db.execute("UPDATE outbox SET state='sending', updated=? WHERE key=? AND state='wait' AND due<=?",
                                   (now, r['key'], now)).rowcount
-                draft_id = db.execute('SELECT draft_id FROM outbox WHERE key=?', (r['key'],)).fetchone()['draft_id'] if took else None
+                one = db.execute('SELECT draft_id, rev FROM outbox WHERE key=?', (r['key'],)).fetchone() if took else None
             if not took:
                 continue  # cancelled (or sent again) at the last moment
+            draft_id = one['draft_id']
+            if one['rev']:
+                # 0.17.0: what goes out is the draft the person saw; changed meanwhile in Gmail or ✉ = not sent
+                try:
+                    error = 'changed outside' if self.gmail().draft_rev(draft_id) != one['rev'] else ''
+                except LookupError:
+                    error = 'draft gone'
+                except Exception as exc:  # noqa: BLE001 - nothing was sent: a definite failure, the draft stays
+                    error = 'check failed: ' + str(exc)[:150]
+                if error:
+                    with db:
+                        db.execute("UPDATE outbox SET state='failed', error=?, updated=? WHERE key=?", (error, self.clock(), r['key']))
+                    continue
             try:
                 out = self.gmail().draft_send(draft_id)
             except NeedsConsent:
@@ -782,7 +881,8 @@ class Composer:
         fn = {'compose_start': self.start, 'compose_save': self.save, 'compose_upload': self.upload,
               'compose_detach': self.detach, 'compose_discard': self.discard, 'compose_send': self.send,
               'compose_unsend': self.unsend, 'compose_outbox': self.outbox, 'compose_drafts': self.drafts,
-              'compose_open': self.open_draft, 'compose_gmail_drafts': self.gmail_drafts, 'compose_resolve': self.resolve, 'mark': self.mark}.get(action)
+              'compose_open': self.open_draft, 'compose_gmail_drafts': self.gmail_drafts, 'compose_resolve': self.resolve, 'compose_card': self.card,
+              'mark': self.mark}.get(action)
         if not fn:
             raise ValueError('unknown action')
         try:
@@ -792,4 +892,5 @@ class Composer:
 
 
 ACTIONS = ('compose_start', 'compose_save', 'compose_upload', 'compose_detach', 'compose_discard', 'compose_send',
-           'compose_unsend', 'compose_outbox', 'compose_drafts', 'compose_open', 'compose_gmail_drafts', 'compose_resolve', 'mark')
+           'compose_unsend', 'compose_outbox', 'compose_drafts', 'compose_open', 'compose_gmail_drafts', 'compose_resolve',
+           'compose_card', 'mark')

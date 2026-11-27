@@ -27,7 +27,10 @@ import type { ChatAction } from './ChatActions';
 import { FolderPicker } from './FolderPicker';
 import { FileMenu, googleDocsUrl, hasGoogleDocs, moduleFileItems, viewerHref } from './FileMenu';
 import { useOpenFile, type FileAskState } from './FileViewer';
-import { COMPOSER_SENT, ModuleSlots, useLoadedModules, type ComposerInput } from './ModuleSlot';
+import { COMPOSER_SENT, MessageCard, ModuleSlots, useLoadedModules, type ComposerInput } from './ModuleSlot';
+import { cardsLive, extractCards } from './messageCards';
+import type { ModuleInfo } from './extBridge';
+import type { ChatRef } from './chatFolder';
 import { Markdown } from './Markdown';
 import { extractQuickReplies, formatAnswers, stripQuickReplies, type AskItem } from './quickReplies';
 import { decodeFastResult, publishJobReadyDb, watchJob, type FastMessage } from './pubsub';
@@ -433,12 +436,17 @@ export default function ChatView(props: Props) {
   const webPick = useWebDevicePick(props.author); // 0.49.0: web devices (browsers with connected folders)
   // 0.45.0: shared project/chat -> no devices, context folders
   const [shared, setShared] = useState<boolean>(!!project.shareRole);
+  // 0.138.0: the chat this lookup came back for (module cards wait for it; unknown or failed = not live)
+  const [shareChecked, setShareChecked] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
     const byProject = !!chat.draft || !chat.chatId;
     dbSharesGet(byProject ? 'project' : 'chat', byProject ? project.projectId : chat.chatId)
       .then((info) => {
-        if (alive) setShared(!!project.shareRole || info.shares.length > 0 || info.projectShares.length > 0);
+        if (!alive) return;
+        const any = !!project.shareRole || info.shares.length > 0 || info.projectShares.length > 0;
+        setShared(any);
+        setShareChecked(any ? null : `${project.projectId}/${chat.chatId}`);
       })
       .catch(() => { /* keep the current value */ });
     return () => { alive = false; };
@@ -491,6 +499,10 @@ export default function ChatView(props: Props) {
   };
   // 0.89.0: family chat (FamilyChat.tsx) - people write to each other, @co calls the agent
   const family = !!chat.family;
+  // 0.138.0 ext/1 ui.messageCard: module cards in agent answers only in the person's own writable chat
+  const cardModules = useModuleList();
+  const cardsOn = cardsLive({ readOnly, shared, family, draft: !!chat.draft, shareRole: project.shareRole || chat.shareRole,
+    checked: shareChecked, key: `${project.projectId}/${chat.chatId}` });
   const reactions = useMemo(() => reactionsOf(events || []), [events]);
   const evById = useMemo(() => new Map((events || []).map((e) => [e.eventId, e])), [events]);
   const [famReply, setFamReply] = useState<ChatEvent | null>(null);
@@ -1448,6 +1460,7 @@ export default function ChatView(props: Props) {
               onDelete={!readOnly && !family && canHide(e, visible, props.author, chatOwner) ? () => void hideMsg(e, 'answer') : undefined}
               switchedTo={e.jobId ? switchedTo.get(e.jobId) : undefined}
               undo={readOnly ? undefined : { events: events || [], projectId: project.projectId, chatId: chat.chatId }}
+              cards={{ modules: cardModules, me: project.environmentId, chat: { projectId: project.projectId, chatId: chat.chatId }, live: cardsOn }}
               onQuick={quickFor === e.eventId ? (text) => setPrefill({ text, send: true, nonce: Date.now() }) : undefined}
               onRetry={(agent: AgentId, text?: string) => {
                 const u = text === undefined
@@ -1869,17 +1882,22 @@ const ICON: Record<string, string> = {
 };
 
 function AssistantBubble({
-  ev, owner, root, host, onContinue, onCritique, onRetry, onRetryNew, onBranch, onDelete, onQuick, switchedTo, undo,
+  ev, owner, root, host, onContinue, onCritique, onRetry, onRetryNew, onBranch, onDelete, onQuick, switchedTo, undo, cards,
 }: {
   switchedTo?: string; // 0.71.0: agent the server retried this failed job on
   ev: ChatEvent; owner: OwnerInfo | null; root: Root; host: HostDirs;
   onContinue: (a: AgentId) => void; onCritique: (a: AgentId) => void; onRetry: (a: AgentId, text?: string) => void; onRetryNew: () => void; onBranch: () => void; onDelete?: () => void;
   onQuick?: (text: string) => void; // 0.57.0: set only for the newest answer
   undo?: { events: ChatEvent[]; projectId: string; chatId: string }; // 0.72.0: unset when the chat is read-only
+  cards?: { modules: ModuleInfo[]; me: string; chat: ChatRef; live: boolean }; // 0.138.0 ui.messageCard
 }) {
   const [undoOpen, setUndoOpen] = useState(false);
   const canUndo = !!undo && !!ev.jobId && !ev.imported && (!!ev.artifacts?.length || !!ev.exportSkipped?.length);
   const quick = useMemo(() => extractQuickReplies(stripTitleMarker(ev.text || '')), [ev.text]);
+  // 0.138.0: [[card …]] lines of a finished answer (not of an imported one) become module cards
+  const hasCards = !!cards;
+  const shown = useMemo(() => hasCards && ev.status === 'completed' && !ev.imported ? extractCards(quick.text) : { text: quick.text, cards: [] },
+    [hasCards, ev.status, ev.imported, quick.text]);
   const [trace, setTrace] = useState<ActivityState | null>(null);
   const [traceBusy, setTraceBusy] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false); // 0.74.0: the job timeline loads on first open
@@ -1915,7 +1933,10 @@ function AssistantBubble({
       </div>
       {ev.text ? (
         <div className="msg-body">
-          <Markdown text={quick.text} />
+          <Markdown text={shown.text} />
+          {cards && shown.cards.map((c) => (
+            <MessageCard key={`${c.module}/${c.card}/${c.id}`} modules={cards.modules} card={c} me={cards.me} chat={cards.chat} eventId={ev.eventId} live={cards.live} />
+          ))}
           {quick.asks.length > 0 && (onQuick
             ? <AskForm asks={quick.asks} onSend={onQuick} />
             : <ol className="ask-form done">{quick.asks.map((a, i) => <li key={i}>{a.question}</li>)}</ol>)}

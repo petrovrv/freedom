@@ -29,7 +29,8 @@ function save(v: number) {
   }
 }
 
-export default function ViewerSplit({ pane, chat }: { pane: ReactNode; chat: ReactNode }) {
+export default function ViewerSplit({ pane, chat, mobileTabs = false }: { pane: ReactNode; chat: ReactNode; mobileTabs?: boolean }) {
+  const [tab, setTab] = useState<'view' | 'chat'>('view');
   const [frac, setFrac] = useState(readStored);
   const box = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: number; stacked: boolean; v: number } | null>(null);
@@ -74,7 +75,11 @@ export default function ViewerSplit({ pane, chat }: { pane: ReactNode; chat: Rea
   };
 
   return (
-    <div className="viewer-split" ref={box} style={{ ['--viewer-frac' as string]: `${frac}%` }}>
+    <div className={`viewer-split${mobileTabs ? ` viewer-tabbed show-${tab}` : ''}`} ref={box} style={{ ['--viewer-frac' as string]: `${frac}%` }}>
+      {mobileTabs && <div className="viewer-tabs" role="tablist" aria-label="Режим приложения">
+        <button type="button" role="tab" aria-selected={tab === 'view'} onClick={() => setTab('view')}>Вид</button>
+        <button type="button" role="tab" aria-selected={tab === 'chat'} onClick={() => setTab('chat')}>Чат</button>
+      </div>}
       <div className="viewer-pane">{pane}</div>
       <div
         className="viewer-divider"

@@ -279,3 +279,27 @@ a switched-off module remain collapsed and out of the inbox.
 `ctx.params[param]` is the document path, `ctx.chat = {id|null, title}`. With `chat.read` the page gets
 `chat` messages `{events, canAsk}` whenever the chat changes (`events`: user and assistant messages of the chat with
 `eventId, type, text, status, createdUtc, jobId`).
+
+
+### Persistent module chat (F14f, CO Web 0.133.0)
+
+Optional `provides.moduleChat: {mode, panel, icon?, label?}` names a declared
+`provides.modes[].key` and a `ui.panel` id. The mode must have rules. `label`
+defaults to the module title; `icon` defaults to the first app tile icon (or ▫).
+The chat title is `<icon> <label>`.
+The module still declares a `ui.page` with `app: true` for its launcher tile;
+when `moduleChat` is present, every tile of that module opens its persistent
+chat instead of that page. Modules without the declaration retain their behavior.
+
+The core creates the chat on first opening, with the mode on, in the person's
+Applications project. Creation is serialized and retryable: one chat per module
+and authenticated environment across tabs/devices. The chat's `moduleChat` field
+identifies its module; reopening from the chat tree also displays its panel,
+without a document path. Existing document viewers are unchanged. On desktop
+this panel is left of the chat; on phones the View/Chat tabs keep both mounted.
+The panel gets the existing ext/1 chat/event/ask services and empty document
+params. Permissions of those services still apply. A disabled or unavailable
+module has no panel. Trashed module chats must be restored before the tile can
+open them; after permanent deletion, opening the tile creates a new chat. Moving a chat within the environment preserves its identity; a move
+to another environment is refused by the tile. No agent or module-page call is
+added: `module_chat` is an authenticated core user operation.

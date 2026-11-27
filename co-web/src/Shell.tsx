@@ -27,7 +27,7 @@ function chatActionsFor(p: { shareRole?: string }, c: { shareRole?: string }): C
   return [];
 }
 import { allProjectChats, latestChats, moveChatGroup, purgeTrashedChat, restoreChat, saveProjectMeta, trashChat, updateChatMeta } from './workbench';
-import { projectModeDefault, type ModeDecl } from './moduleModes';
+import { moduleChatViewer, projectModeDefault, type ModeDecl } from './moduleModes';
 import { modesOf } from './moduleStore';
 import { importCalls } from './importWriter';
 import { LimitsBar } from './Limits';
@@ -48,7 +48,7 @@ import type { Chat, ChatEvent, LimitsFile, Mode, OwnerInfo, Project } from './ty
 import { SAFE_ID, formatLocal, mapLimit } from './util';
 import { autoHost, HOME, ownBridgeWaiting, SITE, type HostPref } from './routing';
 import { applyExecutors, autoOrder, HOST_ID_RE, loadCachedExecutors } from './executors';
-import { dbExecutors } from './dbapi';
+import { dbModuleCall, dbExecutors } from './dbapi';
 import { HostLight } from './HostLight';
 import { aiSearch, chatRefs, openDocument, projectActivity, projectFreshness, type SearchHit } from './search';
 import {
@@ -229,12 +229,27 @@ export default function Shell({ auth }: { auth: Signed }) {
     // the fallback replaces the app's entry: Back must not open the app again
     if (t === -1) navigate(-1); else navigate(t, { replace: true });
   }, [env, navigate]);
+  const moduleOpening = useRef(false);
   const openApp = useCallback((a: ShellApp) => {
+    if (a.m.moduleChat) {
+      if (moduleOpening.current) return;
+      moduleOpening.current = true;
+      const from = pathname;
+      void dbModuleCall('module_chat', { module: a.m.id }, 120000).then(async (r) => {
+        if (!r.ok || typeof r.projectId !== 'string' || typeof r.chatId !== 'string') throw new Error(String(r.message || r.error || 'Could not open module chat'));
+        await refreshProjectsRef.current();
+        // Do not pull someone back after they navigate away while creation is pending.
+        if (window.location.pathname !== from) return;
+        navigate(`/e/${auth.homeEnv}/p/${r.projectId}/c/${r.chatId}`);
+      }).catch((e: unknown) => window.alert(e instanceof Error ? e.message : String(e)))
+        .finally(() => { moduleOpening.current = false; });
+      return;
+    }
     const desktop = !!(window as unknown as { coDesktop?: unknown }).coDesktop;
     const o = shellOpen(a, env, desktop);
     if (o.target === 'blank') window.open(o.href, '_blank', 'noopener');
     else if (!appNow || appKey(appNow) !== appKey({ env, moduleId: a.m.id, pageId: a.ui.id })) navigate(o.href, { replace: !!appNow });
-  }, [env, navigate, appNow]);
+  }, [env, navigate, appNow, auth.homeEnv, pathname]);
   useEffect(() => {
     if (!appNow) return;
     const f = (e: globalThis.KeyboardEvent) => {
@@ -647,8 +662,8 @@ export default function Shell({ auth }: { auth: Signed }) {
       const ui = mod?.ui.find((u) => u.slot === 'ui.panel' && u.id === m.viewer!.panel);
       if (doc && mod && ui) return { mode: m, doc, mod, ui };
     }
-    return null;
-  }, [search, modes, modules]);
+    return moduleChatViewer(modules, chat);
+  }, [search, modes, modules, chat]);
   const viewerPath = viewer?.doc ?? null;
   const viewerChat = useMemo(
     () => (viewer && !chatId ? (chats || []).find((c) => (c as unknown as Record<string, unknown>)[viewer.mode.key + 'Doc'] === viewer.doc && !c.archived) || null : null),
@@ -679,11 +694,11 @@ export default function Shell({ auth }: { auth: Signed }) {
       close: () => navigate(pathname, { replace: true }),
     };
     return (
-      <ViewerSplit
+      <ViewerSplit key={chatId || viewer.doc} mobileTabs={'moduleChat' in viewer}
         pane={
           // another document starts with a clean viewer
           <ModuleFrame key={`${viewer.mod.id}/${viewer.ui.id}/${viewer.mod.version}/${viewer.doc}`} m={viewer.mod} ui={viewer.ui} me={auth.homeEnv} owner={!!auth.owner}
-            mode="fill" extra={{ uiId: viewer.ui.id, params: { [viewer.mode.viewer!.param]: viewer.doc }, chat: link.chat }} rootId={root.id} panel={link} />
+            mode="fill" extra={{ uiId: viewer.ui.id, params: !('moduleChat' in viewer) && viewer.mode.viewer ? { [viewer.mode.viewer.param]: viewer.doc } : {}, chat: link.chat }} rootId={root.id} panel={link} />
         }
         chat={node}
       />

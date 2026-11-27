@@ -82,3 +82,14 @@ export function modeLines<C extends object>(chat: C, modes: ModeDecl[]): ModeLin
 export function linesBetween<T extends ModeSwitch>(lines: T[], afterUtc: string | null, untilUtc: string | null): T[] {
   return lines.filter((s) => (afterUtc === null || s.utc > afterUtc) && (untilUtc === null || s.utc <= untilUtc));
 }
+
+
+/** The documentless viewer of a persistent module chat, including direct chat URLs. */
+export function moduleChatViewer(modules: import('./extBridge').ModuleInfo[], chat: object | null) {
+  const id = chat ? rec(chat).moduleChat : null;
+  const mod = modules.find((m) => m.enabled && m.id === id && m.moduleChat);
+  if (!mod?.moduleChat) return null;
+  const mode = mod.modes?.find((m) => m.key === mod.moduleChat!.mode);
+  const ui = mod.ui.find((u) => u.slot === 'ui.panel' && u.id === mod.moduleChat!.panel);
+  return mode && ui ? { mode, doc: '', mod, ui, moduleChat: true } : null;
+}

@@ -996,3 +996,13 @@ button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
 .file-viewer-body img { display: block; max-width: 100%; margin: 0 auto; }
 .file-viewer-text { margin: 0; padding: 10px 12px; font: 12.5px/1.45 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-word; user-select: text; }
 .tree-row button.link.name { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* F14f: both panes stay mounted when switching the mobile app tabs. */
+.viewer-tabs { display: none; }
+@media (max-width: 760px) {
+  .viewer-tabbed > .viewer-tabs { display: flex; flex: 0 0 auto; gap: 8px; padding: 6px; border-bottom: 1px solid var(--line); }
+  .viewer-tabs button[aria-selected="true"] { color: var(--accent); border-color: var(--accent); }
+  .viewer-tabbed > .viewer-divider { display: none; }
+  .viewer-tabbed > .viewer-pane, .viewer-tabbed > .viewer-chat { flex: 1 1 0; max-width: none; min-height: 0; }
+  .viewer-tabbed.show-chat > .viewer-pane, .viewer-tabbed.show-view > .viewer-chat { display: none; }
+}

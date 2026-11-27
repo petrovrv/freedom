@@ -452,7 +452,7 @@ const CO_MODULE_KEY_RE = '/^[a-z][A-Za-z0-9]{2,30}$/';
 // fields of chats, projects and events of the core: a mode or a side job of a module cannot take them
 const CO_MODULE_CORE_KEYS = ['schemaVersion', 'eventId', 'sequence', 'createdUtc', 'chatId', 'branchId', 'jobId', 'hostId', 'agent',
     'author', 'text', 'type', 'status', 'error', 'attachments', 'returnFiles', 'conversation', 'mode', 'model', 'effort', 'title',
-    'titleAuto', 'projectId', 'environmentId', 'archived', 'parent', 'permissions', 'contextMode', 'autoSwitch', 'browser',
+    'moduleChat', 'titleAuto', 'projectId', 'environmentId', 'archived', 'parent', 'permissions', 'contextMode', 'autoSwitch', 'browser',
     'family', 'folderId', 'description', 'defaultAgentId', 'defaultMode', 'updatedUtc', 'movedUtc', 'draft', 'legacy', 'shareRole',
     'artifacts', 'sessionId', 'usage', 'imported', 'followupOf', 'request', 'result', 'instruction', 'output',
     'rootBranchId', 'createdUtc', 'importedFrom', 'summary', 'shareVia', 'sharedChatIds', 'kind', 'contextFolders',
@@ -621,7 +621,7 @@ function co_modules_list(mysqli $db, string $myEnv, bool $owner, array $coreOps 
             'personal' => co_module_personal($m) ? ['about' => (string)($man['personal']['about'] ?? 'members'), 'mode' => co_module_person_mode($db, $m, $myEnv),
                 'question' => (string)($man['personal']['question'] ?? '')] : null];
         // what CO Web weaves into its own screens (only while enabled: a disabled module leaves no trace there)
-        $row += ['modes' => $on ? co_module_modes($m) : [], 'context' => $on ? co_module_context($m) : [],
+        $row += ['moduleChat' => $on ? co_module_chat_decl($m) : null, 'modes' => $on ? co_module_modes($m) : [], 'context' => $on ? co_module_context($m) : [],
             'fileActions' => $on ? co_module_file_actions($m) : [], 'messageViews' => $on ? co_module_message_views($m) : [],
             // side-job rows of a switched-off module stay collapsed (old turns), so these come always
             'sideJobs' => co_module_side_jobs($m), 'navigate' => $on ? co_module_navigate($m) : [],
@@ -914,4 +914,20 @@ function co_module_in_str(array $in, string $key, int $max): string
     $v = $in[$key] ?? '';
     if (!is_string($v) || mb_strlen($v) > $max || preg_match('/[\x00-\x1f\x7f]/', $v)) throw new InvalidArgumentException("bad $key");
     return $v;
+}
+
+/** F14f: a launcher app can open one persistent chat per environment. */
+function co_module_chat_decl(array $m): ?array
+{
+    $d = $m['manifest']['provides']['moduleChat'] ?? null;
+    if (!is_array($d)) return null;
+    $mode = (string)($d['mode'] ?? '');
+    $panel = (string)($d['panel'] ?? '');
+    if (!in_array($mode, array_column(co_module_modes($m), 'key'), true)) return null;
+    $panels = array_filter(co_module_ui($m), static fn($u) => $u['slot'] === 'ui.panel');
+    if (!in_array($panel, array_column($panels, 'id'), true)) return null;
+    $apps = array_values(array_filter(co_module_ui($m), static fn($u) => !empty($u['app'])));
+    return ['mode' => $mode, 'panel' => $panel,
+        'icon' => co_module_decl_str($d['icon'] ?? $apps[0]['icon'] ?? '▫', 8),
+        'label' => co_module_decl_str($d['label'] ?? $m['manifest']['title'] ?? $m['id'], 60)];
 }

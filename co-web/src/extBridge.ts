@@ -45,6 +45,7 @@ export interface ModuleInfo {
   /** F14c: the key of the files of such a module for this person (module.php ?k=) */
   fileKey?: string;
   // ext/1 declarations CO Web weaves into its own screens (empty while the module is off; older servers send none)
+  moduleChat?: { mode: string; panel: string; icon: string; label: string } | null;
   modes?: ModeDecl[]; context?: string[]; fileActions?: FileAction[]; messageViews?: MessageView[]; sideJobs?: SideJob[];
   navigate?: string[];
   /** F14b-2: ops of the module agents may call (manifest provides.actions); its tray chip listens for their refresh */

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Self-check of chat modes of modules (ext/1 chat.mode, F10), the message views / side jobs / file actions / navigation
 // checks of extBridge.ts and formulas (run: npm test, or node src/moduleModes.selftest.ts).
-import { inheritedModes, linesBetween, modeLines, modeOn, modePatch, modesText, switchWho, type ModeDecl } from './moduleModes.ts';
+import { moduleChatViewer, inheritedModes, linesBetween, modeLines, modeOn, modePatch, modesText, switchWho, type ModeDecl } from './moduleModes.ts';
 import { fileActionsFor, filePathOk, navTarget, parseExtMessage, reqRefusal, sideJobOf, sideReplies, siblingOk, viewMessage, type ModuleInfo } from './extBridge.ts';
 import { cutMath, pasteMath } from './mathText.ts';
 import { marked } from 'marked';
@@ -111,6 +111,15 @@ const link = cutMath('see [a](https://x.org/$y$) and $z$');
 const linkHtml = pasteMath(marked.parse(link.text, { async: false }) as string, link);
 assert.ok(linkHtml.includes('href="https://x.org/$y$"'), 'math in a link URL stays source text: ' + linkHtml.slice(0, 80));
 assert.ok(/<\/a> and <span class="katex"/.test(linkHtml), 'math in text still rendered');
+
+const appModule = { id: 'planner', enabled: true, moduleChat: { mode: MODE.key, panel: 'view', icon: 'P', label: 'Planner' },
+  modes: [MODE], ui: [{ slot: 'ui.panel', id: 'view', entry: 'ui/view.html', title: 'View' }] } as ModuleInfo;
+assert.equal(moduleChatViewer([appModule], { moduleChat: 'planner' })?.doc, '', 'module panel needs no document');
+assert.equal(moduleChatViewer([appModule], { moduleChat: 'planner' })?.mode, MODE, 'module mode attached');
+assert.equal(moduleChatViewer([appModule], {}), null, 'ordinary chat unchanged');
+assert.equal(moduleChatViewer([{ ...appModule, enabled: false }], { moduleChat: 'planner' }), null, 'disabled module hidden');
+assert.equal(moduleChatViewer([{ ...appModule, ui: [] }], { moduleChat: 'planner' }), null, 'missing panel hidden');
+assert.equal(moduleChatViewer([{ ...appModule, modes: [] }], { moduleChat: 'planner' }), null, 'missing mode hidden');
 
 if (failures.length) {
   console.error('moduleModes selftest FAILED:\n' + failures.join('\n'));

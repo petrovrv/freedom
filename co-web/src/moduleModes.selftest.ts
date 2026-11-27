@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Self-check of chat modes of modules (ext/1 chat.mode, F10), the message views / side jobs / file actions / navigation
 // checks of extBridge.ts and formulas (run: npm test, or node src/moduleModes.selftest.ts).
-import { moduleChatViewer, inheritedModes, linesBetween, modeLines, modeOn, modePatch, modesText, switchWho, type ModeDecl } from './moduleModes.ts';
+import { loadModuleChat, moduleChatViewer, inheritedModes, linesBetween, modeLines, modeOn, modePatch, modesText, switchWho, type ModeDecl } from './moduleModes.ts';
 import { fileActionsFor, filePathOk, navTarget, parseExtMessage, reqRefusal, sideJobOf, sideReplies, siblingOk, viewMessage, type ModuleInfo } from './extBridge.ts';
 import { cutMath, pasteMath } from './mathText.ts';
 import { marked } from 'marked';
@@ -120,6 +120,23 @@ assert.equal(moduleChatViewer([appModule], {}), null, 'ordinary chat unchanged')
 assert.equal(moduleChatViewer([{ ...appModule, enabled: false }], { moduleChat: 'planner' }), null, 'disabled module hidden');
 assert.equal(moduleChatViewer([{ ...appModule, ui: [] }], { moduleChat: 'planner' }), null, 'missing panel hidden');
 assert.equal(moduleChatViewer([{ ...appModule, modes: [] }], { moduleChat: 'planner' }), null, 'missing mode hidden');
+
+const applications = { projectId: 'apps', folderId: 'unchanged-folder' };
+const oldChat = { projectId: 'apps', chatId: 'old' };
+const newChat = { projectId: 'apps', chatId: 'new', planning: true };
+let releaseChats!: (chats: typeof oldChat[]) => void;
+let ready = false;
+const opening = loadModuleChat('apps', 'new', [applications], () => new Promise<typeof oldChat[]>((resolve) => { releaseChats = resolve; }))
+  .then((loaded) => { ready = true; return loaded; });
+await Promise.resolve();
+assert.equal(ready, false, 'module navigation waits for the chat read');
+releaseChats([oldChat, newChat]);
+const loaded = await opening;
+assert.equal(loaded.project, applications, 'same Applications folder supported');
+assert.equal(loaded.chats[1], newChat, 'created chat and its mode available before navigation');
+let missingRefused = false;
+try { await loadModuleChat('apps', 'new', [applications], async () => [oldChat]); } catch { missingRefused = true; }
+assert.ok(missingRefused, 'missing created chat must not open an ordinary draft');
 
 if (failures.length) {
   console.error('moduleModes selftest FAILED:\n' + failures.join('\n'));

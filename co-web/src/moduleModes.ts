@@ -93,3 +93,17 @@ export function moduleChatViewer(modules: import('./extBridge').ModuleInfo[], ch
   const ui = mod.ui.find((u) => u.slot === 'ui.panel' && u.id === mod.moduleChat!.panel);
   return mode && ui ? { mode, doc: '', mod, ui, moduleChat: true } : null;
 }
+
+
+/** A module route is safe to enter only after its persisted chat is readable. Never substitute a draft. */
+export async function loadModuleChat<P extends { projectId: string }, C extends { projectId: string; chatId: string }>(
+  projectId: string, chatId: string, projects: P[], readChats: (project: P) => Promise<C[]>,
+): Promise<{ project: P; chats: C[] }> {
+  const project = projects.find((p) => p.projectId === projectId);
+  if (!project) throw new Error('The module project could not be loaded. Try opening the app again.');
+  const chats = await readChats(project);
+  if (!chats.some((c) => c.projectId === projectId && c.chatId === chatId)) {
+    throw new Error('The module chat could not be loaded. Try opening the app again.');
+  }
+  return { project, chats };
+}

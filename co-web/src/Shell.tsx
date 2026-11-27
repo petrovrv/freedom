@@ -27,7 +27,7 @@ function chatActionsFor(p: { shareRole?: string }, c: { shareRole?: string }): C
   return [];
 }
 import { allProjectChats, latestChats, moveChatGroup, purgeTrashedChat, restoreChat, saveProjectMeta, trashChat, updateChatMeta } from './workbench';
-import { moduleChatViewer, projectModeDefault, type ModeDecl } from './moduleModes';
+import { loadModuleChat, moduleChatViewer, projectModeDefault, type ModeDecl } from './moduleModes';
 import { modesOf } from './moduleStore';
 import { importCalls } from './importWriter';
 import { LimitsBar } from './Limits';
@@ -114,6 +114,8 @@ export default function Shell({ auth }: { auth: Signed }) {
   const [fatal, setFatal] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [chats, setChats] = useState<Chat[] | null>(null);
+  const chatReadGeneration = useRef(0);
+  const preloadedModuleChats = useRef<{ projectId: string; folderId: string; chats: Chat[] } | null>(null);
   // F15.1: the project whose chats `chats` holds (null while the open project's list loads)
   const [chatsPid, setChatsPid] = useState<string | null>(null);
   // F15.1: Explorer view of the left panel (0.128.0: the default; ☰ → Tree view) and the chats of the other projects it shows
@@ -237,9 +239,17 @@ export default function Shell({ auth }: { auth: Signed }) {
       const from = pathname;
       void dbModuleCall('module_chat', { module: a.m.id }, 120000).then(async (r) => {
         if (!r.ok || typeof r.projectId !== 'string' || typeof r.chatId !== 'string') throw new Error(String(r.message || r.error || 'Could not open module chat'));
-        await refreshProjectsRef.current();
+        if (!root) throw new Error('The workbench is not loaded yet.');
+        const freshProjects = await listProjects(root, auth.homeEnv, owner);
+        const loaded = await loadModuleChat(r.projectId, r.chatId, freshProjects, (p) => listChats(p, auth.homeEnv));
         // Do not pull someone back after they navigate away while creation is pending.
         if (window.location.pathname !== from) return;
+        // Invalidate any poll started before creation and seed the target before changing the URL.
+        chatReadGeneration.current++;
+        preloadedModuleChats.current = { projectId: loaded.project.projectId, folderId: loaded.project.folderId, chats: loaded.chats };
+        setProjects(freshProjects);
+        setChats(loaded.chats);
+        setChatsPid(loaded.project.projectId);
         navigate(`/e/${auth.homeEnv}/p/${r.projectId}/c/${r.chatId}`);
       }).catch((e: unknown) => window.alert(e instanceof Error ? e.message : String(e)))
         .finally(() => { moduleOpening.current = false; });
@@ -249,7 +259,7 @@ export default function Shell({ auth }: { auth: Signed }) {
     const o = shellOpen(a, env, desktop);
     if (o.target === 'blank') window.open(o.href, '_blank', 'noopener');
     else if (!appNow || appKey(appNow) !== appKey({ env, moduleId: a.m.id, pageId: a.ui.id })) navigate(o.href, { replace: !!appNow });
-  }, [env, navigate, appNow, auth.homeEnv, pathname]);
+  }, [env, navigate, appNow, auth.homeEnv, pathname, root, owner]);
   useEffect(() => {
     if (!appNow) return;
     const f = (e: globalThis.KeyboardEvent) => {
@@ -531,17 +541,29 @@ export default function Shell({ auth }: { auth: Signed }) {
 
   const refreshChats = useCallback(async () => {
     if (!project || !authOk) return;
+    const generation = ++chatReadGeneration.current;
     try {
-      setChats(await listChats(project, env)); // 0.48.0: preview-aware
+      const fresh = await listChats(project, env); // 0.48.0: preview-aware
+      if (generation !== chatReadGeneration.current) return;
+      setChats(fresh);
       setChatsPid(project.projectId);
     } catch (e) {
       console.warn(e);
     }
   }, [project, authOk, env]);
   useEffect(() => {
-    setChats(null);
-    setChatsPid(null);
+    chatReadGeneration.current++;
+    const loaded = preloadedModuleChats.current;
+    if (loaded && loaded.projectId === project?.projectId && loaded.folderId === project.folderId) {
+      setChats(loaded.chats);
+      setChatsPid(loaded.projectId);
+    } else {
+      setChats(null);
+      setChatsPid(null);
+    }
+    preloadedModuleChats.current = null;
     void refreshChats();
+    return () => { chatReadGeneration.current++; };
   }, [project?.folderId]); // eslint-disable-line react-hooks/exhaustive-deps
   useInterval(refreshChats, POLL_LISTS_MS, !!project && authOk);
 

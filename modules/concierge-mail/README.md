@@ -170,3 +170,6 @@ The app ✉ (`ui/mail.html`, a `ui.page` with `app: true`, its own window in CO 
 - A thread gives its newest 100 messages, a message over 1.5 MB of HTML comes as text (`truncated`).
 
 Server checks: `php tests/server.php` (from the module folder; no database or web server needed).
+
+## AI letter menu (0.18.0)
+Right-click a mail row or a message for AI actions; the reader toolbar also has an AI dropdown for touch and keyboard. Prepare draft, Discuss, More context, Summarize, Actions & deadlines, Translate / explain fill the existing chat input only. The person reviews and submits the request. Rows are resolved through a read-only thread call without marking read. Selected text, links, editing fields and Shift+right-click retain the browser menu. Sensitive stubs offer no AI actions; read-guard metadata is redacted and drafting requires explicit consent in chat.

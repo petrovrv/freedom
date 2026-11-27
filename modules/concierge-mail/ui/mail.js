@@ -41,6 +41,7 @@ function title(n) { coExt.title('Почта' + (n > 0 ? ' (' + n + ')' : '')); }
 // the browser or of Android leaves the app (the shell's own entry). The header button is "←" only in a letter; in the
 // list it shows the folders (🗂) - leaving the app is the shell's "← Chats".
 function pane(name) {
+  closeAI();
   document.body.dataset.pane = name; $('link-bar').hidden = true;
   const b = $('back');
   b.textContent = name === 'reader' ? '←' : '🗂';
@@ -49,6 +50,7 @@ function pane(name) {
 }
 // Esc in a letter (outside a text field) goes to the list; in the list it is left to the shell (= leave the app)
 document.addEventListener('keydown', e => {
+  if (aiMenu) return;
   if (e.key !== 'Escape' || document.body.dataset.pane !== 'reader' || !$('composer').hidden || !$('link-bar').hidden) return;
   if (e.composedPath().some(n => n.matches?.('input,textarea,select,[contenteditable="true"]'))) return;
   e.preventDefault(); e.stopPropagation(); back();
@@ -70,6 +72,7 @@ function call(action, args) {
   return task;
 }
 function reset() {
+  closeAI();
   listTicket++; readTicket++; initialized = false; listBusy = false;
   threads = []; labels = []; next = null; selected = -1; chats = []; chatView = null;
   $('labels').replaceChildren(); $('threads').replaceChildren(); $('list-note').replaceChildren(); $('more').hidden = true;
@@ -195,6 +198,12 @@ function renderThreads() {
   threads.forEach((t, index) => {
     const b = button('', () => openThread(index)); b.className = 'thread' + (t.unread ? ' unread' : '');
     b.setAttribute('aria-current', String(index === selected));
+    if (!t.sensitive) bindAI(b, async () => {
+      const data = await call('thread', {thread:t.thread});
+      const messages = data.messages || [];
+      const msg = [...messages].reverse().find(m => !m.sensitive && !(m.labels || []).includes('DRAFT'));
+      return msg && {...msg, tainted:!!t.tainted || messages.some(m => m.tainted)};
+    });
     const row = el('span', 'row'), marks = el('span', 'marks'), tl = t.labels || [];
     if (t.tainted) { const f = el('span', 'flag', '⚠\uFE0E'); f.title = 'read-guard: возможна попытка управлять ИИ'; marks.append(f); }
     if (tl.includes('STARRED')) { const s = el('span', 'star', '★'); s.title = 'Помечено'; marks.append(s); }
@@ -216,6 +225,7 @@ function renderThreads() {
   if (focused >= 0) $('threads').children[focused]?.focus();
 }
 async function loadList(append = false) {
+  closeAI();
   if (folderMode) {
     query = ''; chatView = folderChat;
     if (!chatView) { $('list-note').textContent = 'Нет чата для переписки'; return; }
@@ -312,12 +322,13 @@ function imagesBar(msg, body) {
   return bar;
 }
 function size(bytes) { return new Intl.NumberFormat('ru-RU', {maximumFractionDigits:1}).format((Number(bytes) || 0) / 1024) + ' КБ'; }
-function message(msg, last) {
+function message(msg, last, threadTainted = false) {
   const card = el('details', 'message'); card.open = last || (msg.labels || []).includes('UNREAD');
   const head = el('summary'); head.append(el('span', '', msg.from || 'Неизвестный отправитель'), el('span', 'small', date(msg.date, true)));
   card.append(head);
   const content = el('div', 'message-content'); card.append(content);
   if (msg.sensitive) { content.append(el('p', 'sensitive', privateNote)); return card; }
+  bindAI(card, () => ({...msg, tainted:threadTainted || msg.tainted}));
   head.append(el('span', 'small', 'Кому: ' + (msg.to || '—')));
   if (msg.subject) head.append(el('span', 'small', msg.subject));
   if (msg.tainted) content.append(el('p', 'notice', 'Письмо может содержать попытку управлять ИИ (read-guard): ' + (msg.reasons || []).join('; ')));
@@ -376,8 +387,91 @@ function toolbar(thread, messages) {
   act(labels.has('STARRED') ? '★ Снять' : '☆ Пометить', markOpen(labels.has('STARRED') ? 'unstar' : 'star'));
   if (labels.has('TRASH')) act('↺ Восстановить', mark('untrash', () => pane('list')));
   else act('🗑 Удалить', mark('trash', () => pane('list'))).classList.add('danger');
-  if (last && askable()) act('💬 Спросить агента', () => askAgent(last), 'Открыть чат с агентом: в поле ввода будет ссылка на это письмо, вопрос допишите вы');
+  if (last && askable()) {
+    const b = act('AI ▾', () => aiAnchor === b ? closeAI(true) : showAI(b, () => ({...last, tainted:!!thread.tainted || messages.some(m => m.tainted)})), 'Подготовить запрос агенту об этом письме');
+    b.setAttribute('aria-haspopup', 'menu'); b.setAttribute('aria-expanded', 'false');
+  }
 }
+
+// AI actions only fill the chat input. They never send a chat message or mutate Gmail.
+const aiActions = [
+  ['Prepare draft', 'Подготовь черновик ответа на это письмо с учётом переписки и доступного контекста. Если данных не хватает, сначала уточни. Ничего не отправляй.'],
+  ['Discuss', 'Давай обсудим это письмо и возможные варианты ответа.'],
+  ['More context', 'Найди связанную переписку и доступный контекст этого письма. Покажи источники и отдели факты от предположений.'],
+  ['Summarize', 'Кратко изложи суть этого письма и переписки.'],
+  ['Actions & deadlines', 'Выдели из письма требуемые действия, ответственных и сроки. Не создавай задачи или события без моего согласия.'],
+  ['Translate / explain', 'Переведи письмо на русский и объясни непонятные термины.']
+];
+let aiMenu = null, aiAnchor = null, aiGeneration = 0;
+function aiScope() {
+  return JSON.stringify([st.env, st.account, pageCtx?.slot, pageCtx?.chat?.chatId || pageCtx?.chat?.id, pageCtx?.chat?.projectId, folderChat?.chat, chatView?.chat, label, query, threads[selected]?.thread]);
+}
+function closeAI(restore = false) {
+  aiMenu?.remove(); aiMenu = null;
+  aiAnchor?.setAttribute('aria-expanded', 'false');
+  if (restore && aiAnchor?.isConnected) (aiAnchor.matches('details') ? aiAnchor.querySelector('summary') : aiAnchor)?.focus();
+  aiAnchor = null;
+}
+function bindAI(node, getMessage) {
+  node.setAttribute('aria-haspopup', 'menu');
+  node.addEventListener('contextmenu', e => {
+    // Keep native copy/link/edit menus when appropriate; Shift+right-click also bypasses us.
+    if (!askable() || e.shiftKey || String(getSelection()).trim() || e.target.closest('input,textarea,select,[contenteditable],a')) return;
+    e.preventDefault(); e.stopPropagation(); showAI(node, getMessage, {x:e.clientX, y:e.clientY});
+  });
+}
+function showAI(anchor, getMessage, point) {
+  closeAI(); aiGeneration++;
+  if (!askable()) return;
+  aiAnchor = anchor; anchor.setAttribute('aria-expanded', 'true');
+  const menu = el('div', 'ai-menu'); aiMenu = menu;
+  menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', 'AI');
+  const rect = anchor.getBoundingClientRect();
+  const position = () => {
+    menu.style.left = Math.max(4, Math.min(point?.x ?? rect.left, innerWidth - menu.offsetWidth - 4)) + 'px';
+    menu.style.top = Math.max(4, Math.min(point?.y ?? rect.bottom, innerHeight - menu.offsetHeight - 4)) + 'px';
+  };
+  const actions = () => {
+    menu.replaceChildren();
+    for (const [label, intent] of aiActions) {
+      const b = button(label, async () => {
+        closeAI(true);
+        const gen = aiGeneration, scope = aiScope();
+        try {
+          const msg = await getMessage();
+          if (gen !== aiGeneration || scope !== aiScope()) { note('Выбор письма изменился — выберите действие AI ещё раз'); return; }
+          if (!msg || msg.sensitive) { note('Нет доступного письма для AI'); return; }
+          // A generic menu click does not authorize drafting on a read-guard letter.
+          const safeIntent = msg.tainted && label === 'Prepare draft'
+            ? 'Я хочу обсудить ответ на это письмо. Сначала объясни пометку read-guard и запроси моё явное согласие на подготовку черновика.' : intent;
+          await askAgent(msg, safeIntent);
+        } catch { note('Не удалось подготовить запрос об этом письме'); }
+      });
+      b.setAttribute('role', 'menuitem'); menu.append(b);
+    }
+    menu.append(el('div', 'ai-hint', 'Запрос появится в чате — дополните и отправьте.'));
+    position(); menu.querySelector('button').focus();
+  };
+  document.body.append(menu);
+  if (point) {
+    const branch = button('AI ▸', actions); branch.setAttribute('role', 'menuitem'); branch.setAttribute('aria-haspopup', 'menu');
+    branch.addEventListener('keydown', e => { if (e.key === 'ArrowRight') { e.preventDefault(); actions(); } });
+    menu.append(branch); position(); branch.focus();
+  } else actions();
+  menu.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeAI(true); return; }
+    if (e.key === 'Tab') { closeAI(true); return; }
+    const buttons = [...menu.querySelectorAll('button')], i = buttons.indexOf(document.activeElement);
+    if (['ArrowDown','ArrowUp','Home','End'].includes(e.key)) {
+      e.preventDefault(); e.stopPropagation();
+      buttons[e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1 : (i + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
+    }
+  });
+}
+document.addEventListener('pointerdown', e => { if (aiMenu && !aiMenu.contains(e.target) && !aiAnchor?.contains(e.target)) closeAI(); }, true);
+document.addEventListener('scroll', e => { if (aiMenu && !aiMenu.contains(e.target)) closeAI(); }, true);
+window.addEventListener('resize', () => closeAI());
+
 // 0.15.0: "💬 Спросить агента" about the open letter - the mail chat (or the chat this page stands next to) gets one line
 // "О письме «…» от …, дата (письмо #id): " in its message box; the person writes the question and sends it, nothing is
 // sent by itself. Next to a chat: chat.ask send:false (only a core that gives ctx.chat.projectId takes send:false - an
@@ -396,8 +490,9 @@ function askLine(msg) {
   const subject = String(msg.subject || '').trim();
   return 'О письме ' + (subject ? '«' + subject.slice(0, 160) + '» ' : '') + 'от ' + who.slice(0, 80) + ', ' + date(msg.date, true) + ' (письмо #' + msg.id + '): ';
 }
-async function askAgent(msg) {
-  const text = askLine(msg);
+async function askAgent(msg, intent = '') {
+  if (!msg || msg.sensitive || !askable()) return;
+  const text = askLine(msg) + intent;
   try {
     if (folderMode && folderChat) {
       await coExt.req('chat.open', {projectId: folderChat.project, chatId: folderChat.chat, draft: text});
@@ -491,7 +586,7 @@ async function openThread(index, markRead = true) {
     const messages = data.messages || [];
     $('reading').replaceChildren(el('h2', '', messages.find(m => !m.sensitive && m.subject)?.subject || 'Переписка'), chatLinks(thread));
     messages.forEach((msg, i) => {
-      $('reading').append(message(msg, i === messages.length - 1));
+      $('reading').append(message(msg, i === messages.length - 1, !!thread.tainted || messages.some(m => m.tainted)));
     });
     if (!messages.length) $('reading').append(el('p', 'empty', 'Писем нет'));
     toolbar(thread, messages);
@@ -876,6 +971,7 @@ coExt.ready.then(ctx => {
   const here = ctx.chat && typeof ctx.chat.id === 'string' ? ctx.chat : null;
   if (ctx.slot === 'ui.panel' && doc && here) wanted = {view: {chat: here.id, title: here.title || 'Этот чат'}, thread: doc[1] || null};
   coExt.on('context', nextCtx => {
+    closeAI();
     // The core keys this frame by chat id. Never reuse a draft or reader for a different chat.
     if (folderMode && JSON.stringify(folderOf(nextCtx)) !== JSON.stringify(folderChat)) { location.reload(); return; }
     if (cardMode && (nextCtx.card || {}).id !== cardId) { location.reload(); return; }

@@ -9,6 +9,7 @@ declare(strict_types=1);
 require __DIR__ . '/../web/agent/db-lib.php';
 require __DIR__ . '/../web/agent/share-lib.php';
 require __DIR__ . '/../web/agent/msgedit-lib.php';
+require __DIR__ . '/../cron/protocol-apply.php';
 
 $db = co_db();
 $fail = 0;
@@ -96,6 +97,39 @@ $ok('rewrite needs a user message', (msgedit_hide($db, 'CHAT-M', 2, 'rewrite', '
 $ok('chat_read leaves hidden messages out', count(share_q($db, "SELECT 1 FROM events WHERE chat_id = 'CHAT-M' AND type IN ('user_message','assistant_message')
     AND JSON_EXTRACT(data, '$.deleted') IS NULL", [])) === 2);
 $ok('no transaction left open', (int)share_q($db, 'SELECT @@in_transaction AS t', [])[0]['t'] === 0);
+
+// review 1: data.deleted is the server's - a client cannot hide (or unhide) through put_user
+$forged = $ev(1, 'user_message', 'J1', 'first question');
+$forged['deleted'] = ['utc' => '2026-11-26T12:00:00.000Z', 'by' => 'guest@example.org', 'batch' => 'DEL-000000000000', 'mode' => 'pair', 'at' => 1];
+co_db_put(['events' => [$forged]]);
+$ok('forged deleted from a client ignored', $live() === [1, 2]);
+$unhide = $ev(6, 'assistant_message', 'J3', 'third answer');
+$unhide['deleted'] = null;
+co_db_put(['events' => [$unhide]]);
+$ok('a client cannot unhide either', $live() === [1, 2]);
+// a late answer of the stopped job J4 (server finalize or a CO Web tab) stays hidden with its message
+co_db_put(['events' => [$ev(8, 'assistant_message', 'J4', 'late answer')]]);
+$late = json_decode((string)share_q($db, "SELECT data FROM events WHERE event_id = 'EVT-08'", [])[0]['data'], true);
+$ok('late answer of a forgotten message hidden in its batch', $live() === [1, 2] && ($late['deleted']['batch'] ?? '') === $r['batch']);
+
+// review 3: a secretary batch read before the rewrite is dropped, the cursor stays
+$cursor = static fn(): int => (int)share_q($db, "SELECT protocol_seq FROM chats WHERE chat_id = 'CHAT-M'", [])[0]['protocol_seq'];
+$a = co_protocol_apply($db, 'CHAT-M', [5 => [], 6 => []], [], 'test', 6, null, 6);
+$ok('stale batch (cursor moved back) dropped', ($a['stale'] ?? false) === true && $cursor() === 4);
+$a = co_protocol_apply($db, 'CHAT-M', [5 => [], 6 => []], [], 'test', 6, null, 4);
+$ok('batch with hidden messages dropped', ($a['stale'] ?? false) === true && $cursor() === 4);
+co_db_put(['events' => [$ev(9, 'user_message', 'J5', 'rewritten question'), $ev(10, 'assistant_message', 'J5', 'new answer')]]);
+$a = co_protocol_apply($db, 'CHAT-M', [9 => [], 10 => []], [], 'test', 10, null, 4);
+$ok('fresh batch after the rewrite applied (hidden ones in between not read)', !isset($a['stale']) && $cursor() === 10);
+
+// review 4: a family member only in chats of their own environment or the family room
+$db->query("INSERT INTO projects (project_id, env, title, data, sha, synced_utc) VALUES ('P-kid', 'kid', 'Kid', '{}', 'x', UTC_TIMESTAMP(3))");
+$db->query("INSERT INTO chats (chat_id, project_id, title, data, sha, synced_utc) VALUES
+    ('CHAT-K', 'P-kid', 'Kid chat', '{}', 'x', UTC_TIMESTAMP(3)), ('CHAT-F', 'P-own', 'Family', '{\"family\":true}', 'x', UTC_TIMESTAMP(3))");
+$ok('member: own chat allowed', msgedit_env_allows($db, 'CHAT-K', false, 'kid'));
+$ok('member: another person\'s shared chat refused', !msgedit_env_allows($db, 'CHAT-M', false, 'kid'));
+$ok('member: family room allowed', msgedit_env_allows($db, 'CHAT-F', false, 'kid'));
+$ok('workbench owner: any chat', msgedit_env_allows($db, 'CHAT-K', true, 'owner'));
 
 echo $fail === 0 ? "ALL OK\n" : "$fail FAILED\n";
 exit($fail === 0 ? 0 : 1);

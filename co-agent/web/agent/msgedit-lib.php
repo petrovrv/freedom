@@ -67,6 +67,21 @@ function msgedit_foreign(mysqli $db, array $targets, string $chatId, string $rol
     return null;
 }
 
+/**
+ * Rule 4 (who may delete in a chat at all): the workbench owner anywhere (with the role checks of msgedit_hide); another
+ * person only in chats of their own environment and in the family room (there msgedit_foreign limits them to their own
+ * messages), never in someone else's chat shared with them.
+ */
+function msgedit_env_allows(mysqli $db, string $chatId, bool $admin, string $myEnv): bool
+{
+    if ($admin) return true;
+    $r = share_q($db, 'SELECT p.env, c.data FROM chats c JOIN projects p ON p.project_id = c.project_id WHERE c.chat_id = ?', [$chatId]);
+    if (!$r) return false;
+    if ((string)$r[0]['env'] === $myEnv) return true;
+    $data = json_decode((string)$r[0]['data'], true);
+    return is_array($data) && ($data['family'] ?? false) === true;
+}
+
 /** Stops jobs of the hidden messages: a queued one never starts, a running one is stopped by its executor. Ids stopped. */
 function msgedit_stop_jobs(mysqli $db, string $chatId, array $jobIds): array
 {

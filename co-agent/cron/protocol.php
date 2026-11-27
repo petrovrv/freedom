@@ -370,7 +370,7 @@ PROMPT;
                     if ($dossierEnv !== null) {
                         co_dossier_apply($db, $dossierEnv, $chatId, $dates, $dossierOps, $model, $dossierKnown);
                     }
-                });
+                }, $from);
             co_protocol_meta_delete($db, co_protocol_fail_key($chatId));
 
             $processed[] = $chatId;

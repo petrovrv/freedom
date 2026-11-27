@@ -261,8 +261,23 @@ function co_db_put(array $in): array
 
         foreach ($events as $r) {
             if (!is_array($r)) { $reject('event', null, 'not an object'); continue; }
-            if (isset($r['eventId']) && is_string($r['eventId']) && isset($hiddenOf[$r['eventId']]) && !isset($r['deleted'])) {
+            // data.deleted is written only by msgedit-lib.php: a client's value is replaced by the stored one (none = none)
+            unset($r['deleted']);
+            if (isset($r['eventId']) && is_string($r['eventId']) && isset($hiddenOf[$r['eventId']])) {
                 $r['deleted'] = $hiddenOf[$r['eventId']];
+            } elseif (is_string($r['jobId'] ?? null) && $r['jobId'] !== '' && ($r['type'] ?? '') !== 'user_message'
+                && is_string($r['chatId'] ?? null)) {
+                // a late answer (or other event) of a job whose message was deleted or forgotten stays hidden with it
+                $st = $db->prepare("SELECT JSON_EXTRACT(data, '$.deleted') FROM events WHERE chat_id = ? AND job_id = ? AND type = 'user_message'
+                                    AND JSON_EXTRACT(data, '$.deleted') IS NOT NULL LIMIT 1");
+                $st->execute([$r['chatId'], $r['jobId']]);
+                $h = $st->get_result()->fetch_row();
+                $st->close();
+                $d = $h ? json_decode((string)$h[0], true) : null;
+                if (is_array($d)) {
+                    unset($d['protocol']);
+                    $r['deleted'] = $d;
+                }
             }
             $id = $r['eventId'] ?? null;
             if (!co_db_id_ok($id)) { $reject('event', $id, 'invalid eventId'); continue; }

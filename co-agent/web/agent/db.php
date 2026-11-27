@@ -1506,6 +1506,11 @@ try {
             if ($role === null) {
                 co_json(404, ['error' => 'not_found']);
             }
+            // rule 4: a family member only in chats of their own environment, and in the family room (own messages);
+            // an editor share on another person's chat gives no delete or rewrite
+            if (!msgedit_env_allows($db, $chatId, $owner, $myEnv)) {
+                co_json(403, ['error' => 'forbidden']);
+            }
             if ($op === 'msg_restore') {
                 $r = msgedit_restore($db, $chatId, is_string($in['batch'] ?? null) ? $in['batch'] : '', $role, $email);
             } else {

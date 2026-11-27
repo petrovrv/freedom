@@ -44,7 +44,10 @@ function co_protocol_norm(string $s): string
 // The chat's cursor (chats.protocol_seq = $batchEnd) moves in the same transaction, so a retried batch cannot add
 // its entries twice.
 // $extra (schema 9) runs inside the same transaction before the cursor moves: memory candidates of the batch.
-function co_protocol_apply(mysqli $db, string $chatId, array $batch, array $ops, string $model, int $batchEnd, ?callable $extra = null): array
+// CO Web 0.133.0 (msgedit-lib.php): with $from (the cursor the batch was read after) a batch is dropped as stale when the
+// cursor moved meanwhile (a rewrite took it back) or a message of the batch ($batch keys = seqs) was hidden; nothing is written, the cursor
+// stays, the next run reads again. The chat row is locked first, the same order as msgedit_hide.
+function co_protocol_apply(mysqli $db, string $chatId, array $batch, array $ops, string $model, int $batchEnd, ?callable $extra = null, ?int $from = null): array
 {
     $allowedSections = ['decision', 'constraint', 'fact', 'question', 'artifact', 'answer', 'agreement'];
     $quoteRequired   = ['decision', 'constraint', 'fact', 'agreement'];
@@ -66,6 +69,26 @@ function co_protocol_apply(mysqli $db, string $chatId, array $batch, array $ops,
 
     $db->begin_transaction();
     try {
+        if ($from !== null) {
+            $st = $db->prepare('SELECT COALESCE(protocol_seq, 0) FROM chats WHERE chat_id = ? FOR UPDATE');
+            $st->execute([$chatId]);
+            $cur = $st->get_result()->fetch_row();
+            $st->close();
+            // the messages read (keys of $batch), not the whole range: older hidden ones in between were never read
+            $seqs = array_map('intval', array_keys($batch));
+            $hidden = false;
+            if ($seqs) {
+                $st = $db->prepare('SELECT 1 FROM events WHERE chat_id = ? AND seq IN (' . implode(',', array_fill(0, count($seqs), '?'))
+                    . ") AND JSON_EXTRACT(data, '$.deleted') IS NOT NULL LIMIT 1");
+                $st->execute([$chatId, ...$seqs]);
+                $hidden = $st->get_result()->fetch_row() !== null;
+                $st->close();
+            }
+            if ($cur === null || (int)$cur[0] !== $from || $hidden) {
+                $db->rollback();
+                return ['applied' => 0, 'rejected' => 0, 'total' => $total, 'stale' => true];
+            }
+        }
         $active = [];
         $st = $db->prepare("SELECT entry_no FROM protocol WHERE chat_id=? AND status='active' FOR UPDATE");
         $st->execute([$chatId]);

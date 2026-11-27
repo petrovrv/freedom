@@ -58,6 +58,7 @@ def main():
         (box / "d1" / "d2" / "tests").mkdir(parents=True)
         shutil.copy(REPO / "co-agent" / "tests" / a.test, box / "d1" / "d2" / "tests")
         shutil.copytree(REPO / "co-agent" / "db", box / "d1" / "d2" / "db")  # answer-test.php reads schema.sql
+        shutil.copytree(REPO / "co-agent" / "cron", box / "d1" / "d2" / "cron")  # msgedit-test.php: protocol-apply.php
         shutil.copytree(REPO / "modules", box / "d1" / "d2" / "modules")  # F10: modules-test.php / gateway-test.php install them
         (box / "co-agent" / "secrets").mkdir(parents=True)
         (box / "co-agent" / "secrets" / "db.json").write_text(json.dumps({"host": "127.0.0.1", "db": "co", "user": "t", "password": "t"}))

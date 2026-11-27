@@ -1392,8 +1392,8 @@ export default function ChatView(props: Props) {
                   ev={e}
                   onEdit={() => setPrefill({ text: e.text || '', agent: e.agent, nonce: Date.now() })}
                   onBranch={() => void branchAt(previousMessageSeq(visible, e.sequence), 'branch', e.text || '')}
-                  onDelete={!readOnly && !family && canHide(e, visible, props.author, chatOwner) ? () => void hideMsg(e, 'pair') : undefined}
-                  onRewrite={!readOnly && !family && canRewrite(e, visible, props.author, chatOwner) ? () => void hideMsg(e, 'rewrite') : undefined}
+                  onDelete={!readOnly && !family && chatOwner && canHide(e, visible, props.author, chatOwner) ? () => void hideMsg(e, 'pair') : undefined}
+                  onRewrite={!readOnly && !family && chatOwner && canRewrite(e, visible, props.author, chatOwner) ? () => void hideMsg(e, 'rewrite') : undefined}
                   owner={props.owner}
                   me={props.author}
                 />
@@ -1435,7 +1435,7 @@ export default function ChatView(props: Props) {
                 })
               }
               onBranch={() => void branchAt(e.sequence, 'branch')}
-              onDelete={!readOnly && !family && canHide(e, visible, props.author, chatOwner) ? () => void hideMsg(e, 'answer') : undefined}
+              onDelete={!readOnly && !family && chatOwner && canHide(e, visible, props.author, chatOwner) ? () => void hideMsg(e, 'answer') : undefined}
               switchedTo={e.jobId ? switchedTo.get(e.jobId) : undefined}
               undo={readOnly ? undefined : { events: events || [], projectId: project.projectId, chatId: chat.chatId }}
               onQuick={quickFor === e.eventId ? (text) => setPrefill({ text, send: true, nonce: Date.now() }) : undefined}

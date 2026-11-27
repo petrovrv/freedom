@@ -33,9 +33,14 @@ function msgedit_targets(mysqli $db, string $chatId, int $seq, string $mode): ar
     $want = $mode === 'pair' ? 'user_message' : 'assistant_message';
     if ($at['type'] !== $want) return [];
     if ($at['job_id'] === null || $at['job_id'] === '') return [$at];
-    $types = $mode === 'pair' ? '' : " AND type = 'assistant_message'";
-    return share_q($db, "SELECT event_id, seq, type, job_id, data FROM events WHERE chat_id = ? AND job_id = ? AND $live$types
-                         ORDER BY seq, event_id", [$chatId, (string)$at['job_id']]);
+    if ($mode === 'answer') {
+        return share_q($db, "SELECT event_id, seq, type, job_id, data FROM events WHERE chat_id = ? AND job_id = ? AND $live
+                             AND type = 'assistant_message' ORDER BY seq, event_id", [$chatId, (string)$at['job_id']]);
+    }
+    // a pair takes its delivered follow-ups along (user messages with followupOf = the job and no jobId of their own)
+    return share_q($db, "SELECT event_id, seq, type, job_id, data FROM events WHERE chat_id = ? AND $live
+                         AND (job_id = ? OR JSON_UNQUOTE(JSON_EXTRACT(data, '$.followupOf')) = ?)
+                         ORDER BY seq, event_id", [$chatId, (string)$at['job_id'], (string)$at['job_id']]);
 }
 
 /**
@@ -55,6 +60,10 @@ function msgedit_foreign(mysqli $db, array $targets, string $chatId, string $rol
     };
     foreach ($targets as $t) {
         $jobId = $t['job_id'] === null ? null : (string)$t['job_id'];
+        if ($jobId === null) {
+            $fu = json_decode((string)$t['data'], true)['followupOf'] ?? null;
+            if (is_string($fu) && $fu !== '') $jobId = $fu;
+        }
         if ($t['type'] === 'user_message') {
             $w = share_q($db, 'SELECT writer FROM events WHERE event_id = ?', [(string)$t['event_id']]);
             if (!$mine($w[0]['writer'] ?? null, $jobId)) return '#' . $t['seq'];
@@ -68,18 +77,21 @@ function msgedit_foreign(mysqli $db, array $targets, string $chatId, string $rol
 }
 
 /**
- * Rule 4 (who may delete in a chat at all): the workbench owner anywhere (with the role checks of msgedit_hide); another
- * person only in chats of their own environment and in the family room (there msgedit_foreign limits them to their own
- * messages), never in someone else's chat shared with them.
+ * job_submit: true when the request resumes a provider session whose newest visible answer is older than the newest
+ * deletion in the chat (the session saw messages that are hidden now; a window that loaded the chat before the deletion
+ * planned the resume). CO Web plans the same rule (msgEdit.ts sessionsSince); this is the server's check.
  */
-function msgedit_env_allows(mysqli $db, string $chatId, bool $admin, string $myEnv): bool
+function msgedit_resume_stale(mysqli $db, string $chatId, array $req): bool
 {
-    if ($admin) return true;
-    $r = share_q($db, 'SELECT p.env, c.data FROM chats c JOIN projects p ON p.project_id = c.project_id WHERE c.chat_id = ?', [$chatId]);
-    if (!$r) return false;
-    if ((string)$r[0]['env'] === $myEnv) return true;
-    $data = json_decode((string)$r[0]['data'], true);
-    return is_array($data) && ($data['family'] ?? false) === true;
+    $conv = $req['conversation'] ?? null;
+    if (!is_array($conv) || ($conv['operation'] ?? '') !== 'resume' || !is_string($conv['sessionId'] ?? null) || $conv['sessionId'] === '') return false;
+    $del = share_q($db, "SELECT MAX(JSON_UNQUOTE(JSON_EXTRACT(data, '$.deleted.utc'))) AS u FROM events
+                         WHERE chat_id = ? AND JSON_EXTRACT(data, '$.deleted') IS NOT NULL", [$chatId])[0]['u'] ?? null;
+    if ($del === null || $del === '') return false;
+    $last = share_q($db, "SELECT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(data, '$.completedUtc')), JSON_UNQUOTE(JSON_EXTRACT(data, '$.createdUtc'))) AS t
+                          FROM events WHERE chat_id = ? AND type = 'assistant_message' AND JSON_EXTRACT(data, '$.deleted') IS NULL
+                          AND JSON_UNQUOTE(JSON_EXTRACT(data, '$.sessionId')) = ? ORDER BY seq DESC LIMIT 1", [$chatId, $conv['sessionId']]);
+    return !$last || (string)$last[0]['t'] < (string)$del;
 }
 
 /** Stops jobs of the hidden messages: a queued one never starts, a running one is stopped by its executor. Ids stopped. */

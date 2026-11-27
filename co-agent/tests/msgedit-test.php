@@ -122,14 +122,33 @@ co_db_put(['events' => [$ev(9, 'user_message', 'J5', 'rewritten question'), $ev(
 $a = co_protocol_apply($db, 'CHAT-M', [9 => [], 10 => []], [], 'test', 10, null, 4);
 $ok('fresh batch after the rewrite applied (hidden ones in between not read)', !isset($a['stale']) && $cursor() === 10);
 
-// review 4: a family member only in chats of their own environment or the family room
-$db->query("INSERT INTO projects (project_id, env, title, data, sha, synced_utc) VALUES ('P-kid', 'kid', 'Kid', '{}', 'x', UTC_TIMESTAMP(3))");
-$db->query("INSERT INTO chats (chat_id, project_id, title, data, sha, synced_utc) VALUES
-    ('CHAT-K', 'P-kid', 'Kid chat', '{}', 'x', UTC_TIMESTAMP(3)), ('CHAT-F', 'P-own', 'Family', '{\"family\":true}', 'x', UTC_TIMESTAMP(3))");
-$ok('member: own chat allowed', msgedit_env_allows($db, 'CHAT-K', false, 'kid'));
-$ok('member: another person\'s shared chat refused', !msgedit_env_allows($db, 'CHAT-M', false, 'kid'));
-$ok('member: family room allowed', msgedit_env_allows($db, 'CHAT-F', false, 'kid'));
-$ok('workbench owner: any chat', msgedit_env_allows($db, 'CHAT-K', true, 'owner'));
+// cross review: a pair takes its delivered follow-up along; a follow-up written late stays hidden
+$db->query("INSERT INTO chats (chat_id, project_id, title, data, sha, synced_utc) VALUES ('CHAT-FU', 'P-own', 'FU', '{}', 'x', UTC_TIMESTAMP(3))");
+$fe = static fn(int $seq, string $type, ?string $job, ?string $fu = null): array => ['eventId' => sprintf('EVT-F%02d', $seq), 'chatId' => 'CHAT-FU',
+    'branchId' => 'BR-main', 'sequence' => $seq, 'type' => $type, 'jobId' => $job, 'text' => "f$seq", 'createdUtc' => '2026-11-26T10:00:00.000Z']
+    + ($fu ? ['followupOf' => $fu] : []);
+co_db_put(['events' => [$fe(1, 'user_message', 'JF'), $fe(2, 'user_message', null, 'JF')]]);
+$db->query("UPDATE events SET writer = 'guest@example.org' WHERE event_id IN ('EVT-F01', 'EVT-F02')");
+$fu = msgedit_hide($db, 'CHAT-FU', 1, 'pair', 'editor', 'guest@example.org', 'guest');
+$ok('editor of a shared chat deletes own message with its follow-up', ($fu['hidden'] ?? []) === ['EVT-F01', 'EVT-F02']);
+co_db_put(['events' => [$fe(3, 'user_message', null, 'JF'), $fe(4, 'assistant_message', 'JF')]]);
+$ok('late follow-up and late answer stay hidden', !share_q($db, "SELECT 1 FROM events WHERE chat_id = 'CHAT-FU' AND JSON_EXTRACT(data, '$.deleted') IS NULL", []));
+
+// cross review: a window that did not see the deletion cannot resume the session that saw the hidden messages
+$db->query("INSERT INTO chats (chat_id, project_id, title, data, sha, synced_utc) VALUES ('CHAT-S', 'P-own', 'S', '{}', 'x', UTC_TIMESTAMP(3))");
+$se = static fn(int $seq, string $type, string $job, string $utc): array => ['eventId' => sprintf('EVT-S%02d', $seq), 'chatId' => 'CHAT-S',
+    'branchId' => 'BR-main', 'sequence' => $seq, 'type' => $type, 'jobId' => $job, 'text' => "s$seq", 'createdUtc' => $utc]
+    + ($type === 'assistant_message' ? ['sessionId' => 'SESS-1', 'completedUtc' => $utc] : []);
+co_db_put(['events' => [$se(1, 'user_message', 'JS1', '2026-11-26T10:00:00.000Z'), $se(2, 'assistant_message', 'JS1', '2026-11-26T10:01:00.000Z'),
+    $se(3, 'user_message', 'JS2', '2026-11-26T10:02:00.000Z'), $se(4, 'assistant_message', 'JS2', '2026-11-26T10:03:00.000Z')]]);
+$resume = ['conversation' => ['operation' => 'resume', 'sessionId' => 'SESS-1']];
+$ok('resume allowed while nothing is hidden', !msgedit_resume_stale($db, 'CHAT-S', $resume));
+msgedit_hide($db, 'CHAT-S', 3, 'rewrite', 'owner', 'owner@example.org', 'owner');
+$ok('resume of a session that saw forgotten messages refused', msgedit_resume_stale($db, 'CHAT-S', $resume));
+$ok('a new session is not refused', !msgedit_resume_stale($db, 'CHAT-S', ['conversation' => ['operation' => 'new', 'sessionId' => null]]));
+co_db_put(['events' => [$se(5, 'user_message', 'JS3', gmdate('Y-m-d\TH:i:s.v\Z', time() + 60)),
+    ['sessionId' => 'SESS-2'] + $se(6, 'assistant_message', 'JS3', gmdate('Y-m-d\TH:i:s.v\Z', time() + 120))]]);
+$ok('resume of a session started after the deletion allowed', !msgedit_resume_stale($db, 'CHAT-S', ['conversation' => ['operation' => 'resume', 'sessionId' => 'SESS-2']]));
 
 // review 2, P1: co_db_put takes the chat row (the lock of hide/restore) before it reads the marks - while a hide holds
 // it in another connection, a write of the chat's events waits

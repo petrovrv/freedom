@@ -353,6 +353,8 @@ export async function dbJobSubmit(
     let msg: string;
     if (/^shared_chat_no_/.test(String(j.error || ''))) {
       msg = j.detail || 'A shared chat cannot use devices or context folders.';
+    } else if (j.error === 'session_reset') {
+      msg = j.detail || 'Messages of this chat were deleted in another window: reload and send again.';
     } else if (j.error === 'chat_trashed') {
       msg = 'This chat is in the trash. Restore it to write here.';
     } else if (j.error === 'forbidden') {

@@ -76,7 +76,7 @@ function co_inbox_list(mysqli $db, string $env, string $email): array
                    JOIN chats c2 ON c2.chat_id = e.chat_id
                    JOIN projects p2 ON p2.project_id = c2.project_id
                   WHERE " . co_inbox_write_sql('p2', 'c2') . "
-                    AND e.type IN ('user_message', 'assistant_message')
+                    AND e.type IN ('user_message', 'assistant_message') AND JSON_EXTRACT(e.data, '$.deleted') IS NULL
                     -- events, not chats.updated_utc: answers finalized by the server do not touch the chat row
                     AND e.created_utc > UTC_TIMESTAMP() - INTERVAL " . CO_INBOX_DAYS . " DAY
                   GROUP BY e.chat_id) m ON m.chat_id = c.chat_id

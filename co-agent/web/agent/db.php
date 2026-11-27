@@ -364,6 +364,11 @@ function db_job_submit(array $in, callable $envAllowed, array $acc): array
     $sha = hash('sha256', co_db_json(['request' => $req, 'result' => null]));
     // F15.2: no job for a chat in the CO trash; the check and the INSERT hold the chat row, like the trash clean-up
     try {
+        // CO Web 0.134.0 (msgedit-lib.php): a window that has not seen a deletion yet must not resume the old session
+        if (msgedit_resume_stale($db, $cid, $req)) {
+            co_json(403, ['error' => 'session_reset',
+                'detail' => 'Messages of this chat were deleted or rewritten in another window. Reload the chat and send again: a new agent session starts.']);
+        }
         $queued = share_job_insert_untrashed($db, $cid, static function () use ($db, $req, $host, $pid, $cid, $json, $sha, $myEnv): void {
             $st = $db->prepare(
                 "INSERT INTO jobs (job_id, host_id, env, project_id, chat_id, agent, mode, model, state, origin, queued_utc,
@@ -1375,8 +1380,8 @@ try {
                  FROM events e
                  JOIN chats c ON c.chat_id = e.chat_id
                  JOIN projects p ON p.project_id = c.project_id
-                 WHERE ' . share_visible_sql('p', 'c') . ' AND MATCH(e.text) AGAINST(? IN BOOLEAN MODE)
-                 ORDER BY score DESC LIMIT ?'
+                 WHERE ' . share_visible_sql('p', 'c') . " AND MATCH(e.text) AGAINST(? IN BOOLEAN MODE) AND JSON_EXTRACT(e.data, '$.deleted') IS NULL
+                 ORDER BY score DESC LIMIT ?"
             );
             $st->bind_param('sssssi', $ftq, $env, $env, $env, $ftq, $limit);
             $st->execute();
@@ -1505,11 +1510,6 @@ try {
             $role = $chatRole($chatId);
             if ($role === null) {
                 co_json(404, ['error' => 'not_found']);
-            }
-            // rule 4: a family member only in chats of their own environment, and in the family room (own messages);
-            // an editor share on another person's chat gives no delete or rewrite
-            if (!msgedit_env_allows($db, $chatId, $owner, $myEnv)) {
-                co_json(403, ['error' => 'forbidden']);
             }
             if ($op === 'msg_restore') {
                 $r = msgedit_restore($db, $chatId, is_string($in['batch'] ?? null) ? $in['batch'] : '', $role, $email);
@@ -2123,7 +2123,7 @@ try {
                            JOIN chats c2 ON c2.chat_id = e.chat_id
                            JOIN projects p2 ON p2.project_id = c2.project_id
                           WHERE " . share_visible_sql('p2', 'c2') . " AND c2.updated_utc > UTC_TIMESTAMP() - INTERVAL 14 DAY
-                            AND e.type IN ('user_message', 'assistant_message')
+                            AND e.type IN ('user_message', 'assistant_message') AND JSON_EXTRACT(e.data, '$.deleted') IS NULL
                           GROUP BY e.chat_id) m ON m.chat_id = c.chat_id
                    JOIN events le ON le.chat_id = m.chat_id AND le.seq = m.max_seq
                                  AND le.type IN ('user_message', 'assistant_message')

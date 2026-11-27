@@ -278,12 +278,13 @@ function co_db_put(array $in): array
             unset($r['deleted']);
             if (isset($r['eventId']) && is_string($r['eventId']) && isset($hiddenOf[$r['eventId']])) {
                 $r['deleted'] = $hiddenOf[$r['eventId']];
-            } elseif (is_string($r['jobId'] ?? null) && $r['jobId'] !== '' && ($r['type'] ?? '') !== 'user_message'
-                && is_string($r['chatId'] ?? null)) {
-                // a late answer (or other event) of a job whose message was deleted or forgotten stays hidden with it
+            } elseif (is_string($r['chatId'] ?? null) && (($ofJob = (is_string($r['jobId'] ?? null) && $r['jobId'] !== '' && ($r['type'] ?? '') !== 'user_message')
+                ? $r['jobId'] : (is_string($r['followupOf'] ?? null) && $r['followupOf'] !== '' ? $r['followupOf'] : null)) !== null)) {
+                // a late answer (or other event) of a job whose message was deleted or forgotten stays hidden with it,
+                // and so does a late follow-up to it (user message with followupOf = the job)
                 $st = $db->prepare("SELECT JSON_EXTRACT(data, '$.deleted') FROM events WHERE chat_id = ? AND job_id = ? AND type = 'user_message'
                                     AND JSON_EXTRACT(data, '$.deleted') IS NOT NULL LIMIT 1 LOCK IN SHARE MODE");
-                $st->execute([$r['chatId'], $r['jobId']]);
+                $st->execute([$r['chatId'], $ofJob]);
                 $h = $st->get_result()->fetch_row();
                 $st->close();
                 $d = $h ? json_decode((string)$h[0], true) : null;

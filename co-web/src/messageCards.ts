@@ -5,57 +5,39 @@
 // only from finished agent answers of the person's own writable chats (ChatView), never from the shared Markdown
 // component (quotes, imported or user text keep them as text), and never inside code.
 
+import { marked } from 'marked';
 import type { ModuleInfo, ModuleUi } from './extBridge';
 
-// a paragraph of its own (blank line or start before, blank line or end after), at most 3 spaces of indent
-const CARD_LINE = /^ {0,3}\[\[card ([a-z0-9][a-z0-9-]{1,40})\/([a-z0-9][a-z0-9-]{0,40}) id=([A-Za-z0-9_-]{1,128})\]\] *$/;
-const FENCE = /^ {0,3}(`{3,}|~{3,})/;
-// raw HTML blocks that run across blank lines until their closing tag (CommonMark HTML block type 1)
-const RAW_OPEN = /^ {0,3}<(pre|script|style|textarea)(?:\s|>|$)/i;
+// the whole text of a top-level paragraph (marked.lexer), nothing else in it
+const CARD_TEXT = /^\[\[card ([a-z0-9][a-z0-9-]{1,40})\/([a-z0-9][a-z0-9-]{0,40}) id=([A-Za-z0-9_-]{1,128})\]\]$/;
 export const MAX_CARDS = 3;
 
 export interface CardRef { module: string; card: string; id: string }
 
 /**
- * The cards of an answer (in order, duplicates once, at most MAX_CARDS) and its text without their markers. A
- * conservative line scanner: never inside a fenced block (``` or ~~~, any length), an indented block, a raw HTML block,
- * a quote or list item, or a paragraph (where a code span could hold it); over the limit the line stays text.
+ * The cards of an answer (in order, duplicates once, at most MAX_CARDS) and its text without their markers. Uses the
+ * Markdown lexer of the chat renderer (marked, GFM) and looks only at top-level paragraph tokens whose text is exactly
+ * one marker; lists, quotes, code, HTML (comments too) and tables are never entered. The rest keeps its raw text.
  */
 export function extractCards(text: string): { text: string; cards: CardRef[] } {
-  const lines = text.split('\n');
+  let tokens: { type: string; raw: string; text?: string }[];
+  try { tokens = marked.lexer(text, { gfm: true, breaks: false }) as unknown as typeof tokens; } catch { return { text, cards: [] }; }
   const cards: CardRef[] = [];
   const seen = new Set<string>();
-  const drop = new Set<number>();
-  let fence = '';
-  let raw = '';
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (fence) {
-      const m = FENCE.exec(line);
-      if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !line.slice(line.indexOf(m[1]) + m[1].length).trim()) fence = '';
-      continue;
-    }
-    if (raw) {
-      if (new RegExp(`</${raw}>`, 'i').test(line)) raw = '';
-      continue;
-    }
-    const f = FENCE.exec(line);
-    if (f) { fence = f[1]; continue; }
-    const r = RAW_OPEN.exec(line);
-    if (r) { if (!new RegExp(`</${r[1]}>`, 'i').test(line)) raw = r[1].toLowerCase(); continue; }
-    const c = CARD_LINE.exec(line);
-    if (!c) continue;
-    const blank = (j: number) => j < 0 || j >= lines.length || !lines[j].trim();
-    if (!blank(i - 1) || !blank(i + 1)) continue;
+  let dropped = false;
+  const kept = tokens.map((t) => {
+    const c = t.type === 'paragraph' ? CARD_TEXT.exec((t.text ?? '').trim()) : null;
+    if (!c || !/^ {0,3}\[\[card /.test(t.raw)) return t.raw;
     const key = `${c[1]}/${c[2]}/${c[3]}`;
-    if (seen.has(key)) { drop.add(i); continue; }
-    if (cards.length >= MAX_CARDS) continue;
+    if (seen.has(key)) { dropped = true; return ''; }
+    if (cards.length >= MAX_CARDS) return t.raw; // over the limit: stays visible as text
     seen.add(key);
     cards.push({ module: c[1], card: c[2], id: c[3] });
-    drop.add(i);
-  }
-  if (!drop.size) return { text, cards };
-  return { text: lines.filter((_, i) => !drop.has(i)).join('\n').replace(/\n{3,}/g, '\n\n').trim(), cards };
+    dropped = true;
+    return '';
+  });
+  if (!dropped) return { text, cards };
+  return { text: kept.join('').replace(/\n{3,}/g, '\n\n').trim(), cards };
 }
 
 /** The page that shows a card: an enabled module that declares a ui.messageCard with that id; null = text fallback. */

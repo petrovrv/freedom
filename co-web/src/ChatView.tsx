@@ -436,7 +436,8 @@ export default function ChatView(props: Props) {
   const webPick = useWebDevicePick(props.author); // 0.49.0: web devices (browsers with connected folders)
   // 0.45.0: shared project/chat -> no devices, context folders
   const [shared, setShared] = useState<boolean>(!!project.shareRole);
-  // 0.138.0: the chat this lookup came back for (module cards wait for it; unknown or failed = not live)
+  // 0.138.0: env/project/chat this lookup came back empty for; cards wait for it. Another chat, env or project never
+  // matches the key; a failed refresh clears it; role or draft changes are checked by cardsLive itself
   const [shareChecked, setShareChecked] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
@@ -446,11 +447,11 @@ export default function ChatView(props: Props) {
         if (!alive) return;
         const any = !!project.shareRole || info.shares.length > 0 || info.projectShares.length > 0;
         setShared(any);
-        setShareChecked(any ? null : `${project.projectId}/${chat.chatId}`);
+        setShareChecked(any ? null : `${props.env}/${project.projectId}/${chat.chatId}`);
       })
-      .catch(() => { /* keep the current value */ });
+      .catch(() => { if (alive) setShareChecked(null); /* sharing: keep the current value */ });
     return () => { alive = false; };
-  }, [chat.chatId, chat.draft, project.projectId, project.shareRole]);
+  }, [chat.chatId, chat.draft, project.projectId, project.shareRole, props.env]);
   // 0.45.0: viewers, and new chats in chat-shared projects, cannot send
   // chats shared one by one use the chat's own role
   const readOnly =
@@ -502,7 +503,7 @@ export default function ChatView(props: Props) {
   // 0.138.0 ext/1 ui.messageCard: module cards in agent answers only in the person's own writable chat
   const cardModules = useModuleList();
   const cardsOn = cardsLive({ readOnly, shared, family, draft: !!chat.draft, shareRole: project.shareRole || chat.shareRole,
-    checked: shareChecked, key: `${project.projectId}/${chat.chatId}` });
+    checked: shareChecked, key: `${props.env}/${project.projectId}/${chat.chatId}` });
   const reactions = useMemo(() => reactionsOf(events || []), [events]);
   const evById = useMemo(() => new Map((events || []).map((e) => [e.eventId, e])), [events]);
   const [famReply, setFamReply] = useState<ChatEvent | null>(null);

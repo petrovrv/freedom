@@ -56,6 +56,13 @@ try {
   for (const id of ['#search-form', '#labels', '#threads', '#composer-close']) assert.equal(await page.locator(id).isVisible(), false, id);
   assert.equal(await page.evaluate(() => document.activeElement === document.body), true, 'focus stays with the chat');
   assert.ok(await page.evaluate(() => sizes.length > 0 && sizes.at(-1) > 200), 'asks for its height');
+  // taller than the 1400 px cap: the card scrolls inside its frame, nothing is clipped
+  await page.setViewportSize({width:640, height:400});
+  await page.locator('#c-text').evaluate(t => { t.style.minHeight = '2000px'; });
+  assert.ok(await page.evaluate(() => getComputedStyle(document.body).overflowY === 'auto' && document.body.scrollHeight > innerHeight), 'scrollable');
+  assert.ok(await page.evaluate(() => sizes.at(-1) <= 1400), 'height capped');
+  await page.locator('#c-text').evaluate(t => { t.style.minHeight = ''; });
+  await page.setViewportSize({width:640, height:900});
   await page.waitForTimeout(2000);
   assert.deepEqual(await ops(page), ['compose_card'], 'an idle card writes nothing');
   await page.locator('#c-text').fill('Edited in the card');

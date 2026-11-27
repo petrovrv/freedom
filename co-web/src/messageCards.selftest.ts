@@ -43,6 +43,18 @@ ${M}
   ['quote', `> ${M}`], ['list item', `- ${M}`], ['paragraph line', `before
 ${M}
 after`],
+  ['html comment', `<!--
+
+${M}
+
+-->`], ['loose list continuation', `- item
+
+  ${M}
+
+- next`],
+  ['table cell', `| a |
+|---|
+| ${M} |`], ['emphasis around', `*${M}*`],
   ['multi-line code span', `a \`b
 ${M}
 c\` d`], ['raw html pre', `<pre>
@@ -79,6 +91,8 @@ assert.ok(!/id=x0\b/.test(many.text), 'duplicate cut once shown');
 
 const plain = 'No cards here.\n\n\n\nKept as is.';
 assert.equal(extractCards(plain).text, plain, 'text without cards untouched');
+const rawKept = extractCards('# T\n\n- a\n- b\n\n' + M + '\n\n```js\nx\n```');
+assert.equal(rawKept.text, '# T\n\n- a\n- b\n\n```js\nx\n```', 'raw text of other blocks kept');
 
 const mod = (id: string, enabled: boolean, ui: { slot: string; id: string }[]) =>
   ({ id, enabled, ui: ui.map((u) => ({ ...u, entry: 'ui/x.html', title: 'X' })) }) as unknown as ModuleInfo;

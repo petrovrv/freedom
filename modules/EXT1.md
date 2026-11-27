@@ -314,7 +314,8 @@ paragraph of its own (a blank line before and after, at most 3 spaces of indent)
 chatId}`, `ctx.eventId`. Rules of the core: only answers with status completed, not imported, in the person's own chat
 of the environment that they can write in (not shared, not family, not read-only, not a draft); only an enabled module
 that declares that card id under its own module id; at most 3 cards per answer (more stay text), a repeated line once;
-never inside fenced (``` or ~~~) or indented code, raw HTML blocks, quotes, list items or a paragraph, never in user
+only a top-level paragraph that is exactly the marker (the chat's Markdown lexer: never in code, HTML incl.
+comments, quotes, lists, tables or a longer paragraph), never in user
 messages or the shared Markdown component. Cards show only after the sharing lookup of exactly this chat came back
 with no shares (unknown, failed or stale = text). Elsewhere, or when the module is off
 or lacks the card, a line of text stands there: no frame and no request. The frame is keyed by environment, chat, answer

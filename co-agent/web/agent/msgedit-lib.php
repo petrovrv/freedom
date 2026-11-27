@@ -150,13 +150,13 @@ function msgedit_hide(mysqli $db, string $chatId, int $seq, string $mode, string
         }
         $seqs = array_values(array_unique(array_map(static fn(array $t): int => (int)$t['seq'], $targets)));
         $in = implode(',', array_fill(0, count($seqs), '?'));
-        $proto = share_q($db, "SELECT entry_no, section, text, quote, msg_seq, status, replaced_by, closed_seq, author, model, created_utc
+        $proto = share_q($db, "SELECT id, entry_no, section, text, quote, msg_seq, status, replaced_by, closed_seq, author, model, created_utc
                                FROM protocol WHERE chat_id = ? AND msg_seq IN ($in) ORDER BY entry_no", [$chatId, ...$seqs]);
         $bySeq = [];
         foreach ($proto as $p) $bySeq[(int)$p['msg_seq']][] = $p;
         // entries the hidden messages closed or superseded open again (any mode: a removed B must not leave its A
         // superseded by nothing); their old state goes with the batch, so a restore closes them again
-        $reopen = share_q($db, "SELECT entry_no, status, replaced_by, closed_seq FROM protocol
+        $reopen = share_q($db, "SELECT id, entry_no, status, replaced_by, closed_seq FROM protocol
                                 WHERE chat_id = ? AND closed_seq IN ($in) AND msg_seq NOT IN ($in) FOR UPDATE", [$chatId, ...$seqs, ...$seqs]);
         $cursor = share_q($db, 'SELECT protocol_seq FROM chats WHERE chat_id = ?', [$chatId])[0]['protocol_seq'] ?? null;
         $utc = gmdate('Y-m-d\TH:i:s.v\Z');
@@ -244,6 +244,7 @@ function msgedit_restore(mysqli $db, string $chatId, string $batch, string $role
         }
         $restored = 0;
         $renum = []; // old entry_no -> number given now (taken meanwhile)
+        $inserted = []; // restored rows: id and the replaced_by they were saved with
         $reopened = [];
         $cursor = false;
         $at = (int)($first['at'] ?? 0);
@@ -264,19 +265,32 @@ function msgedit_restore(mysqli $db, string $chatId, string $batch, string $role
                     $no = (int)share_q($db, 'SELECT COALESCE(MAX(entry_no), 0) + 1 AS n FROM protocol WHERE chat_id = ?', [$chatId])[0]['n'];
                 }
                 $renum[(int)$p['entry_no']] = $no;
-                share_exec($db, 'INSERT INTO protocol (chat_id, entry_no, section, text, quote, msg_seq, status, replaced_by, closed_seq, author, model, created_utc, updated_utc)
-                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(3))',
-                    [$chatId, $no, $p['section'], $p['text'], $p['quote'], (int)$p['msg_seq'], $p['status'], $p['replaced_by'],
+                // the row comes back with its own id (ids are never given twice), so the reopened state of another
+                // batch still finds it by identity, not by an entry number someone else may hold by then
+                $id = isset($p['id']) && !share_q($db, 'SELECT 1 FROM protocol WHERE id = ?', [(int)$p['id']]) ? (int)$p['id'] : null;
+                share_exec($db, 'INSERT INTO protocol (id, chat_id, entry_no, section, text, quote, msg_seq, status, replaced_by, closed_seq, author, model, created_utc, updated_utc)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(3))',
+                    [$id, $chatId, $no, $p['section'], $p['text'], $p['quote'], (int)$p['msg_seq'], $p['status'], $p['replaced_by'],
                         $p['closed_seq'], $p['author'], $p['model'], $p['created_utc']]);
+                $inserted[] = ['id' => $id ?? (int)$db->insert_id, 'replaced_by' => $p['replaced_by']];
             }
             $restored++;
         }
-        // entries the batch had reopened are closed again as they were - only while nobody changed them since
+        // links inside the restored set follow the numbers given now (A superseded by B, both renumbered: A -> B's new number)
+        foreach ($inserted as $ins) {
+            $old = $ins['replaced_by'] === null ? null : (int)$ins['replaced_by'];
+            if ($old !== null && isset($renum[$old]) && $renum[$old] !== $old) {
+                share_exec($db, 'UPDATE protocol SET replaced_by = ? WHERE id = ?', [$renum[$old], $ins['id']]);
+            }
+        }
+        // entries the batch had reopened are closed again as they were: the same row (by id) and only while it is still
+        // as the batch left it (active, no replacement, not closed) - a newer entry under a freed number is not touched
         foreach ($reopened as $o) {
+            if (!isset($o['id'])) continue;
             $rb = $o['replaced_by'] === null ? null : ($renum[(int)$o['replaced_by']] ?? (int)$o['replaced_by']);
             share_exec($db, "UPDATE protocol SET status = ?, replaced_by = ?, closed_seq = ?, updated_utc = UTC_TIMESTAMP(3)
-                             WHERE chat_id = ? AND entry_no = ? AND status = 'active' AND closed_seq IS NULL",
-                [(string)$o['status'], $rb, $o['closed_seq'] === null ? null : (int)$o['closed_seq'], $chatId, (int)$o['entry_no']]);
+                             WHERE chat_id = ? AND id = ? AND status = 'active' AND replaced_by IS NULL AND closed_seq IS NULL",
+                [(string)$o['status'], $rb, $o['closed_seq'] === null ? null : (int)$o['closed_seq'], $chatId, (int)$o['id']]);
         }
         // a rewrite took the secretary back to at-1: when it has not moved since, it goes back to where it was (the
         // restored messages already have their entries and must not be read twice); when it read newer messages

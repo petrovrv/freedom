@@ -174,5 +174,44 @@ $ok('delete: A reopened, cursor untouched', $pRow(1)['status'] === 'active' && $
 msgedit_restore($db, 'CHAT-P', $dl['batch'], 'owner', 'owner@example.org');
 $ok('delete restored: A superseded by B', $pRow(1)['status'] === 'superseded' && (int)$pRow(1)['replaced_by'] === 3);
 
+// review 3, P1: A superseded by B; delete B (A reopens), delete A, the secretary puts C under A's freed number;
+// restoring B must not take C for A
+$db->query("INSERT INTO chats (chat_id, project_id, title, data, sha, synced_utc, protocol_seq) VALUES ('CHAT-Q', 'P-own', 'Q', '{}', 'x', UTC_TIMESTAMP(3), 4)");
+$qe = static fn(int $seq, string $type): array => ['eventId' => sprintf('EVT-Q%02d', $seq), 'chatId' => 'CHAT-Q', 'branchId' => 'BR-main',
+    'sequence' => $seq, 'type' => $type, 'jobId' => 'JQ' . intdiv($seq + 1, 2), 'text' => "q$seq", 'createdUtc' => '2026-11-26T10:00:00.000Z'];
+co_db_put(['events' => [$qe(1, 'user_message'), $qe(2, 'assistant_message'), $qe(3, 'user_message'), $qe(4, 'assistant_message')]]);
+$db->query("INSERT INTO protocol (chat_id, entry_no, section, text, msg_seq, status, replaced_by, closed_seq, created_utc, updated_utc) VALUES
+    ('CHAT-Q', 1, 'decision', 'A', 2, 'superseded', 2, 4, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)),
+    ('CHAT-Q', 2, 'decision', 'B', 4, 'active', NULL, NULL, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))");
+$qBy = static fn(string $text): ?array => share_q($db, "SELECT entry_no, status, replaced_by, closed_seq FROM protocol WHERE chat_id = 'CHAT-Q' AND text = ?", [$text])[0] ?? null;
+$dB = msgedit_hide($db, 'CHAT-Q', 3, 'pair', 'owner', 'owner@example.org', 'owner');
+$dA = msgedit_hide($db, 'CHAT-Q', 1, 'pair', 'owner', 'owner@example.org', 'owner');
+$db->query("INSERT INTO protocol (chat_id, entry_no, section, text, msg_seq, status, created_utc, updated_utc)
+            VALUES ('CHAT-Q', 1, 'fact', 'C', 5, 'active', UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))");
+msgedit_restore($db, 'CHAT-Q', $dB['batch'], 'owner', 'owner@example.org');
+$ok('restore of B leaves the new entry C under A\'s old number alone', $qBy('C') == ['entry_no' => 1, 'status' => 'active', 'replaced_by' => null, 'closed_seq' => null]);
+msgedit_restore($db, 'CHAT-Q', $dA['batch'], 'owner', 'owner@example.org');
+$ok('A comes back under a free number', (int)$qBy('A')['entry_no'] === 3 && (int)$qBy('B')['entry_no'] === 2);
+
+// review 3, P2: a rewrite hides both A and B; their numbers are taken meanwhile; Restore renumbers both and A's link
+// follows B's new number
+$db->query("INSERT INTO chats (chat_id, project_id, title, data, sha, synced_utc, protocol_seq) VALUES ('CHAT-R2', 'P-own', 'R2', '{}', 'x', UTC_TIMESTAMP(3), 4)");
+$re = static fn(int $seq, string $type): array => ['eventId' => sprintf('EVT-R%02d', $seq), 'chatId' => 'CHAT-R2', 'branchId' => 'BR-main',
+    'sequence' => $seq, 'type' => $type, 'jobId' => 'JR' . intdiv($seq + 1, 2), 'text' => "r$seq", 'createdUtc' => '2026-11-26T10:00:00.000Z'];
+co_db_put(['events' => [$re(1, 'user_message'), $re(2, 'assistant_message'), $re(3, 'user_message'), $re(4, 'assistant_message')]]);
+$db->query("INSERT INTO protocol (chat_id, entry_no, section, text, msg_seq, status, replaced_by, closed_seq, created_utc, updated_utc) VALUES
+    ('CHAT-R2', 1, 'decision', 'A', 2, 'superseded', 2, 4, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)),
+    ('CHAT-R2', 2, 'decision', 'B', 4, 'active', NULL, NULL, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))");
+$rBy = static fn(string $text): ?array => share_q($db, "SELECT entry_no, status, replaced_by FROM protocol WHERE chat_id = 'CHAT-R2' AND text = ?", [$text])[0] ?? null;
+$rr = msgedit_hide($db, 'CHAT-R2', 1, 'rewrite', 'owner', 'owner@example.org', 'owner');
+$db->query("INSERT INTO protocol (chat_id, entry_no, section, text, msg_seq, status, created_utc, updated_utc) VALUES
+    ('CHAT-R2', 1, 'fact', 'X', 5, 'active', UTC_TIMESTAMP(3), UTC_TIMESTAMP(3)), ('CHAT-R2', 2, 'fact', 'Y', 6, 'active', UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))");
+msgedit_restore($db, 'CHAT-R2', $rr['batch'], 'owner', 'owner@example.org');
+$a2 = $rBy('A');
+$b2 = $rBy('B');
+$ok('both renumbered, A superseded by B\'s new number', $a2 && $b2 && (int)$a2['entry_no'] === 3 && (int)$b2['entry_no'] === 4
+    && $a2['status'] === 'superseded' && (int)$a2['replaced_by'] === 4);
+$ok('entries X and Y untouched', $rBy('X')['status'] === 'active' && $rBy('Y')['status'] === 'active' && $rBy('Y')['replaced_by'] === null);
+
 echo $fail === 0 ? "ALL OK\n" : "$fail FAILED\n";
 exit($fail === 0 ? 0 : 1);

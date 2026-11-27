@@ -61,6 +61,7 @@ export function ChatFolder({ chat, project, chats, root, authOk, showSubchats, o
 }) {
   const ok = !!root && authOk && !chat.draft;
   const data = useChatStreams(chat, ok);
+  const [selectedPart, setSelectedPart] = useState<ChatPartId | null>(null);
   const [proto, setProto] = useState<ProtocolEntry[] | null>(null);
   const [, setTick] = useState(0);
   useEffect(() => onChatPartsChanged(() => setTick((n) => n + 1)), []);
@@ -144,12 +145,16 @@ export function ChatFolder({ chat, project, chats, root, authOk, showSubchats, o
   return (
     <div className="chat-folder">
       <div className="cf-head small muted" title={chat.title || chat.chatId}>💬 Folder of «{chat.title || chat.chatId}»</div>
-      {visibleParts(counts).map((p) => (
-        <Fold key={p.id} id={`chat.${p.id}`} label={`${p.icon} ${p.label}${p.id === 'subchats' ? (own.length ? ` (${own.length})` : '') + (talks.length ? ` · 🤖 ${talks.length}` : '') : counts[p.id] && p.id !== 'context' ? ` (${counts[p.id]})` : ''}`} hint={p.hint}
-          defOpen={p.id === 'documents' || p.id === 'products' || p.id === 'events'}>
-          {() => body(p.id)}
-        </Fold>
-      ))}
+      <div className="cf-tiles" aria-label="Chat folder parts">
+        {visibleParts(counts).map((p) => (
+          <button type="button" key={p.id} className={`cf-tile${selectedPart === p.id ? ' selected' : ''}`}
+            title={p.hint} aria-expanded={selectedPart === p.id} onClick={() => setSelectedPart(selectedPart === p.id ? null : p.id)}>
+            <span className="cf-icon" aria-hidden="true">{p.icon}</span>
+            <span>{p.label}{counts[p.id] && p.id !== 'context' ? ` (${counts[p.id]})` : ''}</span>
+          </button>
+        ))}
+      </div>
+      {selectedPart && visibleParts(counts).some((p) => p.id === selectedPart) && <div className="cf-content">{body(selectedPart)}</div>}
     </div>
   );
 }

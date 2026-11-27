@@ -877,7 +877,7 @@ export default function Shell({ auth }: { auth: Signed }) {
   // 0.128.0: content of a folder in the Explorer besides its chats: the files of the open chat (in its own folder and
   // in the folder it sits in), the workspace of a project, the archive and trash of the open project.
   // 0.129.0: the folder of the open chat with its parts (FolderContents.tsx ChatFolder) instead of its files
-  const exFolderExtra = (path: ExplorerPath) => {
+  const exFolderExtra = (path: ExplorerPath, top = false) => {
     const p = path.projectId ? projects?.find((x) => x.projectId === path.projectId) : undefined;
     if (!p) return null;
     // 0.128.2: in a chat's "Agent talks" folder the files of an open agent talk, in the chat folder those of the others
@@ -891,9 +891,9 @@ export default function Shell({ auth }: { auth: Signed }) {
     }
     return (
       <>
-        {filesHere && chat && <ChatFolder key={chat.chatId} chat={chat} project={p} chats={chats} root={root} authOk={authOk} showSubchats={false} onOpenChat={exOpenChat} />}
-        {!here && <ProjectWorkspace project={p} owner={owner} root={root} authOk={authOk} />}
-        {!here && p.projectId === projectId && <div className="ex-archive">{archiveAndTrash(p)}</div>}
+        {top && filesHere && chat && <ChatFolder key={chat.chatId} chat={chat} project={p} chats={chats} root={root} authOk={authOk} showSubchats={false} onOpenChat={exOpenChat} />}
+        {!top && !here && <ProjectWorkspace project={p} owner={owner} root={root} authOk={authOk} />}
+        {!top && !here && p.projectId === projectId && <div className="ex-archive">{archiveAndTrash(p)}</div>}
       </>
     );
   };
@@ -1087,7 +1087,7 @@ export default function Shell({ auth }: { auth: Signed }) {
         <div className="module-tray">
           <ModuleSlots slot="ui.header" modules={modules} me={auth.homeEnv} owner={!!auth.owner} />
         </div>
-        <RecentApps modules={modules} recent={recentApps.filter((r) => r.env === env).slice(0, 5)} current={appNow} onOpen={openApp} className="hide-mobile" />
+        <RecentApps modules={modules} recent={recentApps.filter((r) => r.env === env && !modules.some((m) => m.id === r.moduleId && m.enabled && m.ui.some((u) => u.slot === 'ui.header') && m.ui.filter((u) => u.slot === 'ui.page' && u.app).length === 1)).slice(0, 5)} current={appNow} onOpen={openApp} className="hide-mobile" />
         <Launcher onOpen={openApp} modules={modules} current={modulePageRoute} familyUnread={familyUnread} />
         {familyUnread > 0 && (
           <button type="button" className="fam-top" title="New messages in the family chat" onClick={() => openPanel('family')}>
@@ -1232,7 +1232,7 @@ export default function Shell({ auth }: { auth: Signed }) {
                 onOpenProject={(pid) => { navigate(`/e/${env}/p/${pid}`); setLeftOpen(false); }}
                 onMove={exMove}
                 onProperties={(t) => (t.projectId ? openPanel(t.chatId ? 'chat' : 'project', t) : openPanel('system'))}
-                folderExtra={exFolderExtra}
+                folderTop={(path) => exFolderExtra(path, true)} folderExtra={exFolderExtra}
                 onFolderProject={setExFolderProject}
               />
             )}

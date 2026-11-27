@@ -48,6 +48,7 @@ export interface ExplorerProps {
   /** 0.128.0: Properties of a project (no chatId), a chat, or of the environment (System, no projectId) */
   onProperties?: (t: { projectId?: string; chatId?: string }) => void;
   /** 0.128.0: content of the folder shown, under its items (files of the open chat, workspace, archive, trash) */
+  folderTop?: (path: ExplorerPath) => ReactNode;
   folderExtra?: (path: ExplorerPath) => ReactNode;
   /** 0.130.0: the project of the folder shown ('' at the root), so the composer can say where a message goes */
   onFolderProject?: (projectId: string) => void;
@@ -327,6 +328,7 @@ export default function Explorer(props: ExplorerProps) {
           <button type="button" className="ex-x" aria-label="Close" onClick={() => setNotice(null)}>×</button>
         </div>
       )}
+      {props.folderTop && !loading && <div className="ex-top">{props.folderTop(path)}</div>}
       {loading && <div className="muted small pad">Loading chats…</div>}
       {!loading && items.length === 0 && (
         <div className="muted small pad">{props.filter.trim() ? 'Nothing matches the filter here.' : pid ? 'No chats yet.' : 'No projects.'}</div>

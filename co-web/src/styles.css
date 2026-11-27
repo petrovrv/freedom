@@ -1006,3 +1006,12 @@ button.msg-view-tag { cursor: pointer; font: inherit; font-size: 12px; }
   .viewer-tabbed > .viewer-pane, .viewer-tabbed > .viewer-chat { flex: 1 1 0; max-width: none; min-height: 0; }
   .viewer-tabbed.show-chat > .viewer-pane, .viewer-tabbed.show-view > .viewer-chat { display: none; }
 }
+
+/* Chat parts stay above the project chat list and open on demand. */
+.ex-top:empty { display: none; }
+.cf-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 6px; padding: 6px 0; }
+.cf-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: inherit; cursor: pointer; font-size: 12px; overflow-wrap: anywhere; }
+.cf-tile:hover, .cf-tile.selected { background: color-mix(in srgb, var(--accent) 10%, var(--bg)); }
+.cf-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cf-icon { font-size: 24px; }
+.cf-content { padding: 6px 0; }

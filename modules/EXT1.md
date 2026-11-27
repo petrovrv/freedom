@@ -281,7 +281,7 @@ a switched-off module remain collapsed and out of the inbox.
 `eventId, type, text, status, createdUtc, jobId`).
 
 
-### Persistent module chat (F14f, CO Web 0.133.0)
+### Persistent module chat (F14f, CO Web 0.135.0)
 
 Optional `provides.moduleChat: {mode, panel, icon?, label?}` names a declared
 `provides.modes[].key` and a `ui.panel` id. The mode must have rules. `label`

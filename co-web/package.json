@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "node src/webdevCore.selftest.ts && node src/chatTree.selftest.ts && node src/undoPlan.selftest.ts && node src/memoryIndex.selftest.ts && node src/workPlan.selftest.ts && node src/diagnose.selftest.ts && node src/chatQuote.selftest.ts && node src/routing.selftest.ts && node src/modelPick.selftest.ts && node src/secretaryHints.selftest.ts && node src/extBridge.selftest.ts && node src/importPoint.selftest.ts && node src/gateway.selftest.ts && node src/moduleModes.selftest.ts && node src/familyFollow.selftest.ts && node src/assistantCall.selftest.ts && node src/appStack.selftest.ts && node src/appEvents.selftest.ts && node src/explorerTree.selftest.ts && node src/folderContext.selftest.ts && node src/chatFolder.selftest.ts && node src/fileOpen.selftest.ts"
+    "test": "node src/webdevCore.selftest.ts && node src/chatTree.selftest.ts && node src/undoPlan.selftest.ts && node src/memoryIndex.selftest.ts && node src/workPlan.selftest.ts && node src/diagnose.selftest.ts && node src/chatQuote.selftest.ts && node src/routing.selftest.ts && node src/modelPick.selftest.ts && node src/secretaryHints.selftest.ts && node src/extBridge.selftest.ts && node src/importPoint.selftest.ts && node src/gateway.selftest.ts && node src/moduleModes.selftest.ts && node src/familyFollow.selftest.ts && node src/assistantCall.selftest.ts && node src/appStack.selftest.ts && node src/appEvents.selftest.ts && node src/explorerTree.selftest.ts && node src/folderContext.selftest.ts && node src/chatFolder.selftest.ts && node src/fileOpen.selftest.ts && node src/msgEdit.selftest.ts"
   },
   "dependencies": {
     "dompurify": "^3.4.16",

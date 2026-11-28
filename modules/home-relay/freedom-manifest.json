@@ -1,12 +1,12 @@
 {
  "format": "freedom-release/1",
- "version": "0.2.1",
- "created": "2026-11-27T14:40:20Z",
+ "version": "0.2.2",
+ "created": "2026-11-28T15:45:59Z",
  "files": [
   {
    "path": "APPROVALS.md",
-   "size": 6370,
-   "sha256": "dbd5707cf19f00e1a7b16c9b5dc402a8da75458a894067d7c8299040c32b7e71"
+   "size": 7593,
+   "sha256": "10cf73f34833fbde031c893f0988fedf6ba87cc683af7b912b151d17ddd0c261"
   },
   {
    "path": "home/app_test_fixture.py",
@@ -71,7 +71,7 @@
   {
    "path": "module.json",
    "size": 1624,
-   "sha256": "f076c643625de1afd27264e6967adf6894cf0f5b50feaeb39b9d8e2420432e88"
+   "sha256": "b0194bac26ff576e9c647d8c8e3c679dbfb01bb132f093387eec9c08c0a3e6c5"
   },
   {
    "path": "README.md",
@@ -98,7 +98,7 @@
   {
    "name": "maintainer-1",
    "key": "471a79e146cb31b20f453fb7152d80c8d04b8383aab9ccae9d2eecec758e1021",
-   "sig": "lmYt++czS2/s4srM5dhoL5v8WlJSnAAlp+Pa6EcgvWZ7cE6VVqWnTCYeE/P46j8DoWbbzbT0x8185lXQllofBw=="
+   "sig": "Hw+oQuExr7dMxACGh58HVTMzRG0DV4HBQP2mxrbA4KvsMk6dW5IOrgXLmGN+TF9QxvLhV+I1PMOYvOK2koY3Cw=="
   }
  ],
  "module": "home-relay"

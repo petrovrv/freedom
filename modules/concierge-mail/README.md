@@ -173,3 +173,6 @@ Server checks: `php tests/server.php` (from the module folder; no database or we
 
 ## AI letter menu (0.18.0)
 Right-click a mail row or a message for AI actions; the reader toolbar also has an AI dropdown for touch and keyboard. Prepare draft, Discuss, More context, Summarize, Actions & deadlines, Translate / explain fill the existing chat input only. The person reviews and submits the request. Rows are resolved through a read-only thread call without marking read. Selected text, links, editing fields and Shift+right-click retain the browser menu. Sensitive stubs offer no AI actions; read-guard metadata is redacted and drafting requires explicit consent in chat.
+
+## Home relay policy (0.19.0)
+The deploy registers the Mail page operations at the home relay explicitly (`hub/hubctl.py` PAGE_ACTIONS = `relay.READ_ACTIONS` + `compose.ACTIONS`); home-relay 0.2.1+ refuses every other call. These are the person's own operations in this page, including Gmail draft writes, marks, remote images on click and sending with the 10-second Cancel (rule in `modules/home-relay/APPROVALS.md`). No `agentActions`, no `outwardActions`: an agent never writes, marks or sends mail. Deploy order with the new relay worker: `modules/home-relay` deploy, then `calctl deploy`, then `hubctl deploy`.

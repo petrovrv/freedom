@@ -122,12 +122,23 @@ def deploy(args):
     # the Mail page handler of the home relay (every person whose mailbox is set up here)
     failed += relayctl.register(args, 'concierge-mail', HANDLER, env_file='/etc/concierge-mail/{slug}.env',
                                 write=['/srv/data/mail/{slug}'], only_if='/etc/concierge-mail/{slug}.env',
-                                credentials={'account': '/etc/credstore.encrypted/account.{slug}.google.cred'})
+                                credentials={'account': '/etc/credstore.encrypted/account.{slug}.google.cred'},
+                                page_actions=PAGE_ACTIONS)
     if failed or legacy:
         sys.exit(json.dumps({'deployed': '/opt/concierge-mail', 'users': users, 'notStarted': sorted(set(failed)),
                              'hint': 'persons in "kept" still run as their old user; fix the reason and deploy again'}, ensure_ascii=False))
     print(json.dumps({'deployed': '/opt/concierge-mail', 'units': UNITS, 'users': users, 'relayHandler': 'concierge-mail',
                       'oldWorkers': old_relays(args)}))
+
+
+# What the Mail page of the person may call through the relay (home-relay 0.2.1+ denies everything else). These are the
+# person's own operations in the reviewed module page: reading, Gmail drafts, marks, remote images on click, and sending
+# with the 10-second Cancel. No agentActions and no outwardActions: an agent never writes, marks or sends mail.
+# Keep equal to relay.READ_ACTIONS + compose.ACTIONS (tests/test_relay_policy.py).
+PAGE_ACTIONS = ('overview', 'list', 'search', 'thread', 'attachment', 'images', 'links', 'link', 'unlink', 'chats', 'chat_threads',
+                'compose_start', 'compose_save', 'compose_upload', 'compose_detach', 'compose_discard', 'compose_send',
+                'compose_unsend', 'compose_outbox', 'compose_drafts', 'compose_open', 'compose_gmail_drafts', 'compose_resolve',
+                'compose_card', 'mark')
 
 
 LEGACY_CODE = '/opt/concierge-mail-relay-legacy'

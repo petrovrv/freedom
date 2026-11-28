@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "home-relay",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "title": "Home relay",
   "description": "The site as a postman between the pages of a person's modules (mail, calendar, ...) and that person's worker on the home server: requests and answers are end-to-end encrypted, the site keeps only ciphertext for at most a minute, and the home server alone decides which person, account and data a request reaches.",
   "ext": ">=1 <2",

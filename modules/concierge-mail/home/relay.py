@@ -418,10 +418,13 @@ class MailApi:
             raise ValueError('unknown action')
         if action in compose.ACTIONS and self.composer is not None:
             return self.composer.handle(action, args)
-        if action not in ('overview', 'list', 'search', 'thread', 'attachment', 'images', 'links', 'link', 'unlink', 'chats',
-                          'chat_threads'):
+        if action not in READ_ACTIONS:
             raise ValueError('unknown action')
         return getattr(self, action)(args)
+
+
+# actions of the archive and links (compose.ACTIONS are the writing ones); hub/hubctl.py PAGE_ACTIONS lists both for the relay
+READ_ACTIONS = ('overview', 'list', 'search', 'thread', 'attachment', 'images', 'links', 'link', 'unlink', 'chats', 'chat_threads')
 
 
 TEXT_MAX = 8000  # characters of one message for an agent
